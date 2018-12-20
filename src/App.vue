@@ -236,8 +236,12 @@
     class="divider text-center"
     :data-content="zh ? '↓ 配置' : '↓ Configuration'"
   />
-  <section>
-    <h4>Vue CLI <small>v3</small></h4>
+  <p v-if="zh">对于基于 webpack 的项目，<code>import</code> 会自动引入未经转译的 ES Module 版本。请确保按如下指导配置相关工具。</p>
+  <p v-else>For project based on webpack, <code>import</code> will load the untranspiled ES Module version. Please make sure to add the correct config according to following instructions.</p>
+  <details open>
+    <summary>
+      <h4>Vue CLI <small>v3</small></h4>
+    </summary>
     <p v-if="zh">对于使用 Vue CLI 3 创建的项目，请确保将 <code>vue-clamp</code> 与 <code>resize-detector</code> 加入 <code>vue.config.js</code> 文件的 <code>transpileDependencies</code> 选项中：</p>
     <p v-else>For projects created with Vue CLI 3, remember to add <code>vue-clamp</code> and <code>resize-detector</code> into the <code>transpileDependencies</code> option in <code>vue.config.js</code>:</p>
     <pre
@@ -247,7 +251,9 @@
   transpileDependencies: ['vue-clamp', 'resize-detector']
 }
 </code></pre>
-    <h4>Vue CLI <small>v2</small></h4>
+  </details>
+  <details>
+    <summary><h4>Vue CLI <small>v2</small></h4></summary>
     <p v-if="zh">如果使用的是 Vue CLI 2 的 <code>webpack</code> 模板，请按如下方式修改 <code>build/webpack.base.conf.js</code>：</p>
     <p v-else>For Vue CLI 2 with the <code>webpack</code> template, modify <code>build/webpack.base.conf.js</code> like this:</p>
     <pre
@@ -260,11 +266,14 @@
 +       include: [
 +         resolve('src'),
 +         resolve('test'),
-+         resolve('node_modules/vue-awesome')
++         resolve('node_modules/vue-clamp'),
++         resolve('node_modules/resize-detector')
 +       ]
       }
 </code></pre>
-    <h4>Nuxt.js <small>v2</small></h4>
+  </details>
+  <details>
+    <summary><h4>Nuxt.js <small>v2</small></h4></summary>
     <p v-if="zh">在 Nuxt.js 中使用时，请确保将 <code>vue-clamp</code> 与 <code>resize-detector</code> 加入 <code>nuxt.config.js</code> 文件的 <code>build.transpile</code> 选项中：</p>
     <p v-else>When using in Nuxt.js, remember to add <code>vue-clamp</code> and <code>resize-detector</code> into the <code>build.transpile</code> option in <code>nuxt.config.js</code>:</p>
     <pre
@@ -276,7 +285,7 @@
   }
 }
 </code></pre>
-  </section>
+  </details>
   <h2 id="api"><a href="#api">#</a> API</h2>
   <div
     class="divider text-center"
@@ -486,4 +495,32 @@ ul
 footer
   margin 6rem 0 3rem
   text-align center
+
+::-webkit-details-marker
+  display none
+
+details
+  margin-bottom 1em
+
+summary
+  display flex
+  align-items center
+  margin-bottom .5em
+
+  h4
+    margin 0
+
+  &::before
+    content ""
+    width .4rem
+    height .4rem
+    margin-right 0.4rem
+    border 2px solid currentColor
+    border-style none solid solid none
+    transform rotateZ(-45deg)
+    transition transform .3s
+    transform-origin 50% 50%
+
+    details[open] &
+      transform rotateZ(45deg)
 </style>

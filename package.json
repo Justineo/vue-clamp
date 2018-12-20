@@ -1,6 +1,7 @@
 {
   "name": "vue-clamp",
   "version": "0.1.0",
+  "license": "MIT",
   "description": "Clamping multiline text with ease.",
   "scripts": {
     "serve": "vue-cli-service serve",
@@ -10,6 +11,8 @@
     "prepublishOnly": "cp ./src/components/Clamp.js .",
     "publish": "rm ./Clamp.js"
   },
+  "main": "dist/vue-clamp.js",
+  "module": "Clamp.js",
   "dependencies": {
     "resize-detector": "^0.1.9"
   },
@@ -34,8 +37,6 @@
     "vue": "^2.5.21",
     "vue-template-compiler": "^2.5.21"
   },
-  "main": "dist/vue-clamp.js",
-  "module": "Clamp.js",
   "peerDependencies": {
     "vue": "^2.5.21"
   }
