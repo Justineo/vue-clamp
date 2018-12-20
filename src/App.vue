@@ -286,6 +286,33 @@
 }
 </code></pre>
   </details>
+  <div
+    class="divider text-center"
+    :data-content="zh ? '↓ 代码样例' : '↓ Code example'"
+  />
+  <pre
+    v-pre
+    class="code vue"
+    data-lang="Vue"
+  ><code>&lt;template&gt;
+&lt;v-clamp autoresize :max-lines="3"&gt;&#x7B;&#x7B; text &#x7D;&#x7D;&lt;/v-clamp&gt;
+&lt;/template&gt;
+
+&lt;script&gt;
+import VClamp from 'vue-clamp'
+
+export default {
+  components: {
+    VClamp
+  },
+  data () {
+    return {
+      text: 'Some very very long text content.'
+    }
+  }
+}
+&lt;/script&gt;
+</code></pre>
   <h2 id="api"><a href="#api">#</a> API</h2>
   <div
     class="divider text-center"
@@ -377,10 +404,12 @@
 import VClamp from './components/Clamp'
 import qs from 'qs'
 import hljs from 'highlight.js/lib/highlight.js'
+import vue from './vue-lang.js'
 import javascript from 'highlight.js/lib/languages/javascript'
 import diff from 'highlight.js/lib/languages/diff'
 import shell from 'highlight.js/lib/languages/shell'
 
+hljs.registerLanguage('vue', vue)
 hljs.registerLanguage('javascript', javascript)
 hljs.registerLanguage('diff', diff)
 hljs.registerLanguage('shell', shell)
