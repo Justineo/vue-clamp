@@ -336,7 +336,7 @@ export default {
       </li>
       <li>
         <p><code>max-height: number|string</code></p>
-        <p v-if="zh">'根元素的最大高度。数字值将被转换为 <code>px</code> 单位；字符串值将直接作为 CSS 属性 <code>max-height</code> 输出。</p>
+        <p v-if="zh">根元素的最大高度。数字值将被转换为 <code>px</code> 单位；字符串值将直接作为 CSS 属性 <code>max-height</code> 输出。</p>
         <p v-else>The max height of the root element. Number values are converted to <code>px</code> units. String values are used directly as the <code>max-height</code> CSS property.</p>
       </li>
       <li>
@@ -468,6 +468,9 @@ export default {
 <style src="highlight.js/styles/atom-one-light.css"></style>
 
 <style lang="stylus">
+html
+  scroll-behavior smooth
+
 h1
   display flex
   margin-top 2rem

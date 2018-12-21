@@ -4,16 +4,18 @@ import { terser } from 'rollup-plugin-terser'
 import resolve from 'rollup-plugin-node-resolve'
 
 export default {
-  entry: 'src/components/Clamp.js',
+  input: 'src/components/Clamp.js',
+  output: {
+    file: 'dist/vue-clamp.js',
+    name: 'VueClamp',
+    format: 'umd',
+    globals: {
+      vue: 'Vue'
+    }
+  },
   external: [
     'vue'
   ],
-  globals: {
-    vue: 'Vue'
-  },
-  format: 'umd',
-  moduleName: 'VueClamp',
-  dest: 'dist/vue-clamp.js',
   plugins: [
     resolve(),
     vue({
