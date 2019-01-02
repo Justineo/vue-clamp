@@ -1,5 +1,4 @@
 import { addListener, removeListener } from 'resize-detector'
-import Vue from 'vue'
 
 const UPDATE_TRIGGERS = ['maxLines', 'maxHeight', 'ellipsis']
 const INIT_TRIGGERS = ['tag', 'text', 'autoresize']
@@ -93,21 +92,6 @@ export default {
       if (!contents) {
         return
       }
-      if (Array.isArray(contents) && contents.length > 1) {
-        Vue.util.warn(
-          'VueClamper only supports clamping plain text content.',
-          this
-        )
-        return
-      }
-      let [content] = contents
-      if (content && content.tag) {
-        Vue.util.warn(
-          'VueClamper only supports clamping plain text content.',
-          this
-        )
-        return
-      }
 
       this.offset = this.text.length
 
@@ -162,7 +146,8 @@ export default {
       return false
     },
     getText () {
-      let [content] = this.$slots.default || []
+      // Look for the first non-empty text node
+      let [content] = (this.$slots.default || []).filter(node => !node.tag && !node.isComment)
       return content ? content.text : ''
     },
     moveEdge (steps) {
@@ -224,7 +209,7 @@ export default {
     ]
 
     let { expand, collapse, toggle } = this
-    let scope = { expand, collapse, toggle }
+    let scope = { expand, collapse, toggle, clamped: this.isClamped, expanded: this.localExpanded }
     let before = this.$scopedSlots.before
       ? this.$scopedSlots.before(scope)
       : this.$slots.before

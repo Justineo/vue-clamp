@@ -120,8 +120,9 @@
     >
       {{ zh ? textZh : text }}
       <button
+        v-if="expanded || clamped"
         slot="after"
-        slot-scope="{ toggle }"
+        slot-scope="{ toggle, expanded, clamped }"
         class="toggle btn btn-sm"
         @click="toggle"
       >
@@ -178,7 +179,7 @@
         <div class="col-5 col-sm-12">
           <label class="form-checkbox">
             <input
-              v-model="expanded"
+              v-model="expanded1"
               type="checkbox"
             >
             <i class="form-icon"/>
@@ -209,7 +210,7 @@
       }"
       :max-height="height"
       autoresize
-      :expanded.sync="expanded"
+      :expanded.sync="expanded1"
       :style="{
         width: `${width2}px`
       }"
@@ -378,6 +379,8 @@ export default {
           <p><code>expand: function(): void</code> - {{ zh ? '展开被截断的文本。' : 'Expand the clamped text.' }}</p>
           <p><code>collapse: function(): void</code> - {{ zh ? '收起展开后的文本。' : 'Collapse the expanded text.' }}</p>
           <p><code>toggle: function(): void</code> - {{ zh ? '切换被截断文本的展开状态。' : 'Toggle the expand state of clamped text.' }}</p>
+          <p><code>clamped: Boolean</code></p> - {{ zh ? '内容是否处于截断状态。' : 'Whether text content is being clamped.' }}
+          <p><code>expanded: Boolean</code></p> - {{ zh ? '内容是否处于展开状态。' : 'Whether text content is being expanded.' }}
         </section>
         <p>{{ zh ? '在被截断的文本前显式的内容，可以包含任意类型内容。' : 'Content displayed before the clamped text. Can contain anything.' }}</p>
       </li>
@@ -428,9 +431,9 @@ export default {
       lines: 3,
       width1: 600,
       hyphens1: true,
+      expanded1: false,
       height: 'calc(48px + 12em)',
       width2: 600,
-      expanded: false,
       hyphens2: true,
       text: 'Vue (pronounced /vjuː/, like view) is a progressive framework for building user interfaces. Unlike other monolithic frameworks, Vue is designed from the ground up to be incrementally adoptable. The core library is focused on the view layer only, and is easy to pick up and integrate with other libraries or existing projects. On the other hand, Vue is also perfectly capable of powering sophisticated Single-Page Applications when used in combination with modern tooling and supporting libraries.',
       textZh: 'Vue (读音 /vjuː/，类似于 view) 是一套用于构建用户界面的渐进式框架。与其它大型框架不同的是，Vue 被设计为可以自底向上逐层应用。Vue 的核心库只关注视图层，不仅易于上手，还便于与第三方库或既有项目整合。另一方面，当与现代化的工具链以及各种支持类库结合使用时，Vue 也完全能够为复杂的单页应用提供驱动。',
