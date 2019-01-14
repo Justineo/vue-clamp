@@ -374,7 +374,7 @@ export default {
       </li>
       <li>
         <p><code>before</code></p>
-        <p>Slot {{ zh ? '作用域：' : 'scope:' }}<code>{ expand, collapse, toggle }</code></p>
+        <p>Slot {{ zh ? '作用域：' : 'scope:' }}<code>{ expand, collapse, toggle, clamped, expanded }</code></p>
         <section class="secondary">
           <p><code>expand: function(): void</code> - {{ zh ? '展开被截断的文本。' : 'Expand the clamped text.' }}</p>
           <p><code>collapse: function(): void</code> - {{ zh ? '收起展开后的文本。' : 'Collapse the expanded text.' }}</p>
