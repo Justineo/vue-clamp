@@ -379,8 +379,8 @@ export default {
           <p><code>expand: function(): void</code> - {{ zh ? '展开被截断的文本。' : 'Expand the clamped text.' }}</p>
           <p><code>collapse: function(): void</code> - {{ zh ? '收起展开后的文本。' : 'Collapse the expanded text.' }}</p>
           <p><code>toggle: function(): void</code> - {{ zh ? '切换被截断文本的展开状态。' : 'Toggle the expand state of clamped text.' }}</p>
-          <p><code>clamped: Boolean</code></p> - {{ zh ? '内容是否处于截断状态。' : 'Whether text content is being clamped.' }}
-          <p><code>expanded: Boolean</code></p> - {{ zh ? '内容是否处于展开状态。' : 'Whether text content is being expanded.' }}
+          <p><code>clamped: Boolean</code> - {{ zh ? '内容是否处于截断状态。' : 'Whether text content is being clamped.' }}</p>
+          <p><code>expanded: Boolean</code> - {{ zh ? '内容是否处于展开状态。' : 'Whether text content is being expanded.' }}</p>
         </section>
         <p>{{ zh ? '在被截断的文本前显式的内容，可以包含任意类型内容。' : 'Content displayed before the clamped text. Can contain anything.' }}</p>
       </li>
