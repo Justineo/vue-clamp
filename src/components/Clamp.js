@@ -1,6 +1,6 @@
 import { addListener, removeListener } from 'resize-detector'
 
-const UPDATE_TRIGGERS = ['maxLines', 'maxHeight', 'ellipsis']
+const UPDATE_TRIGGERS = ['maxLines', 'maxHeight', 'ellipsis', 'isClamped']
 const INIT_TRIGGERS = ['tag', 'text', 'autoresize']
 
 export default {

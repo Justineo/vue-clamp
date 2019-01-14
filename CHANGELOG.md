@@ -1,3 +1,7 @@
+## 0.2.1
+
+* Update layout when clamp status has been changed.
+
 ## 0.2.0
 
 * Add `clamped: boolean` and `expanded: boolean` to scoped slot `before`/`after`.
