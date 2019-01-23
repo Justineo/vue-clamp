@@ -396,8 +396,8 @@ export default {
     <p v-if="zh">由 <a href="https://github.com/Justineo">@Justineo</a> 创作。</p>
     <p v-else>Made by <a href="https://github.com/Justineo">@Justineo</a>.</p>
     <p>
-      <small v-if="zh">本页基于 <a href="https://picturepan2.github.io/spectre.css">Spectre.css</a> 开发。</small>
-      <small v-else>This page is based on <a href="https://picturepan2.github.io/spectre.css">Spectre.css</a>.</small>
+      <small v-if="zh">本页基于 <a href="https://picturepan2.github.io/spectre/">Spectre.css</a> 开发。</small>
+      <small v-else>This page is based on <a href="https://picturepan2.github.io/spectre/">Spectre.css</a>.</small>
     </p>
   </footer>
 </article>
