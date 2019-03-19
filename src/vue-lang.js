@@ -30,13 +30,9 @@ export default function (hljs) {
   return {
     case_insensitive: true,
     contains: [
-      hljs.COMMENT(
-        '<!--',
-        '-->',
-        {
-          relevance: 10
-        }
-      ),
+      hljs.COMMENT('<!--', '-->', {
+        relevance: 10
+      }),
       {
         className: 'tag',
         /*
@@ -87,7 +83,9 @@ export default function (hljs) {
         end: '/?>',
         contains: [
           {
-            className: 'name', begin: /[^/><\s]+/, relevance: 0
+            className: 'name',
+            begin: /[^/><\s]+/,
+            relevance: 0
           },
           TAG_INTERNALS
         ]

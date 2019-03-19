@@ -1,26 +1,25 @@
 <template>
 <article id="app">
-  <h1>
-    <span @click="pascal = !pascal">&lt;{{ pascal ? 'VueClamp' : 'vue-clamp' }}&gt;</span>
-    <div
-      class="lang btn-group"
+  <h1 @click="pascal = !pascal">&lt;{{ pascal ? 'VueClamp' : 'vue-clamp' }}&gt;</h1>
+  <div
+    id="lang"
+    class="lang btn-group"
+  >
+    <button
+      class="btn btn-sm"
+      :class="{ active: !zh }"
+      @click="zh = false"
     >
-      <button
-        class="btn btn-sm"
-        :class="{ active: !zh }"
-        @click="zh = false"
-      >
-        English
-      </button>
-      <button
-        class="btn btn-sm"
-        :class="{ active: zh }"
-        @click="zh = true"
-      >
-        中文
-      </button>
-    </div>
-  </h1>
+      English
+    </button>
+    <button
+      class="btn btn-sm"
+      :class="{ active: zh }"
+      @click="zh = true"
+    >
+      中文
+    </button>
+  </div>
   <p>
     {{ zh ? '轻松实现多行文本截断。' : 'Clamping multiline text with ease.' }}
   </p>
@@ -435,8 +434,10 @@ export default {
       height: 'calc(48px + 12em)',
       width2: 600,
       hyphens2: true,
-      text: 'Vue (pronounced /vjuː/, like view) is a progressive framework for building user interfaces. Unlike other monolithic frameworks, Vue is designed from the ground up to be incrementally adoptable. The core library is focused on the view layer only, and is easy to pick up and integrate with other libraries or existing projects. On the other hand, Vue is also perfectly capable of powering sophisticated Single-Page Applications when used in combination with modern tooling and supporting libraries.',
-      textZh: 'Vue (读音 /vjuː/，类似于 view) 是一套用于构建用户界面的渐进式框架。与其它大型框架不同的是，Vue 被设计为可以自底向上逐层应用。Vue 的核心库只关注视图层，不仅易于上手，还便于与第三方库或既有项目整合。另一方面，当与现代化的工具链以及各种支持类库结合使用时，Vue 也完全能够为复杂的单页应用提供驱动。',
+      text:
+        'Vue (pronounced /vjuː/, like view) is a progressive framework for building user interfaces. Unlike other monolithic frameworks, Vue is designed from the ground up to be incrementally adoptable. The core library is focused on the view layer only, and is easy to pick up and integrate with other libraries or existing projects. On the other hand, Vue is also perfectly capable of powering sophisticated Single-Page Applications when used in combination with modern tooling and supporting libraries.',
+      textZh:
+        'Vue (读音 /vjuː/，类似于 view) 是一套用于构建用户界面的渐进式框架。与其它大型框架不同的是，Vue 被设计为可以自底向上逐层应用。Vue 的核心库只关注视图层，不仅易于上手，还便于与第三方库或既有项目整合。另一方面，当与现代化的工具链以及各种支持类库结合使用时，Vue 也完全能够为复杂的单页应用提供驱动。',
       zh,
       pascal: false
     }
@@ -455,11 +456,15 @@ export default {
       }
       let search = qs.stringify(query)
       search = search ? `?${search}` : search
-      history.pushState(null, null, `${location.origin}${location.pathname}${search}${location.hash}`)
+      history.pushState(
+        null,
+        null,
+        `${location.origin}${location.pathname}${search}${location.hash}`
+      )
     }
   },
   mounted () {
-    [...this.$el.querySelectorAll('pre.code')].forEach(code => {
+    ;[...this.$el.querySelectorAll('pre.code')].forEach(code => {
       hljs.highlightBlock(code)
     })
   }
@@ -475,23 +480,24 @@ html
   scroll-behavior smooth
 
 h1
-  display flex
   margin-top 2rem
-  justify-content space-between
   align-items center
 
-  span
-    user-select none
+#lang
+  position absolute
+  top 0.6rem
+  right 0
 
 h2
   margin-top 2rem
 
 article
+  position relative
   margin 0 auto
   width 600px
 
 .divider[data-content]
-  margin: 2rem 0
+  margin 2rem 0
 
 .form-horizontal
   width 60%
@@ -510,10 +516,10 @@ article
   hyphens auto
 
 .toggle
-  margin-left .4rem
+  margin-left 0.4rem
 
 .featured
-  margin-right .4rem
+  margin-right 0.4rem
 
 ul
   list-style disc outside
@@ -540,20 +546,20 @@ details
 summary
   display flex
   align-items center
-  margin-bottom .5em
+  margin-bottom 0.5em
 
   h4
     margin 0
 
   &::before
     content ""
-    width .4rem
-    height .4rem
+    width 0.4rem
+    height 0.4rem
     margin-right 0.4rem
     border 2px solid currentColor
     border-style none solid solid none
     transform rotateZ(-45deg)
-    transition transform .3s
+    transition transform 0.3s
     transform-origin 50% 50%
 
     details[open] &
