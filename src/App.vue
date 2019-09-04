@@ -118,15 +118,15 @@
       }"
     >
       {{ zh ? textZh : text }}
-      <button
-        v-if="expanded || clamped"
-        slot="after"
-        slot-scope="{ toggle, expanded, clamped }"
-        class="toggle btn btn-sm"
-        @click="toggle"
-      >
-        {{ zh ? '切换' : 'Toggle' }}
-      </button>
+      <template #after="{ toggle, expanded, clamped }">
+        <button
+          v-if="expanded || clamped"
+          class="toggle btn btn-sm"
+          @click="toggle"
+        >
+          {{ zh ? '切换' : 'Toggle' }}
+        </button>
+      </template>
     </v-clamp>
   </section>
   <div
@@ -215,12 +215,13 @@
       }"
     >
       {{ zh ? textZh : text }}
-      <span
-        slot="before"
-        class="featured label label-rounded label-primary"
-      >
-        {{ zh ? '推荐' : 'Featured' }}
-      </span>
+      <template #before>
+        <span
+          class="featured label label-rounded label-primary"
+        >
+          {{ zh ? '推荐' : 'Featured' }}
+        </span>
+      </template>
     </v-clamp>
   </section>
   <h2 id="usage"><a href="#usage">#</a> {{ zh ? '使用方法' : 'Usage' }}</h2>
