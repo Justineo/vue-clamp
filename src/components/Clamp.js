@@ -4,7 +4,7 @@ const UPDATE_TRIGGERS = ['maxLines', 'maxHeight', 'ellipsis', 'isClamped']
 const INIT_TRIGGERS = ['tag', 'text', 'autoresize']
 
 export default {
-  name: 'vue-clamper',
+  name: 'vue-clamp',
   props: {
     tag: {
       type: String,
@@ -126,14 +126,16 @@ export default {
     toggle () {
       this.localExpanded = !this.localExpanded
     },
+    getLines () {
+      return this.$refs.content.getClientRects().length
+    },
     isOverflow () {
       if (!this.maxLines && !this.maxHeight) {
         return false
       }
 
       if (this.maxLines) {
-        let actualLines = this.$refs.content.getClientRects().length
-        if (actualLines > this.maxLines) {
+        if (this.getLines() > this.maxLines) {
           return true
         }
       }
@@ -147,7 +149,9 @@ export default {
     },
     getText () {
       // Look for the first non-empty text node
-      let [content] = (this.$slots.default || []).filter(node => !node.tag && !node.isComment)
+      let [content] = (this.$slots.default || []).filter(
+        node => !node.tag && !node.isComment
+      )
       return content ? content.text : ''
     },
     moveEdge (steps) {
@@ -165,12 +169,15 @@ export default {
       this.clamp()
     },
     fill () {
-      while (!this.isOverflow() && this.offset < this.text.length) {
+      while (
+        (!this.isOverflow() || this.getLines() < 2) &&
+        this.offset < this.text.length
+      ) {
         this.moveEdge(1)
       }
     },
     clamp () {
-      while (this.isOverflow() && this.offset > 0) {
+      while (this.isOverflow() && this.getLines() > 1 && this.offset > 0) {
         this.moveEdge(-1)
       }
     },
@@ -209,7 +216,13 @@ export default {
     ]
 
     let { expand, collapse, toggle } = this
-    let scope = { expand, collapse, toggle, clamped: this.isClamped, expanded: this.localExpanded }
+    let scope = {
+      expand,
+      collapse,
+      toggle,
+      clamped: this.isClamped,
+      expanded: this.localExpanded
+    }
     let before = this.$scopedSlots.before
       ? this.$scopedSlots.before(scope)
       : this.$slots.before

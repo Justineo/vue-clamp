@@ -1,3 +1,7 @@
+## 0.2.2
+
+* Preserve at lease a single line of content when even a single line would exceeds `max-height`.
+
 ## 0.2.1
 
 * Update layout when clamp status has been changed.

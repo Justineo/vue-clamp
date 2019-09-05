@@ -1,6 +1,6 @@
 {
   "name": "vue-clamp",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "license": "MIT",
   "description": "Clamping multiline text with ease.",
   "scripts": {
