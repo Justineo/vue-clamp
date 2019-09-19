@@ -127,7 +127,7 @@ export default {
       this.localExpanded = !this.localExpanded
     },
     getLines () {
-      return this.$refs.content.getClientRects().length
+      return this.$refs.text.getClientRects().length
     },
     isOverflow () {
       if (!this.maxLines && !this.maxHeight) {
