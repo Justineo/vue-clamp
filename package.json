@@ -18,7 +18,7 @@
   "bugs": {
     "url": "https://github.com/Justineo/vue-clamp/issues"
   },
-  "homepage": "https://github.com/Justineo/vue-clamp#readme",
+  "homepage": "https://justineo.github.io/vue-clamp/demo/",
   "main": "dist/vue-clamp.js",
   "module": "Clamp.js",
   "dependencies": {
