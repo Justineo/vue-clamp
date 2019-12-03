@@ -22,8 +22,9 @@ export default {
     },
     expanded: Boolean
   },
-  data () {
+  data ({$isServer}) {
     return {
+      isServer: $isServer,
       offset: null,
       text: this.getText(),
       localExpanded: !!this.expanded
@@ -205,13 +206,13 @@ export default {
     let contents = [
       h(
         'span',
-        {
+        !this.isServer ? {
           ref: 'text',
           attrs: {
             'aria-label': this.text.trim()
           }
-        },
-        this.realText
+        } : {},
+        this.isServer ? this.text : this.realText
       )
     ]
 
