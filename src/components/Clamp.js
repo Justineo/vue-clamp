@@ -163,6 +163,7 @@ export default {
     },
     applyChange () {
       this.$refs.text.textContent = this.realText
+      this.$emit('change', this.isClamped)
     },
     stepToFit () {
       this.fill()
