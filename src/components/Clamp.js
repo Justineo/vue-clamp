@@ -1,8 +1,5 @@
 import { addListener, removeListener } from 'resize-detector'
 
-const UPDATE_TRIGGERS = ['maxLines', 'maxHeight', 'ellipsis', 'isClamped']
-const INIT_TRIGGERS = ['tag', 'text', 'autoresize']
-
 export default {
   name: 'vue-clamp',
   props: {
@@ -46,7 +43,7 @@ export default {
       if (this.localExpanded) {
         return null
       }
-      let { maxHeight } = this
+      const { maxHeight } = this
       if (!maxHeight) {
         return null
       }
@@ -57,13 +54,6 @@ export default {
     expanded (val) {
       this.localExpanded = val
     },
-    isClamped: {
-      handler (val) {
-        this.$nextTick()
-          .then(() => this.$emit('change', val))
-      },
-      immediate: true
-    },
     localExpanded (val) {
       if (val) {
         this.clampAt(this.text.length)
@@ -73,18 +63,19 @@ export default {
       if (this.expanded !== val) {
         this.$emit('update:expanded', val)
       }
+    },
+    isClamped: {
+      handler (val) {
+        this.$nextTick(() => this.$emit('clampchange', val))
+      },
+      immediate: true
     }
   },
   mounted () {
     this.init()
 
-    INIT_TRIGGERS.forEach(prop => {
-      this.$watch(prop, this.init)
-    })
-
-    UPDATE_TRIGGERS.forEach(prop => {
-      this.$watch(prop, this.update)
-    })
+    this.$watch(vm => [vm.maxLines, vm.maxHeight, vm.ellipsis, vm.isClamped].join(), this.update)
+    this.$watch(vm => [vm.tag, vm.text, vm.autoresize].join(), this.init)
   },
   updated () {
     this.text = this.getText()
@@ -95,7 +86,7 @@ export default {
   },
   methods: {
     init () {
-      let contents = this.$slots.default
+      const contents = this.$slots.default
       if (!contents) {
         return
       }
@@ -105,12 +96,9 @@ export default {
       this.cleanUp()
 
       if (this.autoresize) {
-        let resizeCallback = () => {
-          window.requestAnimationFrame(this.update)
-        }
-        addListener(this.$el, resizeCallback)
+        addListener(this.$el, this.update)
         this.unregisterResizeCallback = () => {
-          removeListener(this.$el, resizeCallback)
+          removeListener(this.$el, this.update)
         }
       }
       this.update()
@@ -156,7 +144,7 @@ export default {
     },
     getText () {
       // Look for the first non-empty text node
-      let [content] = (this.$slots.default || []).filter(
+      const [content] = (this.$slots.default || []).filter(
         node => !node.tag && !node.isComment
       )
       return content ? content.text : ''
@@ -189,12 +177,12 @@ export default {
       }
     },
     search (...range) {
-      let [from = 0, to = this.offset] = range
+      const [from = 0, to = this.offset] = range
       if (to - from <= 3) {
         this.stepToFit()
         return
       }
-      let target = Math.floor((to + from) / 2)
+      const target = Math.floor((to + from) / 2)
       this.clampAt(target)
       if (this.isOverflow()) {
         this.search(from, target)
@@ -209,7 +197,7 @@ export default {
     }
   },
   render (h) {
-    let contents = [
+    const contents = [
       h(
         'span',
         {
@@ -222,27 +210,27 @@ export default {
       )
     ]
 
-    let { expand, collapse, toggle } = this
-    let scope = {
+    const { expand, collapse, toggle } = this
+    const scope = {
       expand,
       collapse,
       toggle,
       clamped: this.isClamped,
       expanded: this.localExpanded
     }
-    let before = this.$scopedSlots.before
+    const before = this.$scopedSlots.before
       ? this.$scopedSlots.before(scope)
       : this.$slots.before
     if (before) {
       contents.unshift(...(Array.isArray(before) ? before : [before]))
     }
-    let after = this.$scopedSlots.after
+    const after = this.$scopedSlots.after
       ? this.$scopedSlots.after(scope)
       : this.$slots.after
     if (after) {
       contents.push(...(Array.isArray(after) ? after : [after]))
     }
-    let lines = [
+    const lines = [
       h(
         'span',
         {

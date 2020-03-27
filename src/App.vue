@@ -32,7 +32,6 @@
       GitHub →
     </a>
   </p>
-
   <h2 id="features"><a href="#features">#</a> {{ zh ? '功能' : 'Features' }}</h2>
   <ul>
     <li>{{ zh ? '可以选择限制行数与/或最大高度，无需指定行高。' : 'Clamps text with max lines and/or max height. No need to specify line height.' }}</li>
@@ -40,7 +39,6 @@
     <li>{{ zh ? '支持展开/收起被截断部分内容。' : 'The clamped text can be expanded/collapsed.' }}</li>
     <li>{{ zh ? '支持自定义截断文本前后内容，并且进行响应式更新。' : 'Customizable and responsive content before/after clamped text.' }}</li>
   </ul>
-
   <h2 id="demo"><a href="#demo">#</a> Demo</h2>
   <div
     class="divider text-center"
@@ -224,6 +222,88 @@
       </template>
     </v-clamp>
   </section>
+  <div
+    class="divider text-center"
+    data-content="↓ `clampchange` event"
+  />
+  <section class="case">
+    <div class="form-horizontal">
+      <div class="form-group">
+        <label
+          class="form-label col-5 col-sm-12"
+          for="lines3"
+        >
+          {{ zh ? '最大行数' : 'Max lines' }}
+        </label>
+        <div
+          class="col-7 col-sm-12"
+        >
+          <input
+            id="lines3"
+            v-model.number="lines3"
+            class="form-input"
+            type="number"
+            min="1"
+            max="8"
+            step="1"
+          >
+        </div>
+      </div>
+      <div class="form-group">
+        <label
+          class="form-label col-5 col-sm-12"
+          for="width3"
+        >
+          {{ zh ? '容器宽度' : 'Container width' }}
+        </label>
+        <div
+          class="col-7 col-sm-12 tooltip"
+          :data-tooltip="`${width3}px`"
+        >
+          <input
+            id="width3"
+            v-model="width3"
+            class="slider"
+            type="range"
+            min="240"
+            max="600"
+          >
+        </div>
+      </div>
+      <div
+        v-if="!zh"
+        class="form-group"
+      >
+        <div class="col-5 col-sm-12">
+          <label class="form-checkbox">
+            <input
+              v-model="hyphens3"
+              type="checkbox"
+            >
+            <i class="form-icon"/>
+            CSS <code>hyphens</code>
+          </label>
+        </div>
+      </div>
+    </div>
+    <v-clamp
+      :class="{
+        demo: true,
+        hyphens: hyphens3
+      }"
+      :max-lines="lines3"
+      autoresize
+      :style="{
+        width: `${width3}px`
+      }"
+      @clampchange="clamped3 = $event"
+    >
+      {{ zh ? textZh : text }}
+    </v-clamp>
+    <p class="mt-2">
+      {{ zh ? '截断状态：' + (clamped3 ? '已截断' : '未截断') : 'Clamped: ' + (clamped3 ? 'Yes' : 'No')}}
+    </p>
+  </section>
   <h2 id="usage"><a href="#usage">#</a> {{ zh ? '使用方法' : 'Usage' }}</h2>
   <div
     class="divider text-center"
@@ -392,6 +472,19 @@ export default {
       </li>
     </ul>
   </section>
+  <div
+    class="divider text-center"
+    data-content="↓ Events"
+  />
+  <section>
+    <ul>
+      <li>
+        <p><code>clampchange</code></p>
+        <p>{{ zh ? '截断状态变化时触发。' : 'Emitted when clamp state changes.' }}</p>
+        <p>{{ parameterText }}<code>(clamped: Boolean)</code></p>
+      </li>
+    </ul>
+  </section>
   <footer>
     <p v-if="zh">由 <a href="https://github.com/Justineo">@Justineo</a> 创作。</p>
     <p v-else>Made by <a href="https://github.com/Justineo">@Justineo</a>.</p>
@@ -417,9 +510,9 @@ hljs.registerLanguage('javascript', javascript)
 hljs.registerLanguage('diff', diff)
 hljs.registerLanguage('shell', shell)
 
-let search = location.search.replace(/^\?/, '')
-let query = qs.parse(search)
-let zh = query.lang === 'zh'
+const search = location.search.replace(/^\?/, '')
+const query = qs.parse(search)
+const zh = query.lang === 'zh'
 
 export default {
   name: 'app',
@@ -435,6 +528,10 @@ export default {
       height: 'calc(48px + 12em)',
       width2: 600,
       hyphens2: true,
+      lines3: 5,
+      width3: 600,
+      hyphens3: true,
+      clamped3: false,
       text:
         'Vue (pronounced /vjuː/, like view) is a progressive framework for building user interfaces. Unlike other monolithic frameworks, Vue is designed from the ground up to be incrementally adoptable. The core library is focused on the view layer only, and is easy to pick up and integrate with other libraries or existing projects. On the other hand, Vue is also perfectly capable of powering sophisticated Single-Page Applications when used in combination with modern tooling and supporting libraries.',
       textZh:
@@ -446,6 +543,9 @@ export default {
   computed: {
     defaultText () {
       return this.zh ? '默认值：' : 'Default:'
+    },
+    parameterText () {
+      return this.zh ? '回调参数：' : 'Callback parameter list:'
     }
   },
   watch: {
@@ -548,6 +648,7 @@ summary
   display flex
   align-items center
   margin-bottom 0.5em
+  cursor pointer
 
   h4
     margin 0

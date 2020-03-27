@@ -1,55 +1,56 @@
 {
   "name": "vue-clamp",
-  "version": "0.2.2",
-  "license": "MIT",
+  "version": "0.3.0",
   "description": "Clamping multiline text with ease.",
   "scripts": {
     "serve": "vue-cli-service serve",
-    "build:demo": "vue-cli-service build",
-    "lint": "vue-cli-service lint",
     "build": "NODE_ENV=production rollup -c",
+    "lint": "vue-cli-service lint",
+    "build:demo": "vue-cli-service build",
     "prepublishOnly": "cp ./src/components/Clamp.js .",
     "publish": "rm ./Clamp.js"
   },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/Justineo/vue-clamp.git"
+  "main": "dist/vue-clamp.js",
+  "module": "Clamp.js",
+  "dependencies": {
+    "core-js": "^3.6.4",
+    "resize-detector": "^0.1.10"
+  },
+  "devDependencies": {
+    "@rollup/plugin-buble": "^0.21.1",
+    "@rollup/plugin-node-resolve": "^7.1.1",
+    "@vue/cli-plugin-babel": "^4.2.3",
+    "@vue/cli-plugin-eslint": "^4.2.3",
+    "@vue/cli-service": "^4.2.3",
+    "@vue/eslint-config-standard": "^4.0.0",
+    "babel-eslint": "^10.1.0",
+    "eslint": "^6.8.0",
+    "eslint-config-prettier": "^6.10.1",
+    "eslint-config-standard": "^14.1.1",
+    "eslint-plugin-vue": "^6.2.2",
+    "highlight.js": "^9.18.1",
+    "prettier": "^2.0.2",
+    "prettier-eslint": "^9.0.1",
+    "qs": "^6.9.3",
+    "rollup": "^2.2.0",
+    "rollup-plugin-terser": "^5.3.0",
+    "rollup-plugin-vue": "^5.1.6",
+    "spectre.css": "^0.5.8",
+    "stylus": "^0.54.7",
+    "stylus-loader": "^3.0.2",
+    "vue": "^2.6.11",
+    "vue-template-compiler": "^2.6.11"
+  },
+  "peerDependencies": {
+    "vue": "^2.5.17"
   },
   "bugs": {
     "url": "https://github.com/Justineo/vue-clamp/issues"
   },
   "homepage": "https://justineo.github.io/vue-clamp/demo/",
-  "main": "dist/vue-clamp.js",
-  "module": "Clamp.js",
-  "dependencies": {
-    "resize-detector": "^0.1.10"
-  },
-  "devDependencies": {
-    "@vue/cli-plugin-babel": "^3.11.0",
-    "@vue/cli-plugin-eslint": "^3.11.0",
-    "@vue/cli-service": "^3.11.0",
-    "@vue/eslint-config-standard": "^4.0.0",
-    "babel-eslint": "^10.0.3",
-    "eslint": "^5.16.0",
-    "eslint-config-prettier": "^4.3.0",
-    "eslint-config-standard": "^6.2.1",
-    "eslint-plugin-vue": "^5.2.3",
-    "highlight.js": "^9.15.10",
-    "prettier": "^1.18.2",
-    "prettier-eslint": "^8.8.2",
-    "qs": "^6.8.0",
-    "rollup": "^0.68.2",
-    "rollup-plugin-buble": "^0.19.8",
-    "rollup-plugin-node-resolve": "^4.2.4",
-    "rollup-plugin-terser": "^3.0.0",
-    "rollup-plugin-vue": "^4.7.2",
-    "spectre.css": "^0.5.8",
-    "stylus": "^0.54.7",
-    "stylus-loader": "^3.0.2",
-    "vue": "^2.6.10",
-    "vue-template-compiler": "^2.6.10"
-  },
-  "peerDependencies": {
-    "vue": "^2.5.17"
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Justineo/vue-clamp.git"
   }
 }

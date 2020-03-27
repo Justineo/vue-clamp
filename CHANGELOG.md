@@ -1,3 +1,7 @@
+## 0.3.0
+
+* Add `clampchange` event.
+
 ## 0.2.2
 
 * Preserve at lease a single line of content when even a single line would exceeds `max-height`.
