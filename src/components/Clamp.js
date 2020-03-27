@@ -57,6 +57,13 @@ export default {
     expanded (val) {
       this.localExpanded = val
     },
+    isClamped: {
+      handler (val) {
+        this.$nextTick()
+          .then(() => this.$emit('change', val))
+      },
+      immediate: true
+    },
     localExpanded (val) {
       if (val) {
         this.clampAt(this.text.length)
