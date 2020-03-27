@@ -99,7 +99,7 @@ export default {
 
       if (this.autoresize) {
         let resizeCallback = () => {
-          this.update()
+          window.requestAnimationFrame(this.update)
         }
         addListener(this.$el, resizeCallback)
         this.unregisterResizeCallback = () => {
