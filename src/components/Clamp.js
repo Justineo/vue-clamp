@@ -197,16 +197,22 @@ export default {
     }
   },
   render (h) {
+    let data = {};
+
+    if (!this.$isServer) {
+      data = {
+        ref: 'text',
+        attrs: {
+          'aria-label': this.text.trim()
+        }
+      }
+    }
+
     const contents = [
       h(
         'span',
-        {
-          ref: 'text',
-          attrs: {
-            'aria-label': this.text.trim()
-          }
-        },
-        this.realText
+        data,
+        this.$isServer ? this.text : this.realText
       )
     ]
 
