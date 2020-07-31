@@ -1,6 +1,7 @@
 ## 0.3.1
 
 * Fix SSR support.
+* Fix RTL support.
 
 ## 0.3.0
 
