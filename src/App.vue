@@ -57,8 +57,14 @@
           <label class="form-checkbox">
             <input v-model="hyphens1" type="checkbox">
             <i class="form-icon"/>
-            CSS
-            <code>hyphens</code>
+            CSS Hyphens
+          </label>
+        </div>
+        <div class="col-5 col-sm-12">
+          <label class="form-checkbox">
+            <input v-model="rtl1" type="checkbox">
+            <i class="form-icon"/>
+            RTL
           </label>
         </div>
       </div>
@@ -66,7 +72,8 @@
     <v-clamp
       :class="{
         demo: true,
-        hyphens: hyphens1
+        hyphens: hyphens1,
+        rtl: rtl1
       }"
       :max-lines="lines"
       autoresize
@@ -105,6 +112,22 @@
           <input id="width2" v-model="width2" class="slider" type="range" min="240" max="600">
         </div>
       </div>
+      <div v-if="!zh" class="form-group">
+        <div class="col-5 col-sm-12">
+          <label class="form-checkbox">
+            <input v-model="hyphens2" type="checkbox">
+            <i class="form-icon"/>
+            CSS Hyphens
+          </label>
+        </div>
+        <div class="col-5 col-sm-12">
+          <label class="form-checkbox">
+            <input v-model="rtl2" type="checkbox">
+            <i class="form-icon"/>
+            RTL
+          </label>
+        </div>
+      </div>
       <div class="form-group">
         <div class="col-5 col-sm-12">
           <label class="form-checkbox">
@@ -114,21 +137,12 @@
           </label>
         </div>
       </div>
-      <div v-if="!zh" class="form-group">
-        <div class="col-5 col-sm-12">
-          <label class="form-checkbox">
-            <input v-model="hyphens2" type="checkbox">
-            <i class="form-icon"/>
-            CSS
-            <code>hyphens</code>
-          </label>
-        </div>
-      </div>
     </div>
     <v-clamp
       :class="{
         demo: true,
-        hyphens: hyphens2
+        hyphens: hyphens2,
+        rtl: rtl2
       }"
       :max-height="height"
       autoresize
@@ -174,8 +188,14 @@
           <label class="form-checkbox">
             <input v-model="hyphens3" type="checkbox">
             <i class="form-icon"/>
-            CSS
-            <code>hyphens</code>
+            CSS Hyphens
+          </label>
+        </div>
+        <div class="col-5 col-sm-12">
+          <label class="form-checkbox">
+            <input v-model="rtl3" type="checkbox">
+            <i class="form-icon"/>
+            RTL
           </label>
         </div>
       </div>
@@ -183,7 +203,8 @@
     <v-clamp
       :class="{
         demo: true,
-        hyphens: hyphens3
+        hyphens: hyphens3,
+        rtl: rtl3
       }"
       :max-lines="lines3"
       autoresize
@@ -513,13 +534,16 @@ export default {
       lines: 3,
       width1: 600,
       hyphens1: true,
+      rtl1: false,
       expanded1: false,
       height: 'calc(48px + 12em)',
       width2: 600,
       hyphens2: true,
+      rtl2: false,
       lines3: 5,
       width3: 600,
       hyphens3: true,
+      rtl3: false,
       clamped3: false,
       text:
         'Vue (pronounced /vjuː/, like view) is a progressive framework for building user interfaces. Unlike other monolithic frameworks, Vue is designed from the ground up to be incrementally adoptable. The core library is focused on the view layer only, and is easy to pick up and integrate with other libraries or existing projects. On the other hand, Vue is also perfectly capable of powering sophisticated Single-Page Applications when used in combination with modern tooling and supporting libraries.',
@@ -605,11 +629,22 @@ article
 .hyphens
   hyphens auto
 
+.rtl
+  direction rtl
+
 .toggle
   margin-left 0.4rem
 
+  .rtl &
+    margin-right 0.4rem
+    margin-left 0
+
 .featured
   margin-right 0.4rem
+
+  .rtl &
+    margin-right 0
+    margin-left 0.4rem
 
 ul
   list-style disc outside

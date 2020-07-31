@@ -125,7 +125,18 @@ export default {
       this.localExpanded = !this.localExpanded
     },
     getLines () {
-      return this.$refs.content.getClientRects().length
+      return Object.keys(
+        [...this.$refs.content.getClientRects()].reduce(
+          (prev, { top, bottom }) => {
+            const key = `${top}/${bottom}`
+            if (!prev[key]) {
+              prev[key] = true
+            }
+            return prev
+          },
+          {}
+        )
+      ).length
     },
     isOverflow () {
       if (!this.maxLines && !this.maxHeight) {
