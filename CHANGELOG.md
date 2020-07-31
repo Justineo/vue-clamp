@@ -1,3 +1,7 @@
+## 0.3.1
+
+* Fix SSR support.
+
 ## 0.3.0
 
 * Add `clampchange` event.

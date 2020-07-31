@@ -74,8 +74,11 @@ export default {
   mounted () {
     this.init()
 
-    this.$watch(vm => [vm.maxLines, vm.maxHeight, vm.ellipsis, vm.isClamped].join(), this.update)
-    this.$watch(vm => [vm.tag, vm.text, vm.autoresize].join(), this.init)
+    this.$watch(
+      (vm) => [vm.maxLines, vm.maxHeight, vm.ellipsis, vm.isClamped].join(),
+      this.update
+    )
+    this.$watch((vm) => [vm.tag, vm.text, vm.autoresize].join(), this.init)
   },
   updated () {
     this.text = this.getText()
@@ -145,7 +148,7 @@ export default {
     getText () {
       // Look for the first non-empty text node
       const [content] = (this.$slots.default || []).filter(
-        node => !node.tag && !node.isComment
+        (node) => !node.tag && !node.isComment
       )
       return content ? content.text : ''
     },
@@ -197,21 +200,17 @@ export default {
     }
   },
   render (h) {
-    let data = {};
-
-    if (!this.$isServer) {
-      data = {
-        ref: 'text',
-        attrs: {
-          'aria-label': this.text.trim()
-        }
-      }
-    }
-
     const contents = [
       h(
         'span',
-        data,
+        this.$isServer
+          ? {}
+          : {
+            ref: 'text',
+            attrs: {
+              'aria-label': this.text.trim()
+            }
+          },
         this.$isServer ? this.text : this.realText
       )
     ]
