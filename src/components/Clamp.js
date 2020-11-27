@@ -125,13 +125,8 @@ export default {
       this.localExpanded = !this.localExpanded
     },
     getLines () {
-      const pureArray = []
-      const clientRects = this.$refs.content.getClientRects()
-      for (let i = 0; i < clientRects.length; i++) {
-        pureArray.push(clientRects[i])
-      }
       return Object.keys(
-        pureArray.reduce(
+        Array.prototype.slice.call(this.$refs.content.getClientRects()).reduce(
           (prev, { top, bottom }) => {
             const key = `${top}/${bottom}`
             if (!prev[key]) {
