@@ -126,7 +126,7 @@ export default {
     },
     getLines () {
       return Object.keys(
-        [...this.$refs.content.getClientRects()].reduce(
+        Array.prototype.slice.call(this.$refs.content.getClientRects()).reduce(
           (prev, { top, bottom }) => {
             const key = `${top}/${bottom}`
             if (!prev[key]) {
