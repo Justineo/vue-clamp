@@ -217,6 +217,42 @@
       class="mt-2"
     >{{ zh ? '截断状态：' + (clamped3 ? '已截断' : '未截断') : 'Clamped: ' + (clamped3 ? 'Yes' : 'No')}}</p>
   </section>
+
+  <div class="divider text-center" data-content="raw html"/>
+  <section class="case">
+    <div class="form-horizontal">
+      <div class="form-group">
+        <label class="form-checkbox">
+          <input v-model="rawHtml4" type="checkbox">
+          <i class="form-icon"/>
+          {{ 'HTML' }}
+        </label>
+      </div>
+    </div>
+    <v-clamp
+      :class="{
+        demo: true,
+        hyphens: true,
+        rtl: false
+      }"
+      :max-lines="3"
+      autoresize
+      :style="{
+        width: '600px'
+      }"
+      :raw-html="rawHtml4"
+    >
+      {{ zh ? textHtmlZh : textHtml }}
+      <template #after="{ toggle, expanded, clamped }">
+        <button
+          v-if="expanded || clamped"
+          class="toggle btn btn-sm"
+          @click="toggle"
+        >{{ zh ? '切换' : 'Toggle' }}</button>
+      </template>
+    </v-clamp>
+  </section>
+
   <h2 id="usage">
     <a href="#usage">#</a>
     {{ zh ? '使用方法' : 'Usage' }}
@@ -409,6 +445,16 @@ export default {
           <code>false</code>
         </p>
       </li>
+      <li>
+        <p>
+          <code>raw-html: boolean</code>
+        </p>
+        <p>{{ zh ? '将文本呈现为HTML。' : 'Render text as HTML.' }}</p>
+        <p>
+          {{ defaultText }}
+          <code>false</code>
+        </p>
+      </li>
     </ul>
   </section>
   <div class="divider text-center" data-content="↓ Slots"/>
@@ -545,10 +591,15 @@ export default {
       hyphens3: true,
       rtl3: false,
       clamped3: false,
+      rawHtml4: true,
       text:
         'Vue (pronounced /vjuː/, like view) is a progressive framework for building user interfaces. Unlike other monolithic frameworks, Vue is designed from the ground up to be incrementally adoptable. The core library is focused on the view layer only, and is easy to pick up and integrate with other libraries or existing projects. On the other hand, Vue is also perfectly capable of powering sophisticated Single-Page Applications when used in combination with modern tooling and supporting libraries.',
       textZh:
         'Vue (读音 /vjuː/，类似于 view) 是一套用于构建用户界面的渐进式框架。与其它大型框架不同的是，Vue 被设计为可以自底向上逐层应用。Vue 的核心库只关注视图层，不仅易于上手，还便于与第三方库或既有项目整合。另一方面，当与现代化的工具链以及各种支持类库结合使用时，Vue 也完全能够为复杂的单页应用提供驱动。',
+      textHtml:
+        'Vue (pronounced /vjuː/, like <strong>view</strong>) is a <strong>progressive framework</strong> for building user interfaces. Unlike other monolithic frameworks, Vue is designed from the ground up to be incrementally adoptable. The core library is focused on the view layer only, and is easy to pick up and integrate with other libraries or existing projects. On the other hand, Vue is also perfectly capable of powering sophisticated Single-Page Applications when used in combination with <a href="single-file-components.html">modern tooling</a> and <a href="https://github.com/vuejs/awesome-vue#components--libraries" target="_blank" rel="noopener">supporting libraries</a>.',
+      textHtmlZh:
+        'Vue (读音 /vjuː/，类似于 <strong>view</strong>) 是一套用于构建用户界面的<strong>渐进式框架</strong>。与其它大型框架不同的是，Vue 被设计为可以自底向上逐层应用。Vue 的核心库只关注视图层，不仅易于上手，还便于与第三方库或既有项目整合。另一方面，当与<a href="single-file-components.html">现代化的工具链</a>以及各种<a href="https://github.com/vuejs/awesome-vue#libraries--plugins" target="_blank" rel="noopener">支持类库</a>结合使用时，Vue 也完全能够为复杂的单页应用提供驱动。',
       zh,
       pascal: false
     }

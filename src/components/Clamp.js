@@ -17,7 +17,11 @@ export default {
       type: String,
       default: '…'
     },
-    expanded: Boolean
+    expanded: Boolean,
+    rawHtml: {
+      type: Boolean,
+      default: false
+    }
   },
   data () {
     return {
@@ -171,7 +175,11 @@ export default {
       this.applyChange()
     },
     applyChange () {
-      this.$refs.text.textContent = this.realText
+      if (this.rawHtml) {
+        this.$refs.text.innerHTML = this.realText
+      } else {
+        this.$refs.text.textContent = this.realText
+      }
     },
     stepToFit () {
       this.fill()
@@ -211,18 +219,26 @@ export default {
     }
   },
   render (h) {
+    const attributes = this.$isServer ? {}
+      : {
+        ref: 'text',
+        attrs: {
+          'aria-label': this.text.trim()
+        }
+      }
+    const renderText = this.$isServer ? this.text : this.realText
+
+    if (this.rawHtml) {
+      attributes.domProps = {
+        innerHTML: renderText
+      }
+    }
+
     const contents = [
       h(
         'span',
-        this.$isServer
-          ? {}
-          : {
-            ref: 'text',
-            attrs: {
-              'aria-label': this.text.trim()
-            }
-          },
-        this.$isServer ? this.text : this.realText
+        attributes,
+        this.rawHtml ? undefined : renderText
       )
     ]
 
