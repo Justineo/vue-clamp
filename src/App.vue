@@ -727,9 +727,6 @@ export default {
         console.warn(error)
         return html.replace(/<[^>]*?>/gi, '').slice(0, maxLength) + '...'
       }
-    },
-    clipSimple (html, maxLength) {
-      return html.slice(0, maxLength) + '...'
     }
   }
 }

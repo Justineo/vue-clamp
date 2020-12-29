@@ -235,7 +235,7 @@ export default {
       : {
         ref: 'text',
         attrs: {
-          'aria-label': this.text.trim()
+          'aria-label': this.rawHtml ? this.text.replace(/<[^>]*?>/gi, '').trim() : this.text.trim()
         }
       }
     const renderText = this.$isServer ? this.text : this.realText
