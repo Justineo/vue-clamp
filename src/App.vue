@@ -222,17 +222,12 @@
   <section class="case">
     <div class="form-horizontal">
       <div class="form-group">
-        <label class="form-label col-5 col-sm-12" for="lines4">{{ zh ? '最大行数' : 'Max lines' }}</label>
-        <div class="col-7 col-sm-12">
-          <input
-            id="lines4"
-            v-model.number="lines4"
-            class="form-input"
-            type="number"
-            min="1"
-            max="8"
-            step="1"
-          >
+        <label
+          class="form-label col-5 col-sm-12"
+          for="height4"
+        >{{ zh ? '货柜高度' : 'Container height' }}</label>
+        <div class="col-7 col-sm-12 tooltip" :data-tooltip="`${height4}px`">
+          <input id="height4" v-model="height4" class="slider" type="range" min="10" max="400">
         </div>
       </div>
       <div class="form-group">
@@ -277,7 +272,7 @@
         hyphens: hyphens4,
         rtl: rtl4
       }"
-      :max-lines="lines4"
+      :max-height="height4 + 'px'"
       autoresize
       :style="{
         width: `${width4}px`
@@ -675,8 +670,8 @@ export default {
       hyphens3: true,
       rtl3: false,
       clamped3: false,
-      lines4: 2,
       width4: 600,
+      height4: 200,
       hyphens4: true,
       rtl4: false,
       rawHtml4: true,
@@ -685,7 +680,7 @@ export default {
       textZh:
         'Vue (读音 /vjuː/，类似于 view) 是一套用于构建用户界面的渐进式框架。与其它大型框架不同的是，Vue 被设计为可以自底向上逐层应用。Vue 的核心库只关注视图层，不仅易于上手，还便于与第三方库或既有项目整合。另一方面，当与现代化的工具链以及各种支持类库结合使用时，Vue 也完全能够为复杂的单页应用提供驱动。',
       textHtml:
-        'The easiest way to try out Vue.js is using the <a href="https://codesandbox.io/s/github/vuejs/vuejs.org/tree/master/src/v2/examples/vue-20-hello-world" target="_blank" rel="noopener">Hello World example</a>. Feel free to open it in another tab and follow along as we go through some basic examples. Or, you can <a href="https://github.com/vuejs/vuejs.org/blob/master/src/v2/examples/vue-20-hello-world/index.html" target="_blank" download="index.html" rel="noopener noreferrer">create an <code>index.html</code> file</a> and include Vue',
+        '<p>Vue Ecosystem <ul><li>Vue</li><li>Vuex</li><li>Vue Router</li><li>Vue SSR</li></ul></p> The easiest way to try out Vue.js is using the <a href="https://codesandbox.io/s/github/vuejs/vuejs.org/tree/master/src/v2/examples/vue-20-hello-world" target="_blank" rel="noopener">Hello World example</a>. Feel free to open it in another tab and follow along as we go through some basic examples. Or, you can <a href="https://github.com/vuejs/vuejs.org/blob/master/src/v2/examples/vue-20-hello-world/index.html" target="_blank" download="index.html" rel="noopener noreferrer">create an <code>index.html</code> file</a> and include Vue',
       zh,
       pascal: false
     }
@@ -725,7 +720,7 @@ export default {
         return clip(html, maxLength, { html: true, breakWords: true })
       } catch (error) {
         console.warn(error)
-        return html.replace(/<[^>]*?>/gi, '').slice(0, maxLength) + '...'
+        return html.replace(/<[^>]*?>/gi, ' ').slice(0, maxLength) + '...'
       }
     }
   }

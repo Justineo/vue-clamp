@@ -91,7 +91,7 @@ export default {
     this.init()
 
     this.$watch(
-      (vm) => [vm.maxLines, vm.maxHeight, vm.ellipsis, vm.isClamped].join(),
+      (vm) => [vm.maxLines, vm.maxHeight, vm.ellipsis, vm.isClamped, vm.rawHtml].join(),
       this.update
     )
     this.$watch((vm) => [vm.tag, vm.text, vm.autoresize].join(), this.init)
@@ -235,7 +235,7 @@ export default {
       : {
         ref: 'text',
         attrs: {
-          'aria-label': this.rawHtml ? this.text.replace(/<[^>]*?>/gi, '').trim() : this.text.trim()
+          'aria-label': this.rawHtml ? this.text.replace(/<[^>]*?>/gi, ' ').trim() : this.text.trim()
         }
       }
     const renderText = this.$isServer ? this.text : this.realText
