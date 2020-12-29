@@ -91,10 +91,10 @@ export default {
     this.init()
 
     this.$watch(
-      (vm) => [vm.maxLines, vm.maxHeight, vm.ellipsis, vm.isClamped, vm.rawHtml].join(),
+      (vm) => [vm.maxLines, vm.maxHeight, vm.ellipsis, vm.isClamped].join(),
       this.update
     )
-    this.$watch((vm) => [vm.tag, vm.text, vm.autoresize].join(), this.init)
+    this.$watch((vm) => [vm.tag, vm.text, vm.autoresize, vm.rawHtml].join(), this.init)
   },
   updated () {
     this.text = this.getText()
