@@ -14,7 +14,8 @@
   "module": "Clamp.js",
   "dependencies": {
     "core-js": "^3.6.5",
-    "resize-detector": "^0.1.10"
+    "resize-detector": "^0.1.10",
+    "text-clipper": "^2.1.0"
   },
   "devDependencies": {
     "@rollup/plugin-buble": "^0.21.3",

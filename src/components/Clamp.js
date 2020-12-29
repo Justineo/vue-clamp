@@ -1,5 +1,13 @@
 import { addListener, removeListener } from 'resize-detector'
 
+let clip = null
+
+try {
+  clip = require('text-clipper')
+  clip = clip.default || clip
+} catch (e) {
+}
+
 export default {
   name: 'vue-clamp',
   props: {
@@ -32,6 +40,20 @@ export default {
   },
   computed: {
     clampedText () {
+      if (this.rawHtml) {
+        if (clip) {
+          try {
+            return clip(this.text, this.offset, { html: true, breakWords: true, indicator: this.ellipsis })
+          } catch (error) {
+            console.warn(error)
+          }
+        } else {
+          console.warn('For raw-html need text-clipper')
+        }
+
+        return this.text.replace(/<[^>]*?>/gi, '').slice(0, this.offset) + this.ellipsis
+      }
+
       return this.text.slice(0, this.offset) + this.ellipsis
     },
     isClamped () {
