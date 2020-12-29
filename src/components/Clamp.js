@@ -64,6 +64,11 @@ export default {
         return null
       }
       return typeof maxHeight === 'number' ? `${maxHeight}px` : maxHeight
+    },
+    ariaLabel () {
+      return this.rawHtml
+        ? this.text.replace(/<[^>]*?>/gi, ' ').trim()
+        : this.text.trim()
     }
   },
   watch: {
@@ -235,7 +240,7 @@ export default {
       : {
         ref: 'text',
         attrs: {
-          'aria-label': this.rawHtml ? this.text.replace(/<[^>]*?>/gi, ' ').trim() : this.text.trim()
+          'aria-label': this.ariaLabel
         }
       }
     const renderText = this.$isServer ? this.text : this.realText
