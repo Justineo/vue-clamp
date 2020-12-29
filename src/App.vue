@@ -283,6 +283,7 @@
         width: `${width4}px`
       }"
       :raw-html="rawHtml4"
+      :clip="clipHTML"
     >
       {{ textHtml }}
       <template #after="{ toggle, expanded, clamped }">
@@ -491,11 +492,51 @@ export default {
         <p>
           <code>raw-html: boolean</code>
         </p>
-        <p>{{ zh ? '将文本呈现为HTML。' : 'Render text as HTML.' }}</p>
+        <p>{{ zh ? '将文本呈现为HTML。还需要 `clip`' : 'Render text as HTML. Also need `clip`' }}</p>
         <p>
           {{ defaultText }}
           <code>false</code>
         </p>
+      </li>
+      <li>
+        <p>
+          <code>clip: Function</code>
+        </p>
+        <p>Function for clip HTML text. <code>clip(html, maxLength) -> clippedHTML</code></p>
+        <details>
+          <summary>Example</summary>
+          <p>Example usage with <a taget="_blank" href="https://github.com/arendjr/text-clipper">text-clipper</a>
+
+            <pre v-pre class="code vue" data-lang="Vue"><code>&lt;template&gt;
+&lt;v-clamp raw-html :clip="clipHTML"&gt;&#x7B;&#x7B; text &#x7D;&#x7D;&lt;/v-clamp&gt;
+&lt;/template&gt;
+
+&lt;script&gt;
+import VClamp from 'vue-clamp'
+import clip from 'text-clipper'
+
+export default {
+  components: {
+    VClamp
+  },
+  data () {
+    return {
+      text: 'Some &lt;span&gt;html content&lt;/span&gt;.'
+    }
+  },
+  methods: {
+    clipHTML (html, maxLength) {
+      try {
+        return clip(html, maxLength, { html: true, breakWords: true })
+      } catch (error) {
+        return html.replace(/&lt;[^&gt;]*?&gt;/gi, '').slice(0, maxLength) + '...'
+      }
+    }
+  }
+}
+&lt;/script&gt;</code></pre>
+          </p>
+        </details>
       </li>
     </ul>
   </section>
@@ -596,6 +637,7 @@ export default {
 
 <script>
 import VClamp from './components/Clamp'
+import clip from 'text-clipper'
 import qs from 'qs'
 import hljs from 'highlight.js/lib/highlight.js'
 import vue from './vue-lang.js'
@@ -633,7 +675,7 @@ export default {
       hyphens3: true,
       rtl3: false,
       clamped3: false,
-      lines4: 3,
+      lines4: 2,
       width4: 600,
       hyphens4: true,
       rtl4: false,
@@ -643,7 +685,7 @@ export default {
       textZh:
         'Vue (读音 /vjuː/，类似于 view) 是一套用于构建用户界面的渐进式框架。与其它大型框架不同的是，Vue 被设计为可以自底向上逐层应用。Vue 的核心库只关注视图层，不仅易于上手，还便于与第三方库或既有项目整合。另一方面，当与现代化的工具链以及各种支持类库结合使用时，Vue 也完全能够为复杂的单页应用提供驱动。',
       textHtml:
-        '<span>The easiest way to try out Vue.js is using the <a href="https://codepen.io/team/Vue/pen/KKpRVpx" target="_blank" rel="noopener noreferrer">Hello World example<svg xmlns="http://www.w3.org/2000/svg" aria-hidden="true" x="0px" y="0px" viewBox="0 0 100 100" width="15" height="15" class="icon outbound"><path fill="currentColor" d="M18.8,85.1h56l0,0c2.2,0,4-1.8,4-4v-32h-8v28h-48v-48h28v-8h-32l0,0c-2.2,0-4,1.8-4,4v56C14.8,83.3,16.6,85.1,18.8,85.1z"></path> <polygon fill="currentColor" points="45.7,48.7 51.3,54.3 77.2,28.5 77.2,37.2 85.2,37.2 85.2,14.9 62.8,14.9 62.8,22.9 71.5,22.9"></polygon></svg></a>. Feel free to open it in another tab and follow along as we go through some basic examples.</span> <span>The <a href="/guide/installation.html" class="">Installation</a> page provides more options of installing Vue. Note: We <strong>do not</strong> recommend that beginners start with <code>vue-cli</code>, especially if you are not yet familiar with Node.js-based build tools.</span>',
+        'The easiest way to try out Vue.js is using the <a href="https://codesandbox.io/s/github/vuejs/vuejs.org/tree/master/src/v2/examples/vue-20-hello-world" target="_blank" rel="noopener">Hello World example</a>. Feel free to open it in another tab and follow along as we go through some basic examples. Or, you can <a href="https://github.com/vuejs/vuejs.org/blob/master/src/v2/examples/vue-20-hello-world/index.html" target="_blank" download="index.html" rel="noopener noreferrer">create an <code>index.html</code> file</a> and include Vue',
       zh,
       pascal: false
     }
@@ -676,6 +718,19 @@ export default {
     ;[...this.$el.querySelectorAll('pre.code')].forEach(code => {
       hljs.highlightBlock(code)
     })
+  },
+  methods: {
+    clipHTML (html, maxLength) {
+      try {
+        return clip(html, maxLength, { html: true, breakWords: true })
+      } catch (error) {
+        console.warn(error)
+        return html.replace(/<[^>]*?>/gi, '').slice(0, maxLength) + '...'
+      }
+    },
+    clipSimple (html, maxLength) {
+      return html.slice(0, maxLength) + '...'
+    }
   }
 }
 </script>
