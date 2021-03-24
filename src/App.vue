@@ -225,7 +225,7 @@
         <label
           class="form-label col-5 col-sm-12"
           for="height4"
-        >{{ zh ? '货柜高度' : 'Container height' }}</label>
+        >{{ zh ? '容器高度' : 'Container height' }}</label>
         <div class="col-7 col-sm-12 tooltip" :data-tooltip="`${height4}px`">
           <input id="height4" v-model="height4" class="slider" type="range" min="10" max="400">
         </div>
@@ -487,7 +487,7 @@ export default {
         <p>
           <code>raw-html: boolean</code>
         </p>
-        <p>{{ zh ? '将文本呈现为HTML。还需要 `clip`' : 'Render text as HTML. Also need `clip`' }}</p>
+        <p>{{ zh ? '将文本呈现为 HTML。需要通过 `clip` prop 传入截断函数。' : 'Render text as HTML. Also need to pass in the clip function via `clip` prop.' }}</p>
         <p>
           {{ defaultText }}
           <code>false</code>
@@ -495,9 +495,9 @@ export default {
       </li>
       <li>
         <p>
-          <code>clip: Function</code>
+          <code>clip: (html: string, maxLength: number) => string</code>
         </p>
-        <p>Function for clip HTML text. <code>clip(html, maxLength) -> clippedHTML</code></p>
+        <p>{{ zh ? '用于截断 HTML 的函数。' : 'A function for clipping HTML.' }}</p>
         <details>
           <summary>Example</summary>
           <p>Example usage with <a taget="_blank" href="https://github.com/arendjr/text-clipper">text-clipper</a>
