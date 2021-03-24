@@ -217,6 +217,80 @@
       class="mt-2"
     >{{ zh ? '截断状态：' + (clamped3 ? '已截断' : '未截断') : 'Clamped: ' + (clamped3 ? 'Yes' : 'No')}}</p>
   </section>
+
+  <div class="divider text-center" data-content="raw html"/>
+  <section class="case">
+    <div class="form-horizontal">
+      <div class="form-group">
+        <label
+          class="form-label col-5 col-sm-12"
+          for="height4"
+        >{{ zh ? '容器高度' : 'Container height' }}</label>
+        <div class="col-7 col-sm-12 tooltip" :data-tooltip="`${height4}px`">
+          <input id="height4" v-model="height4" class="slider" type="range" min="10" max="400">
+        </div>
+      </div>
+      <div class="form-group">
+        <label
+          class="form-label col-5 col-sm-12"
+          for="width4"
+        >{{ zh ? '容器宽度' : 'Container width' }}</label>
+        <div class="col-7 col-sm-12 tooltip" :data-tooltip="`${width4}px`">
+          <input id="width4" v-model="width4" class="slider" type="range" min="240" max="600">
+        </div>
+      </div>
+      <div class="form-group">
+        <div class="col-3 col-sm-12">
+          <label class="form-checkbox">
+            <input v-model="rawHtml4" type="checkbox">
+            <i class="form-icon"/>
+            {{ 'HTML' }}
+          </label>
+        </div>
+        <div v-if="!zh" class="col-5 col-sm-12">
+          <label class="form-checkbox">
+            <input v-model="hyphens4" type="checkbox">
+            <i class="form-icon"/>
+            CSS Hyphens
+          </label>
+        </div>
+        <div v-if="!zh" class="col-3 col-sm-12">
+          <label class="form-checkbox">
+            <input v-model="rtl4" type="checkbox">
+            <i class="form-icon"/>
+            RTL
+          </label>
+        </div>
+      </div>
+      <div class="form-group">
+        <textarea v-model="textHtml" style="width: 100%" rows="3"/>
+      </div>
+    </div>
+    <v-clamp
+      :class="{
+        demo: true,
+        hyphens: hyphens4,
+        rtl: rtl4
+      }"
+      :max-height="height4 + 'px'"
+      autoresize
+      :style="{
+        width: `${width4}px`
+      }"
+      :raw-html="rawHtml4"
+      :clip="clipHTML"
+    >
+      {{ textHtml }}
+      <template #after="{ toggle, expanded, clamped }">
+        <button
+          v-if="expanded || clamped"
+          class="toggle btn btn-sm"
+          @click="toggle"
+        >{{ zh ? '切换' : 'Toggle' }}</button>
+      </template>
+    </v-clamp>
+  </section>
+
   <h2 id="usage">
     <a href="#usage">#</a>
     {{ zh ? '使用方法' : 'Usage' }}
@@ -409,6 +483,56 @@ export default {
           <code>false</code>
         </p>
       </li>
+      <li>
+        <p>
+          <code>raw-html: boolean</code>
+        </p>
+        <p>{{ zh ? '将文本呈现为 HTML。需要通过 `clip` prop 传入截断函数。' : 'Render text as HTML. Also need to pass in the clip function via `clip` prop.' }}</p>
+        <p>
+          {{ defaultText }}
+          <code>false</code>
+        </p>
+      </li>
+      <li>
+        <p>
+          <code>clip: (html: string, maxLength: number) => string</code>
+        </p>
+        <p>{{ zh ? '用于截断 HTML 的函数。' : 'A function for clipping HTML.' }}</p>
+        <details>
+          <summary>Example</summary>
+          <p>Example usage with <a taget="_blank" href="https://github.com/arendjr/text-clipper">text-clipper</a>
+
+            <pre v-pre class="code vue" data-lang="Vue"><code>&lt;template&gt;
+&lt;v-clamp raw-html :clip="clipHTML"&gt;&#x7B;&#x7B; text &#x7D;&#x7D;&lt;/v-clamp&gt;
+&lt;/template&gt;
+
+&lt;script&gt;
+import VClamp from 'vue-clamp'
+import clip from 'text-clipper'
+
+export default {
+  components: {
+    VClamp
+  },
+  data () {
+    return {
+      text: 'Some &lt;span&gt;html content&lt;/span&gt;.'
+    }
+  },
+  methods: {
+    clipHTML (html, maxLength) {
+      try {
+        return clip(html, maxLength, { html: true, breakWords: true })
+      } catch (error) {
+        return html.replace(/&lt;[^&gt;]*?&gt;/gi, '').slice(0, maxLength) + '...'
+      }
+    }
+  }
+}
+&lt;/script&gt;</code></pre>
+          </p>
+        </details>
+      </li>
     </ul>
   </section>
   <div class="divider text-center" data-content="↓ Slots"/>
@@ -508,6 +632,7 @@ export default {
 
 <script>
 import VClamp from './components/Clamp'
+import clip from 'text-clipper'
 import qs from 'qs'
 import hljs from 'highlight.js/lib/highlight.js'
 import vue from './vue-lang.js'
@@ -545,10 +670,17 @@ export default {
       hyphens3: true,
       rtl3: false,
       clamped3: false,
+      width4: 600,
+      height4: 200,
+      hyphens4: true,
+      rtl4: false,
+      rawHtml4: true,
       text:
         'Vue (pronounced /vjuː/, like view) is a progressive framework for building user interfaces. Unlike other monolithic frameworks, Vue is designed from the ground up to be incrementally adoptable. The core library is focused on the view layer only, and is easy to pick up and integrate with other libraries or existing projects. On the other hand, Vue is also perfectly capable of powering sophisticated Single-Page Applications when used in combination with modern tooling and supporting libraries.',
       textZh:
         'Vue (读音 /vjuː/，类似于 view) 是一套用于构建用户界面的渐进式框架。与其它大型框架不同的是，Vue 被设计为可以自底向上逐层应用。Vue 的核心库只关注视图层，不仅易于上手，还便于与第三方库或既有项目整合。另一方面，当与现代化的工具链以及各种支持类库结合使用时，Vue 也完全能够为复杂的单页应用提供驱动。',
+      textHtml:
+        '<p>Vue Ecosystem <ul><li>Vue</li><li>Vuex</li><li>Vue Router</li><li>Vue SSR</li></ul></p> The easiest way to try out Vue.js is using the <a href="https://codesandbox.io/s/github/vuejs/vuejs.org/tree/master/src/v2/examples/vue-20-hello-world" target="_blank" rel="noopener">Hello World example</a>. Feel free to open it in another tab and follow along as we go through some basic examples. Or, you can <a href="https://github.com/vuejs/vuejs.org/blob/master/src/v2/examples/vue-20-hello-world/index.html" target="_blank" download="index.html" rel="noopener noreferrer">create an <code>index.html</code> file</a> and include Vue',
       zh,
       pascal: false
     }
@@ -581,6 +713,16 @@ export default {
     ;[...this.$el.querySelectorAll('pre.code')].forEach(code => {
       hljs.highlightBlock(code)
     })
+  },
+  methods: {
+    clipHTML (html, maxLength) {
+      try {
+        return clip(html, maxLength, { html: true, breakWords: true })
+      } catch (error) {
+        console.warn(error)
+        return html.replace(/<[^>]*?>/gi, ' ').slice(0, maxLength) + '...'
+      }
+    }
   }
 }
 </script>

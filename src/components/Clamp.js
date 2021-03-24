@@ -17,7 +17,15 @@ export default {
       type: String,
       default: '…'
     },
-    expanded: Boolean
+    expanded: Boolean,
+    rawHtml: {
+      type: Boolean,
+      default: false
+    },
+    clip: {
+      type: Function,
+      default: undefined
+    }
   },
   data () {
     return {
@@ -28,6 +36,14 @@ export default {
   },
   computed: {
     clampedText () {
+      if (this.rawHtml) {
+        if (this.clip) {
+          return this.clip(this.text, this.offset)
+        } else {
+          console.warn('Need set `clip` function for raw-html')
+        }
+      }
+
       return this.text.slice(0, this.offset) + this.ellipsis
     },
     isClamped () {
@@ -48,6 +64,11 @@ export default {
         return null
       }
       return typeof maxHeight === 'number' ? `${maxHeight}px` : maxHeight
+    },
+    ariaLabel () {
+      return this.rawHtml
+        ? this.text.replace(/<[^>]*?>/gi, ' ').trim()
+        : this.text.trim()
     }
   },
   watch: {
@@ -78,7 +99,7 @@ export default {
       (vm) => [vm.maxLines, vm.maxHeight, vm.ellipsis, vm.isClamped].join(),
       this.update
     )
-    this.$watch((vm) => [vm.tag, vm.text, vm.autoresize].join(), this.init)
+    this.$watch((vm) => [vm.tag, vm.text, vm.autoresize, vm.rawHtml].join(), this.init)
   },
   updated () {
     this.text = this.getText()
@@ -171,7 +192,11 @@ export default {
       this.applyChange()
     },
     applyChange () {
-      this.$refs.text.textContent = this.realText
+      if (this.rawHtml) {
+        this.$refs.text.innerHTML = this.realText
+      } else {
+        this.$refs.text.textContent = this.realText
+      }
     },
     stepToFit () {
       this.fill()
@@ -211,18 +236,26 @@ export default {
     }
   },
   render (h) {
+    const attributes = this.$isServer ? {}
+      : {
+        ref: 'text',
+        attrs: {
+          'aria-label': this.ariaLabel
+        }
+      }
+    const renderText = this.$isServer ? this.text : this.realText
+
+    if (this.rawHtml) {
+      attributes.domProps = {
+        innerHTML: renderText
+      }
+    }
+
     const contents = [
       h(
         'span',
-        this.$isServer
-          ? {}
-          : {
-            ref: 'text',
-            attrs: {
-              'aria-label': this.text.trim()
-            }
-          },
-        this.$isServer ? this.text : this.realText
+        attributes,
+        this.rawHtml ? undefined : renderText
       )
     ]
 
