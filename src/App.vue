@@ -48,7 +48,7 @@
         </div>
         <div class="col-1 col-sm-12">
           <label class="form-radio">
-            <input v-model="location" type="radio" value="banana">
+            <input v-model="location" type="radio" value="end">
             <i class="form-icon"/>
             End
           </label>
