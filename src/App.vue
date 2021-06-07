@@ -22,10 +22,101 @@
     <li>{{ zh ? '支持在布局变化时自动更新。' : 'Automatically updates upon layout change.' }}</li>
     <li>{{ zh ? '支持展开/收起被截断部分内容。' : 'The clamped text can be expanded/collapsed.' }}</li>
     <li>{{ zh ? '支持自定义截断文本前后内容，并且进行响应式更新。' : 'Customizable and responsive content before/after clamped text.' }}</li>
+    <li>{{ 'Place elllipsis on the left, right or in the middle of clamped text' }}</li>
   </ul>
   <h2 id="demo">
     <a href="#demo">#</a> Demo
   </h2>
+  <div class="divider text-center" data-content="↓ customizable ellipsis location & max-lines"/>
+  <section class="case">
+    <div class="form-horizontal">
+      <div v-if="!zh" class="form-group">
+        <label class="form-label col-5 col-sm-12" for="location">{{ zh ? '地点' : 'Location' }}</label>
+        <div class="col-3 col-sm-12">
+          <label class="form-radio">
+            <input v-model="location" type="radio" value="start">
+            <i class="form-icon"/>
+            Start
+          </label>
+        </div>
+        <div class="col-3 col-sm-12">
+          <label class="form-radio">
+            <input v-model="location" type="radio" value="middle">
+            <i class="form-icon"/>
+            Middle
+          </label>
+        </div>
+        <div class="col-1 col-sm-12">
+          <label class="form-radio">
+            <input v-model="location" type="radio" value="banana">
+            <i class="form-icon"/>
+            End
+          </label>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label col-5 col-sm-12" for="lines">{{ zh ? '最大行数' : 'Max lines' }}</label>
+        <div class="col-7 col-sm-12">
+          <input
+            id="lines"
+            v-model.number="lines"
+            class="form-input"
+            type="number"
+            min="1"
+            max="8"
+            step="1"
+          >
+        </div>
+      </div>
+      <div class="form-group">
+        <label
+          class="form-label col-5 col-sm-12"
+          for="width1"
+        >{{ zh ? '容器宽度' : 'Container width' }}</label>
+        <div class="col-7 col-sm-12 tooltip" :data-tooltip="`${width1}px`">
+          <input id="width1" v-model="width1" class="slider" type="range" min="240" max="600">
+        </div>
+      </div>
+      <div v-if="!zh" class="form-group">
+        <div class="col-5 col-sm-12">
+          <label class="form-checkbox">
+            <input v-model="hyphens1" type="checkbox">
+            <i class="form-icon"/>
+            CSS Hyphens
+          </label>
+        </div>
+        <div class="col-5 col-sm-12">
+          <label class="form-checkbox">
+            <input v-model="rtl1" type="checkbox">
+            <i class="form-icon"/>
+            RTL
+          </label>
+        </div>
+      </div>
+    </div>
+    <v-clamp
+      :class="{
+        demo: true,
+        hyphens: hyphens1,
+        rtl: rtl1
+      }"
+      :max-lines="lines"
+      :location="location"
+      autoresize
+      :style="{
+        width: `${width1}px`
+      }"
+    >
+      {{ zh ? textZh : text }}
+      <template #after="{ toggle, expanded, clamped }">
+        <button
+          v-if="expanded || clamped"
+          class="toggle btn btn-sm"
+          @click="toggle"
+        >{{ zh ? '切换' : 'Toggle' }}</button>
+      </template>
+    </v-clamp>
+  </section>
   <div class="divider text-center" data-content="↓ max-lines & slot `after`"/>
   <section class="case">
     <div class="form-horizontal">
@@ -533,6 +624,7 @@ export default {
     return {
       lines: 3,
       width1: 600,
+      location: 'end',
       hyphens1: true,
       rtl1: false,
       expanded1: false,
