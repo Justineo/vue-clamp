@@ -17,6 +17,13 @@ export default {
       type: String,
       default: '…'
     },
+    location: {
+      type: String,
+      default: 'end',
+      validator: function (value) {
+        return ['start', 'middle', 'end'].includes(value)
+      }
+    },
     expanded: Boolean
   },
   data () {
@@ -28,7 +35,14 @@ export default {
   },
   computed: {
     clampedText () {
-      return this.text.slice(0, this.offset) + this.ellipsis
+      if (this.location === 'start') {
+        return this.ellipsis + (this.text.slice(0, this.offset) || '').trim()
+      } else if (this.location === 'middle') {
+        const split = this.offset / 2
+        return (this.text.slice(0, Math.floor(split)) || '').trim() + this.ellipsis + (this.text.slice(0, Math.ceil(split)) || '').trim()
+      }
+
+      return (this.text.slice(0, this.offset) || '').trim() + this.ellipsis
     },
     isClamped () {
       if (!this.text) {
