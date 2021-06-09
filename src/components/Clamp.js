@@ -38,8 +38,9 @@ export default {
       if (this.location === 'start') {
         return this.ellipsis + (this.text.slice(0, this.offset) || '').trim()
       } else if (this.location === 'middle') {
-        const split = this.offset / 2
-        return (this.text.slice(0, Math.floor(split)) || '').trim() + this.ellipsis + (this.text.slice(0, Math.ceil(split)) || '').trim()
+        const split = Math.floor(this.offset / 2)
+        console.log('this many:', split)
+        return (this.text.slice(0, split) || '').trim() + this.ellipsis + (this.text.slice(-split) || '').trim()
       }
 
       return (this.text.slice(0, this.offset) || '').trim() + this.ellipsis
