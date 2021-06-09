@@ -39,7 +39,6 @@ export default {
         return this.ellipsis + (this.text.slice(0, this.offset) || '').trim()
       } else if (this.location === 'middle') {
         const split = Math.floor(this.offset / 2)
-        console.log('this many:', split)
         return (this.text.slice(0, split) || '').trim() + this.ellipsis + (this.text.slice(-split) || '').trim()
       }
 
