@@ -7,8 +7,7 @@
     "build": "NODE_ENV=production rollup -c",
     "lint": "vue-cli-service lint",
     "build:demo": "vue-cli-service build",
-    "prepublishOnly": "cp ./src/components/Clamp.js .",
-    "publish": "rm ./Clamp.js"
+    "prepublishOnly": "npm run build"
   },
   "main": "dist/vue-clamp.js",
   "module": "dist/vue-clamp.esm.js",
