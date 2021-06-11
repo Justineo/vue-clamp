@@ -22,102 +22,12 @@
     <li>{{ zh ? '支持在布局变化时自动更新。' : 'Automatically updates upon layout change.' }}</li>
     <li>{{ zh ? '支持展开/收起被截断部分内容。' : 'The clamped text can be expanded/collapsed.' }}</li>
     <li>{{ zh ? '支持自定义截断文本前后内容，并且进行响应式更新。' : 'Customizable and responsive content before/after clamped text.' }}</li>
-    <li>{{ zh ? '支持在文本末尾、中间或开始位置进行截断。' : 'Place elllipsis at the end, middle, or the start of the clamped text' }}</li>
+    <li>{{ zh ? '支持在文本末尾、中间或开始位置进行截断。' : 'Place elllipsis at the end, middle, or the start of the clamped text.' }}</li>
   </ul>
   <h2 id="demo">
     <a href="#demo">#</a> Demo
   </h2>
-  <div class="divider text-center" data-content="↓ customizable ellipsis location & max-lines"/>
-  <section class="case">
-    <div class="form-horizontal">
-      <div v-if="!zh" class="form-group">
-        <label class="form-label col-5 col-sm-12" for="location">{{ zh ? '地点' : 'Location' }}</label>
-        <div class="col-3 col-sm-12">
-          <label class="form-radio">
-            <input v-model="location" type="radio" value="start">
-            <i class="form-icon"/>
-            Start
-          </label>
-        </div>
-        <div class="col-3 col-sm-12">
-          <label class="form-radio">
-            <input v-model="location" type="radio" value="middle">
-            <i class="form-icon"/>
-            Middle
-          </label>
-        </div>
-        <div class="col-1 col-sm-12">
-          <label class="form-radio">
-            <input v-model="location" type="radio" value="end">
-            <i class="form-icon"/>
-            End
-          </label>
-        </div>
-      </div>
-      <div class="form-group">
-        <label class="form-label col-5 col-sm-12" for="lines">{{ zh ? '最大行数' : 'Max lines' }}</label>
-        <div class="col-7 col-sm-12">
-          <input
-            id="lines"
-            v-model.number="lines"
-            class="form-input"
-            type="number"
-            min="1"
-            max="8"
-            step="1"
-          >
-        </div>
-      </div>
-      <div class="form-group">
-        <label
-          class="form-label col-5 col-sm-12"
-          for="width1"
-        >{{ zh ? '容器宽度' : 'Container width' }}</label>
-        <div class="col-7 col-sm-12 tooltip" :data-tooltip="`${width1}px`">
-          <input id="width1" v-model="width1" class="slider" type="range" min="240" max="600">
-        </div>
-      </div>
-      <div v-if="!zh" class="form-group">
-        <div class="col-5 col-sm-12">
-          <label class="form-checkbox">
-            <input v-model="hyphens1" type="checkbox">
-            <i class="form-icon"/>
-            CSS Hyphens
-          </label>
-        </div>
-        <div class="col-5 col-sm-12">
-          <label class="form-checkbox">
-            <input v-model="rtl1" type="checkbox">
-            <i class="form-icon"/>
-            RTL
-          </label>
-        </div>
-      </div>
-    </div>
-    <v-clamp
-      :class="{
-        demo: true,
-        hyphens: hyphens1,
-        rtl: rtl1
-      }"
-      :max-lines="lines"
-      :location="location"
-      autoresize
-      :style="{
-        width: `${width1}px`
-      }"
-    >
-      {{ zh ? textZh : text }}
-      <template #after="{ toggle, expanded, clamped }">
-        <button
-          v-if="expanded || clamped"
-          class="toggle btn btn-sm"
-          @click="toggle"
-        >{{ zh ? '切换' : 'Toggle' }}</button>
-      </template>
-    </v-clamp>
-  </section>
-  <div class="divider text-center" data-content="↓ max-lines & slot `after`"/>
+  <div class="divider text-center" data-content="↓ max-lines & slot `after` & toggle inside"/>
   <section class="case">
     <div class="form-horizontal">
       <div class="form-group">
@@ -182,7 +92,7 @@
       </template>
     </v-clamp>
   </section>
-  <div class="divider text-center" data-content="↓ max-height & slot `before`"/>
+  <div class="divider text-center" data-content="↓ max-height & slot `before` & toggle outside"/>
   <section class="case">
     <div class="form-horizontal">
       <div class="form-group">
@@ -308,105 +218,113 @@
       class="mt-2"
     >{{ zh ? '截断状态：' + (clamped3 ? '已截断' : '未截断') : 'Clamped: ' + (clamped3 ? 'Yes' : 'No')}}</p>
   </section>
-  <h2 id="usage">
+  <div class="divider text-center" data-content="↓ ellipsis & location"/>
+  <section class="case">
+    <div class="form-horizontal">
+      <div class="form-group">
+        <label class="form-label col-5 col-sm-12">{{ zh ? '位置' : 'Location' }}</label>
+        <div class="col-auto col-sm-12">
+          <label class="form-radio">
+            <input v-model="location4" type="radio" value="start">
+            <i class="form-icon"/>
+            {{ zh ? '开始' : 'Start' }}
+          </label>
+        </div>
+        <div class="col-auto col-sm-12">
+          <label class="form-radio">
+            <input v-model="location4" type="radio" value="middle">
+            <i class="form-icon"/>
+            {{ zh ? '中间' : 'Middle' }}
+          </label>
+        </div>
+        <div class="col-auto col-sm-12">
+          <label class="form-radio">
+            <input v-model="location4" type="radio" value="end">
+            <i class="form-icon"/>
+            {{ zh ? '末尾' : 'End' }}
+          </label>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label col-5 col-sm-12" for="ellipsis4">{{ zh ? '省略符号' : 'Ellipsis' }}</label>
+        <div class="col-7 col-sm-12">
+          <input
+            id="ellipsis4"
+            v-model="ellipsis4"
+            class="form-input"
+            maxlength="6"
+          >
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label col-5 col-sm-12" for="lines4">{{ zh ? '最大行数' : 'Max lines' }}</label>
+        <div class="col-7 col-sm-12">
+          <input
+            id="lines4"
+            v-model.number="lines4"
+            class="form-input"
+            type="number"
+            min="1"
+            max="8"
+            step="1"
+          >
+        </div>
+      </div>
+      <div class="form-group">
+        <label
+          class="form-label col-5 col-sm-12"
+          for="width1"
+        >{{ zh ? '容器宽度' : 'Container width' }}</label>
+        <div class="col-7 col-sm-12 tooltip" :data-tooltip="`${width4}px`">
+          <input id="width4" v-model="width4" class="slider" type="range" min="240" max="600">
+        </div>
+      </div>
+      <div v-if="!zh" class="form-group">
+        <div class="col-5 col-sm-12">
+          <label class="form-checkbox">
+            <input v-model="hyphens4" type="checkbox">
+            <i class="form-icon"/>
+            CSS Hyphens
+          </label>
+        </div>
+        <div class="col-5 col-sm-12">
+          <label class="form-checkbox">
+            <input v-model="rtl4" type="checkbox">
+            <i class="form-icon"/>
+            RTL
+          </label>
+        </div>
+      </div>
+    </div>
+    <v-clamp
+      :class="{
+        demo: true,
+        hyphens: hyphens4,
+        rtl: rtl4
+      }"
+      :max-lines="lines4"
+      :location="location4"
+      :ellipsis="ellipsis4"
+      autoresize
+      :style="{
+        width: `${width1}px`
+      }"
+    >
+      {{ zh ? textZh : text }}
+      <template #after="{ toggle, expanded, clamped }">
+        <button
+          v-if="expanded || clamped"
+          class="toggle btn btn-sm"
+          @click="toggle"
+        >{{ zh ? '切换' : 'Toggle' }}</button>
+      </template>
+    </v-clamp>
+  </section>  <h2 id="usage">
     <a href="#usage">#</a>
     {{ zh ? '使用方法' : 'Usage' }}
   </h2>
   <div class="divider text-center" :data-content="zh ? '↓ 安装' : '↓ Installation'"/>
   <pre class="code shell" data-lang="Shell"><code>$ npm i --save vue-clamp</code></pre>
-  <div class="divider text-center" :data-content="zh ? '↓ 配置' : '↓ Configuration'"/>
-  <p v-if="zh">
-    对于基于 webpack 的项目，
-    <code>import</code> 会自动引入未经转译的 ES Module 版本。请确保按如下指导配置相关工具。
-  </p>
-  <p v-else>
-    For project based on webpack,
-    <code>import</code> will load the untranspiled ES Module version. Please make sure to add the correct config according to following instructions.
-  </p>
-  <details open>
-    <summary>
-      <h4>
-        Vue CLI
-        <small>v3</small>
-      </h4>
-    </summary>
-    <p v-if="zh">
-      对于使用 Vue CLI 3 创建的项目，请确保将
-      <code>vue-clamp</code> 与
-      <code>resize-detector</code> 加入
-      <code>vue.config.js</code> 文件的
-      <code>transpileDependencies</code> 选项中：
-    </p>
-    <p v-else>
-      For projects created with Vue CLI 3, remember to add
-      <code>vue-clamp</code> and
-      <code>resize-detector</code> into the
-      <code>transpileDependencies</code> option in
-      <code>vue.config.js</code>:
-    </p>
-    <pre class="code javascript" data-lang="JavaScript"><code>module.exports = {
-  transpileDependencies: ['vue-clamp', 'resize-detector']
-}
-</code></pre>
-  </details>
-  <details>
-    <summary>
-      <h4>
-        Vue CLI
-        <small>v2</small>
-      </h4>
-    </summary>
-    <p v-if="zh">
-      如果使用的是 Vue CLI 2 的
-      <code>webpack</code> 模板，请按如下方式修改
-      <code>build/webpack.base.conf.js</code>：
-    </p>
-    <p v-else>
-      For Vue CLI 2 with the
-      <code>webpack</code> template, modify
-      <code>build/webpack.base.conf.js</code> like this:
-    </p>
-    <pre class="code diff" data-lang="Diff"><code>      {
-        test: /\.js$/,
-        loader: 'babel-loader',
--       include: [resolve('src'), resolve('test')]
-+       include: [
-+         resolve('src'),
-+         resolve('test'),
-+         resolve('node_modules/vue-clamp'),
-+         resolve('node_modules/resize-detector')
-+       ]
-      }
-</code></pre>
-  </details>
-  <details>
-    <summary>
-      <h4>
-        Nuxt.js
-        <small>v2</small>
-      </h4>
-    </summary>
-    <p v-if="zh">
-      在 Nuxt.js 中使用时，请确保将
-      <code>vue-clamp</code> 与
-      <code>resize-detector</code> 加入
-      <code>nuxt.config.js</code> 文件的
-      <code>build.transpile</code> 选项中：
-    </p>
-    <p v-else>
-      When using in Nuxt.js, remember to add
-      <code>vue-clamp</code> and
-      <code>resize-detector</code> into the
-      <code>build.transpile</code> option in
-      <code>nuxt.config.js</code>:
-    </p>
-    <pre class="code javascript" data-lang="JavaScript"><code>module.exports = {
-  build: {
-    transpile: ['vue-clamp', 'resize-detector']
-  }
-}
-</code></pre>
-  </details>
   <div class="divider text-center" :data-content="zh ? '↓ 代码样例' : '↓ Code example'"/>
   <pre v-pre class="code vue" data-lang="Vue"><code>&lt;template&gt;
 &lt;v-clamp autoresize :max-lines="3"&gt;&#x7B;&#x7B; text &#x7D;&#x7D;&lt;/v-clamp&gt;
@@ -461,7 +379,7 @@ export default {
       </li>
       <li>
         <p>
-          <code>max-height: number|string</code>
+          <code>max-height: number | string</code>
         </p>
         <p v-if="zh">
           根元素的最大高度。数字值将被转换为
@@ -482,6 +400,16 @@ export default {
         <p>
           {{ defaultText }}
           <code>'…'</code>
+        </p>
+      </li>
+      <li>
+        <p>
+          <code>location: 'start' | 'middle' | 'end'</code>
+        </p>
+        <p>{{ zh ? '截断后显式省略符号的位置。' : 'The location of the ellipsis.' }}</p>
+        <p>
+          {{ defaultText }}
+          <code>'end'</code>
         </p>
       </li>
       <li>
@@ -577,11 +505,14 @@ export default {
   <footer>
     <p v-if="zh">
       由
-      <a href="https://github.com/Justineo">@Justineo</a> 创作。
+      <a href="https://github.com/Justineo">@Justineo</a>
+      和<a href="https://github.com/Justineo/vue-clamp/graphs/contributors">贡献者们</a>共同创作。
     </p>
     <p v-else>
       Made by
-      <a href="https://github.com/Justineo">@Justineo</a>.
+      <a href="https://github.com/Justineo">@Justineo</a>
+      and
+      <a href="https://github.com/Justineo/vue-clamp/graphs/contributors">contributors</a>.
     </p>
     <p>
       <small v-if="zh">
@@ -637,6 +568,12 @@ export default {
       hyphens3: true,
       rtl3: false,
       clamped3: false,
+      lines4: 5,
+      width4: 600,
+      hyphens4: true,
+      rtl4: false,
+      ellipsis4: '…',
+      location4: 'end',
       text:
         'Vue (pronounced /vjuː/, like view) is a progressive framework for building user interfaces. Unlike other monolithic frameworks, Vue is designed from the ground up to be incrementally adoptable. The core library is focused on the view layer only, and is easy to pick up and integrate with other libraries or existing projects. On the other hand, Vue is also perfectly capable of powering sophisticated Single-Page Applications when used in combination with modern tooling and supporting libraries.',
       textZh:
@@ -683,7 +620,6 @@ export default {
 
 <style lang="stylus">
 html
-  scroll-behavior smooth
 
 h1
   margin-top 2rem

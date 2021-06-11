@@ -1,3 +1,9 @@
+## 0.4.0
+
+* Add `location` prop. (#66)
+* Add ESM output and no longer require users to transpile.
+* Externalize `resize-detector` to reduce bundle size.
+
 ## 0.3.2
 
 * Fix the problem caused by array spread. (#47)
