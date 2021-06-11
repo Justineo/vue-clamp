@@ -20,8 +20,8 @@ export default {
     location: {
       type: String,
       default: 'end',
-      validator: function (value) {
-        return ['start', 'middle', 'end'].includes(value)
+      validator (value) {
+        return ['start', 'middle', 'end'].indexOf(value) !== -1
       }
     },
     expanded: Boolean
