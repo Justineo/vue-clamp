@@ -22,7 +22,7 @@
     <li>{{ zh ? '支持在布局变化时自动更新。' : 'Automatically updates upon layout change.' }}</li>
     <li>{{ zh ? '支持展开/收起被截断部分内容。' : 'The clamped text can be expanded/collapsed.' }}</li>
     <li>{{ zh ? '支持自定义截断文本前后内容，并且进行响应式更新。' : 'Customizable and responsive content before/after clamped text.' }}</li>
-    <li>{{ 'Place elllipsis at the end, middle, or the start of the clamped text' }}</li>
+    <li>{{ zh ? '支持在文本末尾、中间或开始位置进行截断。' : 'Place elllipsis at the end, middle, or the start of the clamped text' }}</li>
   </ul>
   <h2 id="demo">
     <a href="#demo">#</a> Demo
