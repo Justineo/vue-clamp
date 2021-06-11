@@ -1,3 +1,7 @@
+## 0.3.2
+
+* Fix the problem caused by array spread. (#47)
+
 ## 0.3.1
 
 * Fix SSR support.
