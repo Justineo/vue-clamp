@@ -307,7 +307,7 @@
       :ellipsis="ellipsis4"
       autoresize
       :style="{
-        width: `${width1}px`
+        width: `${width4}px`
       }"
     >
       {{ zh ? textZh : text }}
