@@ -1,7 +1,6 @@
 import { addListener, removeListener } from 'resize-detector'
 import {
   computed,
-  defineComponent,
   h,
   nextTick,
   onBeforeUnmount,
@@ -11,7 +10,7 @@ import {
   watch
 } from 'vue'
 
-export default defineComponent({
+export default {
   name: 'vue-clamp',
   props: {
     tag: {
@@ -254,7 +253,7 @@ export default defineComponent({
     const getLines = () => {
       const result = Object.keys(
         Array.prototype.slice
-          .call(contentRef.value?.getClientRects())
+          .call(contentRef.value.getClientRects())
           .reduce((acc, bound) => {
             const key = `${bound.top}/${bound.bottom}`
             if (!acc[key]) {
@@ -359,4 +358,4 @@ export default defineComponent({
       )
     }
   }
-})
+}

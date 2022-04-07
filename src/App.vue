@@ -536,7 +536,6 @@ import vue from './vue-lang.js'
 import javascript from 'highlight.js/lib/languages/javascript'
 import diff from 'highlight.js/lib/languages/diff'
 import shell from 'highlight.js/lib/languages/shell'
-import { defineComponent } from '@vue/runtime-core'
 
 hljs.registerLanguage('vue', vue)
 hljs.registerLanguage('javascript', javascript)
@@ -547,7 +546,7 @@ const search = location.search.replace(/^\?/, '')
 const query = qs.parse(search)
 const zh = query.lang === 'zh'
 
-export default defineComponent({
+export default {
   name: 'app',
   components: {
     VClamp
@@ -612,7 +611,7 @@ export default defineComponent({
       hljs.highlightBlock(code)
     })
   }
-})
+}
 </script>
 
 <style src="spectre.css/dist/spectre.min.css"></style>
