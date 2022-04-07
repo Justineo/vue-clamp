@@ -1,286 +1,362 @@
 import { addListener, removeListener } from 'resize-detector'
+import {
+  computed,
+  defineComponent,
+  h,
+  nextTick,
+  onBeforeUnmount,
+  onMounted,
+  onUpdated,
+  ref,
+  watch
+} from 'vue'
 
-export default {
+export default defineComponent({
   name: 'vue-clamp',
   props: {
     tag: {
       type: String,
-      default: 'div'
+      default: 'div',
+      required: false
     },
     autoresize: {
       type: Boolean,
-      default: false
+      default: false,
+      required: false
     },
-    maxLines: Number,
-    maxHeight: [String, Number],
+    maxLines: {
+      type: Number,
+      default: 2,
+      required: false
+    },
+    maxHeight: {
+      type: [Number, String],
+      required: false
+    },
     ellipsis: {
       type: String,
-      default: '…'
+      default: '…',
+      required: false
     },
     location: {
       type: String,
       default: 'end',
-      validator (value) {
+      validator: (value) => {
         return ['start', 'middle', 'end'].indexOf(value) !== -1
-      }
-    },
-    expanded: Boolean
-  },
-  data () {
-    return {
-      offset: null,
-      text: this.getText(),
-      localExpanded: !!this.expanded
-    }
-  },
-  computed: {
-    clampedText () {
-      if (this.location === 'start') {
-        return this.ellipsis + (this.text.slice(0, this.offset) || '').trim()
-      } else if (this.location === 'middle') {
-        const split = Math.floor(this.offset / 2)
-        return (this.text.slice(0, split) || '').trim() + this.ellipsis + (this.text.slice(-split) || '').trim()
-      }
-
-      return (this.text.slice(0, this.offset) || '').trim() + this.ellipsis
-    },
-    isClamped () {
-      if (!this.text) {
-        return false
-      }
-      return this.offset !== this.text.length
-    },
-    realText () {
-      return this.isClamped ? this.clampedText : this.text
-    },
-    realMaxHeight () {
-      if (this.localExpanded) {
-        return null
-      }
-      const { maxHeight } = this
-      if (!maxHeight) {
-        return null
-      }
-      return typeof maxHeight === 'number' ? `${maxHeight}px` : maxHeight
-    }
-  },
-  watch: {
-    expanded (val) {
-      this.localExpanded = val
-    },
-    localExpanded (val) {
-      if (val) {
-        this.clampAt(this.text.length)
-      } else {
-        this.update()
-      }
-      if (this.expanded !== val) {
-        this.$emit('update:expanded', val)
-      }
-    },
-    isClamped: {
-      handler (val) {
-        this.$nextTick(() => this.$emit('clampchange', val))
       },
-      immediate: true
+      required: false
+    },
+    expanded: {
+      type: Boolean,
+      default: false,
+      required: false
     }
   },
-  mounted () {
-    this.init()
+  emits: ['update:expanded', 'clampchange'],
+  setup (props, context) {
+    const getText = () => {
+      if (context.slots.default) {
+        const [content] = (context.slots.default() || []).filter(
+          (node) => node.children !== ''
+        )
 
-    this.$watch(
-      (vm) => [vm.maxLines, vm.maxHeight, vm.ellipsis, vm.isClamped].join(),
-      this.update
+        return content && content.children ? content.children.toString() : ''
+      }
+      return ''
+    }
+
+    const offset = ref(0)
+    const text = ref(getText())
+    const localExpanded = ref(!!props.expanded)
+    const unregisterResizeCallback = ref()
+    const rootRef = ref(null)
+    const textRef = ref(null)
+    const contentRef = ref(null)
+
+    watch(
+      () => props.expanded,
+      (val) => {
+        localExpanded.value = val
+      }
     )
-    this.$watch((vm) => [vm.tag, vm.text, vm.autoresize].join(), this.init)
-  },
-  updated () {
-    this.text = this.getText()
-    this.applyChange()
-  },
-  beforeDestroy () {
-    this.cleanUp()
-  },
-  methods: {
-    init () {
-      const contents = this.$slots.default
+
+    onMounted(() => {
+      init()
+      watch(
+        () => [props.maxLines, props.maxHeight, props.ellipsis, isClamped],
+        () => {
+          update()
+        }
+      )
+
+      watch(
+        () => [props.tag, text, props.autoresize],
+        () => {
+          init()
+        }
+      )
+    })
+
+    onUpdated(() => {
+      text.value = getText()
+      applyChange()
+    })
+
+    onBeforeUnmount(() => {
+      cleanUp()
+    })
+
+    watch(localExpanded, (val) => {
+      if (val) {
+        clampAt(text.value.length)
+      } else {
+        update()
+      }
+      if (props.expanded !== val) {
+        context.emit('update:expanded', val)
+      }
+    })
+
+    const init = () => {
+      if (!context.slots.default) {
+        return
+      }
+      const contents = context.slots.default()
       if (!contents) {
         return
       }
 
-      this.offset = this.text.length
+      offset.value = text.value.length
+      cleanUp()
 
-      this.cleanUp()
+      if (props.autoresize && rootRef.value != null) {
+        addListener(rootRef.value, () => {
+          update()
+        })
 
-      if (this.autoresize) {
-        addListener(this.$el, this.update)
-        this.unregisterResizeCallback = () => {
-          removeListener(this.$el, this.update)
+        unregisterResizeCallback.value = () => {
+          if (rootRef.value != null) {
+            removeListener(rootRef.value, update)
+          }
         }
       }
-      this.update()
-    },
-    update () {
-      if (this.localExpanded) {
+      update()
+    }
+
+    const cleanUp = () => {
+      if (typeof unregisterResizeCallback.value === 'function') {
+        unregisterResizeCallback.value()
+      }
+    }
+
+    const clampedText = computed(() => {
+      if (props.location === 'start') {
+        return (
+          props.ellipsis + (text.value.slice(0, offset.value) || '').trim()
+        )
+      } else if (props.location === 'middle') {
+        const split = Math.floor(offset.value / 2)
+        return (
+          (text.value.slice(0, split) || '').trim() +
+          props.ellipsis +
+          (text.value.slice(-split) || '').trim()
+        )
+      }
+
+      return (text.value.slice(0, offset.value) || '').trim() + props.ellipsis
+    })
+
+    const isClamped = computed(() => {
+      if (!text.value) return false
+      return offset.value !== text.value.length
+    })
+
+    watch(
+      isClamped,
+      (val) => {
+        nextTick(() => context.emit('clampchange', val))
+      },
+      {
+        immediate: true
+      }
+    )
+
+    const realText = computed(() => {
+      return isClamped.value ? clampedText.value : text.value
+    })
+
+    const realMaxHeight = computed(() => {
+      if (localExpanded.value) {
+        return null
+      }
+
+      if (!props.maxHeight) {
+        return null
+      }
+      return typeof props.maxHeight === 'number'
+        ? `${props.maxHeight}px`
+        : props.maxHeight
+    })
+
+    const update = () => {
+      if (localExpanded.value) {
         return
       }
-      this.applyChange()
-      if (this.isOverflow() || this.isClamped) {
-        this.search()
+      applyChange()
+      if (isOverflow() || isClamped) {
+        search()
       }
-    },
-    expand () {
-      this.localExpanded = true
-    },
-    collapse () {
-      this.localExpanded = false
-    },
-    toggle () {
-      this.localExpanded = !this.localExpanded
-    },
-    getLines () {
-      return Object.keys(
-        Array.prototype.slice.call(this.$refs.content.getClientRects()).reduce(
-          (prev, { top, bottom }) => {
-            const key = `${top}/${bottom}`
-            if (!prev[key]) {
-              prev[key] = true
+    }
+
+    const clampAt = (_offset) => {
+      offset.value = _offset
+      applyChange()
+    }
+
+    const moveEdge = (steps) => {
+      clampAt(offset.value + steps)
+    }
+
+    const fill = () => {
+      while (
+        (!isOverflow() || getLines() < 2) &&
+        offset.value < text.value.length
+      ) {
+        moveEdge(1)
+      }
+    }
+    const clamp = () => {
+      while (isOverflow() && getLines() > 1 && offset.value > 0) {
+        moveEdge(-1)
+      }
+    }
+
+    const stepToFit = () => {
+      fill()
+      clamp()
+    }
+
+    const search = (...range) => {
+      const [from = 0, to = offset.value] = range
+      if (to - from <= 3) {
+        stepToFit()
+        return
+      }
+      const target = Math.floor((to + from) / 2)
+      clampAt(target)
+      if (isOverflow()) {
+        search(from, target)
+      } else {
+        search(target, to)
+      }
+    }
+
+    const getLines = () => {
+      const result = Object.keys(
+        Array.prototype.slice
+          .call(contentRef.value?.getClientRects())
+          .reduce((acc, bound) => {
+            const key = `${bound.top}/${bound.bottom}`
+            if (!acc[key]) {
+              acc[key] = true
             }
-            return prev
-          },
-          {}
-        )
-      ).length
-    },
-    isOverflow () {
-      if (!this.maxLines && !this.maxHeight) {
+            return acc
+          }, {})
+      )
+      return result.length
+    }
+
+    const isOverflow = () => {
+      if (!props.maxLines && !props.maxHeight) {
         return false
       }
 
-      if (this.maxLines) {
-        if (this.getLines() > this.maxLines) {
+      if (props.maxLines) {
+        if (getLines() > props.maxLines) {
           return true
         }
       }
 
-      if (this.maxHeight) {
-        if (this.$el.scrollHeight > this.$el.offsetHeight) {
+      if (props.maxHeight && rootRef.value) {
+        if (rootRef.value.scrollHeight > rootRef.value.offsetHeight) {
           return true
         }
       }
       return false
-    },
-    getText () {
-      // Look for the first non-empty text node
-      const [content] = (this.$slots.default || []).filter(
-        (node) => !node.tag && !node.isComment
-      )
-      return content ? content.text : ''
-    },
-    moveEdge (steps) {
-      this.clampAt(this.offset + steps)
-    },
-    clampAt (offset) {
-      this.offset = offset
-      this.applyChange()
-    },
-    applyChange () {
-      this.$refs.text.textContent = this.realText
-    },
-    stepToFit () {
-      this.fill()
-      this.clamp()
-    },
-    fill () {
-      while (
-        (!this.isOverflow() || this.getLines() < 2) &&
-        this.offset < this.text.length
-      ) {
-        this.moveEdge(1)
-      }
-    },
-    clamp () {
-      while (this.isOverflow() && this.getLines() > 1 && this.offset > 0) {
-        this.moveEdge(-1)
-      }
-    },
-    search (...range) {
-      const [from = 0, to = this.offset] = range
-      if (to - from <= 3) {
-        this.stepToFit()
-        return
-      }
-      const target = Math.floor((to + from) / 2)
-      this.clampAt(target)
-      if (this.isOverflow()) {
-        this.search(from, target)
-      } else {
-        this.search(target, to)
-      }
-    },
-    cleanUp () {
-      if (this.unregisterResizeCallback) {
-        this.unregisterResizeCallback()
+    }
+
+    const applyChange = () => {
+      if (textRef.value != null) {
+        textRef.value.textContent = realText.value
       }
     }
-  },
-  render (h) {
-    const contents = [
-      h(
-        'span',
-        this.$isServer
-          ? {}
-          : {
-            ref: 'text',
+
+    const expand = () => {
+      localExpanded.value = true
+    }
+    const collapse = () => {
+      localExpanded.value = false
+    }
+    const toggle = () => {
+      localExpanded.value = !localExpanded.value
+    }
+
+    return () => {
+      const contents = [
+        h(
+          'span',
+          {
+            ref: textRef,
             attrs: {
-              'aria-label': this.text.trim()
+              'aria-label': text.value.trim()
             }
           },
-        this.$isServer ? this.text : this.realText
-      )
-    ]
+          realText.value
+        )
+      ]
 
-    const { expand, collapse, toggle } = this
-    const scope = {
-      expand,
-      collapse,
-      toggle,
-      clamped: this.isClamped,
-      expanded: this.localExpanded
-    }
-    const before = this.$scopedSlots.before
-      ? this.$scopedSlots.before(scope)
-      : this.$slots.before
-    if (before) {
-      contents.unshift(...(Array.isArray(before) ? before : [before]))
-    }
-    const after = this.$scopedSlots.after
-      ? this.$scopedSlots.after(scope)
-      : this.$slots.after
-    if (after) {
-      contents.push(...(Array.isArray(after) ? after : [after]))
-    }
-    const lines = [
-      h(
-        'span',
-        {
-          style: {
-            boxShadow: 'transparent 0 0'
+      const scope = {
+        expand,
+        collapse,
+        toggle,
+        clamped: isClamped.value,
+        expanded: localExpanded.value
+      }
+      const before = context.slots.before
+        ? context.slots.before(scope)
+        : context.slots.before
+      if (before) {
+        contents.unshift(...(Array.isArray(before) ? before : [before]))
+      }
+      const after = context.slots.after
+        ? context.slots.after(scope)
+        : context.slots.after
+      if (after) {
+        contents.push(...(Array.isArray(after) ? after : [after]))
+      }
+      const lines = [
+        h(
+          'span',
+          {
+            style: {
+              boxShadow: 'transparent 0 0'
+            },
+            ref: contentRef
           },
-          ref: 'content'
+          contents
+        )
+      ]
+      return h(
+        props.tag,
+        {
+          ref: rootRef,
+          style: {
+            maxHeight: realMaxHeight.value,
+            overflow: 'hidden'
+          }
         },
-        contents
+        lines
       )
-    ]
-    return h(
-      this.tag,
-      {
-        style: {
-          maxHeight: this.realMaxHeight,
-          overflow: 'hidden'
-        }
-      },
-      lines
-    )
+    }
   }
-}
+})
