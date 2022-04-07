@@ -304,13 +304,14 @@ export default {
       const contents = [
         h(
           'span',
-          {
-            ref: textRef,
-            attrs: {
-              'aria-label': text.value.trim()
-            }
-          },
-          realText.value
+          window === 'undefined' ? {}
+            : {
+              ref: textRef,
+              attrs: {
+                'aria-label': text.value.trim()
+              }
+            },
+          window === 'undefined' ? text.value : realText.value
         )
       ]
 
