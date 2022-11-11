@@ -1,3 +1,8 @@
+## 0.4.1
+
+* Fix clamped text for `location="start"`.
+* Text content is now always be trimmed. 
+
 ## 0.4.0
 
 * Add `location` prop. (#66)
