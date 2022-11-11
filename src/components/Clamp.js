@@ -36,7 +36,7 @@ export default {
   computed: {
     clampedText () {
       if (this.location === 'start') {
-        return this.ellipsis + (this.text.slice(0, this.offset) || '').trim()
+        return this.ellipsis + (this.text.slice(-this.offset) || '').trim()
       } else if (this.location === 'middle') {
         const split = Math.floor(this.offset / 2)
         return (this.text.slice(0, split) || '').trim() + this.ellipsis + (this.text.slice(-split) || '').trim()
@@ -89,7 +89,7 @@ export default {
     this.init()
 
     this.$watch(
-      (vm) => [vm.maxLines, vm.maxHeight, vm.ellipsis, vm.isClamped].join(),
+      (vm) => [vm.maxLines, vm.maxHeight, vm.ellipsis, vm.isClamped, vm.location].join(),
       this.update
     )
     this.$watch((vm) => [vm.tag, vm.text, vm.autoresize].join(), this.init)
@@ -175,7 +175,7 @@ export default {
       const [content] = (this.$slots.default || []).filter(
         (node) => !node.tag && !node.isComment
       )
-      return content ? content.text : ''
+      return content ? content.text.trim() : ''
     },
     moveEdge (steps) {
       this.clampAt(this.offset + steps)
