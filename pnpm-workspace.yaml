@@ -1,0 +1,27 @@
+packages:
+  - packages/*
+  - tools/*
+
+catalog:
+  "@chenglou/pretext": ^0.0.3
+  "@types/node": ^24
+  "@vitejs/plugin-vue": ^6.0.5
+  playwright: ^1.58.2
+  typescript: ^5
+  vite: npm:@voidzero-dev/vite-plus-core@latest
+  vite-plus: latest
+  vitest: npm:@voidzero-dev/vite-plus-test@latest
+  vue: ^3.5.31
+  vue-tsc: ^3.2.6
+
+catalogMode: prefer
+overrides:
+  vite: "catalog:"
+  vitest: "catalog:"
+peerDependencyRules:
+  allowAny:
+    - vite
+    - vitest
+  allowedVersions:
+    vite: "*"
+    vitest: "*"

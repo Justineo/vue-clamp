@@ -1,0 +1,19 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+  "timezone": "Asia/Shanghai",
+  "schedule": ["before 5am on monday"],
+  "minimumReleaseAge": "7 days",
+  "separateMajorMinor": true,
+  "separateMultipleMajor": true,
+  "packageRules": [
+    {
+      "matchUpdateTypes": ["minor", "patch"],
+      "groupName": "all non-major dependencies"
+    },
+    {
+      "matchUpdateTypes": ["major"],
+      "groupName": null
+    }
+  ]
+}

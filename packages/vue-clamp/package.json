@@ -1,0 +1,42 @@
+{
+  "name": "vue-clamp",
+  "version": "0.5.0",
+  "description": "Vue 3 multiline text clamping powered by Pretext.",
+  "license": "MIT",
+  "files": [
+    "dist"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "main": "./dist/index.mjs",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.mts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.mts",
+      "import": "./dist/index.mjs",
+      "default": "./dist/index.mjs"
+    },
+    "./package.json": "./package.json"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "vp pack src/index.ts --dts",
+    "check": "vp check",
+    "test": "vp test",
+    "prepublishOnly": "vp run build"
+  },
+  "dependencies": {
+    "@chenglou/pretext": "catalog:"
+  },
+  "devDependencies": {
+    "typescript": "catalog:",
+    "vite-plus": "catalog:",
+    "vue": "catalog:"
+  },
+  "peerDependencies": {
+    "vue": "^3.5.0"
+  }
+}

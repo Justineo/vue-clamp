@@ -1,0 +1,31 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: voidzero-dev/setup-vp@v1
+        with:
+          cache: true
+
+      - run: vp install --frozen-lockfile
+      - run: vp check
+      - run: vp test
+      - run: vp exec playwright install --with-deps chromium
+      - run: vp run test:browser
+      - run: vp run build -r

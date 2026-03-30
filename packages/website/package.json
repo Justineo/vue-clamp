@@ -1,0 +1,24 @@
+{
+  "name": "website",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vp dev",
+    "build": "vue-tsc --noEmit && vp build",
+    "preview": "vp preview"
+  },
+  "dependencies": {
+    "highlight.js": "^11.11.1",
+    "spectre.css": "^0.5.9",
+    "vue": "catalog:",
+    "vue-clamp": "workspace:*"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "catalog:",
+    "typescript": "catalog:",
+    "vite": "catalog:",
+    "vite-plus": "catalog:",
+    "vue-tsc": "catalog:"
+  }
+}
