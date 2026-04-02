@@ -1,702 +1,1127 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from "vue";
-import hljs from "highlight.js/lib/core";
-import javascript from "highlight.js/lib/languages/javascript";
-import shell from "highlight.js/lib/languages/shell";
-import xml from "highlight.js/lib/languages/xml";
-import Clamp from "vue-clamp";
-import type { ClampLocation } from "vue-clamp";
-import vue from "./vue-lang.ts";
+import { computed, ref } from "vue";
+import { Clamp } from "vue-clamp";
+import { createHighlighterCoreSync } from "shiki/core";
+import { createJavaScriptRegexEngine } from "shiki/engine/javascript";
+import vue from "shiki/langs/vue.mjs";
+import shellscript from "shiki/langs/shellscript.mjs";
+import css from "shiki/langs/css.mjs";
+import html from "shiki/langs/html.mjs";
+import js from "shiki/langs/javascript.mjs";
+import ts from "shiki/langs/typescript.mjs";
+import vitesseDark from "shiki/themes/vitesse-dark.mjs";
+import vitesseLight from "shiki/themes/vitesse-light.mjs";
 
-hljs.registerLanguage("vue", vue);
-hljs.registerLanguage("javascript", javascript);
-hljs.registerLanguage("shell", shell);
-hljs.registerLanguage("xml", xml);
+const shiki = createHighlighterCoreSync({
+  themes: [vitesseLight, vitesseDark],
+  langs: [vue, shellscript, css, html, js, ts],
+  engine: createJavaScriptRegexEngine(),
+});
 
-const zh = ref(new URLSearchParams(window.location.search).get("lang") === "zh");
-const pascal = ref(false);
+const text =
+  "Vue (pronounced /vju\u02D0/, like view) is a progressive framework for building user interfaces. Unlike other monolithic frameworks, Vue is designed from the ground up to be incrementally adoptable. The core library is focused on the view layer only, and is easy to pick up and integrate with other libraries or existing projects. On the other hand, Vue is also perfectly capable of powering sophisticated Single-Page Applications when used in combination with modern tooling and supporting libraries.";
 
-const lines = ref(3);
-const width1 = ref(600);
-const hyphens1 = ref(true);
+// Demo 1: max-lines + after slot toggle
+const lines1 = ref(3);
+const width1 = ref(480);
+const hyphens1 = ref(false);
 const rtl1 = ref(false);
 
-const expanded1 = ref(false);
-const height = ref("calc(48px + 12em)");
-const width2 = ref(600);
-const hyphens2 = ref(true);
+// Demo 2: max-height + before slot + external expanded
+const height2 = ref("calc(48px + 12em)");
+const width2 = ref(480);
+const hyphens2 = ref(false);
 const rtl2 = ref(false);
+const expanded2 = ref(false);
 
+// Demo 3: clampchange event
 const lines3 = ref(5);
-const width3 = ref(600);
-const hyphens3 = ref(true);
+const width3 = ref(480);
+const hyphens3 = ref(false);
 const rtl3 = ref(false);
 const clamped3 = ref(false);
 
+// Demo 4: ellipsis + location
 const lines4 = ref(5);
-const width4 = ref(600);
-const hyphens4 = ref(true);
+const width4 = ref(480);
+const hyphens4 = ref(false);
 const rtl4 = ref(false);
-const ellipsis4 = ref("…");
-const location4 = ref<ClampLocation>("end");
+const ellipsis4 = ref("\u2026");
+const location4 = ref<"start" | "middle" | "end">("end");
 
-const text =
-  "Vue (pronounced /vjuː/, like view) is a progressive framework for building user interfaces. Unlike other monolithic frameworks, Vue is designed from the ground up to be incrementally adoptable. The core library is focused on the view layer only, and is easy to pick up and integrate with other libraries or existing projects. On the other hand, Vue is also perfectly capable of powering sophisticated Single-Page Applications when used in combination with modern tooling and supporting libraries.";
-const textZh =
-  "Vue (读音 /vjuː/，类似于 view) 是一套用于构建用户界面的渐进式框架。与其它大型框架不同的是，Vue 被设计为可以自底向上逐层应用。Vue 的核心库只关注视图层，不仅易于上手，还便于与第三方库或既有项目整合。另一方面，当与现代化的工具链以及各种支持类库结合使用时，Vue 也完全能够为复杂的单页应用提供驱动。";
+type PkgManager = "vp" | "npm" | "pnpm" | "yarn" | "agent";
 
-const installSnippet = "$ npm i vue-clamp";
-const usageSnippet = [
-  `<script setup lang="ts">`,
-  `import { ref } from "vue";`,
-  `import Clamp from "vue-clamp";`,
-  ``,
-  `const expanded = ref(false);`,
-  `const text = "Some very very long text content.";`,
-  `<` + `/script>`,
-  ``,
-  `<template>`,
-  `  <Clamp v-model:expanded="expanded" autoresize :max-lines="3">`,
-  `    {{ text }}`,
-  `  </Clamp>`,
-  `<` + `/template>`,
-].join("\n");
+const pkgManager = ref<PkgManager>("npm");
 
-const defaultText = computed(() => (zh.value ? "默认值：" : "Default:"));
-const parameterText = computed(() => (zh.value ? "回调参数：" : "Callback parameter list:"));
-const currentText = computed(() => (zh.value ? textZh : text));
+const pkgManagers: { id: PkgManager; label: string }[] = [
+  { id: "vp", label: "vp" },
+  { id: "npm", label: "npm" },
+  { id: "pnpm", label: "pnpm" },
+  { id: "yarn", label: "yarn" },
+  { id: "agent", label: "agent" },
+];
 
-const highlightCodeBlocks = () => {
-  document.querySelectorAll("pre.code code").forEach((block) => {
-    hljs.highlightElement(block as HTMLElement);
-  });
-};
-
-watch(zh, (value) => {
-  const query = new URLSearchParams(window.location.search);
-
-  if (value) {
-    query.set("lang", "zh");
-  } else {
-    query.delete("lang");
+const installCommand = computed(() => {
+  switch (pkgManager.value) {
+    case "vp":
+      return "vp add vue-clamp";
+    case "npm":
+      return "npm install vue-clamp";
+    case "pnpm":
+      return "pnpm add vue-clamp";
+    case "yarn":
+      return "yarn add vue-clamp";
+    case "agent":
+      return "Install the vue-clamp package into this project";
   }
-
-  const search = query.toString();
-  const nextUrl = `${window.location.pathname}${search ? `?${search}` : ""}${window.location.hash}`;
-  window.history.pushState(null, "", nextUrl);
 });
 
-onMounted(() => {
-  highlightCodeBlocks();
+const codeExample = [
+  "<script setup>",
+  "import { Clamp } from 'vue-clamp'",
+  "",
+  "const text = 'Some very very long text content.'",
+  "<" + "/script>",
+  "",
+  "<template>",
+  '  <Clamp autoresize :max-lines="3" :text="text" />',
+  "</template>",
+].join("\n");
+
+const highlightedInstall = computed(() => {
+  if (pkgManager.value === "agent") {
+    return null;
+  }
+  return shiki.codeToHtml(installCommand.value, {
+    lang: "shellscript",
+    theme: "vitesse-light",
+  });
+});
+
+const highlightedCode = computed(() => {
+  return shiki.codeToHtml(codeExample, {
+    lang: "vue",
+    theme: "vitesse-light",
+  });
 });
 </script>
 
 <template>
-  <article class="demo-page">
-    <h1 @click="pascal = !pascal">&lt;{{ pascal ? "Clamp" : "vue-clamp" }}&gt;</h1>
-    <div id="lang" class="lang btn-group">
-      <button class="btn btn-sm" :class="{ active: !zh }" @click="zh = false">English</button>
-      <button class="btn btn-sm" :class="{ active: zh }" @click="zh = true">中文</button>
-    </div>
-
-    <p>{{ zh ? "轻松实现多行文本截断。" : "Clamping multiline text with ease." }}</p>
-    <p>
-      <a
-        class="tooltip"
-        href="https://github.com/Justineo/vue-clamp"
-        :data-tooltip="zh ? '前往 GitHub 仓库' : 'Visit GitHub repo'"
-      >
-        GitHub →
-      </a>
-      <span> · </span>
-      <a href="/?view=benchmark">
-        {{ zh ? "性能基准 →" : "Benchmark →" }}
-      </a>
-    </p>
-
-    <h2 id="features">
-      <a href="#features">#</a>
-      {{ zh ? "功能" : "Features" }}
-    </h2>
-    <ul>
-      <li>
-        {{
-          zh
-            ? "可以选择限制行数与/或最大高度，无需指定行高。"
-            : "Clamps text with max lines and/or max height. No need to specify line height."
-        }}
-      </li>
-      <li>{{ zh ? "支持在布局变化时自动更新。" : "Automatically updates upon layout change." }}</li>
-      <li>
-        {{ zh ? "支持展开/收起被截断部分内容。" : "The clamped text can be expanded/collapsed." }}
-      </li>
-      <li>
-        {{
-          zh
-            ? "支持自定义截断文本前后内容，并且进行响应式更新。"
-            : "Customizable and responsive content before/after clamped text."
-        }}
-      </li>
-      <li>
-        {{
-          zh
-            ? "支持在文本末尾、中间或开始位置进行截断。"
-            : "Place ellipsis at the end, middle, or the start of the clamped text."
-        }}
-      </li>
-    </ul>
-
-    <h2 id="demo"><a href="#demo">#</a> Demo</h2>
-
-    <div
-      class="divider text-center"
-      data-content="↓ max-lines & slot `after` & toggle inside"
-    ></div>
-    <section class="case">
-      <div class="form-horizontal">
-        <div class="form-group">
-          <label class="form-label col-5 col-sm-12" for="lines">{{
-            zh ? "最大行数" : "Max lines"
-          }}</label>
-          <div class="col-7 col-sm-12">
-            <input
-              id="lines"
-              v-model.number="lines"
-              class="form-input"
-              type="number"
-              min="1"
-              max="8"
-              step="1"
+  <div class="page">
+    <!-- Hero -->
+    <header class="hero">
+      <h1 class="hero-title">&lt;vue-clamp&gt;</h1>
+      <p class="hero-tagline">Clamping multiline text with ease.</p>
+      <nav class="hero-links">
+        <a
+          class="link-github"
+          href="https://github.com/Justineo/vue-clamp"
+          target="_blank"
+          rel="noopener"
+        >
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+            <path
+              d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"
             />
-          </div>
-        </div>
-        <div class="form-group">
-          <label class="form-label col-5 col-sm-12" for="width1">{{
-            zh ? "容器宽度" : "Container width"
-          }}</label>
-          <div class="col-7 col-sm-12 tooltip" :data-tooltip="`${width1}px`">
-            <input
-              id="width1"
-              v-model.number="width1"
-              class="slider"
-              type="range"
-              min="240"
-              max="600"
-            />
-          </div>
-        </div>
-        <div v-if="!zh" class="form-group">
-          <div class="col-5 col-sm-12">
-            <label class="form-checkbox">
-              <input v-model="hyphens1" type="checkbox" />
-              <i class="form-icon"></i>
-              CSS Hyphens
-            </label>
-          </div>
-          <div class="col-5 col-sm-12">
-            <label class="form-checkbox">
-              <input v-model="rtl1" type="checkbox" />
-              <i class="form-icon"></i>
-              RTL
-            </label>
-          </div>
-        </div>
-      </div>
-      <Clamp
-        :class="{
-          demo: true,
-          hyphens: hyphens1,
-          rtl: rtl1,
-        }"
-        :max-lines="lines"
-        autoresize
-        :style="{
-          width: `${width1}px`,
-        }"
-      >
-        {{ currentText }}
-        <template #after="{ toggle, expanded, clamped }">
-          <button v-if="expanded || clamped" class="toggle btn btn-sm" @click="toggle">
-            {{ zh ? "切换" : "Toggle" }}
-          </button>
-        </template>
-      </Clamp>
-    </section>
-
-    <div
-      class="divider text-center"
-      data-content="↓ max-height & slot `before` & toggle outside"
-    ></div>
-    <section class="case">
-      <div class="form-horizontal">
-        <div class="form-group">
-          <label class="form-label col-5 col-sm-12" for="height">{{
-            zh ? "最大高度" : "Max height"
-          }}</label>
-          <div
-            class="col-7 col-sm-12 tooltip"
-            :data-tooltip="zh ? '任意 CSS 长度值' : 'Any valid CSS length value'"
+          </svg>
+          GitHub
+          <svg
+            width="12"
+            height="12"
+            viewBox="0 0 12 12"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.5"
+            aria-hidden="true"
           >
-            <input id="height" v-model="height" class="form-input" />
-          </div>
-        </div>
-        <div class="form-group">
-          <label class="form-label col-5 col-sm-12" for="width2">{{
-            zh ? "容器宽度" : "Container width"
-          }}</label>
-          <div class="col-7 col-sm-12 tooltip" :data-tooltip="`${width2}px`">
-            <input
-              id="width2"
-              v-model.number="width2"
-              class="slider"
-              type="range"
-              min="240"
-              max="600"
-            />
-          </div>
-        </div>
-        <div v-if="!zh" class="form-group">
-          <div class="col-5 col-sm-12">
-            <label class="form-checkbox">
-              <input v-model="hyphens2" type="checkbox" />
-              <i class="form-icon"></i>
-              CSS Hyphens
-            </label>
-          </div>
-          <div class="col-5 col-sm-12">
-            <label class="form-checkbox">
-              <input v-model="rtl2" type="checkbox" />
-              <i class="form-icon"></i>
-              RTL
-            </label>
-          </div>
-        </div>
-        <div class="form-group">
-          <div class="col-5 col-sm-12">
-            <label class="form-checkbox">
-              <input v-model="expanded1" type="checkbox" />
-              <i class="form-icon"></i>
-              {{ zh ? "展开内容" : "Expanded" }}
-            </label>
-          </div>
-        </div>
-      </div>
-      <Clamp
-        v-model:expanded="expanded1"
-        :class="{
-          demo: true,
-          hyphens: hyphens2,
-          rtl: rtl2,
-        }"
-        :max-height="height"
-        autoresize
-        :style="{
-          width: `${width2}px`,
-        }"
-      >
-        {{ currentText }}
-        <template #before>
-          <span class="featured label label-rounded label-primary">{{
-            zh ? "推荐" : "Featured"
-          }}</span>
-        </template>
-      </Clamp>
+            <path d="M3.5 1.5h7v7M10.5 1.5L1.5 10.5" />
+          </svg>
+        </a>
+      </nav>
+    </header>
+
+    <!-- Features -->
+    <section class="section">
+      <h2 class="section-title" id="features"><a href="#features">#</a> Features</h2>
+      <ul class="features-list">
+        <li>Clamps text with max lines and/or max height. No need to specify line height.</li>
+        <li>Automatically updates upon layout change.</li>
+        <li>The clamped text can be expanded/collapsed.</li>
+        <li>Customizable and responsive content before/after clamped text.</li>
+        <li>Place ellipsis at the end, middle, or the start of the clamped text.</li>
+      </ul>
     </section>
 
-    <div class="divider text-center" data-content="↓ `clampchange` event"></div>
-    <section class="case">
-      <div class="form-horizontal">
-        <div class="form-group">
-          <label class="form-label col-5 col-sm-12" for="lines3">{{
-            zh ? "最大行数" : "Max lines"
-          }}</label>
-          <div class="col-7 col-sm-12">
+    <!-- Demos -->
+    <section class="section">
+      <h2 class="section-title" id="demo"><a href="#demo">#</a> Demo</h2>
+
+      <!-- Demo 1: max-lines + after slot toggle -->
+      <div class="demo-block">
+        <div class="demo-label">max-lines / slot <code>after</code> / toggle</div>
+        <div class="demo-controls">
+          <label class="control">
+            <span class="control-label">Max lines</span>
             <input
-              id="lines3"
-              v-model.number="lines3"
-              class="form-input"
+              v-model.number="lines1"
+              class="control-input"
               type="number"
               min="1"
               max="8"
               step="1"
             />
-          </div>
-        </div>
-        <div class="form-group">
-          <label class="form-label col-5 col-sm-12" for="width3">{{
-            zh ? "容器宽度" : "Container width"
-          }}</label>
-          <div class="col-7 col-sm-12 tooltip" :data-tooltip="`${width3}px`">
-            <input
-              id="width3"
-              v-model.number="width3"
-              class="slider"
-              type="range"
-              min="240"
-              max="600"
-            />
-          </div>
-        </div>
-        <div v-if="!zh" class="form-group">
-          <div class="col-5 col-sm-12">
-            <label class="form-checkbox">
-              <input v-model="hyphens3" type="checkbox" />
-              <i class="form-icon"></i>
-              CSS Hyphens
-            </label>
-          </div>
-          <div class="col-5 col-sm-12">
-            <label class="form-checkbox">
-              <input v-model="rtl3" type="checkbox" />
-              <i class="form-icon"></i>
-              RTL
-            </label>
-          </div>
-        </div>
-      </div>
-      <Clamp
-        :class="{
-          demo: true,
-          hyphens: hyphens3,
-          rtl: rtl3,
-        }"
-        :max-lines="lines3"
-        autoresize
-        :style="{
-          width: `${width3}px`,
-        }"
-        @clampchange="clamped3 = $event"
-      >
-        {{ currentText }}
-      </Clamp>
-      <p class="mt-2">
-        {{
-          zh ? `截断状态：${clamped3 ? "已截断" : "未截断"}` : `Clamped: ${clamped3 ? "Yes" : "No"}`
-        }}
-      </p>
-    </section>
-
-    <div class="divider text-center" data-content="↓ ellipsis & location"></div>
-    <section class="case">
-      <div class="form-horizontal">
-        <div class="form-group">
-          <label class="form-label col-5 col-sm-12">{{ zh ? "位置" : "Location" }}</label>
-          <div class="col-auto col-sm-12">
-            <label class="form-radio">
-              <input v-model="location4" type="radio" value="start" />
-              <i class="form-icon"></i>
-              {{ zh ? "开始" : "Start" }}
-            </label>
-          </div>
-          <div class="col-auto col-sm-12">
-            <label class="form-radio">
-              <input v-model="location4" type="radio" value="middle" />
-              <i class="form-icon"></i>
-              {{ zh ? "中间" : "Middle" }}
-            </label>
-          </div>
-          <div class="col-auto col-sm-12">
-            <label class="form-radio">
-              <input v-model="location4" type="radio" value="end" />
-              <i class="form-icon"></i>
-              {{ zh ? "末尾" : "End" }}
-            </label>
-          </div>
-        </div>
-        <div class="form-group">
-          <label class="form-label col-5 col-sm-12" for="ellipsis4">{{
-            zh ? "省略符号" : "Ellipsis"
-          }}</label>
-          <div class="col-7 col-sm-12">
-            <input id="ellipsis4" v-model="ellipsis4" class="form-input" maxlength="6" />
-          </div>
-        </div>
-        <div class="form-group">
-          <label class="form-label col-5 col-sm-12" for="lines4">{{
-            zh ? "最大行数" : "Max lines"
-          }}</label>
-          <div class="col-7 col-sm-12">
-            <input
-              id="lines4"
-              v-model.number="lines4"
-              class="form-input"
-              type="number"
-              min="1"
-              max="8"
-              step="1"
-            />
-          </div>
-        </div>
-        <div class="form-group">
-          <label class="form-label col-5 col-sm-12" for="width4">{{
-            zh ? "容器宽度" : "Container width"
-          }}</label>
-          <div class="col-7 col-sm-12 tooltip" :data-tooltip="`${width4}px`">
-            <input
-              id="width4"
-              v-model.number="width4"
-              class="slider"
-              type="range"
-              min="240"
-              max="600"
-            />
-          </div>
-        </div>
-        <div v-if="!zh" class="form-group">
-          <div class="col-5 col-sm-12">
-            <label class="form-checkbox">
-              <input v-model="hyphens4" type="checkbox" />
-              <i class="form-icon"></i>
-              CSS Hyphens
-            </label>
-          </div>
-          <div class="col-5 col-sm-12">
-            <label class="form-checkbox">
-              <input v-model="rtl4" type="checkbox" />
-              <i class="form-icon"></i>
-              RTL
-            </label>
-          </div>
-        </div>
-      </div>
-      <Clamp
-        :class="{
-          demo: true,
-          hyphens: hyphens4,
-          rtl: rtl4,
-        }"
-        :max-lines="lines4"
-        :location="location4"
-        :ellipsis="ellipsis4"
-        autoresize
-        :style="{
-          width: `${width4}px`,
-        }"
-      >
-        {{ currentText }}
-        <template #after="{ toggle, expanded, clamped }">
-          <button v-if="expanded || clamped" class="toggle btn btn-sm" @click="toggle">
-            {{ zh ? "切换" : "Toggle" }}
-          </button>
-        </template>
-      </Clamp>
-    </section>
-
-    <h2 id="usage">
-      <a href="#usage">#</a>
-      {{ zh ? "使用方法" : "Usage" }}
-    </h2>
-
-    <div class="divider text-center" :data-content="zh ? '↓ 安装' : '↓ Installation'"></div>
-    <pre
-      class="code shell"
-      data-lang="Shell"
-    ><code class="language-shell">{{ installSnippet }}</code></pre>
-
-    <div class="divider text-center" :data-content="zh ? '↓ 代码样例' : '↓ Code example'"></div>
-    <pre class="code vue" data-lang="Vue"><code class="language-vue">{{ usageSnippet }}</code></pre>
-
-    <h2 id="api">
-      <a href="#api">#</a>
-      API
-    </h2>
-
-    <div class="divider text-center" data-content="↓ Props"></div>
-    <section>
-      <ul>
-        <li>
-          <p><code>tag: string</code></p>
-          <p>{{ zh ? "生成的根元素的标签名。" : "The tag name of the generated root element." }}</p>
-          <p>
-            {{ defaultText }}
-            <code>div</code>
-          </p>
-        </li>
-        <li>
-          <p><code>autoresize: boolean</code></p>
-          <p>
-            {{
-              zh
-                ? "是否要自动适配根元素的尺寸变化。"
-                : "Whether to observe the root element's size."
-            }}
-          </p>
-          <p>
-            {{ defaultText }}
-            <code>false</code>
-          </p>
-        </li>
-        <li>
-          <p><code>max-lines: number</code></p>
-          <p>{{ zh ? "可以显示的最大行数" : "The max number of lines that can be displayed." }}</p>
-        </li>
-        <li>
-          <p><code>max-height: number | string</code></p>
-          <p v-if="zh">
-            根元素的最大高度。数字值将被转换为 <code>px</code> 单位；字符串值将直接作为 CSS 属性
-            <code>max-height</code> 输出。
-          </p>
-          <p v-else>
-            The max height of the root element. Number values are converted to
-            <code>px</code> units. String values are used directly as the
-            <code>max-height</code> CSS property.
-          </p>
-        </li>
-        <li>
-          <p><code>ellipsis: string</code></p>
-          <p>
-            {{
-              zh
-                ? "当文字被截断时需要显示的省略号字符串。"
-                : "The ellipsis characters displayed when the text is clamped."
-            }}
-          </p>
-          <p>
-            {{ defaultText }}
-            <code>'…'</code>
-          </p>
-        </li>
-        <li>
-          <p><code>location: 'start' | 'middle' | 'end'</code></p>
-          <p>{{ zh ? "截断后显式省略符号的位置。" : "The location of the ellipsis." }}</p>
-          <p>
-            {{ defaultText }}
-            <code>'end'</code>
-          </p>
-        </li>
-        <li>
-          <p>
-            <code>expanded: boolean</code>
-            <span
-              class="label label-primary tooltip"
-              :data-tooltip="zh ? '支持 v-model:expanded' : 'Supports v-model:expanded'"
-            >
-              v-model
+          </label>
+          <label class="control">
+            <span class="control-label">Width</span>
+            <span class="control-row">
+              <input
+                v-model.number="width1"
+                data-testid="demo-1-width"
+                class="control-range"
+                type="range"
+                min="240"
+                max="600"
+              />
+              <span class="control-value">{{ width1 }}px</span>
             </span>
+          </label>
+          <div class="control-row">
+            <label class="control-check">
+              <input v-model="hyphens1" type="checkbox" />
+              <span>CSS Hyphens</span>
+            </label>
+            <label class="control-check">
+              <input v-model="rtl1" type="checkbox" />
+              <span>RTL</span>
+            </label>
+          </div>
+        </div>
+        <div class="demo-preview">
+          <Clamp
+            :class="{ hyphens: hyphens1, rtl: rtl1 }"
+            data-testid="demo-1-clamp"
+            :text="text"
+            :max-lines="lines1"
+            autoresize
+            :style="{ width: `${width1}px`, maxWidth: '100%' }"
+          >
+            <template #after="{ toggle, expanded, clamped }">
+              <button v-if="expanded || clamped" class="toggle-btn" @click="toggle">
+                {{ expanded ? "Collapse" : "Expand" }}
+              </button>
+            </template>
+          </Clamp>
+        </div>
+      </div>
+
+      <!-- Demo 2: max-height + before slot + external expanded -->
+      <div class="demo-block">
+        <div class="demo-label">max-height / slot <code>before</code> / external control</div>
+        <div class="demo-controls">
+          <label class="control">
+            <span class="control-label">Max height</span>
+            <input v-model="height2" class="control-input" />
+          </label>
+          <label class="control">
+            <span class="control-label">Width</span>
+            <span class="control-row">
+              <input
+                v-model.number="width2"
+                class="control-range"
+                type="range"
+                min="240"
+                max="600"
+              />
+              <span class="control-value">{{ width2 }}px</span>
+            </span>
+          </label>
+          <div class="control-row">
+            <label class="control-check">
+              <input v-model="hyphens2" type="checkbox" />
+              <span>CSS Hyphens</span>
+            </label>
+            <label class="control-check">
+              <input v-model="rtl2" type="checkbox" />
+              <span>RTL</span>
+            </label>
+            <label class="control-check">
+              <input v-model="expanded2" type="checkbox" />
+              <span>Expanded</span>
+            </label>
+          </div>
+        </div>
+        <div class="demo-preview">
+          <Clamp
+            :class="{ hyphens: hyphens2, rtl: rtl2 }"
+            :text="text"
+            :max-height="height2"
+            v-model:expanded="expanded2"
+            autoresize
+            :style="{ width: `${width2}px`, maxWidth: '100%' }"
+          >
+            <template #before>
+              <span class="badge">Featured</span>
+            </template>
+          </Clamp>
+        </div>
+      </div>
+
+      <!-- Demo 3: clampchange event -->
+      <div class="demo-block">
+        <div class="demo-label"><code>clampchange</code> event</div>
+        <div class="demo-controls">
+          <label class="control">
+            <span class="control-label">Max lines</span>
+            <input
+              v-model.number="lines3"
+              class="control-input"
+              type="number"
+              min="1"
+              max="8"
+              step="1"
+            />
+          </label>
+          <label class="control">
+            <span class="control-label">Width</span>
+            <span class="control-row">
+              <input
+                v-model.number="width3"
+                class="control-range"
+                type="range"
+                min="240"
+                max="600"
+              />
+              <span class="control-value">{{ width3 }}px</span>
+            </span>
+          </label>
+          <div class="control-row">
+            <label class="control-check">
+              <input v-model="hyphens3" type="checkbox" />
+              <span>CSS Hyphens</span>
+            </label>
+            <label class="control-check">
+              <input v-model="rtl3" type="checkbox" />
+              <span>RTL</span>
+            </label>
+          </div>
+        </div>
+        <div class="demo-preview">
+          <Clamp
+            :class="{ hyphens: hyphens3, rtl: rtl3 }"
+            :text="text"
+            :max-lines="lines3"
+            autoresize
+            :style="{ width: `${width3}px`, maxWidth: '100%' }"
+            @clampchange="clamped3 = $event"
+          />
+          <p class="clamp-status">
+            Clamped:
+            <strong :class="clamped3 ? 'status-yes' : 'status-no'">{{
+              clamped3 ? "Yes" : "No"
+            }}</strong>
           </p>
-          <p>{{ zh ? "是否展开显式被截断的文本。" : "Whether the clamped area is expanded." }}</p>
-          <p>
-            {{ defaultText }}
-            <code>false</code>
-          </p>
-        </li>
-      </ul>
+        </div>
+      </div>
+
+      <!-- Demo 4: ellipsis + location -->
+      <div class="demo-block">
+        <div class="demo-label">ellipsis / location</div>
+        <div class="demo-controls">
+          <label class="control">
+            <span class="control-label">Location</span>
+            <span class="control-row">
+              <label class="control-radio">
+                <input v-model="location4" type="radio" value="start" />
+                <span>Start</span>
+              </label>
+              <label class="control-radio">
+                <input v-model="location4" type="radio" value="middle" />
+                <span>Middle</span>
+              </label>
+              <label class="control-radio">
+                <input v-model="location4" type="radio" value="end" />
+                <span>End</span>
+              </label>
+            </span>
+          </label>
+          <label class="control">
+            <span class="control-label">Ellipsis</span>
+            <input v-model="ellipsis4" class="control-input" maxlength="6" />
+          </label>
+          <label class="control">
+            <span class="control-label">Max lines</span>
+            <input
+              v-model.number="lines4"
+              class="control-input"
+              type="number"
+              min="1"
+              max="8"
+              step="1"
+            />
+          </label>
+          <label class="control">
+            <span class="control-label">Width</span>
+            <span class="control-row">
+              <input
+                v-model.number="width4"
+                class="control-range"
+                type="range"
+                min="240"
+                max="600"
+              />
+              <span class="control-value">{{ width4 }}px</span>
+            </span>
+          </label>
+          <div class="control-row">
+            <label class="control-check">
+              <input v-model="hyphens4" type="checkbox" />
+              <span>CSS Hyphens</span>
+            </label>
+            <label class="control-check">
+              <input v-model="rtl4" type="checkbox" />
+              <span>RTL</span>
+            </label>
+          </div>
+        </div>
+        <div class="demo-preview">
+          <Clamp
+            :class="{ hyphens: hyphens4, rtl: rtl4 }"
+            :text="text"
+            :max-lines="lines4"
+            :location="location4"
+            :ellipsis="ellipsis4"
+            autoresize
+            :style="{ width: `${width4}px`, maxWidth: '100%' }"
+          >
+            <template #after="{ toggle, expanded, clamped }">
+              <button v-if="expanded || clamped" class="toggle-btn" @click="toggle">
+                {{ expanded ? "Collapse" : "Expand" }}
+              </button>
+            </template>
+          </Clamp>
+        </div>
+      </div>
     </section>
 
-    <div class="divider text-center" data-content="↓ Slots"></div>
-    <section>
-      <ul>
-        <li>
-          <p><code>default</code></p>
-          <p>
-            {{
-              zh
-                ? "需要截断的文本。只能包含纯文本内容。"
-                : "The text to clamp. Can only contain pure text."
-            }}
-          </p>
-        </li>
-        <li>
-          <p><code>before</code></p>
-          <p>
-            Slot {{ zh ? "作用域：" : "scope:" }}
-            <code>{ expand, collapse, toggle, clamped, expanded }</code>
-          </p>
-          <section class="secondary">
-            <p>
-              <code>expand: function(): void</code>
-              -
-              {{ zh ? "展开被截断的文本。" : "Expand the clamped text." }}
-            </p>
-            <p>
-              <code>collapse: function(): void</code>
-              -
-              {{ zh ? "收起展开后的文本。" : "Collapse the expanded text." }}
-            </p>
-            <p>
-              <code>toggle: function(): void</code>
-              -
-              {{ zh ? "切换被截断文本的展开状态。" : "Toggle the expand state of clamped text." }}
-            </p>
-            <p>
-              <code>clamped: Boolean</code>
-              -
-              {{ zh ? "内容是否处于截断状态。" : "Whether text content is being clamped." }}
-            </p>
-            <p>
-              <code>expanded: Boolean</code>
-              -
-              {{ zh ? "内容是否处于展开状态。" : "Whether text content is being expanded." }}
-            </p>
-          </section>
-          <p>
-            {{
-              zh
-                ? "在被截断的文本前显式的内容，可以包含任意类型内容。"
-                : "Content displayed before the clamped text. Can contain anything."
-            }}
-          </p>
-        </li>
-        <li>
-          <p><code>after</code></p>
-          <p v-if="zh">Slot 作用域：与 <code>before</code> 相同。</p>
-          <p v-else>Slot scope: Same as <code>before</code>.</p>
-          <p>
-            {{
-              zh
-                ? "在被截断的文本后显式的内容，可以包含任意类型内容。"
-                : "Content displayed after the clamped text. Can contain anything."
-            }}
-          </p>
-        </li>
-      </ul>
+    <!-- Usage -->
+    <section class="section">
+      <h2 class="section-title" id="usage"><a href="#usage">#</a> Usage</h2>
+
+      <h3 class="subsection-title">Installation</h3>
+      <div class="install-block">
+        <div class="install-tabs">
+          <button
+            v-for="pm in pkgManagers"
+            :key="pm.id"
+            class="install-tab"
+            :class="{ active: pkgManager === pm.id }"
+            @click="pkgManager = pm.id"
+          >
+            {{ pm.label }}
+          </button>
+        </div>
+        <div
+          v-if="highlightedInstall"
+          class="shiki-wrap shiki-wrap--install"
+          v-html="highlightedInstall"
+        />
+        <pre
+          v-else
+          class="code-block code-block--install code-block--prompt"
+        ><code>{{ installCommand }}</code></pre>
+      </div>
+
+      <h3 class="subsection-title">Example</h3>
+      <div class="shiki-wrap" v-html="highlightedCode" />
     </section>
 
-    <div class="divider text-center" data-content="↓ Events"></div>
-    <section>
-      <ul>
-        <li>
-          <p><code>update:expanded</code></p>
-          <p>{{ zh ? "展开状态变化时触发。" : "Emitted when the expanded state changes." }}</p>
-          <p>
-            {{ parameterText }}
-            <code>(expanded: Boolean)</code>
-          </p>
-        </li>
-        <li>
-          <p><code>clampchange</code></p>
-          <p>{{ zh ? "截断状态变化时触发。" : "Emitted when clamp state changes." }}</p>
-          <p>
-            {{ parameterText }}
-            <code>(clamped: Boolean)</code>
-          </p>
-        </li>
-      </ul>
+    <!-- API -->
+    <section class="section">
+      <h2 class="section-title" id="api"><a href="#api">#</a> API</h2>
+
+      <h3 class="subsection-title">Props</h3>
+      <div class="api-table-wrap">
+        <table class="api-table">
+          <thead>
+            <tr>
+              <th>Prop</th>
+              <th>Type</th>
+              <th>Default</th>
+              <th>Description</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>as</code></td>
+              <td><code>string</code></td>
+              <td><code>'div'</code></td>
+              <td>The tag name of the generated root element.</td>
+            </tr>
+            <tr>
+              <td><code>autoresize</code></td>
+              <td><code>boolean</code></td>
+              <td><code>false</code></td>
+              <td>Whether to observe the root element's size.</td>
+            </tr>
+            <tr>
+              <td><code>text</code></td>
+              <td><code>string</code></td>
+              <td><code>''</code></td>
+              <td>The text content to clamp.</td>
+            </tr>
+            <tr>
+              <td><code>max-lines</code></td>
+              <td><code>number</code></td>
+              <td>--</td>
+              <td>The max number of lines that can be displayed.</td>
+            </tr>
+            <tr>
+              <td><code>max-height</code></td>
+              <td><code>number | string</code></td>
+              <td>--</td>
+              <td>
+                The max height of the root element. Numbers are converted to <code>px</code>;
+                strings are used directly as CSS.
+              </td>
+            </tr>
+            <tr>
+              <td><code>ellipsis</code></td>
+              <td><code>string</code></td>
+              <td><code>'...'</code></td>
+              <td>The ellipsis string displayed when text is clamped.</td>
+            </tr>
+            <tr>
+              <td><code>location</code></td>
+              <td><code>'start' | 'middle' | 'end'</code></td>
+              <td><code>'end'</code></td>
+              <td>Where the ellipsis is placed within the text.</td>
+            </tr>
+            <tr>
+              <td><code>expanded</code></td>
+              <td><code>boolean</code></td>
+              <td><code>false</code></td>
+              <td>Whether the clamped area is expanded. Supports <code>v-model</code>.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3 class="subsection-title">Slots</h3>
+      <div class="api-table-wrap">
+        <table class="api-table">
+          <thead>
+            <tr>
+              <th>Slot</th>
+              <th>Scope</th>
+              <th>Description</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>before</code></td>
+              <td><code>{ expand, collapse, toggle, clamped, expanded }</code></td>
+              <td>Content displayed before the clamped text.</td>
+            </tr>
+            <tr>
+              <td><code>after</code></td>
+              <td><code>{ expand, collapse, toggle, clamped, expanded }</code></td>
+              <td>Content displayed after the clamped text.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3 class="subsection-title">Events</h3>
+      <div class="api-table-wrap">
+        <table class="api-table">
+          <thead>
+            <tr>
+              <th>Event</th>
+              <th>Payload</th>
+              <th>Description</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>clampchange</code></td>
+              <td><code>(clamped: boolean)</code></td>
+              <td>Emitted when the clamp state changes.</td>
+            </tr>
+            <tr>
+              <td><code>update:expanded</code></td>
+              <td><code>(expanded: boolean)</code></td>
+              <td>Emitted when the expanded state changes.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
     </section>
 
-    <footer>
-      <p v-if="zh">
-        由
-        <a href="https://github.com/Justineo">@Justineo</a>
-        和<a href="https://github.com/Justineo/vue-clamp/graphs/contributors">贡献者们</a>共同创作。
-      </p>
-      <p v-else>
-        Made by
-        <a href="https://github.com/Justineo">@Justineo</a>
-        and
-        <a href="https://github.com/Justineo/vue-clamp/graphs/contributors">contributors</a>.
-      </p>
+    <!-- Footer -->
+    <footer class="footer">
       <p>
-        <small v-if="zh">
-          本页基于
-          <a href="https://picturepan2.github.io/spectre/">Spectre.css</a>
-          开发。
-        </small>
-        <small v-else>
-          This page is based on
-          <a href="https://picturepan2.github.io/spectre/">Spectre.css</a>.
-        </small>
+        Made by
+        <a href="https://github.com/Justineo" target="_blank" rel="noopener">@Justineo</a>
+        and
+        <a
+          href="https://github.com/Justineo/vue-clamp/graphs/contributors"
+          target="_blank"
+          rel="noopener"
+          >contributors</a
+        >.
       </p>
     </footer>
-  </article>
+  </div>
 </template>
+
+<style>
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+}
+
+:root {
+  --c-bg: #ffffff;
+  --c-bg-soft: #f9f9fb;
+  --c-bg-mute: #f3f3f6;
+  --c-text: #1a1a2e;
+  --c-text-2: #5c5c6f;
+  --c-text-3: #8e8ea0;
+  --c-border: #e5e5ec;
+  --c-border-dark: #d0d0da;
+  --c-accent: #7c3aed;
+  --c-accent-soft: #ede9fe;
+  --c-accent-text: #5b21b6;
+  --c-code-bg: #f4f4f8;
+  --c-success: #16a34a;
+  --c-muted: #9ca3af;
+  --font-body:
+    Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, sans-serif;
+  --font-mono:
+    "JetBrains Mono", "Fira Code", "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  --radius: 6px;
+  --radius-lg: 8px;
+}
+
+html {
+  font-family: var(--font-body);
+  font-size: 15px;
+  line-height: 1.6;
+  color: var(--c-text);
+  background: var(--c-bg);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  margin: 0;
+}
+
+a {
+  color: var(--c-accent);
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+code {
+  font-family: var(--font-mono);
+  font-size: 0.875em;
+  background: var(--c-code-bg);
+  padding: 0.15em 0.4em;
+  border-radius: 3px;
+  color: var(--c-accent-text);
+}
+
+pre code {
+  background: none;
+  padding: 0;
+  color: inherit;
+}
+</style>
+
+<style scoped>
+.page {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 0 24px 48px;
+}
+
+/* Hero */
+
+.hero {
+  padding: 56px 0 40px;
+  border-bottom: 1px solid var(--c-border);
+}
+
+.hero-title {
+  font-family: var(--font-mono);
+  font-size: 2rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+  color: var(--c-text);
+}
+
+.hero-tagline {
+  margin-top: 8px;
+  font-size: 1.05rem;
+  color: var(--c-text-2);
+}
+
+.hero-links {
+  margin-top: 16px;
+  display: flex;
+  gap: 12px;
+}
+
+.link-github {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--c-text);
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius);
+  transition:
+    border-color 0.15s,
+    color 0.15s;
+}
+
+.link-github:hover {
+  border-color: var(--c-border-dark);
+  color: var(--c-accent);
+  text-decoration: none;
+}
+
+/* Sections */
+
+.section {
+  padding: 32px 0;
+  border-bottom: 1px solid var(--c-border);
+}
+
+.section-title {
+  font-size: 1.15rem;
+  font-weight: 600;
+  margin-bottom: 16px;
+  letter-spacing: -0.01em;
+}
+
+.section-title a {
+  color: var(--c-text-3);
+  margin-right: 4px;
+  font-weight: 400;
+}
+
+.section-title a:hover {
+  color: var(--c-accent);
+  text-decoration: none;
+}
+
+.subsection-title {
+  font-size: 0.9rem;
+  font-weight: 600;
+  margin-top: 20px;
+  margin-bottom: 8px;
+  color: var(--c-text-2);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+/* Features */
+
+.features-list {
+  list-style: none;
+  padding: 0;
+}
+
+.features-list li {
+  position: relative;
+  padding-left: 16px;
+  font-size: 0.9rem;
+  color: var(--c-text-2);
+  line-height: 1.7;
+}
+
+.features-list li::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0.65em;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--c-border-dark);
+}
+
+/* Demo blocks */
+
+.demo-block {
+  margin-bottom: 20px;
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+.demo-block:last-child {
+  margin-bottom: 0;
+}
+
+.demo-label {
+  padding: 8px 14px;
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: var(--c-text-3);
+  background: var(--c-bg-soft);
+  border-bottom: 1px solid var(--c-border);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.demo-label code {
+  font-size: 0.78rem;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.demo-controls {
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border-bottom: 1px solid var(--c-border);
+  background: var(--c-bg);
+}
+
+.control {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.8rem;
+}
+
+.control-label {
+  flex-shrink: 0;
+  width: 72px;
+  color: var(--c-text-2);
+  font-weight: 500;
+}
+
+.control-input {
+  flex: 1;
+  max-width: 180px;
+  height: 28px;
+  padding: 0 8px;
+  font-size: 0.8rem;
+  font-family: var(--font-mono);
+  border: 1px solid var(--c-border);
+  border-radius: 4px;
+  background: var(--c-bg);
+  color: var(--c-text);
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.control-input:focus {
+  border-color: var(--c-accent);
+}
+
+.control-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+}
+
+.control-range {
+  flex: 1;
+  max-width: 140px;
+  height: 4px;
+  appearance: none;
+  background: var(--c-bg-mute);
+  border-radius: 2px;
+  outline: none;
+  cursor: pointer;
+}
+
+.control-range::-webkit-slider-thumb {
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--c-accent);
+  border: 2px solid var(--c-bg);
+  box-shadow: 0 0 0 1px var(--c-border-dark);
+  cursor: pointer;
+}
+
+.control-value {
+  font-size: 0.75rem;
+  font-family: var(--font-mono);
+  color: var(--c-text-3);
+  min-width: 44px;
+  text-align: right;
+}
+
+.control-check,
+.control-radio {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.8rem;
+  color: var(--c-text-2);
+  cursor: pointer;
+  user-select: none;
+}
+
+.control-check input,
+.control-radio input {
+  accent-color: var(--c-accent);
+}
+
+.demo-preview {
+  padding: 16px 14px;
+  background: var(--c-bg-soft);
+  line-height: 1.8;
+  font-size: 0.9rem;
+}
+
+/* Toggle button inside demos */
+
+.toggle-btn {
+  display: inline;
+  margin-left: 4px;
+  padding: 1px 8px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  font-family: var(--font-body);
+  color: var(--c-accent);
+  background: var(--c-accent-soft);
+  border: 1px solid transparent;
+  border-radius: 4px;
+  cursor: pointer;
+  transition:
+    background 0.15s,
+    border-color 0.15s;
+  vertical-align: baseline;
+  line-height: 1.6;
+}
+
+.toggle-btn:hover {
+  background: transparent;
+  border-color: var(--c-accent);
+}
+
+/* Badge */
+
+.badge {
+  display: inline-block;
+  padding: 1px 8px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--c-accent);
+  background: var(--c-accent-soft);
+  border-radius: 999px;
+  margin-right: 6px;
+  vertical-align: baseline;
+  line-height: 1.6;
+}
+
+/* Clamp status */
+
+.clamp-status {
+  margin-top: 8px;
+  font-size: 0.8rem;
+  color: var(--c-text-3);
+}
+
+.status-yes {
+  color: var(--c-accent);
+}
+
+.status-no {
+  color: var(--c-success);
+}
+
+/* Hyphens / RTL */
+
+:deep(.hyphens) {
+  hyphens: auto;
+}
+
+:deep(.rtl) {
+  direction: rtl;
+}
+
+:deep(.rtl) .toggle-btn {
+  margin-left: 0;
+  margin-right: 4px;
+}
+
+:deep(.rtl) .badge {
+  margin-right: 0;
+  margin-left: 6px;
+}
+
+/* Code blocks */
+
+.code-block {
+  margin: 0;
+  padding: 14px 16px;
+  font-size: 0.9rem;
+  font-family: var(--font-mono);
+  line-height: 1.65;
+  background: var(--c-bg-soft);
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius);
+  overflow-x: auto;
+  color: var(--c-text);
+}
+
+/* Install block */
+
+.install-block {
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.install-block .code-block {
+  border: none;
+  border-radius: 0;
+}
+
+.install-tabs {
+  display: flex;
+  background: var(--c-bg-soft);
+  border-bottom: 1px solid var(--c-border);
+}
+
+.install-tab {
+  padding: 6px 14px;
+  font-size: 0.78rem;
+  font-family: var(--font-mono);
+  font-weight: 500;
+  color: var(--c-text-3);
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  transition:
+    color 0.15s,
+    border-color 0.15s;
+}
+
+.install-tab:hover {
+  color: var(--c-text-2);
+}
+
+.install-tab.active {
+  color: var(--c-accent);
+  border-bottom-color: var(--c-accent);
+}
+
+.code-block--prompt code {
+  font-family: var(--font-body);
+  font-style: italic;
+  color: var(--c-text-2);
+}
+
+/* API tables */
+
+.api-table-wrap {
+  overflow-x: auto;
+  margin-top: 4px;
+  margin-bottom: 16px;
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius);
+}
+
+.api-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8rem;
+}
+
+.api-table th {
+  text-align: left;
+  font-weight: 600;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--c-text-3);
+  background: var(--c-bg-soft);
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--c-border);
+}
+
+.api-table td {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--c-border);
+  color: var(--c-text-2);
+  vertical-align: top;
+}
+
+.api-table tr:last-child td {
+  border-bottom: none;
+}
+
+.api-table code {
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+
+/* Footer */
+
+.footer {
+  padding: 32px 0 0;
+  text-align: center;
+  font-size: 0.8rem;
+  color: var(--c-text-3);
+}
+
+.footer a {
+  color: var(--c-text-2);
+  font-weight: 500;
+}
+
+.footer a:hover {
+  color: var(--c-accent);
+}
+
+/* Shiki */
+
+.shiki-wrap :deep(pre.shiki) {
+  margin: 0;
+  padding: 14px 16px;
+  font-size: 0.9rem;
+  font-family: var(--font-mono);
+  line-height: 1.65;
+  background: var(--c-bg-soft) !important;
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius);
+  overflow-x: auto;
+}
+
+.shiki-wrap :deep(pre.shiki code) {
+  font-family: inherit;
+  font-size: inherit;
+  background: none;
+  padding: 0;
+  color: inherit;
+}
+
+.shiki-wrap--install :deep(pre.shiki) {
+  border: none;
+  border-radius: 0;
+}
+</style>

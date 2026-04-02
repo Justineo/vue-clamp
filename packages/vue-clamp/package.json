@@ -1,7 +1,7 @@
 {
   "name": "vue-clamp",
   "version": "0.5.0",
-  "description": "Vue 3 multiline text clamping powered by Pretext.",
+  "description": "Vue 3 multiline text clamping with a browser-aligned DOM implementation.",
   "license": "MIT",
   "files": [
     "dist"
@@ -27,9 +27,6 @@
     "check": "vp check",
     "test": "vp test",
     "prepublishOnly": "vp run build"
-  },
-  "dependencies": {
-    "@chenglou/pretext": "catalog:"
   },
   "devDependencies": {
     "typescript": "catalog:",

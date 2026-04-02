@@ -2,27 +2,16 @@ import {
   defineComponent,
   h,
   mergeProps,
-  nextTick,
   onBeforeUnmount,
   onMounted,
-  onUpdated,
   ref,
   watch,
   watchPostEffect,
 } from "vue";
+import { displayTextForKeptCount, splitGraphemes } from "./text.ts";
+
 import type { CSSProperties, PropType } from "vue";
-import { computeClampText, getSource } from "./clamp.ts";
-import type { Source } from "./clamp.ts";
-import {
-  boxHeightOffset,
-  contentWidth,
-  fontShorthand,
-  lineHeight,
-  measureWidth,
-  parsePx,
-} from "./measurement.ts";
-import { collectText } from "./slot-text.ts";
-import type { ClampExposed, ClampLocation, ClampSlotScope } from "./types.ts";
+import type { ClampExposed, ClampLocation, ClampSlotProps } from "./types.ts";
 
 const slotStyle: CSSProperties = {
   display: "inline-flex",
@@ -32,257 +21,257 @@ const slotStyle: CSSProperties = {
   verticalAlign: "baseline",
 };
 
-const lineProbeStyle: CSSProperties = {
-  position: "absolute",
-  visibility: "hidden",
-  pointerEvents: "none",
-  whiteSpace: "nowrap",
+const clampProps = {
+  as: {
+    type: String,
+    default: "div",
+  },
+  autoresize: {
+    type: Boolean,
+    default: false,
+  },
+  text: {
+    type: String,
+    default: "",
+  },
+  maxLines: Number,
+  maxHeight: [Number, String] as PropType<number | string | undefined>,
+  ellipsis: {
+    type: String,
+    default: "…",
+  },
+  location: {
+    type: String as PropType<ClampLocation>,
+    default: "end",
+    validator(value: string) {
+      return value === "start" || value === "middle" || value === "end";
+    },
+  },
+  expanded: {
+    type: Boolean,
+    default: false,
+  },
+} as const;
+
+const clampEmits = {
+  "update:expanded": (value: boolean) => typeof value === "boolean",
+  clampchange: (value: boolean) => typeof value === "boolean",
 };
 
-function normalizeMaxHeight(value: number | string | undefined): string | undefined {
-  if (value === undefined) {
-    return undefined;
+function clampText(
+  text: string,
+  rootElement: HTMLElement,
+  contentElement: HTMLElement,
+  textElement: HTMLElement,
+  location: ClampLocation,
+  ellipsis: string,
+  maxLines: number | undefined,
+  maxHeight: number | string | undefined,
+): string | null {
+  const style = getComputedStyle(rootElement);
+  const readPx = (value: string | null | undefined): number | undefined => {
+    if (!value || value === "none" || value === "normal") {
+      return undefined;
+    }
+
+    const numeric = Number.parseFloat(value);
+    return Number.isFinite(numeric) ? numeric : undefined;
+  };
+  const padding = (readPx(style.paddingLeft) ?? 0) + (readPx(style.paddingRight) ?? 0);
+  const border = (readPx(style.borderLeftWidth) ?? 0) + (readPx(style.borderRightWidth) ?? 0);
+  const styledWidth = readPx(style.width);
+  const width =
+    styledWidth !== undefined
+      ? Math.max(0, styledWidth - (style.boxSizing === "border-box" ? padding + border : 0))
+      : Math.max(0, rootElement.getBoundingClientRect().width - padding - border);
+
+  if (width <= 0) {
+    return null;
   }
 
-  return typeof value === "number" ? `${value}px` : value;
-}
+  const lineLimit =
+    maxLines === undefined || !Number.isFinite(maxLines) || maxLines <= 0
+      ? undefined
+      : Math.max(1, Math.floor(maxLines));
+  const graphemes = splitGraphemes(text);
+  let currentText = textElement.textContent ?? "";
 
-function normalizeMaxLines(value: number | undefined): number | undefined {
-  if (value === undefined || !Number.isFinite(value) || value <= 0) {
-    return undefined;
+  function applyKept(kept: number): string {
+    const nextText = displayTextForKeptCount(text, graphemes, location, ellipsis, kept);
+
+    if (nextText !== currentText) {
+      textElement.textContent = nextText;
+      currentText = nextText;
+    }
+
+    return nextText;
   }
 
-  return Math.max(1, Math.floor(value));
+  function fits(): boolean {
+    if (maxHeight !== undefined) {
+      const rects = Array.from(contentElement.getClientRects()).filter(
+        (rect) => rect.width > 0 && rect.height > 0,
+      );
+
+      if (rects.length > 0) {
+        const rootRect = rootElement.getBoundingClientRect();
+        const visibleTop = rootRect.top + rootElement.clientTop;
+        const visibleBottom = visibleTop + rootElement.clientHeight;
+
+        if (
+          rects.some((rect) => rect.top < visibleTop - 0.5 || rect.bottom > visibleBottom + 0.5)
+        ) {
+          return false;
+        }
+      }
+    }
+
+    if (lineLimit !== undefined) {
+      const lines = new Set<string>();
+
+      for (const rect of Array.from(contentElement.getClientRects())) {
+        lines.add(`${rect.top}/${rect.bottom}`);
+      }
+
+      if (lines.size > lineLimit) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  if (applyKept(graphemes.length) === text && fits()) {
+    return text;
+  }
+
+  let low = 0;
+  let high = graphemes.length - 1;
+  let best = 0;
+
+  while (low <= high) {
+    const kept = Math.floor((low + high) / 2);
+
+    applyKept(kept);
+
+    if (fits()) {
+      best = kept;
+      low = kept + 1;
+    } else {
+      high = kept - 1;
+    }
+  }
+
+  return applyKept(best);
 }
 
 export const Clamp = defineComponent({
   name: "vue-clamp",
   inheritAttrs: false,
-  props: {
-    tag: {
-      type: String,
-      default: "div",
-    },
-    autoresize: {
-      type: Boolean,
-      default: false,
-    },
-    maxLines: Number,
-    maxHeight: [Number, String] as PropType<number | string | undefined>,
-    ellipsis: {
-      type: String,
-      default: "…",
-    },
-    location: {
-      type: String as PropType<ClampLocation>,
-      default: "end",
-      validator(value: string) {
-        return value === "start" || value === "middle" || value === "end";
-      },
-    },
-    expanded: {
-      type: Boolean,
-      default: false,
-    },
-  },
-  emits: {
-    "update:expanded": (value: boolean) => typeof value === "boolean",
-    clampchange: (value: boolean) => typeof value === "boolean",
-  },
+  props: clampProps,
+  emits: clampEmits,
   setup(props, { attrs, emit, expose, slots }) {
     const rootRef = ref<HTMLElement | null>(null);
+    const contentRef = ref<HTMLElement | null>(null);
     const beforeRef = ref<HTMLElement | null>(null);
     const textRef = ref<HTMLElement | null>(null);
     const afterRef = ref<HTMLElement | null>(null);
-    const lineProbeRef = ref<HTMLElement | null>(null);
-    const displayText = ref("");
-    const open = ref(props.expanded);
-    const clamped = ref(false);
-    const lineHeightPx = ref(0);
-    const boxHeight = ref(0);
-    const ready = ref(
-      props.expanded || (props.maxLines === undefined && props.maxHeight === undefined),
-    );
+    const visibleText = ref("");
+    const expanded = ref(props.expanded);
+    const isClamped = ref(false);
 
-    let queued = false;
     let resizeObserver: ResizeObserver | null = null;
-    let cleanupFonts: (() => void) | null = null;
-    let emittedClamp: boolean | undefined;
-    let slotSnapshotText = "";
-    let sourceText = "";
-    let preparedSource: Source | null = null;
-
-    function hasLimit(): boolean {
-      return props.maxLines !== undefined || props.maxHeight !== undefined;
-    }
-
-    function rootStyle(hidden: boolean): CSSProperties {
-      if (open.value) {
-        return {
-          maxHeight: undefined,
-          visibility: hidden ? "hidden" : undefined,
-        };
-      }
-
-      const explicitMaxHeight = normalizeMaxHeight(props.maxHeight);
-      const normalizedMaxLines = normalizeMaxLines(props.maxLines);
-      let lineClampHeight: string | undefined;
-      if (normalizedMaxLines !== undefined && lineHeightPx.value > 0) {
-        lineClampHeight = `${normalizedMaxLines * lineHeightPx.value + boxHeight.value}px`;
-      }
-
-      let maxHeight = explicitMaxHeight ?? lineClampHeight;
-      if (explicitMaxHeight && lineClampHeight) {
-        maxHeight = `min(${explicitMaxHeight}, ${lineClampHeight})`;
-      }
-
-      return {
-        maxHeight,
-        overflow: "hidden",
-        visibility: hidden ? "hidden" : undefined,
-      };
-    }
+    let stopFonts = () => {};
 
     function expand(): void {
-      open.value = true;
+      expanded.value = true;
     }
 
     function collapse(): void {
-      open.value = false;
+      expanded.value = false;
     }
 
     function toggle(): void {
-      open.value = !open.value;
+      expanded.value = !expanded.value;
     }
 
     function recompute(): void {
-      if (sourceText.length === 0 && slotSnapshotText.length > 0 && !open.value && hasLimit()) {
+      const hasLimit = props.maxLines !== undefined || props.maxHeight !== undefined;
+
+      if (expanded.value || props.text.length === 0 || !hasLimit) {
+        visibleText.value = props.text;
+        isClamped.value = false;
         return;
       }
 
-      if (open.value || sourceText.length === 0 || !hasLimit()) {
-        displayText.value = sourceText;
-        clamped.value = false;
-        ready.value = true;
+      const rootElement = rootRef.value;
+      const contentElement = contentRef.value;
+      const textElement = textRef.value;
+
+      if (!rootElement || !contentElement || !textElement) {
+        visibleText.value = props.text;
+        isClamped.value = false;
         return;
       }
 
-      const root = rootRef.value;
-      const textEl = textRef.value;
-      if (!root || !textEl) {
-        clamped.value = false;
+      const nextText = clampText(
+        props.text,
+        rootElement,
+        contentElement,
+        textElement,
+        props.location,
+        props.ellipsis,
+        props.maxLines,
+        props.maxHeight,
+      );
+
+      if (nextText === null) {
+        visibleText.value = props.text;
+        isClamped.value = false;
         return;
       }
 
-      const maxHeight = parsePx(getComputedStyle(root).maxHeight);
-      const nextBoxHeight = boxHeightOffset(root);
-      const nextLineH = lineHeight(textEl, lineProbeRef.value);
-      const nextFont = fontShorthand(getComputedStyle(textEl));
-
-      if (nextLineH > 0) {
-        lineHeightPx.value = nextLineH;
-      }
-      if (boxHeight.value !== nextBoxHeight) {
-        boxHeight.value = nextBoxHeight;
-      }
-
-      const maxWidth = contentWidth(root);
-      if (maxWidth <= 0 || nextLineH <= 0) {
-        clamped.value = false;
-        return;
-      }
-
-      preparedSource = getSource(preparedSource, sourceText, nextFont);
-
-      const result = computeClampText({
-        source: preparedSource,
-        containerWidth: maxWidth,
-        lineHeight: nextLineH,
-        location: props.location,
-        ellipsis: props.ellipsis,
-        beforeWidth: measureWidth(beforeRef.value),
-        afterWidth: measureWidth(afterRef.value),
-        maxLines: props.maxLines,
-        maxHeight,
-      });
-
-      displayText.value = result.displayText;
-      clamped.value = result.clamped;
-      ready.value = true;
-    }
-
-    function queue(): void {
-      if (queued) {
-        return;
-      }
-
-      queued = true;
-
-      queueMicrotask(() => {
-        queued = false;
-        recompute();
-      });
-    }
-
-    function syncText(nextValue: string, syncNow = false): void {
-      const nextText = nextValue.trim();
-      if (sourceText === nextText) {
-        return;
-      }
-
-      sourceText = nextText;
-      if (nextText.length === 0) {
-        preparedSource = null;
-      }
-
-      if (open.value || nextText.length === 0 || !hasLimit()) {
-        displayText.value = nextText;
-        clamped.value = false;
-        ready.value = true;
-        return;
-      }
-
-      if (syncNow) {
-        recompute();
-        return;
-      }
-
-      queue();
+      visibleText.value = nextText;
+      isClamped.value = nextText !== props.text;
     }
 
     watch(
       () => props.expanded,
       (value) => {
-        open.value = value;
+        expanded.value = value;
       },
     );
 
-    watch(open, (value) => {
-      if (props.expanded !== value) {
-        emit("update:expanded", value);
-      }
-      queue();
-    });
-
     watch(
-      () => [props.maxLines, props.maxHeight, props.ellipsis, props.location],
-      () => {
-        queue();
+      expanded,
+      (value) => {
+        if (props.expanded !== value) {
+          emit("update:expanded", value);
+        }
+
+        recompute();
       },
       { flush: "post" },
     );
 
     watch(
-      [clamped, ready],
-      ([value, nextReady]) => {
-        if (!nextReady || emittedClamp === value) {
-          return;
-        }
+      [
+        () => props.text,
+        () => props.maxLines,
+        () => props.maxHeight,
+        () => props.ellipsis,
+        () => props.location,
+      ],
+      recompute,
+      { flush: "post" },
+    );
 
-        emittedClamp = value;
-        void nextTick(() => emit("clampchange", value));
+    watch(
+      isClamped,
+      (value) => {
+        emit("clampchange", value);
       },
-      { immediate: true },
+      { flush: "post", immediate: true },
     );
 
     watchPostEffect((onCleanup) => {
@@ -291,59 +280,53 @@ export const Clamp = defineComponent({
       }
 
       resizeObserver ??= new ResizeObserver(() => {
-        queue();
+        recompute();
       });
 
-      const observedElements: Element[] = [];
-      if (rootRef.value && (props.autoresize || !ready.value)) {
-        observedElements.push(rootRef.value);
+      const observed: Element[] = [];
+      if (props.autoresize && rootRef.value) {
+        observed.push(rootRef.value);
       }
       if (beforeRef.value) {
-        observedElements.push(beforeRef.value);
+        observed.push(beforeRef.value);
       }
       if (afterRef.value) {
-        observedElements.push(afterRef.value);
+        observed.push(afterRef.value);
       }
 
-      for (const element of observedElements) {
+      for (const element of observed) {
         resizeObserver.observe(element);
       }
 
-      queue();
-
       onCleanup(() => {
-        for (const element of observedElements) {
+        for (const element of observed) {
           resizeObserver?.unobserve(element);
         }
       });
     });
 
     onMounted(() => {
-      syncText(slotSnapshotText, true);
+      recompute();
 
       const fontFaceSet = document.fonts;
       if (!fontFaceSet) {
         return;
       }
 
-      const handleFontLoad = () => {
-        queue();
-      };
+      function handleFontLoad(): void {
+        recompute();
+      }
 
       void fontFaceSet.ready.then(handleFontLoad);
       fontFaceSet.addEventListener?.("loadingdone", handleFontLoad);
-      cleanupFonts = () => {
+      stopFonts = () => {
         fontFaceSet.removeEventListener?.("loadingdone", handleFontLoad);
       };
     });
 
-    onUpdated(() => {
-      syncText(slotSnapshotText);
-    });
-
     onBeforeUnmount(() => {
       resizeObserver?.disconnect();
-      cleanupFonts?.();
+      stopFonts();
     });
 
     expose({
@@ -351,40 +334,51 @@ export const Clamp = defineComponent({
       collapse,
       toggle,
       get clamped() {
-        return clamped.value;
+        return isClamped.value;
       },
       get expanded() {
-        return open.value;
+        return expanded.value;
       },
     } satisfies ClampExposed);
 
     return () => {
-      const nextSlotText = collectText(slots.default?.());
-      slotSnapshotText = nextSlotText;
-      const slotScope: ClampSlotScope = {
+      const hasLimit = props.maxLines !== undefined || props.maxHeight !== undefined;
+      let collapsedMaxHeight: string | number | undefined;
+
+      if (!expanded.value && props.maxHeight !== undefined) {
+        collapsedMaxHeight =
+          typeof props.maxHeight === "number" ? `${props.maxHeight}px` : props.maxHeight;
+      }
+
+      const slotProps: ClampSlotProps = {
         expand,
         collapse,
         toggle,
-        clamped: clamped.value,
-        expanded: open.value,
+        clamped: isClamped.value,
+        expanded: expanded.value,
       };
-      const hasLimitNow = hasLimit();
-      const hidden = !ready.value && !open.value && hasLimitNow && nextSlotText.length > 0;
-
-      const shouldRenderSourceText =
-        open.value || nextSlotText.length === 0 || !hasLimitNow || displayText.value.length === 0;
-      const renderedText = shouldRenderSourceText ? nextSlotText : displayText.value;
-      const beforeSlot = slots.before?.(slotScope);
-      const afterSlot = slots.after?.(slotScope);
+      const beforeSlot = slots.before?.(slotProps);
+      const afterSlot = slots.after?.(slotProps);
+      const renderedText =
+        expanded.value || visibleText.value.length === 0 || !hasLimit
+          ? props.text
+          : visibleText.value;
 
       return h(
-        props.tag,
+        props.as,
         mergeProps(attrs, {
           ref: rootRef,
-          style: rootStyle(hidden),
+          style: {
+            maxHeight: collapsedMaxHeight,
+            overflow: "hidden",
+          },
         }),
-        [
-          h("span", null, [
+        h(
+          "span",
+          {
+            ref: contentRef,
+          },
+          [
             beforeSlot
               ? h(
                   "span",
@@ -400,7 +394,7 @@ export const Clamp = defineComponent({
               {
                 ref: textRef,
                 role: "text",
-                "aria-label": nextSlotText,
+                "aria-label": props.text,
               },
               renderedText,
             ),
@@ -414,20 +408,9 @@ export const Clamp = defineComponent({
                   afterSlot,
                 )
               : null,
-          ]),
-          h(
-            "span",
-            {
-              ref: lineProbeRef,
-              "aria-hidden": "true",
-              style: lineProbeStyle,
-            },
-            "M",
-          ),
-        ],
+          ],
+        ),
       );
     };
   },
 });
-
-export default Clamp;

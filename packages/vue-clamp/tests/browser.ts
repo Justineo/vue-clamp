@@ -1,16 +1,19 @@
 import { createApp, defineComponent, h, nextTick, ref } from "vue";
-import type { App, Ref, VNodeChild } from "vue";
-import Clamp from "../src/index.ts";
-import type { ClampExposed, ClampProps, ClampSlotScope } from "../src/index.ts";
+import { Clamp } from "../src/index.ts";
+import { displayTextForKeptCount, splitGraphemes } from "../src/text.ts";
+
+import type { App, Component, Ref, VNodeChild } from "vue";
+import type { ClampExposed, ClampProps, ClampSlotProps } from "../src/index.ts";
 
 type MountOptions = {
   text?: string;
   width?: number;
+  applyWidthToComponent?: boolean;
+  containerStyle?: string;
   props?: Partial<ClampProps> & Record<string, unknown>;
   style?: string;
-  defaultSlot?: (text: Ref<string>) => VNodeChild;
-  before?: (scope: ClampSlotScope) => VNodeChild;
-  after?: (scope: ClampSlotScope) => VNodeChild;
+  before?: (props: ClampSlotProps) => VNodeChild;
+  after?: (props: ClampSlotProps) => VNodeChild;
 };
 
 export type MountedClamp = {
@@ -23,10 +26,10 @@ export type MountedClamp = {
 
 const mounted = new Set<MountedClamp>();
 
-function hostStyle(width: number, extra: string | undefined): string {
+function hostStyle(width: number, extra: string | undefined, includeWidth = true): string {
   return [
     "display:block",
-    `width:${width}px`,
+    includeWidth ? `width:${width}px` : undefined,
     "font:16px Georgia, serif",
     "line-height:20px",
     "white-space:normal",
@@ -96,7 +99,7 @@ export function afterElement(root: HTMLElement): HTMLElement | null {
     : (content.lastElementChild as HTMLElement | null);
 }
 
-export function visibleLineCount(root: HTMLElement): number {
+function countLines(root: HTMLElement, clipToRoot: boolean): number {
   const rootRect = root.getBoundingClientRect();
   const lines: Array<{ top: number; bottom: number }> = [];
 
@@ -110,7 +113,7 @@ export function visibleLineCount(root: HTMLElement): number {
         continue;
       }
 
-      if (rect.bottom <= rootRect.top + 0.5 || rect.top >= rootRect.bottom - 0.5) {
+      if (clipToRoot && (rect.bottom <= rootRect.top + 0.5 || rect.top >= rootRect.bottom - 0.5)) {
         continue;
       }
 
@@ -131,6 +134,14 @@ export function visibleLineCount(root: HTMLElement): number {
   }
 
   return lines.length;
+}
+
+export function visibleLineCount(root: HTMLElement): number {
+  return countLines(root, true);
+}
+
+export function naturalLineCount(root: HTMLElement): number {
+  return countLines(root, false);
 }
 
 export async function sampleVisibleLineCounts(root: HTMLElement, samples = 3): Promise<number[]> {
@@ -157,26 +168,84 @@ export async function waitUntilVisible(root: HTMLElement, frames = 12): Promise<
   throw new Error("Clamp never became visible.");
 }
 
-export function mountClamp(options: MountOptions): MountedClamp {
+export function bestBrowserFitText(
+  root: HTMLElement,
+  sourceText: string,
+  maxLines: number,
+  location: "start" | "middle" | "end" = "end",
+  ellipsis = "…",
+): string {
+  const clone = root.cloneNode(true);
+  if (!(clone instanceof HTMLElement)) {
+    throw new Error("Expected clamp clone element.");
+  }
+
+  const cloneText = clone.querySelector('[role="text"]');
+  if (!(cloneText instanceof HTMLElement)) {
+    throw new Error("Expected clone text element.");
+  }
+
+  clone.style.position = "absolute";
+  clone.style.left = "-99999px";
+  clone.style.top = "0";
+  clone.style.visibility = "hidden";
+  clone.style.maxHeight = "none";
+  clone.style.overflow = "visible";
+  document.body.append(clone);
+
+  try {
+    const graphemes = splitGraphemes(sourceText);
+    let low = 0;
+    let high = Math.max(0, graphemes.length - 1);
+    let best = 0;
+
+    while (low <= high) {
+      const kept = Math.floor((low + high) / 2);
+      cloneText.textContent = displayTextForKeptCount(
+        sourceText,
+        graphemes,
+        location,
+        ellipsis,
+        kept,
+      );
+
+      if (naturalLineCount(clone) <= maxLines) {
+        best = kept;
+        low = kept + 1;
+      } else {
+        high = kept - 1;
+      }
+    }
+
+    return displayTextForKeptCount(sourceText, graphemes, location, ellipsis, best);
+  } finally {
+    clone.remove();
+  }
+}
+
+export function mountClampWithComponent(component: Component, options: MountOptions): MountedClamp {
   const text = ref(options.text ?? "");
   const width = ref(options.width ?? 160);
   const exposed = ref<ClampExposed | null>(null);
   const container = document.createElement("div");
+  if (options.containerStyle) {
+    container.setAttribute("style", options.containerStyle);
+  }
   document.body.append(container);
 
   const Host = defineComponent({
     setup() {
       return () =>
         h(
-          Clamp,
+          component,
           {
             ref: exposed,
             autoresize: true,
             ...options.props,
-            style: hostStyle(width.value, options.style),
+            text: text.value,
+            style: hostStyle(width.value, options.style, options.applyWidthToComponent ?? true),
           },
           {
-            default: () => (options.defaultSlot ? options.defaultSlot(text) : text.value),
             before: options.before,
             after: options.after,
           },
@@ -196,6 +265,10 @@ export function mountClamp(options: MountOptions): MountedClamp {
   };
   mounted.add(mountedClamp);
   return mountedClamp;
+}
+
+export function mountClamp(options: MountOptions): MountedClamp {
+  return mountClampWithComponent(Clamp, options);
 }
 
 export function cleanupMounted(): void {

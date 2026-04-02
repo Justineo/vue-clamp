@@ -1,6 +1,6 @@
 export type ClampLocation = "start" | "middle" | "end";
 
-export interface ClampSlotScope {
+export interface ClampSlotProps {
   expand: () => void;
   collapse: () => void;
   toggle: () => void;
@@ -17,8 +17,9 @@ export interface ClampExposed {
 }
 
 export interface ClampProps {
-  tag?: string;
+  as?: string;
   autoresize?: boolean;
+  text?: string;
   maxLines?: number;
   maxHeight?: number | string;
   ellipsis?: string;

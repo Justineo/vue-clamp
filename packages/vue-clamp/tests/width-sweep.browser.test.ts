@@ -8,6 +8,7 @@ import {
   textElement,
   waitUntilVisible,
 } from "./browser.ts";
+
 import type { MountedClamp } from "./browser.ts";
 
 const ENGLISH_TEXT =
@@ -45,7 +46,7 @@ afterEach(() => {
 });
 
 describe("Clamp browser width sweeps", () => {
-  it("keeps the benchmark english end clamp within 3 visible lines while shrinking and growing 1px at a time", async () => {
+  it("keeps the english end clamp within 3 visible lines while shrinking and growing 1px at a time", async () => {
     await document.fonts?.ready;
 
     const mountedClamp = mountClamp({

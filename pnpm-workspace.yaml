@@ -7,6 +7,7 @@ catalog:
   "@types/node": ^24
   "@vitejs/plugin-vue": ^6.0.5
   playwright: ^1.58.2
+  shiki: ^4.0.2
   typescript: ^5
   vite: npm:@voidzero-dev/vite-plus-core@latest
   vite-plus: latest

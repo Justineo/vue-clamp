@@ -1,5 +1,6 @@
 import { defineConfig } from "vite-plus";
 import { playwright } from "vite-plus/test/browser-playwright";
+import websiteConfig from "./packages/website/vite.config.ts";
 
 export default defineConfig({
   define: {
@@ -7,6 +8,8 @@ export default defineConfig({
     __VUE_PROD_DEVTOOLS__: false,
     __VUE_PROD_HYDRATION_MISMATCH_DETAILS__: false,
   },
+  plugins: websiteConfig.plugins,
+  resolve: websiteConfig.resolve,
   test: {
     include: ["packages/vue-clamp/tests/**/*.browser.test.ts"],
     fileParallelism: false,
