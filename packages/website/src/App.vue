@@ -24,27 +24,27 @@ const text =
 // Demo 1: max-lines + after slot toggle
 const lines1 = ref(3);
 const width1 = ref(480);
-const hyphens1 = ref(false);
+const hyphens1 = ref(true);
 const rtl1 = ref(false);
 
 // Demo 2: max-height + before slot + external expanded
-const height2 = ref("calc(48px + 12em)");
+const height2 = ref("calc(36px + 6em)");
 const width2 = ref(480);
-const hyphens2 = ref(false);
+const hyphens2 = ref(true);
 const rtl2 = ref(false);
 const expanded2 = ref(false);
 
 // Demo 3: clampchange event
-const lines3 = ref(5);
+const lines3 = ref(6);
 const width3 = ref(480);
-const hyphens3 = ref(false);
+const hyphens3 = ref(true);
 const rtl3 = ref(false);
 const clamped3 = ref(false);
 
 // Demo 4: ellipsis + location
 const lines4 = ref(5);
 const width4 = ref(480);
-const hyphens4 = ref(false);
+const hyphens4 = ref(true);
 const rtl4 = ref(false);
 const ellipsis4 = ref("\u2026");
 const location4 = ref<"start" | "middle" | "end">("end");
@@ -107,7 +107,7 @@ const highlightedCode = computed(() => {
 </script>
 
 <template>
-  <div class="page">
+  <div class="page" lang="en">
     <!-- Hero -->
     <header class="hero">
       <h1 class="hero-title">&lt;vue-clamp&gt;</h1>
@@ -176,7 +176,6 @@ const highlightedCode = computed(() => {
             <span class="control-row">
               <input
                 v-model.number="width1"
-                data-testid="demo-1-width"
                 class="control-range"
                 type="range"
                 min="240"
@@ -198,8 +197,8 @@ const highlightedCode = computed(() => {
         </div>
         <div class="demo-preview">
           <Clamp
+            class="demo-clamp"
             :class="{ hyphens: hyphens1, rtl: rtl1 }"
-            data-testid="demo-1-clamp"
             :text="text"
             :max-lines="lines1"
             autoresize
@@ -252,6 +251,7 @@ const highlightedCode = computed(() => {
         </div>
         <div class="demo-preview">
           <Clamp
+            class="demo-clamp demo-clamp--max-height"
             :class="{ hyphens: hyphens2, rtl: rtl2 }"
             :text="text"
             :max-height="height2"
@@ -307,6 +307,7 @@ const highlightedCode = computed(() => {
         </div>
         <div class="demo-preview">
           <Clamp
+            class="demo-clamp"
             :class="{ hyphens: hyphens3, rtl: rtl3 }"
             :text="text"
             :max-lines="lines3"
@@ -385,6 +386,7 @@ const highlightedCode = computed(() => {
         </div>
         <div class="demo-preview">
           <Clamp
+            class="demo-clamp"
             :class="{ hyphens: hyphens4, rtl: rtl4 }"
             :text="text"
             :max-lines="lines4"
@@ -646,7 +648,7 @@ pre code {
 
 <style scoped>
 .page {
-  max-width: 640px;
+  max-width: 720px;
   margin: 0 auto;
   padding: 0 24px 48px;
 }
@@ -889,8 +891,19 @@ pre code {
 .demo-preview {
   padding: 16px 14px;
   background: var(--c-bg-soft);
-  line-height: 1.8;
   font-size: 0.9rem;
+}
+
+:deep(.demo-clamp) {
+  max-width: 100%;
+  line-height: 1.8;
+  box-shadow: inset -1px 0 0 var(--c-border);
+}
+
+:deep(.demo-clamp--max-height) {
+  box-shadow:
+    inset -1px 0 0 var(--c-border),
+    inset 0 -1px 0 var(--c-border);
 }
 
 /* Toggle button inside demos */
@@ -955,6 +968,7 @@ pre code {
 /* Hyphens / RTL */
 
 :deep(.hyphens) {
+  -webkit-hyphens: auto;
   hyphens: auto;
 }
 

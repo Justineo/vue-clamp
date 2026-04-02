@@ -91,11 +91,14 @@ function textContainerElement(root: HTMLElement): HTMLElement {
   return textContainer;
 }
 
-export function textElement(root: HTMLElement): HTMLElement {
-  const textContainer = textContainerElement(root);
-  const children = Array.from(textContainer.children).filter(
+function textContainerChildren(root: HTMLElement): HTMLElement[] {
+  return Array.from(textContainerElement(root).children).filter(
     (child): child is HTMLElement => child instanceof HTMLElement,
   );
+}
+
+export function textElement(root: HTMLElement): HTMLElement {
+  const children = textContainerChildren(root);
   const text =
     children.find((child) => child.getAttribute("aria-hidden") === "true") ?? children.at(-1);
 
@@ -107,10 +110,7 @@ export function textElement(root: HTMLElement): HTMLElement {
 }
 
 export function accessibleTextElement(root: HTMLElement): HTMLElement | null {
-  const textContainer = textContainerElement(root);
-  const children = Array.from(textContainer.children).filter(
-    (child): child is HTMLElement => child instanceof HTMLElement,
-  );
+  const children = textContainerChildren(root);
   const [accessibleText, visibleText] = children;
 
   return visibleText?.getAttribute("aria-hidden") === "true" ? (accessibleText ?? null) : null;

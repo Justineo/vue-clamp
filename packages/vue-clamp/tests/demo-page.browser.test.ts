@@ -34,7 +34,7 @@ function mountPage(component: Component): MountedPage {
 }
 
 function workspaceClamp(container: HTMLElement): HTMLElement {
-  const clampRoot = container.querySelector('[data-testid="demo-1-clamp"]');
+  const clampRoot = workspaceDemoBlock(container).querySelector(".demo-clamp");
   if (!(clampRoot instanceof HTMLElement)) {
     throw new Error("Expected the workspace clamp root.");
   }
@@ -43,12 +43,22 @@ function workspaceClamp(container: HTMLElement): HTMLElement {
 }
 
 function widthInput(container: HTMLElement): HTMLInputElement {
-  const input = container.querySelector('[data-testid="demo-1-width"]');
+  const input = workspaceDemoBlock(container).querySelector(".control-range");
   if (!(input instanceof HTMLInputElement)) {
     throw new Error("Expected the workspace width slider.");
   }
 
   return input;
+}
+
+function workspaceDemoBlock(container: HTMLElement): HTMLElement {
+  const blocks = container.querySelectorAll(".demo-block");
+  const block = blocks.item(0);
+  if (!(block instanceof HTMLElement)) {
+    throw new Error("Expected the first demo block.");
+  }
+
+  return block;
 }
 
 async function setWorkspaceWidth(container: HTMLElement, width: number): Promise<void> {

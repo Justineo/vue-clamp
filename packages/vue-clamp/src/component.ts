@@ -141,20 +141,23 @@ function clampText(
   maxHeight: number | string | undefined,
 ): string | null {
   const style = getComputedStyle(rootElement);
-  const readPx = (value: string | null | undefined): number | undefined => {
+
+  function readPx(value: string | null | undefined): number | undefined {
     if (!value || value === "none" || value === "normal") {
       return undefined;
     }
 
     const numeric = Number.parseFloat(value);
     return Number.isFinite(numeric) ? numeric : undefined;
-  };
+  }
+
   const padding = (readPx(style.paddingLeft) ?? 0) + (readPx(style.paddingRight) ?? 0);
   const border = (readPx(style.borderLeftWidth) ?? 0) + (readPx(style.borderRightWidth) ?? 0);
   const styledWidth = readPx(style.width);
+  const widthAdjustment = style.boxSizing === "border-box" ? padding + border : 0;
   const width =
     styledWidth !== undefined
-      ? Math.max(0, styledWidth - (style.boxSizing === "border-box" ? padding + border : 0))
+      ? Math.max(0, styledWidth - widthAdjustment)
       : Math.max(0, rootElement.getBoundingClientRect().width - padding - border);
 
   if (width <= 0) {
@@ -265,6 +268,11 @@ export const Clamp = defineComponent({
       expanded.value = !expanded.value;
     }
 
+    function resetClamp(): void {
+      visibleText.value = props.text;
+      isClamped.value = false;
+    }
+
     function recompute(): void {
       const hasLimit = props.maxLines !== undefined || props.maxHeight !== undefined;
       const nextNativeTextOverflow = canUseNativeClamp(
@@ -277,8 +285,7 @@ export const Clamp = defineComponent({
       nativeTextOverflow.value = nextNativeTextOverflow;
 
       if (expanded.value || props.text.length === 0 || !hasLimit) {
-        visibleText.value = props.text;
-        isClamped.value = false;
+        resetClamp();
         return;
       }
 
@@ -287,8 +294,7 @@ export const Clamp = defineComponent({
       const textElement = textRef.value;
 
       if (!rootElement || !contentElement || !textElement) {
-        visibleText.value = props.text;
-        isClamped.value = false;
+        resetClamp();
         return;
       }
 
@@ -312,8 +318,7 @@ export const Clamp = defineComponent({
       );
 
       if (nextText === null) {
-        visibleText.value = props.text;
-        isClamped.value = false;
+        resetClamp();
         return;
       }
 
@@ -449,6 +454,7 @@ export const Clamp = defineComponent({
         nativeTextOverflow.value || expanded.value || visibleText.value.length === 0 || !hasLimit
           ? props.text
           : visibleText.value;
+
       const needsAccessibleSourceText = renderedText !== props.text;
 
       return h(
