@@ -21,6 +21,41 @@ const slotStyle: CSSProperties = {
   verticalAlign: "baseline",
 };
 
+const nativeContentStyle: CSSProperties = {
+  alignItems: "baseline",
+  display: "inline-flex",
+  maxWidth: "100%",
+  verticalAlign: "baseline",
+  width: "100%",
+};
+
+const nativeTextStyle: CSSProperties = {
+  display: "block",
+  overflow: "hidden",
+  overflowWrap: "normal",
+  whiteSpace: "nowrap",
+};
+
+const nativeTextContainerStyle: CSSProperties = {
+  display: "block",
+  flex: "1 1 auto",
+  minWidth: "0",
+};
+
+const nativeSlotStyle: CSSProperties = {
+  ...slotStyle,
+  flex: "none",
+};
+
+const visuallyHiddenTextStyle: CSSProperties = {
+  position: "absolute",
+  width: "1px",
+  height: "1px",
+  overflow: "hidden",
+  whiteSpace: "nowrap",
+  clipPath: "inset(50%)",
+};
+
 const clampProps = {
   as: {
     type: String,
@@ -58,6 +93,43 @@ const clampEmits = {
   clampchange: (value: boolean) => typeof value === "boolean",
 };
 
+function normalizeLineLimit(maxLines: number | undefined): number | undefined {
+  return maxLines === undefined || !Number.isFinite(maxLines) || maxLines <= 0
+    ? undefined
+    : Math.max(1, Math.floor(maxLines));
+}
+
+function nativeTextOverflowValue(ellipsis: string): string | null {
+  return ellipsis === "…" ? "ellipsis" : null;
+}
+
+function canUseNativeClamp(
+  expanded: boolean,
+  maxLines: number | undefined,
+  maxHeight: number | string | undefined,
+  location: ClampLocation,
+  ellipsis: string,
+): string | null {
+  if (
+    expanded ||
+    normalizeLineLimit(maxLines) !== 1 ||
+    maxHeight !== undefined ||
+    location !== "end"
+  ) {
+    return null;
+  }
+
+  return nativeTextOverflowValue(ellipsis);
+}
+
+function isNativeClamped(textElement: HTMLElement): boolean | null {
+  if (textElement.clientWidth <= 0 || textElement.getBoundingClientRect().width <= 0) {
+    return null;
+  }
+
+  return textElement.scrollWidth > textElement.clientWidth + 0.5;
+}
+
 function clampText(
   text: string,
   rootElement: HTMLElement,
@@ -89,10 +161,7 @@ function clampText(
     return null;
   }
 
-  const lineLimit =
-    maxLines === undefined || !Number.isFinite(maxLines) || maxLines <= 0
-      ? undefined
-      : Math.max(1, Math.floor(maxLines));
+  const lineLimit = normalizeLineLimit(maxLines);
   const graphemes = splitGraphemes(text);
   let currentText = textElement.textContent ?? "";
 
@@ -179,6 +248,7 @@ export const Clamp = defineComponent({
     const visibleText = ref("");
     const expanded = ref(props.expanded);
     const isClamped = ref(false);
+    const nativeTextOverflow = ref<string | null>(null);
 
     let resizeObserver: ResizeObserver | null = null;
     let stopFonts = () => {};
@@ -197,6 +267,14 @@ export const Clamp = defineComponent({
 
     function recompute(): void {
       const hasLimit = props.maxLines !== undefined || props.maxHeight !== undefined;
+      const nextNativeTextOverflow = canUseNativeClamp(
+        expanded.value,
+        props.maxLines,
+        props.maxHeight,
+        props.location,
+        props.ellipsis,
+      );
+      nativeTextOverflow.value = nextNativeTextOverflow;
 
       if (expanded.value || props.text.length === 0 || !hasLimit) {
         visibleText.value = props.text;
@@ -211,6 +289,14 @@ export const Clamp = defineComponent({
       if (!rootElement || !contentElement || !textElement) {
         visibleText.value = props.text;
         isClamped.value = false;
+        return;
+      }
+
+      if (nextNativeTextOverflow) {
+        visibleText.value = props.text;
+
+        const nextClamped = isNativeClamped(textElement);
+        isClamped.value = nextClamped ?? false;
         return;
       }
 
@@ -360,9 +446,10 @@ export const Clamp = defineComponent({
       const beforeSlot = slots.before?.(slotProps);
       const afterSlot = slots.after?.(slotProps);
       const renderedText =
-        expanded.value || visibleText.value.length === 0 || !hasLimit
+        nativeTextOverflow.value || expanded.value || visibleText.value.length === 0 || !hasLimit
           ? props.text
           : visibleText.value;
+      const needsAccessibleSourceText = renderedText !== props.text;
 
       return h(
         props.as,
@@ -377,6 +464,7 @@ export const Clamp = defineComponent({
           "span",
           {
             ref: contentRef,
+            style: nativeTextOverflow.value ? nativeContentStyle : undefined,
           },
           [
             beforeSlot
@@ -384,7 +472,7 @@ export const Clamp = defineComponent({
                   "span",
                   {
                     ref: beforeRef,
-                    style: slotStyle,
+                    style: nativeTextOverflow.value ? nativeSlotStyle : slotStyle,
                   },
                   beforeSlot,
                 )
@@ -392,18 +480,42 @@ export const Clamp = defineComponent({
             h(
               "span",
               {
-                ref: textRef,
-                role: "text",
-                "aria-label": props.text,
+                style: nativeTextOverflow.value
+                  ? nativeTextContainerStyle
+                  : { position: "relative" },
               },
-              renderedText,
+              [
+                needsAccessibleSourceText
+                  ? h(
+                      "span",
+                      {
+                        style: visuallyHiddenTextStyle,
+                      },
+                      props.text,
+                    )
+                  : null,
+                h(
+                  "span",
+                  {
+                    ref: textRef,
+                    "aria-hidden": needsAccessibleSourceText ? "true" : undefined,
+                    style: nativeTextOverflow.value
+                      ? {
+                          ...nativeTextStyle,
+                          textOverflow: nativeTextOverflow.value,
+                        }
+                      : undefined,
+                  },
+                  renderedText,
+                ),
+              ],
             ),
             afterSlot
               ? h(
                   "span",
                   {
                     ref: afterRef,
-                    style: slotStyle,
+                    style: nativeTextOverflow.value ? nativeSlotStyle : slotStyle,
                   },
                   afterSlot,
                 )

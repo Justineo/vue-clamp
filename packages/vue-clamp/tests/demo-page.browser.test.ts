@@ -1,9 +1,11 @@
 import { afterEach, describe, expect, it } from "vite-plus/test";
 import { createApp } from "vue";
 import {
+  accessibleTextElement,
   bestBrowserFitText,
   sampleVisibleLineCounts,
   settle,
+  textElement,
   waitUntilVisible,
 } from "./browser.ts";
 
@@ -98,11 +100,7 @@ describe("Website demo page", () => {
       const clampRoot = workspaceClamp(mountedPage.container);
       await waitUntilVisible(clampRoot);
 
-      const textNode = clampRoot.querySelector('[role="text"]');
-      if (!(textNode instanceof HTMLElement)) {
-        throw new Error("Expected the workspace clamp text node.");
-      }
-
+      const textNode = textElement(clampRoot);
       const currentLength = textNode.textContent?.length ?? 0;
       if (currentLength > previousLength) {
         failures.push(`${width}px: ${currentLength} > ${previousLength}`);
@@ -125,12 +123,8 @@ describe("Website demo page", () => {
     const clampRoot = workspaceClamp(mountedPage.container);
     await waitUntilVisible(clampRoot);
 
-    const textNode = clampRoot.querySelector('[role="text"]');
-    if (!(textNode instanceof HTMLElement)) {
-      throw new Error("Expected the workspace clamp text node.");
-    }
-
-    const sourceText = textNode.getAttribute("aria-label");
+    const textNode = textElement(clampRoot);
+    const sourceText = accessibleTextElement(clampRoot)?.textContent ?? textNode.textContent;
     if (!sourceText) {
       throw new Error("Expected the workspace clamp source text.");
     }

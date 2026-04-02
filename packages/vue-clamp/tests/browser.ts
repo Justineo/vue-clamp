@@ -71,10 +71,33 @@ function contentElement(root: HTMLElement): HTMLElement {
   return content;
 }
 
-export function textElement(root: HTMLElement): HTMLElement {
-  const text = Array.from(contentElement(root).children).find(
-    (child) => child instanceof HTMLElement && child.getAttribute("role") === "text",
+function textContainerElement(root: HTMLElement): HTMLElement {
+  const content = contentElement(root);
+
+  if (content.children.length === 1 && content.firstElementChild instanceof HTMLElement) {
+    return content.firstElementChild;
+  }
+
+  const textContainer = Array.from(content.children).find(
+    (child) =>
+      child instanceof HTMLElement &&
+      (child.style.position === "relative" || child.style.flexGrow === "1"),
   );
+
+  if (!(textContainer instanceof HTMLElement)) {
+    throw new Error("Expected clamp text container element.");
+  }
+
+  return textContainer;
+}
+
+export function textElement(root: HTMLElement): HTMLElement {
+  const textContainer = textContainerElement(root);
+  const children = Array.from(textContainer.children).filter(
+    (child): child is HTMLElement => child instanceof HTMLElement,
+  );
+  const text =
+    children.find((child) => child.getAttribute("aria-hidden") === "true") ?? children.at(-1);
 
   if (!(text instanceof HTMLElement)) {
     throw new Error("Expected clamp text element.");
@@ -83,18 +106,28 @@ export function textElement(root: HTMLElement): HTMLElement {
   return text;
 }
 
+export function accessibleTextElement(root: HTMLElement): HTMLElement | null {
+  const textContainer = textContainerElement(root);
+  const children = Array.from(textContainer.children).filter(
+    (child): child is HTMLElement => child instanceof HTMLElement,
+  );
+  const [accessibleText, visibleText] = children;
+
+  return visibleText?.getAttribute("aria-hidden") === "true" ? (accessibleText ?? null) : null;
+}
+
 export function beforeElement(root: HTMLElement): HTMLElement | null {
   const content = contentElement(root);
-  const text = textElement(root);
-  return content.firstElementChild === text
+  const textContainer = textContainerElement(root);
+  return content.firstElementChild === textContainer
     ? null
     : (content.firstElementChild as HTMLElement | null);
 }
 
 export function afterElement(root: HTMLElement): HTMLElement | null {
   const content = contentElement(root);
-  const text = textElement(root);
-  return content.lastElementChild === text
+  const textContainer = textContainerElement(root);
+  return content.lastElementChild === textContainer
     ? null
     : (content.lastElementChild as HTMLElement | null);
 }
@@ -180,10 +213,7 @@ export function bestBrowserFitText(
     throw new Error("Expected clamp clone element.");
   }
 
-  const cloneText = clone.querySelector('[role="text"]');
-  if (!(cloneText instanceof HTMLElement)) {
-    throw new Error("Expected clone text element.");
-  }
+  const cloneText = textElement(clone);
 
   clone.style.position = "absolute";
   clone.style.left = "-99999px";

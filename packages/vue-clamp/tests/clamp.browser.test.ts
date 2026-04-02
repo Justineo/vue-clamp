@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "vite-plus/test";
 import { h } from "vue";
 import {
+  accessibleTextElement,
   afterElement,
   bestBrowserFitText,
   beforeElement,
@@ -23,7 +24,7 @@ afterEach(() => {
 });
 
 describe("Clamp browser contract", () => {
-  it("renders the text prop and mirrors it to aria-label", async () => {
+  it("renders plain text without role or aria-label when no truncation support is needed", async () => {
     const mounted = mountClamp({
       text: "abcdefghijklmno",
     });
@@ -31,9 +32,11 @@ describe("Clamp browser contract", () => {
     await settle();
 
     const textNode = textElement(rootElement(mounted.container));
-    expect(textNode.getAttribute("role")).toBe("text");
+    expect(textNode.getAttribute("role")).toBeNull();
+    expect(textNode.getAttribute("aria-hidden")).toBeNull();
     expect(textNode.textContent).toBe("abcdefghijklmno");
-    expect(textNode.getAttribute("aria-label")).toBe("abcdefghijklmno");
+    expect(textNode.getAttribute("aria-label")).toBeNull();
+    expect(accessibleTextElement(rootElement(mounted.container))).toBeNull();
   });
 
   it("renders the requested root tag through the as prop", async () => {
@@ -100,22 +103,32 @@ describe("Clamp browser contract", () => {
     expect(await sampleVisibleLineCounts(root)).toEqual([2, 2, 2]);
   });
 
-  it("renders an ellipsis in the collapsed text when clamped", async () => {
+  it("uses native one-line overflow when the default end-ellipsis path is eligible", async () => {
+    const sourceText = "abcdefghijklmnopqrstuvwxyz";
     const mounted = mountClamp({
-      text: "abcdefghijklmnopqrstuvwxyz",
+      text: sourceText,
       props: {
         maxLines: 1,
       },
     });
 
-    await waitUntilVisible(rootElement(mounted.container));
+    const root = rootElement(mounted.container);
+    await waitUntilVisible(root);
 
-    expect(textElement(rootElement(mounted.container)).textContent).toContain("…");
+    const textNode = textElement(root);
+    expect(textNode.textContent).toBe(sourceText);
+    expect(getComputedStyle(textNode).textOverflow).toBe("ellipsis");
+    expect(getComputedStyle(textNode).whiteSpace).toBe("nowrap");
+    expect(textNode.getAttribute("aria-hidden")).toBeNull();
+    expect(accessibleTextElement(root)).toBeNull();
+    expect((mounted.exposed.value as ClampExposed).clamped).toBe(true);
+    expect(await sampleVisibleLineCounts(root)).toEqual([1, 1, 1]);
   });
 
-  it("clamps when the live width comes from the parent container instead of the root element", async () => {
+  it("keeps the native one-line path clamped when width comes from the parent container", async () => {
+    const sourceText = "abcdefghijklmnopqrstuvwxyz";
     const mounted = mountClamp({
-      text: "abcdefghijklmnopqrstuvwxyz",
+      text: sourceText,
       applyWidthToComponent: false,
       containerStyle: "width:120px",
       props: {
@@ -126,7 +139,33 @@ describe("Clamp browser contract", () => {
     const root = rootElement(mounted.container);
     await waitUntilVisible(root);
 
-    expect(textElement(root).textContent).toContain("…");
+    expect(textElement(root).textContent).toBe(sourceText);
+    expect(accessibleTextElement(root)).toBeNull();
+    expect((mounted.exposed.value as ClampExposed).clamped).toBe(true);
+    expect(await sampleVisibleLineCounts(root)).toEqual([1, 1, 1]);
+  });
+
+  it("keeps the native one-line path with fixed-width before and after slots", async () => {
+    const sourceText = "abcdefghijklmnopqrstuvwxyz";
+    const mounted = mountClamp({
+      text: sourceText,
+      width: 180,
+      props: {
+        maxLines: 1,
+      },
+      before: () => h("strong", "Before"),
+      after: () => h("button", { type: "button" }, "After"),
+    });
+
+    const root = rootElement(mounted.container);
+    await waitUntilVisible(root);
+
+    const textNode = textElement(root);
+    expect(textNode.textContent).toBe(sourceText);
+    expect(beforeElement(root)?.textContent).toBe("Before");
+    expect(afterElement(root)?.textContent).toBe("After");
+    expect(accessibleTextElement(root)).toBeNull();
+    expect((mounted.exposed.value as ClampExposed).clamped).toBe(true);
     expect(await sampleVisibleLineCounts(root)).toEqual([1, 1, 1]);
   });
 
@@ -144,9 +183,31 @@ describe("Clamp browser contract", () => {
     await waitUntilVisible(root);
     await settle();
 
-    expect(textElement(root).textContent).toContain("…");
+    expect(textElement(root).textContent).toBe("abcdefghijklmnopqrstuvwxyz");
     expect(afterElement(root)).not.toBeNull();
+    expect(accessibleTextElement(root)).toBeNull();
+    expect((mounted.exposed.value as ClampExposed).clamped).toBe(true);
     expect(await sampleVisibleLineCounts(root)).toEqual([1, 1, 1]);
+  });
+
+  it("falls back to DOM-trimmed text for custom one-line ellipsis values", async () => {
+    const mounted = mountClamp({
+      text: "abcdefghijklmnopqrstuvwxyz",
+      props: {
+        maxLines: 1,
+        ellipsis: "...",
+      },
+    });
+
+    const root = rootElement(mounted.container);
+    await waitUntilVisible(root);
+
+    const textNode = textElement(root);
+    expect(textNode.textContent).toContain("...");
+    expect(textNode.textContent).not.toBe("abcdefghijklmnopqrstuvwxyz");
+    expect(textNode.getAttribute("aria-hidden")).toBe("true");
+    expect(accessibleTextElement(root)?.textContent).toBe("abcdefghijklmnopqrstuvwxyz");
+    expect((mounted.exposed.value as ClampExposed).clamped).toBe(true);
   });
 
   it("keeps the production component within 3 visible lines at fractional widths", async () => {
@@ -201,8 +262,11 @@ describe("Clamp browser contract", () => {
     mounted.text.value = nextText;
     await settle(1);
 
-    expect(textElement(root).getAttribute("aria-label")).toBe(nextText);
-    expect(textElement(root).textContent).not.toBe(nextText);
+    const textNode = textElement(root);
+    expect(textNode.getAttribute("aria-label")).toBeNull();
+    expect(textNode.textContent).toBe(nextText);
+    expect(accessibleTextElement(root)).toBeNull();
+    expect((mounted.exposed.value as ClampExposed).clamped).toBe(true);
     expect(await sampleVisibleLineCounts(root)).toEqual([1, 1, 1]);
   });
 
@@ -274,5 +338,23 @@ describe("Clamp browser contract", () => {
     await settle();
 
     expect(values).toEqual([false, true]);
+  });
+
+  it("keeps the full source text available for assistive tech when the visible text is rewritten", async () => {
+    const sourceText = "abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz";
+    const mounted = mountClamp({
+      text: sourceText,
+      props: {
+        maxLines: 2,
+      },
+    });
+
+    const root = rootElement(mounted.container);
+    await waitUntilVisible(root);
+
+    const textNode = textElement(root);
+    expect(textNode.textContent).not.toBe(sourceText);
+    expect(textNode.getAttribute("aria-hidden")).toBe("true");
+    expect(accessibleTextElement(root)?.textContent).toBe(sourceText);
   });
 });

@@ -51,15 +51,25 @@
   - reactive `visibleText`, `expanded`, and `isClamped`
   - DOM refs for root/content/text and optional `before`/`after` slot wrappers
 
+### Accessibility model
+
+- The component no longer relies on `role="text"` or `aria-label` on a generic span.
+- When the visible text is not rewritten, the full source text stays directly in the visible DOM.
+- When the visible text is rewritten by the JS clamp path, the component:
+  - marks the rewritten visible text node as `aria-hidden`
+  - renders a visually hidden full-text sibling in the same text position for assistive tech
+- This keeps the accessible text aligned with the unclamped source without hiding `before` and `after` slot content.
+
 ### Clamp strategy
 
 - The actual clamp pass:
   - starts from the `text` prop
   - measures the live content width from the rendered root
   - normalizes `maxLines` and `maxHeight`
-  - splits the source text into graphemes
-  - binary-searches the kept grapheme count directly against the live DOM
-  - uses the browser as the source of truth for wrapping and overflow
+  - uses a native CSS overflow fast path for the collapsed single-line `end` case when the default `…` ellipsis is used
+  - in that native path, `before` and `after` stay as fixed inline-flex items while the text cell becomes the only flexible width consumer
+  - otherwise splits the source text into graphemes and binary-searches the kept grapheme count directly against the live DOM
+  - uses the browser as the source of truth for wrapping and overflow in both paths
 - `before` and `after` slots render directly into the same inline flow and are observed for size changes via `ResizeObserver`.
 
 ### Reactivity and trade-offs
@@ -75,6 +85,7 @@
   - no probe element
   - no detached measurement host
   - no synthetic line-height-derived clipping guardrail
+- The native fast path deliberately stays narrow so the component still has one readable runtime and does not need a separate slot-aware single-line layout engine.
 - The deliberate trade-off is that async resize/font transitions may briefly show stale or unclamped text before the next DOM-driven recompute settles.
 - In exchange, correctness does not depend on line-height modeling and the runtime is much easier to follow.
 
@@ -82,6 +93,9 @@
 
 - The component now requires a `text` prop for the clamped source content.
 - The implementation favors browser truth over a mathematically modeled layout engine.
+- In the native single-line fast path, the collapsed DOM text remains the full source text and the visual ellipsis comes from CSS overflow rather than a rewritten text node.
+- Custom ellipsis strings still fall back to the JS trimming path.
+- The JS trimming path still rewrites the visible text node, but accessibility now comes from the hidden full-text sibling rather than a generic-element label.
 - A small amount of duplicated logic inside the component is preferred over splitting one runtime path across many files.
 - Browser tests are still the main confidence layer because the component’s behavior depends on real DOM layout.
 
