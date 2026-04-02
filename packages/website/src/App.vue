@@ -167,7 +167,7 @@ const inlineExamples = [
   text: string;
 }>;
 
-type PkgManager = "vp" | "npm" | "pnpm" | "yarn" | "agent";
+type PkgManager = "vp" | "npm" | "pnpm" | "yarn" | "bun" | "agent";
 
 const pkgManager = ref<PkgManager>("npm");
 
@@ -176,31 +176,9 @@ const pkgManagers: { id: PkgManager; label: string }[] = [
   { id: "npm", label: "npm" },
   { id: "pnpm", label: "pnpm" },
   { id: "yarn", label: "yarn" },
+  { id: "bun", label: "bun" },
   { id: "agent", label: "agent" },
 ];
-
-const componentGuideRows = [
-  {
-    label: "Layout",
-    line: "Browser-fit multiline clamp.",
-    inline: "Native single-line clamp.",
-  },
-  {
-    label: "Best for",
-    line: "Paragraphs, excerpts, cards, and expandable UI.",
-    inline: "Filenames, emails, IDs, and paths.",
-  },
-  {
-    label: "Semantics",
-    line: "Supports before/after slots around the clamped text.",
-    inline: "Uses split(text) to keep fixed visible edges.",
-  },
-  {
-    label: "Control",
-    line: "Supports location, expansion, and clampchange.",
-    inline: "No slots, events, or instance API.",
-  },
-] as const;
 
 const installCommand = computed(() => {
   switch (pkgManager.value) {
@@ -212,6 +190,8 @@ const installCommand = computed(() => {
       return "pnpm add vue-clamp";
     case "yarn":
       return "yarn add vue-clamp";
+    case "bun":
+      return "bun add vue-clamp";
     case "agent":
       return "Install the vue-clamp package into this project";
   }
@@ -328,16 +308,13 @@ const highlightedInlineCode = computed(() => {
       <h2 class="section-title" id="features"><a href="#features">#</a> Features</h2>
       <ul class="features-list">
         <li>
-          <code>LineClamp</code> handles browser-fit multiline truncation with slots, expansion
-          state, and either <code>max-lines</code> or <code>max-height</code>.
+          <code>LineClamp</code> fits text to real multiline layouts, making it a good default for
+          previews, cards, lists, and any expandable content that depends on actual browser
+          wrapping.
         </li>
         <li>
-          <code>LineClamp</code> places ellipsis with <code>start</code>, <code>middle</code>,
-          <code>end</code>, or any numeric ratio between <code>0</code> and <code>1</code>.
-        </li>
-        <li>
-          <code>InlineClamp</code> stays native and single-line, with optional
-          <code>split(text)</code> semantics for fixed visible edges.
+          <code>InlineClamp</code> keeps a single line compact while preserving meaningful edges,
+          which works well for filenames, paths, email addresses, and other label-like text.
         </li>
       </ul>
     </section>
@@ -364,34 +341,6 @@ const highlightedInlineCode = computed(() => {
           embedded
         />
       </div>
-    </section>
-
-    <section class="section">
-      <h2 class="section-title" id="choose"><a href="#choose">#</a> Choose a Component</h2>
-      <p class="section-lead">
-        Use <code>LineClamp</code> when wrapped text needs browser-fit clamping. Use
-        <code>InlineClamp</code> when one line should stay native and a meaningful edge must stay
-        visible.
-      </p>
-      <div class="api-table-wrap guide-table-wrap">
-        <table class="api-table guide-table">
-          <thead>
-            <tr>
-              <th></th>
-              <th><code>LineClamp</code></th>
-              <th><code>InlineClamp</code></th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="row in componentGuideRows" :key="row.label">
-              <td>{{ row.label }}</td>
-              <td>{{ row.line }}</td>
-              <td>{{ row.inline }}</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-      <p class="section-note">Both components are exported from <code>vue-clamp</code>.</p>
     </section>
 
     <section class="section">
@@ -952,7 +901,7 @@ const highlightedInlineCode = computed(() => {
                 </table>
               </div>
 
-              <h3 class="subsection-title">split() Result</h3>
+              <h3 class="subsection-title">split() result</h3>
               <div class="api-table-wrap">
                 <table class="api-table">
                   <thead>
@@ -1183,18 +1132,6 @@ pre code {
   color: var(--c-text-2);
   text-transform: uppercase;
   letter-spacing: 0.04em;
-}
-
-.section-lead {
-  margin-top: 12px;
-  font-size: 0.9rem;
-  color: var(--c-text-2);
-}
-
-.section-note {
-  margin-top: 6px;
-  font-size: 0.8rem;
-  color: var(--c-text-3);
 }
 
 /* Features */
@@ -1673,12 +1610,6 @@ pre code {
 
 .api-table tr:last-child td {
   border-bottom: none;
-}
-
-.guide-table th:first-child,
-.guide-table td:first-child {
-  width: 110px;
-  white-space: nowrap;
 }
 
 .api-table code {

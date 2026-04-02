@@ -444,20 +444,11 @@ describe("Website demo page", () => {
     );
   });
 
-  it("documents when to use each component and surfaces practical API notes", async () => {
+  it("surfaces practical API notes for both components", async () => {
     const { default: App } = await import("../../website/src/App.vue");
     const mountedPage = mountPage(App);
 
     await settle(4);
-
-    const chooseSection = mountedPage.container.querySelector("#choose")?.closest(".section");
-    if (!(chooseSection instanceof HTMLElement)) {
-      throw new Error("Expected the choose-a-component section.");
-    }
-
-    expect(chooseSection.textContent).toContain("Browser-fit multiline clamp.");
-    expect(chooseSection.textContent).toContain("Filenames, emails, IDs, and paths.");
-    expect(chooseSection.textContent).toContain("Both components are exported from vue-clamp.");
 
     const lineNotes = referenceShell(mountedPage.container).querySelector(
       '[data-api-notes="line"]',
@@ -507,11 +498,25 @@ describe("Website demo page", () => {
     expect(installButton.getAttribute("data-copy-state")).toBe("copied");
     expect(installButton.getAttribute("aria-label")).toBe("installation command copied");
 
+    const bunTab = mountedPage.container.querySelector<HTMLButtonElement>(
+      "button.install-tab:nth-child(5)",
+    );
+    if (!bunTab) {
+      throw new Error("Expected the Bun install tab.");
+    }
+    bunTab.click();
+    await settle(2);
+
+    installButton.click();
+    await settle(2);
+
+    expect(clipboardWrites[1]).toBe("bun add vue-clamp");
+
     const lineExampleButton = copyButton(mountedPage.container, "line-example");
     lineExampleButton.click();
     await settle(2);
 
-    expect(clipboardWrites[1]).toContain("import { LineClamp } from 'vue-clamp'");
+    expect(clipboardWrites[2]).toContain("import { LineClamp } from 'vue-clamp'");
 
     await selectSurface(mountedPage.container, "inline");
 
@@ -519,8 +524,8 @@ describe("Website demo page", () => {
     inlineExampleButton.click();
     await settle(2);
 
-    expect(clipboardWrites[2]).toContain("import { InlineClamp } from 'vue-clamp'");
-    expect(clipboardWrites[2]).toContain("splitImageFile");
+    expect(clipboardWrites[3]).toContain("import { InlineClamp } from 'vue-clamp'");
+    expect(clipboardWrites[3]).toContain("splitImageFile");
     expect(inlineExampleButton.getAttribute("data-copy-state")).toBe("copied");
   });
 });
