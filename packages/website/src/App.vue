@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
-import { Clamp } from "vue-clamp";
+import { InlineClamp, LineClamp } from "vue-clamp";
+import ComponentTabs from "./ComponentTabs.vue";
+import CodeBlock from "./CodeBlock.vue";
 import { createHighlighterCoreSync } from "shiki/core";
 import { createJavaScriptRegexEngine } from "shiki/engine/javascript";
 import vue from "shiki/langs/vue.mjs";
@@ -9,19 +11,24 @@ import css from "shiki/langs/css.mjs";
 import html from "shiki/langs/html.mjs";
 import js from "shiki/langs/javascript.mjs";
 import ts from "shiki/langs/typescript.mjs";
-import vitesseDark from "shiki/themes/vitesse-dark.mjs";
-import vitesseLight from "shiki/themes/vitesse-light.mjs";
+import { websiteShikiTheme } from "./shiki-theme";
 
-import type { ClampLocation } from "vue-clamp";
+import type { InlineClampSplit, LineClampLocation } from "vue-clamp";
 
 const shiki = createHighlighterCoreSync({
-  themes: [vitesseLight, vitesseDark],
+  themes: [websiteShikiTheme],
   langs: [vue, shellscript, css, html, js, ts],
   engine: createJavaScriptRegexEngine(),
 });
 
 const text =
   "Vue (pronounced /vju\u02D0/, like view) is a progressive framework for building user interfaces. Unlike other monolithic frameworks, Vue is designed from the ground up to be incrementally adoptable. The core library is focused on the view layer only, and is easy to pick up and integrate with other libraries or existing projects. On the other hand, Vue is also perfectly capable of powering sophisticated Single-Page Applications when used in combination with modern tooling and supporting libraries.";
+const arabicText =
+  "فيو 3 إطار تدريجي لبناء واجهات المستخدم، وقد صُمم ليكون سهل التبنّي بشكل متدرج داخل المشاريع المختلفة. تركز المكتبة الأساسية على طبقة العرض فقط، لكنها قادرة أيضًا على تشغيل تطبيقات أكثر تعقيدًا عند استخدامها مع أدوات حديثة ومكتبات مساندة. في هذا المثال نعرض نصًا عربيًا مع Vue 3 وبعض الكلمات اللاتينية مثل SPA لاختبار الالتفاف والاقتطاع في اتجاه من اليمين إلى اليسار.";
+
+function lineDemoText(rtl: boolean): string {
+  return rtl ? arabicText : text;
+}
 
 // Demo 1: max-lines + after slot toggle
 const lines1 = ref(3);
@@ -64,13 +71,101 @@ const selectedLocationPreset4 = computed(() => {
   return preset?.value ?? null;
 });
 
-const location4 = computed<ClampLocation>(() => {
+const location4 = computed<LineClampLocation>(() => {
   return selectedLocationPreset4.value ?? locationRatio4.value;
 });
 
 function selectLocationPreset4(ratio: number): void {
   locationRatio4.value = ratio;
 }
+
+type SurfaceKey = "line" | "inline";
+
+const activeSurface = ref<SurfaceKey>("line");
+const surfaceOptions = [
+  {
+    description: "Multiline browser-fit clamp with slots, expansion, and ratio-based ellipsis.",
+    label: "LineClamp",
+    value: "line",
+  },
+  {
+    description: "Native single-line clamp with optional split(text) semantics for fixed edges.",
+    label: "InlineClamp",
+    value: "inline",
+  },
+] as const;
+
+const inlineWidth5 = ref(280);
+const commonImageExtensions = [".png", ".jpg", ".jpeg", ".webp", ".gif", ".avif"] as const;
+
+const splitImageFile: InlineClampSplit = (text) => {
+  const extension = commonImageExtensions.find((candidate) =>
+    text.toLowerCase().endsWith(candidate),
+  );
+
+  return extension
+    ? {
+        body: text.slice(0, -extension.length),
+        end: text.slice(-extension.length),
+      }
+    : {
+        body: text,
+      };
+};
+
+const splitEmail: InlineClampSplit = (text) => {
+  const atIndex = text.indexOf("@");
+
+  return atIndex === -1
+    ? {
+        body: text,
+      }
+    : {
+        body: text.slice(0, atIndex),
+        end: text.slice(atIndex),
+      };
+};
+
+const splitPath: InlineClampSplit = (text) => {
+  const slashIndex = text.lastIndexOf("/") + 1;
+  const dotIndex = text.lastIndexOf(".");
+
+  return slashIndex <= 0 || dotIndex <= slashIndex
+    ? {
+        body: text,
+      }
+    : {
+        start: text.slice(0, slashIndex),
+        body: text.slice(slashIndex, dotIndex),
+        end: text.slice(dotIndex),
+      };
+};
+
+const inlineExamples = [
+  {
+    id: "file-list",
+    label: "file list / common image extensions",
+    split: splitImageFile,
+    text: "summer-campaign-panorama-final.jpeg",
+  },
+  {
+    id: "email",
+    label: "email / keep domain visible",
+    split: splitEmail,
+    text: "release.notifications.digest@acme.dev",
+  },
+  {
+    id: "path",
+    label: "path / keep prefix + extension visible",
+    split: splitPath,
+    text: "~/screenshots/interface-preview-for-share.png",
+  },
+] as const satisfies ReadonlyArray<{
+  id: string;
+  label: string;
+  split: InlineClampSplit;
+  text: string;
+}>;
 
 type PkgManager = "vp" | "npm" | "pnpm" | "yarn" | "agent";
 
@@ -99,15 +194,42 @@ const installCommand = computed(() => {
   }
 });
 
-const codeExample = [
+const lineCodeExample = [
   "<script setup>",
-  "import { Clamp } from 'vue-clamp'",
+  "import { LineClamp } from 'vue-clamp'",
   "",
   "const text = 'Some very very long text content.'",
   "<" + "/script>",
   "",
   "<template>",
-  '  <Clamp autoresize :max-lines="3" :text="text" />',
+  '  <LineClamp autoresize :max-lines="3" :text="text" />',
+  "</template>",
+].join("\n");
+
+const inlineCodeExample = [
+  '<script setup lang="ts">',
+  "import { InlineClamp } from 'vue-clamp'",
+  "",
+  "const file = 'summer-campaign-panorama-final.jpeg'",
+  "",
+  "const imageExtensions = ['.png', '.jpg', '.jpeg', '.webp', '.gif', '.avif']",
+  "",
+  "const splitImageFile = (text: string) => {",
+  "  const extension = imageExtensions.find((candidate) =>",
+  "    text.toLowerCase().endsWith(candidate),",
+  "  )",
+  "",
+  "  return extension",
+  "    ? {",
+  "        body: text.slice(0, -extension.length),",
+  "        end: text.slice(-extension.length),",
+  "      }",
+  "    : { body: text }",
+  "}",
+  "<" + "/script>",
+  "",
+  "<template>",
+  '  <InlineClamp :text="file" :split="splitImageFile" />',
   "</template>",
 ].join("\n");
 
@@ -117,14 +239,21 @@ const highlightedInstall = computed(() => {
   }
   return shiki.codeToHtml(installCommand.value, {
     lang: "shellscript",
-    theme: "vitesse-light",
+    theme: websiteShikiTheme.name,
   });
 });
 
-const highlightedCode = computed(() => {
-  return shiki.codeToHtml(codeExample, {
+const highlightedLineCode = computed(() => {
+  return shiki.codeToHtml(lineCodeExample, {
     lang: "vue",
-    theme: "vitesse-light",
+    theme: websiteShikiTheme.name,
+  });
+});
+
+const highlightedInlineCode = computed(() => {
+  return shiki.codeToHtml(inlineCodeExample, {
+    lang: "vue",
+    theme: websiteShikiTheme.name,
   });
 });
 </script>
@@ -134,7 +263,7 @@ const highlightedCode = computed(() => {
     <!-- Hero -->
     <header class="hero">
       <h1 class="hero-title">&lt;vue-clamp&gt;</h1>
-      <p class="hero-tagline">Clamping multiline text with ease.</p>
+      <p class="hero-tagline">LineClamp and InlineClamp for Vue 3 text truncation.</p>
       <nav class="hero-links">
         <a
           class="link-github"
@@ -167,292 +296,23 @@ const highlightedCode = computed(() => {
     <section class="section">
       <h2 class="section-title" id="features"><a href="#features">#</a> Features</h2>
       <ul class="features-list">
-        <li>Clamps text with max lines and/or max height. No need to specify line height.</li>
-        <li>Automatically updates upon layout change.</li>
-        <li>The clamped text can be expanded/collapsed.</li>
-        <li>Customizable and responsive content before/after clamped text.</li>
-        <li>Place ellipsis at the start, middle, end, or anywhere between with numeric ratios.</li>
+        <li>
+          <code>LineClamp</code> handles browser-fit multiline truncation with slots, expansion
+          state, and either <code>max-lines</code> or <code>max-height</code>.
+        </li>
+        <li>
+          <code>LineClamp</code> places ellipsis with <code>start</code>, <code>middle</code>,
+          <code>end</code>, or any numeric ratio between <code>0</code> and <code>1</code>.
+        </li>
+        <li>
+          <code>InlineClamp</code> stays native and single-line, with optional
+          <code>split(text)</code> semantics for fixed visible edges.
+        </li>
       </ul>
     </section>
 
-    <!-- Demos -->
     <section class="section">
-      <h2 class="section-title" id="demo"><a href="#demo">#</a> Demo</h2>
-
-      <!-- Demo 1: max-lines + after slot toggle -->
-      <div class="demo-block">
-        <div class="demo-label">max-lines / slot <code>after</code> / toggle</div>
-        <div class="demo-controls">
-          <label class="control">
-            <span class="control-label">Max lines</span>
-            <input
-              v-model.number="lines1"
-              class="control-input"
-              type="number"
-              min="1"
-              max="8"
-              step="1"
-            />
-          </label>
-          <label class="control">
-            <span class="control-label">Width</span>
-            <span class="control-row">
-              <input
-                v-model.number="width1"
-                class="control-range"
-                type="range"
-                min="240"
-                max="600"
-              />
-              <span class="control-value">{{ width1 }}px</span>
-            </span>
-          </label>
-          <div class="control-row">
-            <label class="control-check">
-              <input v-model="hyphens1" type="checkbox" />
-              <span>CSS Hyphens</span>
-            </label>
-            <label class="control-check">
-              <input v-model="rtl1" type="checkbox" />
-              <span>RTL</span>
-            </label>
-          </div>
-        </div>
-        <div class="demo-preview">
-          <Clamp
-            class="demo-clamp"
-            :class="{ hyphens: hyphens1, rtl: rtl1 }"
-            :text="text"
-            :max-lines="lines1"
-            autoresize
-            :style="{ width: `${width1}px`, maxWidth: '100%' }"
-          >
-            <template #after="{ toggle, expanded, clamped }">
-              <button v-if="expanded || clamped" class="toggle-btn" @click="toggle">
-                {{ expanded ? "Collapse" : "Expand" }}
-              </button>
-            </template>
-          </Clamp>
-        </div>
-      </div>
-
-      <!-- Demo 2: max-height + before slot + external expanded -->
-      <div class="demo-block">
-        <div class="demo-label">max-height / slot <code>before</code> / external control</div>
-        <div class="demo-controls">
-          <label class="control">
-            <span class="control-label">Max height</span>
-            <input v-model="height2" class="control-input" />
-          </label>
-          <label class="control">
-            <span class="control-label">Width</span>
-            <span class="control-row">
-              <input
-                v-model.number="width2"
-                class="control-range"
-                type="range"
-                min="240"
-                max="600"
-              />
-              <span class="control-value">{{ width2 }}px</span>
-            </span>
-          </label>
-          <div class="control-row">
-            <label class="control-check">
-              <input v-model="hyphens2" type="checkbox" />
-              <span>CSS Hyphens</span>
-            </label>
-            <label class="control-check">
-              <input v-model="rtl2" type="checkbox" />
-              <span>RTL</span>
-            </label>
-            <label class="control-check">
-              <input v-model="expanded2" type="checkbox" />
-              <span>Expanded</span>
-            </label>
-          </div>
-        </div>
-        <div class="demo-preview">
-          <Clamp
-            class="demo-clamp demo-clamp--max-height"
-            :class="{ hyphens: hyphens2, rtl: rtl2 }"
-            :text="text"
-            :max-height="height2"
-            v-model:expanded="expanded2"
-            autoresize
-            :style="{ width: `${width2}px`, maxWidth: '100%' }"
-          >
-            <template #before>
-              <span class="badge">Featured</span>
-            </template>
-          </Clamp>
-        </div>
-      </div>
-
-      <!-- Demo 3: clampchange event -->
-      <div class="demo-block">
-        <div class="demo-label"><code>clampchange</code> event</div>
-        <div class="demo-controls">
-          <label class="control">
-            <span class="control-label">Max lines</span>
-            <input
-              v-model.number="lines3"
-              class="control-input"
-              type="number"
-              min="1"
-              max="8"
-              step="1"
-            />
-          </label>
-          <label class="control">
-            <span class="control-label">Width</span>
-            <span class="control-row">
-              <input
-                v-model.number="width3"
-                class="control-range"
-                type="range"
-                min="240"
-                max="600"
-              />
-              <span class="control-value">{{ width3 }}px</span>
-            </span>
-          </label>
-          <div class="control-row">
-            <label class="control-check">
-              <input v-model="hyphens3" type="checkbox" />
-              <span>CSS Hyphens</span>
-            </label>
-            <label class="control-check">
-              <input v-model="rtl3" type="checkbox" />
-              <span>RTL</span>
-            </label>
-          </div>
-        </div>
-        <div class="demo-preview">
-          <Clamp
-            class="demo-clamp"
-            :class="{ hyphens: hyphens3, rtl: rtl3 }"
-            :text="text"
-            :max-lines="lines3"
-            autoresize
-            :style="{ width: `${width3}px`, maxWidth: '100%' }"
-            @clampchange="clamped3 = $event"
-          />
-          <p class="clamp-status">
-            Clamped:
-            <strong :class="clamped3 ? 'status-yes' : 'status-no'">{{
-              clamped3 ? "Yes" : "No"
-            }}</strong>
-          </p>
-        </div>
-      </div>
-
-      <!-- Demo 4: ellipsis + location -->
-      <div class="demo-block" data-demo="location">
-        <div class="demo-label">ellipsis / location keywords + ratios</div>
-        <div class="demo-controls">
-          <div class="control control--stack">
-            <span class="control-label">Location</span>
-            <span class="control-stack">
-              <span class="control-pills" role="group" aria-label="Location presets">
-                <button
-                  v-for="preset in locationPresets4"
-                  :key="preset.value"
-                  class="control-pill"
-                  :class="{ active: selectedLocationPreset4 === preset.value }"
-                  :data-location-preset="preset.value"
-                  type="button"
-                  :aria-pressed="selectedLocationPreset4 === preset.value"
-                  @click="selectLocationPreset4(preset.ratio)"
-                >
-                  {{ preset.label }}
-                </button>
-              </span>
-            </span>
-          </div>
-          <div class="control control--stack">
-            <span class="control-label">Ratio</span>
-            <span class="control-stack">
-              <span class="control-row">
-                <input
-                  v-model.number="locationRatio4"
-                  data-location-ratio-slider
-                  class="control-range"
-                  type="range"
-                  min="0"
-                  max="1"
-                  step="0.05"
-                />
-                <span class="control-value">{{ locationRatio4.toFixed(2) }}</span>
-              </span>
-            </span>
-          </div>
-          <label class="control">
-            <span class="control-label">Ellipsis</span>
-            <input v-model="ellipsis4" class="control-input" maxlength="6" />
-          </label>
-          <label class="control">
-            <span class="control-label">Max lines</span>
-            <input
-              v-model.number="lines4"
-              class="control-input"
-              type="number"
-              min="1"
-              max="8"
-              step="1"
-            />
-          </label>
-          <label class="control">
-            <span class="control-label">Width</span>
-            <span class="control-row">
-              <input
-                v-model.number="width4"
-                data-location-width-slider
-                class="control-range"
-                type="range"
-                min="240"
-                max="600"
-              />
-              <span class="control-value">{{ width4 }}px</span>
-            </span>
-          </label>
-          <div class="control-row">
-            <label class="control-check">
-              <input v-model="hyphens4" type="checkbox" />
-              <span>CSS Hyphens</span>
-            </label>
-            <label class="control-check">
-              <input v-model="rtl4" type="checkbox" />
-              <span>RTL</span>
-            </label>
-          </div>
-        </div>
-        <div class="demo-preview">
-          <Clamp
-            class="demo-clamp"
-            :class="{ hyphens: hyphens4, rtl: rtl4 }"
-            :text="text"
-            :max-lines="lines4"
-            :location="location4"
-            :ellipsis="ellipsis4"
-            autoresize
-            :style="{ width: `${width4}px`, maxWidth: '100%' }"
-          >
-            <template #after="{ toggle, expanded, clamped }">
-              <button v-if="expanded || clamped" class="toggle-btn" @click="toggle">
-                {{ expanded ? "Collapse" : "Expand" }}
-              </button>
-            </template>
-          </Clamp>
-        </div>
-      </div>
-    </section>
-
-    <!-- Usage -->
-    <section class="section">
-      <h2 class="section-title" id="usage"><a href="#usage">#</a> Usage</h2>
-
-      <h3 class="subsection-title">Installation</h3>
+      <h2 class="section-title" id="installation"><a href="#installation">#</a> Installation</h2>
       <div class="install-block">
         <div class="install-tabs">
           <button
@@ -465,144 +325,599 @@ const highlightedCode = computed(() => {
             {{ pm.label }}
           </button>
         </div>
-        <div
-          v-if="highlightedInstall"
-          class="shiki-wrap shiki-wrap--install"
-          v-html="highlightedInstall"
+        <CodeBlock
+          :code="installCommand"
+          :html="highlightedInstall"
+          label="installation command"
+          block-id="install"
+          embedded
         />
-        <pre
-          v-else
-          class="code-block code-block--install code-block--prompt"
-        ><code>{{ installCommand }}</code></pre>
       </div>
-
-      <h3 class="subsection-title">Example</h3>
-      <div class="shiki-wrap" v-html="highlightedCode" />
     </section>
 
-    <!-- API -->
     <section class="section">
-      <h2 class="section-title" id="api"><a href="#api">#</a> API</h2>
+      <div class="reference-root" data-reference-shell>
+        <h2 class="section-title reference-title" id="components">
+          <a href="#components">#</a> Components
+        </h2>
+        <div class="reference-tabs-row">
+          <ComponentTabs
+            v-model="activeSurface"
+            aria-label="Component tabs"
+            :options="surfaceOptions"
+          />
+        </div>
 
-      <h3 class="subsection-title">Props</h3>
-      <div class="api-table-wrap">
-        <table class="api-table">
-          <thead>
-            <tr>
-              <th>Prop</th>
-              <th>Type</th>
-              <th>Default</th>
-              <th>Description</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td><code>as</code></td>
-              <td><code>string</code></td>
-              <td><code>'div'</code></td>
-              <td>The tag name of the generated root element.</td>
-            </tr>
-            <tr>
-              <td><code>autoresize</code></td>
-              <td><code>boolean</code></td>
-              <td><code>false</code></td>
-              <td>Whether to observe the root element's size.</td>
-            </tr>
-            <tr>
-              <td><code>text</code></td>
-              <td><code>string</code></td>
-              <td><code>''</code></td>
-              <td>The text content to clamp.</td>
-            </tr>
-            <tr>
-              <td><code>max-lines</code></td>
-              <td><code>number</code></td>
-              <td>--</td>
-              <td>The max number of lines that can be displayed.</td>
-            </tr>
-            <tr>
-              <td><code>max-height</code></td>
-              <td><code>number | string</code></td>
-              <td>--</td>
-              <td>
-                The max height of the root element. Numbers are converted to <code>px</code>;
-                strings are used directly as CSS.
-              </td>
-            </tr>
-            <tr>
-              <td><code>ellipsis</code></td>
-              <td><code>string</code></td>
-              <td><code>'…'</code></td>
-              <td>The ellipsis string displayed when text is clamped.</td>
-            </tr>
-            <tr>
-              <td><code>location</code></td>
-              <td><code>number | 'start' | 'middle' | 'end'</code></td>
-              <td><code>'end'</code></td>
-              <td>
-                Where the ellipsis is placed within the text. Keyword aliases map to numeric ratios:
-                <code>start</code> → <code>0</code>, <code>middle</code> → <code>0.5</code>,
-                <code>end</code> → <code>1</code>.
-              </td>
-            </tr>
-            <tr>
-              <td><code>expanded</code></td>
-              <td><code>boolean</code></td>
-              <td><code>false</code></td>
-              <td>Whether the clamped area is expanded. Supports <code>v-model</code>.</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+        <div class="reference-body">
+          <section class="reference-section" data-reference-panel="demo">
+            <h3 class="subsection-title">Demo</h3>
 
-      <h3 class="subsection-title">Slots</h3>
-      <div class="api-table-wrap">
-        <table class="api-table">
-          <thead>
-            <tr>
-              <th>Slot</th>
-              <th>Scope</th>
-              <th>Description</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td><code>before</code></td>
-              <td><code>{ expand, collapse, toggle, clamped, expanded }</code></td>
-              <td>Content displayed before the clamped text.</td>
-            </tr>
-            <tr>
-              <td><code>after</code></td>
-              <td><code>{ expand, collapse, toggle, clamped, expanded }</code></td>
-              <td>Content displayed after the clamped text.</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+            <template v-if="activeSurface === 'line'">
+              <!-- Demo 1: max-lines + after slot toggle -->
+              <div class="demo-block">
+                <div class="demo-label">max-lines / slot <code>after</code> / toggle</div>
+                <div class="demo-controls">
+                  <label class="control">
+                    <span class="control-label">Max lines</span>
+                    <input
+                      v-model.number="lines1"
+                      class="control-input"
+                      type="number"
+                      min="1"
+                      max="8"
+                      step="1"
+                    />
+                  </label>
+                  <label class="control">
+                    <span class="control-label">Width</span>
+                    <span class="control-row">
+                      <input
+                        v-model.number="width1"
+                        class="control-range"
+                        type="range"
+                        min="240"
+                        max="600"
+                      />
+                      <span class="control-value">{{ width1 }}px</span>
+                    </span>
+                  </label>
+                  <div class="control-row">
+                    <label class="control-check">
+                      <input v-model="hyphens1" type="checkbox" />
+                      <span>CSS Hyphens</span>
+                    </label>
+                    <label class="control-check">
+                      <input v-model="rtl1" type="checkbox" />
+                      <span>RTL</span>
+                    </label>
+                  </div>
+                </div>
+                <div class="demo-preview">
+                  <div
+                    class="demo-output width-guide"
+                    :style="{ width: `${width1}px`, maxWidth: '100%' }"
+                  >
+                    <LineClamp
+                      class="demo-clamp"
+                      :class="{ hyphens: hyphens1, rtl: rtl1 }"
+                      :text="lineDemoText(rtl1)"
+                      :max-lines="lines1"
+                      autoresize
+                      :style="{ width: `${width1}px`, maxWidth: '100%' }"
+                    >
+                      <template #after="{ toggle, expanded, clamped }">
+                        <button v-if="expanded || clamped" class="toggle-btn" @click="toggle">
+                          {{ expanded ? "Collapse" : "Expand" }}
+                        </button>
+                      </template>
+                    </LineClamp>
+                  </div>
+                </div>
+              </div>
 
-      <h3 class="subsection-title">Events</h3>
-      <div class="api-table-wrap">
-        <table class="api-table">
-          <thead>
-            <tr>
-              <th>Event</th>
-              <th>Payload</th>
-              <th>Description</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td><code>clampchange</code></td>
-              <td><code>(clamped: boolean)</code></td>
-              <td>Emitted when the clamp state changes.</td>
-            </tr>
-            <tr>
-              <td><code>update:expanded</code></td>
-              <td><code>(expanded: boolean)</code></td>
-              <td>Emitted when the expanded state changes.</td>
-            </tr>
-          </tbody>
-        </table>
+              <!-- Demo 2: max-height + before slot + external expanded -->
+              <div class="demo-block">
+                <div class="demo-label">
+                  max-height / slot <code>before</code> / external control
+                </div>
+                <div class="demo-controls">
+                  <label class="control">
+                    <span class="control-label">Max height</span>
+                    <input v-model="height2" class="control-input" />
+                  </label>
+                  <label class="control">
+                    <span class="control-label">Width</span>
+                    <span class="control-row">
+                      <input
+                        v-model.number="width2"
+                        class="control-range"
+                        type="range"
+                        min="240"
+                        max="600"
+                      />
+                      <span class="control-value">{{ width2 }}px</span>
+                    </span>
+                  </label>
+                  <div class="control-row">
+                    <label class="control-check">
+                      <input v-model="hyphens2" type="checkbox" />
+                      <span>CSS Hyphens</span>
+                    </label>
+                    <label class="control-check">
+                      <input v-model="rtl2" type="checkbox" />
+                      <span>RTL</span>
+                    </label>
+                    <label class="control-check">
+                      <input v-model="expanded2" type="checkbox" />
+                      <span>Expanded</span>
+                    </label>
+                  </div>
+                </div>
+                <div class="demo-preview">
+                  <div
+                    class="demo-output width-guide height-guide"
+                    :style="{ width: `${width2}px`, maxWidth: '100%' }"
+                  >
+                    <LineClamp
+                      class="demo-clamp"
+                      :class="{ hyphens: hyphens2, rtl: rtl2 }"
+                      :text="lineDemoText(rtl2)"
+                      :max-height="height2"
+                      v-model:expanded="expanded2"
+                      autoresize
+                      :style="{ width: `${width2}px`, maxWidth: '100%' }"
+                    >
+                      <template #before>
+                        <span class="badge">Featured</span>
+                      </template>
+                    </LineClamp>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Demo 3: clampchange event -->
+              <div class="demo-block">
+                <div class="demo-label"><code>clampchange</code> event</div>
+                <div class="demo-controls">
+                  <label class="control">
+                    <span class="control-label">Max lines</span>
+                    <input
+                      v-model.number="lines3"
+                      class="control-input"
+                      type="number"
+                      min="1"
+                      max="8"
+                      step="1"
+                    />
+                  </label>
+                  <label class="control">
+                    <span class="control-label">Width</span>
+                    <span class="control-row">
+                      <input
+                        v-model.number="width3"
+                        class="control-range"
+                        type="range"
+                        min="240"
+                        max="600"
+                      />
+                      <span class="control-value">{{ width3 }}px</span>
+                    </span>
+                  </label>
+                  <div class="control-row">
+                    <label class="control-check">
+                      <input v-model="hyphens3" type="checkbox" />
+                      <span>CSS Hyphens</span>
+                    </label>
+                    <label class="control-check">
+                      <input v-model="rtl3" type="checkbox" />
+                      <span>RTL</span>
+                    </label>
+                  </div>
+                </div>
+                <div class="demo-preview">
+                  <div
+                    class="demo-output width-guide"
+                    :style="{ width: `${width3}px`, maxWidth: '100%' }"
+                  >
+                    <LineClamp
+                      class="demo-clamp"
+                      :class="{ hyphens: hyphens3, rtl: rtl3 }"
+                      :text="lineDemoText(rtl3)"
+                      :max-lines="lines3"
+                      autoresize
+                      :style="{ width: `${width3}px`, maxWidth: '100%' }"
+                      @clampchange="clamped3 = $event"
+                    />
+                  </div>
+                  <p class="clamp-status">
+                    Clamped:
+                    <strong :class="clamped3 ? 'status-yes' : 'status-no'">{{
+                      clamped3 ? "Yes" : "No"
+                    }}</strong>
+                  </p>
+                </div>
+              </div>
+
+              <!-- Demo 4: ellipsis + location -->
+              <div class="demo-block" data-demo="location">
+                <div class="demo-label">ellipsis / location keywords + ratios</div>
+                <div class="demo-controls">
+                  <div class="control stacked-control">
+                    <span class="control-label">Location</span>
+                    <span class="control-stack">
+                      <span class="control-pills" role="group" aria-label="Location presets">
+                        <button
+                          v-for="preset in locationPresets4"
+                          :key="preset.value"
+                          class="control-pill"
+                          :class="{ active: selectedLocationPreset4 === preset.value }"
+                          :data-location-preset="preset.value"
+                          type="button"
+                          :aria-pressed="selectedLocationPreset4 === preset.value"
+                          @click="selectLocationPreset4(preset.ratio)"
+                        >
+                          {{ preset.label }}
+                        </button>
+                      </span>
+                    </span>
+                  </div>
+                  <div class="control stacked-control">
+                    <span class="control-label">Ratio</span>
+                    <span class="control-stack">
+                      <span class="control-row">
+                        <input
+                          v-model.number="locationRatio4"
+                          data-location-ratio-slider
+                          class="control-range"
+                          type="range"
+                          min="0"
+                          max="1"
+                          step="0.05"
+                        />
+                        <span class="control-value">{{ locationRatio4.toFixed(2) }}</span>
+                      </span>
+                    </span>
+                  </div>
+                  <label class="control">
+                    <span class="control-label">Ellipsis</span>
+                    <input v-model="ellipsis4" class="control-input" maxlength="6" />
+                  </label>
+                  <label class="control">
+                    <span class="control-label">Max lines</span>
+                    <input
+                      v-model.number="lines4"
+                      class="control-input"
+                      type="number"
+                      min="1"
+                      max="8"
+                      step="1"
+                    />
+                  </label>
+                  <label class="control">
+                    <span class="control-label">Width</span>
+                    <span class="control-row">
+                      <input
+                        v-model.number="width4"
+                        data-location-width-slider
+                        class="control-range"
+                        type="range"
+                        min="240"
+                        max="600"
+                      />
+                      <span class="control-value">{{ width4 }}px</span>
+                    </span>
+                  </label>
+                  <div class="control-row">
+                    <label class="control-check">
+                      <input v-model="hyphens4" type="checkbox" />
+                      <span>CSS Hyphens</span>
+                    </label>
+                    <label class="control-check">
+                      <input v-model="rtl4" type="checkbox" />
+                      <span>RTL</span>
+                    </label>
+                  </div>
+                </div>
+                <div class="demo-preview">
+                  <div
+                    class="demo-output width-guide"
+                    :style="{ width: `${width4}px`, maxWidth: '100%' }"
+                  >
+                    <LineClamp
+                      class="demo-clamp"
+                      :class="{ hyphens: hyphens4, rtl: rtl4 }"
+                      :text="lineDemoText(rtl4)"
+                      :max-lines="lines4"
+                      :location="location4"
+                      :ellipsis="ellipsis4"
+                      autoresize
+                      :style="{ width: `${width4}px`, maxWidth: '100%' }"
+                    >
+                      <template #after="{ toggle, expanded, clamped }">
+                        <button v-if="expanded || clamped" class="toggle-btn" @click="toggle">
+                          {{ expanded ? "Collapse" : "Expand" }}
+                        </button>
+                      </template>
+                    </LineClamp>
+                  </div>
+                </div>
+              </div>
+            </template>
+
+            <div v-else data-demo="inline">
+              <div class="demo-block">
+                <div class="demo-label">native one-line clamp / optional <code>split()</code></div>
+                <div class="demo-controls">
+                  <label class="control">
+                    <span class="control-label">Width</span>
+                    <span class="control-row">
+                      <input
+                        v-model.number="inlineWidth5"
+                        data-inline-width-slider
+                        class="control-range"
+                        type="range"
+                        min="160"
+                        max="280"
+                      />
+                      <span class="control-value">{{ inlineWidth5 }}px</span>
+                    </span>
+                  </label>
+                </div>
+              </div>
+
+              <div
+                v-for="example in inlineExamples"
+                :key="example.id"
+                class="demo-block"
+                :data-inline-example="example.id"
+              >
+                <div class="demo-label">{{ example.label }}</div>
+                <div class="demo-preview">
+                  <div class="comparison-grid">
+                    <div class="comparison-panel" data-inline-mode="plain">
+                      <div class="comparison-label">Plain</div>
+                      <div
+                        class="demo-output width-guide"
+                        :style="{ width: `${inlineWidth5}px`, maxWidth: '100%' }"
+                      >
+                        <InlineClamp class="demo-inline" :text="example.text" />
+                      </div>
+                    </div>
+                    <div class="comparison-panel" data-inline-mode="split">
+                      <div class="comparison-label">Split</div>
+                      <div
+                        class="demo-output width-guide"
+                        :style="{ width: `${inlineWidth5}px`, maxWidth: '100%' }"
+                      >
+                        <InlineClamp
+                          class="demo-inline"
+                          :text="example.text"
+                          :split="example.split"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section class="reference-section" data-reference-panel="example">
+            <h3 class="subsection-title">Example</h3>
+            <CodeBlock
+              v-if="activeSurface === 'line'"
+              :code="lineCodeExample"
+              :html="highlightedLineCode"
+              label="LineClamp example"
+              block-id="line-example"
+            />
+            <CodeBlock
+              v-else
+              :code="inlineCodeExample"
+              :html="highlightedInlineCode"
+              label="InlineClamp example"
+              block-id="inline-example"
+            />
+          </section>
+
+          <section class="reference-section" data-reference-panel="api">
+            <template v-if="activeSurface === 'line'">
+              <h3 class="subsection-title">Props</h3>
+              <div class="api-table-wrap">
+                <table class="api-table">
+                  <thead>
+                    <tr>
+                      <th>Prop</th>
+                      <th>Type</th>
+                      <th>Default</th>
+                      <th>Description</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td><code>as</code></td>
+                      <td><code>string</code></td>
+                      <td><code>'div'</code></td>
+                      <td>The tag name of the generated root element.</td>
+                    </tr>
+                    <tr>
+                      <td><code>autoresize</code></td>
+                      <td><code>boolean</code></td>
+                      <td><code>false</code></td>
+                      <td>Whether to observe the root element's size.</td>
+                    </tr>
+                    <tr>
+                      <td><code>text</code></td>
+                      <td><code>string</code></td>
+                      <td><code>''</code></td>
+                      <td>The text content to clamp.</td>
+                    </tr>
+                    <tr>
+                      <td><code>max-lines</code></td>
+                      <td><code>number</code></td>
+                      <td>--</td>
+                      <td>The max number of lines that can be displayed.</td>
+                    </tr>
+                    <tr>
+                      <td><code>max-height</code></td>
+                      <td><code>number | string</code></td>
+                      <td>--</td>
+                      <td>
+                        The max height of the root element. Numbers are converted to
+                        <code>px</code>; strings are used directly as CSS.
+                      </td>
+                    </tr>
+                    <tr>
+                      <td><code>ellipsis</code></td>
+                      <td><code>string</code></td>
+                      <td><code>'…'</code></td>
+                      <td>The ellipsis string displayed when text is clamped.</td>
+                    </tr>
+                    <tr>
+                      <td><code>location</code></td>
+                      <td><code>number | 'start' | 'middle' | 'end'</code></td>
+                      <td><code>'end'</code></td>
+                      <td>
+                        Where the ellipsis is placed within the text. Keyword aliases map to numeric
+                        ratios: <code>start</code> → <code>0</code>, <code>middle</code> →
+                        <code>0.5</code>, <code>end</code> → <code>1</code>.
+                      </td>
+                    </tr>
+                    <tr>
+                      <td><code>expanded</code></td>
+                      <td><code>boolean</code></td>
+                      <td><code>false</code></td>
+                      <td>Whether the clamped area is expanded. Supports <code>v-model</code>.</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              <h3 class="subsection-title">Slots</h3>
+              <div class="api-table-wrap">
+                <table class="api-table">
+                  <thead>
+                    <tr>
+                      <th>Slot</th>
+                      <th>Scope</th>
+                      <th>Description</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td><code>before</code></td>
+                      <td><code>{ expand, collapse, toggle, clamped, expanded }</code></td>
+                      <td>Content displayed before the clamped text.</td>
+                    </tr>
+                    <tr>
+                      <td><code>after</code></td>
+                      <td><code>{ expand, collapse, toggle, clamped, expanded }</code></td>
+                      <td>Content displayed after the clamped text.</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              <h3 class="subsection-title">Events</h3>
+              <div class="api-table-wrap">
+                <table class="api-table">
+                  <thead>
+                    <tr>
+                      <th>Event</th>
+                      <th>Payload</th>
+                      <th>Description</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td><code>clampchange</code></td>
+                      <td><code>(clamped: boolean)</code></td>
+                      <td>Emitted when the clamp state changes.</td>
+                    </tr>
+                    <tr>
+                      <td><code>update:expanded</code></td>
+                      <td><code>(expanded: boolean)</code></td>
+                      <td>Emitted when the expanded state changes.</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </template>
+
+            <template v-else>
+              <h3 class="subsection-title">Props</h3>
+              <div class="api-table-wrap">
+                <table class="api-table">
+                  <thead>
+                    <tr>
+                      <th>Prop</th>
+                      <th>Type</th>
+                      <th>Default</th>
+                      <th>Description</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td><code>as</code></td>
+                      <td><code>string</code></td>
+                      <td><code>'span'</code></td>
+                      <td>The tag name of the generated root element.</td>
+                    </tr>
+                    <tr>
+                      <td><code>text</code></td>
+                      <td><code>string</code></td>
+                      <td>--</td>
+                      <td>The full one-line source text.</td>
+                    </tr>
+                    <tr>
+                      <td><code>split</code></td>
+                      <td><code>(text: string) =&gt; { start?, body, end? }</code></td>
+                      <td>--</td>
+                      <td>
+                        Optional semantic splitter. <code>body</code> is the only shrinking segment;
+                        <code>start</code> and <code>end</code> stay fixed.
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              <h3 class="subsection-title">split() Result</h3>
+              <div class="api-table-wrap">
+                <table class="api-table">
+                  <thead>
+                    <tr>
+                      <th>Field</th>
+                      <th>Required</th>
+                      <th>Description</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td><code>start</code></td>
+                      <td>No</td>
+                      <td>Fixed leading segment.</td>
+                    </tr>
+                    <tr>
+                      <td><code>body</code></td>
+                      <td>Yes</td>
+                      <td>The only shrinkable segment.</td>
+                    </tr>
+                    <tr>
+                      <td><code>end</code></td>
+                      <td>No</td>
+                      <td>Fixed trailing segment.</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <p class="api-note">
+                <code>InlineClamp</code> is native-only and single-line-only. It does not expose
+                slots, events, or an instance API.
+              </p>
+            </template>
+          </section>
+        </div>
       </div>
     </section>
 
@@ -785,11 +1100,25 @@ pre code {
   letter-spacing: 0.04em;
 }
 
+.section-lead {
+  margin-top: 12px;
+  font-size: 0.9rem;
+  color: var(--c-text-2);
+}
+
+.section-note {
+  margin-top: 6px;
+  font-size: 0.8rem;
+  color: var(--c-text-3);
+}
+
 /* Features */
 
 .features-list {
   list-style: none;
   padding: 0;
+  display: grid;
+  gap: 10px;
 }
 
 .features-list li {
@@ -811,26 +1140,58 @@ pre code {
   background: var(--c-border-dark);
 }
 
+/* Reference layout */
+
+.reference-root {
+  display: flex;
+  flex-direction: column;
+}
+
+.reference-tabs-row {
+  position: sticky;
+  top: -1px;
+  z-index: 8;
+  background: var(--c-bg);
+}
+
+.reference-body {
+  display: flex;
+  flex-direction: column;
+  margin-top: 18px;
+}
+
+.reference-section {
+  padding-top: 0;
+}
+
+.reference-section + .reference-section {
+  margin-top: 22px;
+  padding-top: 22px;
+  border-top: 1px solid var(--c-border);
+}
+
+.reference-section > .subsection-title {
+  margin-top: 0;
+}
+
 /* Demo blocks */
 
 .demo-block {
-  margin-bottom: 20px;
-  border: 1px solid var(--c-border);
-  border-radius: var(--radius-lg);
-  overflow: hidden;
+  margin-bottom: 0;
+  padding: 18px 0 20px;
+  border-top: 1px solid var(--c-border);
 }
 
-.demo-block:last-child {
-  margin-bottom: 0;
+.demo-block:first-child {
+  padding-top: 0;
+  border-top: none;
 }
 
 .demo-label {
-  padding: 8px 14px;
+  margin-bottom: 10px;
   font-size: 0.78rem;
   font-weight: 500;
   color: var(--c-text-3);
-  background: var(--c-bg-soft);
-  border-bottom: 1px solid var(--c-border);
   text-transform: uppercase;
   letter-spacing: 0.03em;
 }
@@ -842,12 +1203,10 @@ pre code {
 }
 
 .demo-controls {
-  padding: 12px 14px;
+  padding: 0 0 12px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  border-bottom: 1px solid var(--c-border);
-  background: var(--c-bg);
+  gap: 10px;
 }
 
 .control {
@@ -857,7 +1216,7 @@ pre code {
   font-size: 0.8rem;
 }
 
-.control--stack {
+.stacked-control {
   align-items: flex-start;
 }
 
@@ -876,6 +1235,11 @@ pre code {
   gap: 8px;
 }
 
+.control-hint {
+  font-size: 0.75rem;
+  color: var(--c-text-3);
+}
+
 .control-input {
   flex: 1;
   max-width: 180px;
@@ -891,7 +1255,7 @@ pre code {
   transition: border-color 0.15s;
 }
 
-.control-input:focus {
+.control-input:focus-visible {
   border-color: var(--c-accent);
 }
 
@@ -954,10 +1318,6 @@ pre code {
   gap: 8px;
 }
 
-.control-pills--compact {
-  gap: 6px;
-}
-
 .control-pill {
   min-width: 60px;
   padding: 4px 10px;
@@ -987,21 +1347,90 @@ pre code {
 }
 
 .demo-preview {
-  padding: 16px 14px;
+  padding: 14px;
   background: var(--c-bg-soft);
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius);
   font-size: 0.9rem;
 }
 
-:deep(.demo-clamp) {
-  max-width: 100%;
-  line-height: 1.8;
-  box-shadow: inset -1px 0 0 var(--c-border);
+.comparison-grid {
+  display: grid;
+  gap: 12px;
 }
 
-:deep(.demo-clamp--max-height) {
-  box-shadow:
-    inset -1px 0 0 var(--c-border),
-    inset 0 -1px 0 var(--c-border);
+.comparison-panel {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.comparison-panel + .comparison-panel {
+  padding-top: 12px;
+  border-top: 1px solid var(--c-border);
+}
+
+.comparison-label {
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--c-text-3);
+}
+
+.demo-output {
+  min-width: 0;
+  padding: 8px 10px;
+  background: var(--c-bg);
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  box-shadow: var(--guide-shadow-x, none), var(--guide-shadow-y, none);
+}
+
+:deep(.demo-clamp) {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  line-height: 1.8;
+}
+
+:deep(.width-guide) {
+  --guide-shadow-x: inset -1px 0 0 rgba(208, 208, 218, 0.95);
+}
+
+:deep(.height-guide) {
+  --guide-shadow-y: inset 0 -1px 0 rgba(208, 208, 218, 0.95);
+}
+
+:deep(.demo-inline) {
+  display: block;
+  max-width: 100%;
+  line-height: 1.6;
+}
+
+:deep(.demo-inline [data-inline-start]) {
+  color: var(--c-text-3);
+}
+
+:deep(.demo-inline [data-inline-end]) {
+  color: var(--c-accent-text);
+}
+
+@media (min-width: 640px) {
+  .comparison-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: start;
+  }
+
+  .comparison-panel + .comparison-panel {
+    padding-top: 0;
+    padding-left: 14px;
+    border-top: none;
+    border-left: 1px solid var(--c-border);
+  }
 }
 
 /* Toggle button inside demos */
@@ -1084,32 +1513,12 @@ pre code {
   margin-left: 6px;
 }
 
-/* Code blocks */
-
-.code-block {
-  margin: 0;
-  padding: 14px 16px;
-  font-size: 0.9rem;
-  font-family: var(--font-mono);
-  line-height: 1.65;
-  background: var(--c-bg-soft);
-  border: 1px solid var(--c-border);
-  border-radius: var(--radius);
-  overflow-x: auto;
-  color: var(--c-text);
-}
-
 /* Install block */
 
 .install-block {
   border: 1px solid var(--c-border);
   border-radius: var(--radius);
   overflow: hidden;
-}
-
-.install-block .code-block {
-  border: none;
-  border-radius: 0;
 }
 
 .install-tabs {
@@ -1140,12 +1549,6 @@ pre code {
 .install-tab.active {
   color: var(--c-accent);
   border-bottom-color: var(--c-accent);
-}
-
-.code-block--prompt code {
-  font-family: var(--font-body);
-  font-style: italic;
-  color: var(--c-text-2);
 }
 
 /* API tables */
@@ -1192,6 +1595,12 @@ pre code {
   white-space: nowrap;
 }
 
+.api-note {
+  margin-top: -4px;
+  font-size: 0.8rem;
+  color: var(--c-text-3);
+}
+
 /* Footer */
 
 .footer {
@@ -1208,32 +1617,5 @@ pre code {
 
 .footer a:hover {
   color: var(--c-accent);
-}
-
-/* Shiki */
-
-.shiki-wrap :deep(pre.shiki) {
-  margin: 0;
-  padding: 14px 16px;
-  font-size: 0.9rem;
-  font-family: var(--font-mono);
-  line-height: 1.65;
-  background: var(--c-bg-soft) !important;
-  border: 1px solid var(--c-border);
-  border-radius: var(--radius);
-  overflow-x: auto;
-}
-
-.shiki-wrap :deep(pre.shiki code) {
-  font-family: inherit;
-  font-size: inherit;
-  background: none;
-  padding: 0;
-  color: inherit;
-}
-
-.shiki-wrap--install :deep(pre.shiki) {
-  border: none;
-  border-radius: 0;
 }
 </style>

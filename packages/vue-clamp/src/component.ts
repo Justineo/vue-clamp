@@ -11,7 +11,7 @@ import {
 import { displayTextForKeptCount, prepareText } from "./text.ts";
 
 import type { CSSProperties, PropType } from "vue";
-import type { ClampExposed, ClampLocation, ClampSlotProps } from "./types.ts";
+import type { LineClampExposed, LineClampLocation, LineClampSlotProps } from "./types.ts";
 import type { PreparedText } from "./text.ts";
 
 const slotStyle: CSSProperties = {
@@ -77,7 +77,7 @@ const clampProps = {
     default: "…",
   },
   location: {
-    type: [String, Number] as PropType<ClampLocation>,
+    type: [String, Number] as PropType<LineClampLocation>,
     default: "end",
     validator(value: unknown) {
       return (
@@ -109,7 +109,7 @@ function nativeTextOverflowValue(ellipsis: string): string | null {
   return ellipsis === "…" ? "ellipsis" : null;
 }
 
-function normalizeLocationRatio(location: ClampLocation): number {
+function normalizeLocationRatio(location: LineClampLocation): number {
   if (location === "start") {
     return 0;
   }
@@ -171,8 +171,6 @@ function clampText(
   const lineLimit = normalizeLineLimit(maxLines);
   const graphemeCount = preparedText.boundaryOffsets.length - 1;
   let currentText = textElement.textContent ?? "";
-  const visibleTop = rootRect.top + rootElement.clientTop;
-  const visibleBottom = visibleTop + rootElement.clientHeight;
 
   function applyKept(kept: number): string {
     const nextText = displayTextForKeptCount(preparedText, locationRatio, ellipsis, kept);
@@ -192,6 +190,10 @@ function clampText(
 
     if (maxHeight !== undefined) {
       if (rects.length > 0) {
+        const currentRootRect = rootElement.getBoundingClientRect();
+        const visibleTop = currentRootRect.top + rootElement.clientTop;
+        const visibleBottom = visibleTop + rootElement.clientHeight;
+
         if (
           rects.some((rect) => rect.top < visibleTop - 0.5 || rect.bottom > visibleBottom + 0.5)
         ) {
@@ -240,8 +242,8 @@ function clampText(
   return applyKept(best);
 }
 
-export const Clamp = defineComponent({
-  name: "vue-clamp",
+export const LineClamp = defineComponent({
+  name: "LineClamp",
   inheritAttrs: false,
   props: clampProps,
   emits: clampEmits,
@@ -452,7 +454,7 @@ export const Clamp = defineComponent({
       get expanded() {
         return expanded.value;
       },
-    } satisfies ClampExposed);
+    } satisfies LineClampExposed);
 
     return () => {
       const hasLimit = props.maxLines !== undefined || props.maxHeight !== undefined;
@@ -463,7 +465,7 @@ export const Clamp = defineComponent({
           typeof props.maxHeight === "number" ? `${props.maxHeight}px` : props.maxHeight;
       }
 
-      const slotProps: ClampSlotProps = {
+      const slotProps: LineClampSlotProps = {
         expand,
         collapse,
         toggle,
@@ -554,3 +556,5 @@ export const Clamp = defineComponent({
     };
   },
 });
+
+export const Clamp = LineClamp;

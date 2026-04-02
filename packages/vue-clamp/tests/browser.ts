@@ -1,19 +1,24 @@
 import { createApp, defineComponent, h, nextTick, ref } from "vue";
-import { Clamp } from "../src/index.ts";
+import { LineClamp } from "../src/index.ts";
 import { displayTextForKeptCount, prepareText } from "../src/text.ts";
 
 import type { App, Component, Ref, VNodeChild } from "vue";
-import type { ClampExposed, ClampLocation, ClampProps, ClampSlotProps } from "../src/index.ts";
+import type {
+  LineClampExposed,
+  LineClampLocation,
+  LineClampProps,
+  LineClampSlotProps,
+} from "../src/index.ts";
 
 type MountOptions = {
   text?: string;
   width?: number;
   applyWidthToComponent?: boolean;
   containerStyle?: string;
-  props?: Partial<ClampProps> & Record<string, unknown>;
+  props?: Partial<LineClampProps> & Record<string, unknown>;
   style?: string;
-  before?: (props: ClampSlotProps) => VNodeChild;
-  after?: (props: ClampSlotProps) => VNodeChild;
+  before?: (props: LineClampSlotProps) => VNodeChild;
+  after?: (props: LineClampSlotProps) => VNodeChild;
 };
 
 export type MountedClamp = {
@@ -21,7 +26,7 @@ export type MountedClamp = {
   container: HTMLElement;
   text: Ref<string>;
   width: Ref<number>;
-  exposed: Ref<ClampExposed | null>;
+  exposed: Ref<LineClampExposed | null>;
 };
 
 const mounted = new Set<MountedClamp>();
@@ -201,7 +206,7 @@ export async function waitUntilVisible(root: HTMLElement, frames = 12): Promise<
   throw new Error("Clamp never became visible.");
 }
 
-function normalizeLocationRatio(location: ClampLocation): number {
+function normalizeLocationRatio(location: LineClampLocation): number {
   if (location === "start") {
     return 0;
   }
@@ -221,7 +226,7 @@ export function bestBrowserFitText(
   root: HTMLElement,
   sourceText: string,
   maxLines: number,
-  location: ClampLocation = "end",
+  location: LineClampLocation = "end",
   ellipsis = "…",
 ): string {
   const clone = root.cloneNode(true);
@@ -267,7 +272,7 @@ export function bestBrowserFitText(
 export function mountClampWithComponent(component: Component, options: MountOptions): MountedClamp {
   const text = ref(options.text ?? "");
   const width = ref(options.width ?? 160);
-  const exposed = ref<ClampExposed | null>(null);
+  const exposed = ref<LineClampExposed | null>(null);
   const container = document.createElement("div");
   if (options.containerStyle) {
     container.setAttribute("style", options.containerStyle);
@@ -309,7 +314,7 @@ export function mountClampWithComponent(component: Component, options: MountOpti
 }
 
 export function mountClamp(options: MountOptions): MountedClamp {
-  return mountClampWithComponent(Clamp, options);
+  return mountClampWithComponent(LineClamp, options);
 }
 
 export function cleanupMounted(): void {

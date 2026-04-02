@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "vite-plus/test";
-import { h } from "vue";
+import { createApp, defineComponent, h, ref } from "vue";
+import { LineClamp } from "../src/index.ts";
 import {
   accessibleTextElement,
   afterElement,
@@ -14,7 +15,7 @@ import {
   waitUntilVisible,
 } from "./browser.ts";
 
-import type { ClampExposed } from "../src/index.ts";
+import type { LineClampExposed } from "../src/index.ts";
 
 const DEMO_TEXT =
   "Vue (pronounced /vjuː/, like view) is a progressive framework for building user interfaces. Unlike other monolithic frameworks, Vue is designed from the ground up to be incrementally adoptable. The core library is focused on the view layer only, and is easy to pick up and integrate with other libraries or existing projects. On the other hand, Vue is also perfectly capable of powering sophisticated Single-Page Applications when used in combination with modern tooling and supporting libraries.";
@@ -23,7 +24,7 @@ afterEach(() => {
   cleanupMounted();
 });
 
-describe("Clamp browser contract", () => {
+describe("LineClamp browser contract", () => {
   it("renders plain text without role or aria-label when no truncation support is needed", async () => {
     const mounted = mountClamp({
       text: "abcdefghijklmno",
@@ -65,7 +66,7 @@ describe("Clamp browser contract", () => {
 
     await settle();
 
-    (mounted.exposed.value as ClampExposed).toggle();
+    (mounted.exposed.value as LineClampExposed).toggle();
     await settle();
 
     expect(values.at(-1)).toBe(true);
@@ -121,7 +122,7 @@ describe("Clamp browser contract", () => {
     expect(getComputedStyle(textNode).whiteSpace).toBe("nowrap");
     expect(textNode.getAttribute("aria-hidden")).toBeNull();
     expect(accessibleTextElement(root)).toBeNull();
-    expect((mounted.exposed.value as ClampExposed).clamped).toBe(true);
+    expect((mounted.exposed.value as LineClampExposed).clamped).toBe(true);
     expect(await sampleVisibleLineCounts(root)).toEqual([1, 1, 1]);
   });
 
@@ -142,7 +143,7 @@ describe("Clamp browser contract", () => {
     expect(textNode.textContent).toBe(sourceText);
     expect(getComputedStyle(textNode).textOverflow).toBe("ellipsis");
     expect(accessibleTextElement(root)).toBeNull();
-    expect((mounted.exposed.value as ClampExposed).clamped).toBe(true);
+    expect((mounted.exposed.value as LineClampExposed).clamped).toBe(true);
   });
 
   it("keeps the native one-line path clamped when width comes from the parent container", async () => {
@@ -161,7 +162,7 @@ describe("Clamp browser contract", () => {
 
     expect(textElement(root).textContent).toBe(sourceText);
     expect(accessibleTextElement(root)).toBeNull();
-    expect((mounted.exposed.value as ClampExposed).clamped).toBe(true);
+    expect((mounted.exposed.value as LineClampExposed).clamped).toBe(true);
     expect(await sampleVisibleLineCounts(root)).toEqual([1, 1, 1]);
   });
 
@@ -185,7 +186,7 @@ describe("Clamp browser contract", () => {
     expect(beforeElement(root)?.textContent).toBe("Before");
     expect(afterElement(root)?.textContent).toBe("After");
     expect(accessibleTextElement(root)).toBeNull();
-    expect((mounted.exposed.value as ClampExposed).clamped).toBe(true);
+    expect((mounted.exposed.value as LineClampExposed).clamped).toBe(true);
     expect(await sampleVisibleLineCounts(root)).toEqual([1, 1, 1]);
   });
 
@@ -206,7 +207,7 @@ describe("Clamp browser contract", () => {
     expect(textElement(root).textContent).toBe("abcdefghijklmnopqrstuvwxyz");
     expect(afterElement(root)).not.toBeNull();
     expect(accessibleTextElement(root)).toBeNull();
-    expect((mounted.exposed.value as ClampExposed).clamped).toBe(true);
+    expect((mounted.exposed.value as LineClampExposed).clamped).toBe(true);
     expect(await sampleVisibleLineCounts(root)).toEqual([1, 1, 1]);
   });
 
@@ -228,7 +229,7 @@ describe("Clamp browser contract", () => {
     expect(textNode.getAttribute("aria-hidden")).toBe("true");
     expect(textNode.textContent).toBe(bestBrowserFitText(root, sourceText, 1, 0.75));
     expect(accessibleTextElement(root)?.textContent).toBe(sourceText);
-    expect((mounted.exposed.value as ClampExposed).clamped).toBe(true);
+    expect((mounted.exposed.value as LineClampExposed).clamped).toBe(true);
   });
 
   it("falls back to DOM-trimmed text for custom one-line ellipsis values", async () => {
@@ -248,7 +249,7 @@ describe("Clamp browser contract", () => {
     expect(textNode.textContent).not.toBe("abcdefghijklmnopqrstuvwxyz");
     expect(textNode.getAttribute("aria-hidden")).toBe("true");
     expect(accessibleTextElement(root)?.textContent).toBe("abcdefghijklmnopqrstuvwxyz");
-    expect((mounted.exposed.value as ClampExposed).clamped).toBe(true);
+    expect((mounted.exposed.value as LineClampExposed).clamped).toBe(true);
   });
 
   it("keeps the production component within 3 visible lines at fractional widths", async () => {
@@ -307,8 +308,55 @@ describe("Clamp browser contract", () => {
     expect(textNode.getAttribute("aria-label")).toBeNull();
     expect(textNode.textContent).toBe(nextText);
     expect(accessibleTextElement(root)).toBeNull();
-    expect((mounted.exposed.value as ClampExposed).clamped).toBe(true);
+    expect((mounted.exposed.value as LineClampExposed).clamped).toBe(true);
     expect(await sampleVisibleLineCounts(root)).toEqual([1, 1, 1]);
+  });
+
+  it("reclamps when maxHeight increases after mount", async () => {
+    const maxHeight = ref("20px");
+    const container = document.createElement("div");
+    document.body.append(container);
+
+    const Host = defineComponent({
+      setup() {
+        return () =>
+          h(LineClamp, {
+            autoresize: true,
+            maxHeight: maxHeight.value,
+            style: [
+              "display:block",
+              "width:180px",
+              "font:16px Georgia, serif",
+              "line-height:20px",
+              "white-space:normal",
+              "overflow-wrap:break-word",
+            ].join(";"),
+            text: DEMO_TEXT,
+          });
+      },
+    });
+
+    const app = createApp(Host);
+    app.mount(container);
+
+    try {
+      const root = rootElement(container);
+      await waitUntilVisible(root);
+      await settle(4);
+
+      const before = textElement(root).textContent ?? "";
+      expect(await sampleVisibleLineCounts(root)).toEqual([1, 1, 1]);
+
+      maxHeight.value = "40px";
+      await settle(4);
+
+      const after = textElement(root).textContent ?? "";
+      expect(after.length).toBeGreaterThan(before.length);
+      expect(await sampleVisibleLineCounts(root)).toEqual([2, 2, 2]);
+    } finally {
+      app.unmount();
+      container.remove();
+    }
   });
 
   it("keeps after-slot correction close to the browser-fit maximum instead of over-clamping", async () => {

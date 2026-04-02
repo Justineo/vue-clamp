@@ -111,6 +111,90 @@ function locationPresetButton(container: HTMLElement, preset: string): HTMLButto
   return button;
 }
 
+function inlineDemoBlock(container: HTMLElement): HTMLElement {
+  const block = container.querySelector('[data-demo="inline"]');
+  if (!(block instanceof HTMLElement)) {
+    throw new Error("Expected the inline demo block.");
+  }
+
+  return block;
+}
+
+function inlineWidthInput(container: HTMLElement): HTMLInputElement {
+  const input = inlineDemoBlock(container).querySelector("[data-inline-width-slider]");
+  if (!(input instanceof HTMLInputElement)) {
+    throw new Error("Expected the inline width slider.");
+  }
+
+  return input;
+}
+
+function inlineExampleBlocks(container: HTMLElement): HTMLElement[] {
+  return Array.from(inlineDemoBlock(container).querySelectorAll("[data-inline-example]")).filter(
+    (block): block is HTMLElement => block instanceof HTMLElement,
+  );
+}
+
+function inlineExampleBlock(container: HTMLElement, example: string): HTMLElement {
+  const block = inlineDemoBlock(container).querySelector(`[data-inline-example="${example}"]`);
+  if (!(block instanceof HTMLElement)) {
+    throw new Error(`Expected the ${example} inline example block.`);
+  }
+
+  return block;
+}
+
+function inlineRow(scope: ParentNode, mode: "plain" | "split"): HTMLElement {
+  const row = scope.querySelector(`[data-inline-mode="${mode}"]`);
+  if (!(row instanceof HTMLElement)) {
+    throw new Error(`Expected the ${mode} inline row.`);
+  }
+
+  return row;
+}
+
+function copyButton(container: ParentNode, blockId: string): HTMLButtonElement {
+  const button = container.querySelector(`[data-copy-button="${blockId}"]`);
+  if (!(button instanceof HTMLButtonElement)) {
+    throw new Error(`Expected the ${blockId} copy button.`);
+  }
+
+  return button;
+}
+
+function surfaceTab(container: HTMLElement, surface: "line" | "inline"): HTMLButtonElement {
+  const button = container.querySelector(`[data-surface-tab="${surface}"]`);
+  if (!(button instanceof HTMLButtonElement)) {
+    throw new Error(`Expected the ${surface} surface tab.`);
+  }
+
+  return button;
+}
+
+function surfaceTooltip(container: HTMLElement, surface: "line" | "inline"): HTMLElement {
+  const tooltip = container.querySelector(`[data-surface-tooltip="${surface}"]`);
+  if (!(tooltip instanceof HTMLElement)) {
+    throw new Error(`Expected the ${surface} surface tooltip.`);
+  }
+
+  return tooltip;
+}
+
+function referenceShell(container: HTMLElement): HTMLElement {
+  const shell = container.querySelector("[data-reference-shell]");
+  if (!(shell instanceof HTMLElement)) {
+    throw new Error("Expected the shared reference shell.");
+  }
+
+  return shell;
+}
+
+function referencePanelNames(container: HTMLElement): string[] {
+  return Array.from(referenceShell(container).querySelectorAll("[data-reference-panel]")).map(
+    (panel) => panel.getAttribute("data-reference-panel") ?? "",
+  );
+}
+
 async function setRangeValue(input: HTMLInputElement, value: number): Promise<void> {
   input.value = String(value);
   input.dispatchEvent(new Event("input", { bubbles: true }));
@@ -130,8 +214,17 @@ async function setLocationRatio(container: HTMLElement, ratio: number): Promise<
   await setRangeValue(locationRatioInput(container), ratio);
 }
 
+async function setInlineWidth(container: HTMLElement, width: number): Promise<void> {
+  await setRangeValue(inlineWidthInput(container), width);
+}
+
 async function clickLocationPreset(container: HTMLElement, preset: string): Promise<void> {
   locationPresetButton(container, preset).click();
+  await settle(4);
+}
+
+async function selectSurface(container: HTMLElement, surface: "line" | "inline"): Promise<void> {
+  surfaceTab(container, surface).click();
   await settle(4);
 }
 
@@ -281,5 +374,112 @@ describe("Website demo page", () => {
       "true",
     );
     expect(await sampleVisibleLineCounts(clampRoot)).toEqual([5, 5, 5]);
+  });
+
+  it("shows InlineClamp plain vs split behavior across stacked examples", async () => {
+    const { default: App } = await import("../../website/src/App.vue");
+    const mountedPage = mountPage(App);
+
+    await settle(4);
+    await mountedPage.container.ownerDocument.fonts?.ready;
+    expect(referencePanelNames(mountedPage.container)).toEqual(["demo", "example", "api"]);
+    expect(
+      referenceShell(mountedPage.container).querySelector(".reference-description"),
+    ).toBeNull();
+    expect(surfaceTab(mountedPage.container, "line").getAttribute("aria-pressed")).toBe("true");
+    expect(surfaceTab(mountedPage.container, "inline").getAttribute("aria-pressed")).toBe("false");
+    expect(surfaceTooltip(mountedPage.container, "line").textContent).toBe(
+      "Multiline browser-fit clamp with slots, expansion, and ratio-based ellipsis.",
+    );
+    expect(surfaceTooltip(mountedPage.container, "inline").textContent).toBe(
+      "Native single-line clamp with optional split(text) semantics for fixed edges.",
+    );
+    expect(surfaceTab(mountedPage.container, "line").getAttribute("aria-describedby")).toBe(
+      "component-tab-tooltip-line",
+    );
+    expect(surfaceTab(mountedPage.container, "inline").getAttribute("aria-describedby")).toBe(
+      "component-tab-tooltip-inline",
+    );
+
+    await selectSurface(mountedPage.container, "inline");
+    await setInlineWidth(mountedPage.container, 220);
+
+    expect(surfaceTab(mountedPage.container, "line").getAttribute("aria-pressed")).toBe("false");
+    expect(surfaceTab(mountedPage.container, "inline").getAttribute("aria-pressed")).toBe("true");
+    expect(mountedPage.container.querySelector('[data-demo="location"]')).toBeNull();
+
+    expect(
+      inlineExampleBlocks(mountedPage.container).map((block) => block.dataset.inlineExample),
+    ).toEqual(["file-list", "email", "path"]);
+
+    const fileListBlock = inlineExampleBlock(mountedPage.container, "file-list");
+    const plainFileListRow = inlineRow(fileListBlock, "plain");
+    const splitFileListRow = inlineRow(fileListBlock, "split");
+    const splitFileListBody = splitFileListRow.querySelector("[data-inline-body]");
+    const splitFileListEnd = splitFileListRow.querySelector("[data-inline-end]");
+    const splitFileListClamp = splitFileListRow.querySelector(".demo-inline");
+
+    expect(plainFileListRow.querySelector("[data-inline-end]")).toBeNull();
+    expect(splitFileListEnd?.textContent).toBe(".jpeg");
+    expect(splitFileListClamp?.textContent).toBe("summer-campaign-panorama-final.jpeg");
+    if (!(splitFileListBody instanceof HTMLElement)) {
+      throw new Error("Expected the split file-list body element.");
+    }
+    expect(splitFileListBody.scrollWidth).toBeGreaterThan(splitFileListBody.clientWidth);
+
+    const splitEmailRow = inlineRow(inlineExampleBlock(mountedPage.container, "email"), "split");
+    expect(splitEmailRow.querySelector("[data-inline-end]")?.textContent).toBe("@acme.dev");
+
+    const splitPathRow = inlineRow(inlineExampleBlock(mountedPage.container, "path"), "split");
+    expect(splitPathRow.querySelector("[data-inline-start]")?.textContent).toBe("~/screenshots/");
+    expect(splitPathRow.querySelector("[data-inline-end]")?.textContent).toBe(".png");
+
+    await selectSurface(mountedPage.container, "line");
+
+    expect(surfaceTab(mountedPage.container, "line").getAttribute("aria-pressed")).toBe("true");
+    expect(surfaceTab(mountedPage.container, "inline").getAttribute("aria-pressed")).toBe("false");
+    expect(referencePanelNames(mountedPage.container)).toEqual(["demo", "example", "api"]);
+    expect(mountedPage.container.querySelector('[data-demo="location"]')).toBeInstanceOf(
+      HTMLElement,
+    );
+  });
+
+  it("copies installation and example code from the website code blocks", async () => {
+    const { default: App } = await import("../../website/src/App.vue");
+    const mountedPage = mountPage(App);
+    const clipboardWrites: string[] = [];
+
+    Object.defineProperty(window.navigator, "clipboard", {
+      configurable: true,
+      value: {
+        writeText: async (text: string) => {
+          clipboardWrites.push(text);
+        },
+      },
+    });
+
+    await settle(4);
+
+    const installButton = copyButton(mountedPage.container, "install");
+    installButton.click();
+    await settle(2);
+
+    expect(clipboardWrites[0]).toBe("npm install vue-clamp");
+    expect(installButton.textContent).toBe("Copied");
+
+    const lineExampleButton = copyButton(mountedPage.container, "line-example");
+    lineExampleButton.click();
+    await settle(2);
+
+    expect(clipboardWrites[1]).toContain("import { LineClamp } from 'vue-clamp'");
+
+    await selectSurface(mountedPage.container, "inline");
+
+    const inlineExampleButton = copyButton(mountedPage.container, "inline-example");
+    inlineExampleButton.click();
+    await settle(2);
+
+    expect(clipboardWrites[2]).toContain("import { InlineClamp } from 'vue-clamp'");
+    expect(clipboardWrites[2]).toContain("splitImageFile");
   });
 });

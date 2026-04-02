@@ -1,7 +1,7 @@
 {
   "name": "vue-clamp",
   "version": "0.5.0",
-  "description": "Vue 3 multiline text clamping with a browser-aligned DOM implementation.",
+  "description": "Vue 3 line and inline text clamping with browser-aligned DOM primitives.",
   "license": "MIT",
   "files": [
     "dist"
@@ -17,13 +17,18 @@
       "import": "./dist/index.mjs",
       "default": "./dist/index.mjs"
     },
+    "./inline": {
+      "types": "./dist/inline.d.mts",
+      "import": "./dist/inline.mjs",
+      "default": "./dist/inline.mjs"
+    },
     "./package.json": "./package.json"
   },
   "publishConfig": {
     "access": "public"
   },
   "scripts": {
-    "build": "vp pack src/index.ts --dts",
+    "build": "vp pack src/index.ts src/inline.ts --dts",
     "check": "vp check",
     "test": "vp test",
     "prepublishOnly": "vp run build"

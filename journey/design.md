@@ -4,7 +4,9 @@
 
 - The `main` branch started from a fresh Vite+ workspace scaffold and does not contain the old library implementation.
 - The migration baseline is the Vue 2 `0.4.1` implementation on `master`.
-- The package now ships a single Vue 3 clamp component again. The extra legacy and benchmark surfaces were removed because they increased maintenance cost without enough product value.
+- The package now ships two Vue 3 clamp surfaces:
+  - `LineClamp` for multiline DOM-driven clamping
+  - `InlineClamp` for native one-line affix-friendly truncation
 
 ## Product Goals
 
@@ -28,30 +30,43 @@
 
 ### Package surface
 
-- The publishable package exports a single named component entry: `Clamp` from `vue-clamp`.
+- The root package exports:
+  - `LineClamp` as the canonical multiline component name
+  - `InlineClamp` as the canonical single-line native component name
+  - `Clamp` as a compatibility alias of `LineClamp`
+- The package also exposes `vue-clamp/inline`.
 - There is no default export.
-- Public types remain `ClampProps`, `ClampExposed`, `ClampSlotProps`, and `ClampLocation`.
 - Public declaration types live in `packages/vue-clamp/src/types.ts`.
-- The clamped source content comes from the `text` prop.
-- `location` accepts the keyword aliases `start`, `middle`, and `end`, plus numeric ratios from `0` to `1`.
-- `before` and `after` remain rich Vue slots.
+- `LineClamp` keeps the existing `text`-based multiline clamp API.
+- `LineClamp` `location` accepts the keyword aliases `start`, `middle`, and `end`, plus numeric ratios from `0` to `1`.
+- `LineClamp` `before` and `after` remain rich Vue slots.
+- `InlineClamp` is native-only and single-line-only.
+- `InlineClamp` accepts:
+  - `text`
+  - optional `split(text) => { start?, body, end? }`
+  - `as`
 
 ### Runtime model
 
-- The implementation is DOM-driven and browser-aligned.
-- `packages/vue-clamp/src/component.ts` is now the real center of gravity:
+- `LineClamp` is DOM-driven and browser-aligned.
+- `packages/vue-clamp/src/component.ts` is now the real center of gravity for the multiline component:
   - prop and emit definitions
   - DOM measurement
   - line/height fit checks
   - resize and font listeners
   - render tree
   - exposed methods
-- The only remaining nontrivial helper module is `packages/vue-clamp/src/text.ts`, which owns grapheme splitting and kept-count text generation. It stays separate because the component and browser tests both use it.
+- The only remaining nontrivial helper module for multiline clamping is `packages/vue-clamp/src/text.ts`, which owns grapheme splitting and kept-count text generation. It stays separate because the component and browser tests both use it.
 - Small single-use helper modules that only fragmented the runtime were removed.
-- The component now keeps only the minimum moving pieces:
+- `LineClamp` now keeps only the minimum moving pieces:
   - reactive `visibleText`, `expanded`, and `isClamped`
   - DOM refs for root/content/text and optional `before`/`after` slot wrappers
   - a per-instance prepared-text cache keyed by `text`
+- `InlineClamp` is much narrower:
+  - one root inline-flex container
+  - optional fixed `start` and `end` segments
+  - one shrinking `body` segment with native `text-overflow: ellipsis`
+  - no JS text rewriting, slots, or exposed instance API
 
 ### Accessibility model
 
@@ -70,6 +85,7 @@
   - prepares grapheme boundary offsets once per source text and reuses them across width/slot/font reclamps
   - measures the live content width from the rendered root
   - normalizes `maxLines` and `maxHeight`
+  - refreshes the visible root clip box during each `maxHeight` fit probe so reactive height increases can expand the visible text correctly
   - uses a native CSS overflow fast path for the collapsed single-line end case when the default `…` ellipsis is used and the normalized location ratio is `1`
   - in that native path, `before` and `after` stay as fixed inline-flex items while the text cell becomes the only flexible width consumer
   - otherwise binary-searches the kept grapheme count directly against the live DOM

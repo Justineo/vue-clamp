@@ -1,6 +1,6 @@
 # vue-clamp
 
-Vue 3 multiline text clamping with a browser-aligned DOM implementation.
+Vue 3 line and inline text clamping with browser-aligned DOM primitives.
 
 ## Install
 
@@ -13,29 +13,42 @@ pnpm add vue-clamp vue
 ```vue
 <script setup lang="ts">
 import { ref } from "vue";
-import { Clamp } from "vue-clamp";
+import { LineClamp } from "vue-clamp";
 
 const expanded = ref(false);
 const text = "A long line of text that should be clamped after two lines.";
 </script>
 
 <template>
-  <Clamp v-model:expanded="expanded" :text="text" :max-lines="2">
+  <LineClamp v-model:expanded="expanded" :text="text" :max-lines="2">
     <template #after="{ clamped, toggle }">
       <button v-if="clamped" type="button" @click="toggle">
         {{ expanded ? "Less" : "More" }}
       </button>
     </template>
-  </Clamp>
+  </LineClamp>
 </template>
 ```
 
+The package exports:
+
+- `LineClamp` for the existing multiline clamp
+- `InlineClamp` for a native one-line clamp with optional `split(text) => { start?, body, end? }`
+- `Clamp` as a compatibility alias of `LineClamp`
+
+`InlineClamp` is also available from the dedicated `vue-clamp/inline` entry.
+
 ## API
 
-- Props: `as`, `autoresize`, `text`, `maxLines`, `maxHeight`, `ellipsis`, `location`, `expanded`
-- Slots: `before`, `after`
-- Emits: `update:expanded`, `clampchange`
-- Exposed instance: `expand()`, `collapse()`, `toggle()`, `clamped`, `expanded`
+- `LineClamp`
+  - Props: `as`, `autoresize`, `text`, `maxLines`, `maxHeight`, `ellipsis`, `location`, `expanded`
+  - Slots: `before`, `after`
+  - Emits: `update:expanded`, `clampchange`
+  - Exposed instance: `expand()`, `collapse()`, `toggle()`, `clamped`, `expanded`
+
+- `InlineClamp`
+  - Props: `as`, `text`, `split`
+  - No slots, emits, or exposed instance contract
 
 `location` accepts `"start"`, `"middle"`, `"end"`, or a numeric ratio from `0` to `1`. Ratios map to where the preserved text budget sits around the ellipsis: `0` keeps the suffix, `0.5` splits evenly, and `1` keeps the prefix.
 
