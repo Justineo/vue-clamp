@@ -36,12 +36,10 @@ The package exports:
 - `InlineClamp` for a native one-line clamp with optional `split(text) => { start?, body, end? }`
 - `Clamp` as a compatibility alias of `LineClamp`
 
-`InlineClamp` is also available from the dedicated `vue-clamp/inline` entry.
-
 ## API
 
 - `LineClamp`
-  - Props: `as`, `autoresize`, `text`, `maxLines`, `maxHeight`, `ellipsis`, `location`, `expanded`
+  - Props: `as`, `text`, `maxLines`, `maxHeight`, `ellipsis`, `location`, `expanded`
   - Slots: `before`, `after`
   - Emits: `update:expanded`, `clampchange`
   - Exposed instance: `expand()`, `collapse()`, `toggle()`, `clamped`, `expanded`

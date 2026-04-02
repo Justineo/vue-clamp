@@ -17,18 +17,13 @@
       "import": "./dist/index.mjs",
       "default": "./dist/index.mjs"
     },
-    "./inline": {
-      "types": "./dist/inline.d.mts",
-      "import": "./dist/inline.mjs",
-      "default": "./dist/inline.mjs"
-    },
     "./package.json": "./package.json"
   },
   "publishConfig": {
     "access": "public"
   },
   "scripts": {
-    "build": "vp pack src/index.ts src/inline.ts --dts",
+    "build": "vp pack src/index.ts --dts",
     "check": "vp check",
     "test": "vp test",
     "prepublishOnly": "vp run build"

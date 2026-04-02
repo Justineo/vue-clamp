@@ -4,6 +4,7 @@ packages:
 
 catalog:
   "@chenglou/pretext": ^0.0.3
+  "@lucide/vue": ^1.7.0
   "@types/node": ^24
   "@vitejs/plugin-vue": ^6.0.5
   playwright: ^1.58.2

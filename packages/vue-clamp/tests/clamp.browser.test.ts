@@ -321,7 +321,6 @@ describe("LineClamp browser contract", () => {
       setup() {
         return () =>
           h(LineClamp, {
-            autoresize: true,
             maxHeight: maxHeight.value,
             style: [
               "display:block",

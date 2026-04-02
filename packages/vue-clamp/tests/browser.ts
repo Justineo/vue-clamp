@@ -286,7 +286,6 @@ export function mountClampWithComponent(component: Component, options: MountOpti
           component,
           {
             ref: exposed,
-            autoresize: true,
             ...options.props,
             text: text.value,
             style: hostStyle(width.value, options.style, options.applyWidthToComponent ?? true),

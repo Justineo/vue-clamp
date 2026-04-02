@@ -18,7 +18,6 @@ export interface LineClampExposed {
 
 export interface LineClampProps {
   as?: string;
-  autoresize?: boolean;
   text?: string;
   maxLines?: number;
   maxHeight?: number | string;

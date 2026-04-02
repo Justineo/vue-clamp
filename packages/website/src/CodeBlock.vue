@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref } from "vue";
+import { Check, Copy, X } from "@lucide/vue";
 
 const props = withDefaults(
   defineProps<{
@@ -12,7 +13,6 @@ const props = withDefaults(
   {
     embedded: false,
     html: null,
-    blockId: undefined,
   },
 );
 
@@ -101,11 +101,15 @@ onBeforeUnmount(() => {
       class="copy-button"
       type="button"
       :data-copy-button="blockId ?? 'code'"
+      :data-copy-state="copyState"
       :aria-label="buttonTitle"
       :title="buttonTitle"
       @click="copyCode"
     >
-      {{ buttonLabel }}
+      <Copy v-if="copyState === 'idle'" class="copy-icon" :size="14" aria-hidden="true" />
+      <Check v-else-if="copyState === 'copied'" class="copy-icon" :size="14" aria-hidden="true" />
+      <X v-else class="copy-icon" :size="14" aria-hidden="true" />
+      <span class="sr-only">{{ buttonLabel }}</span>
     </button>
     <div v-if="html" class="shiki-wrap" v-html="html" />
     <pre v-else class="code-block"><code>{{ code }}</code></pre>
@@ -122,14 +126,17 @@ onBeforeUnmount(() => {
   top: 10px;
   right: 10px;
   z-index: 1;
-  min-width: 54px;
-  padding: 4px 8px;
-  font-size: 0.72rem;
-  font-family: inherit;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  line-height: 0;
   color: var(--c-text-2);
   background: color-mix(in srgb, var(--c-bg) 88%, transparent);
   border: 1px solid var(--c-border);
-  border-radius: 999px;
+  border-radius: 6px;
   backdrop-filter: blur(10px);
   cursor: pointer;
   transition:
@@ -147,6 +154,36 @@ onBeforeUnmount(() => {
   outline: none;
   border-color: var(--c-accent);
   color: var(--c-accent-text);
+}
+
+.copy-button[data-copy-state="copied"] {
+  color: var(--c-accent-text);
+  border-color: color-mix(in srgb, var(--c-accent) 45%, var(--c-border));
+  background: color-mix(in srgb, var(--c-accent-soft) 78%, var(--c-bg));
+}
+
+.copy-button[data-copy-state="failed"] {
+  color: #b42318;
+  border-color: color-mix(in srgb, #b42318 35%, var(--c-border));
+  background: color-mix(in srgb, #b42318 10%, var(--c-bg));
+}
+
+.copy-icon {
+  width: 14px;
+  height: 14px;
+  flex: none;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 .code-block {

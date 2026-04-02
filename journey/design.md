@@ -13,7 +13,6 @@
 - Ship a Vue 3-only `vue-clamp` package with precise TypeScript types.
 - Preserve the `0.4.1` component semantics where they still make sense, while simplifying the public surface:
   - `as`
-  - `autoresize`
   - `text`
   - `maxLines`
   - `maxHeight`
@@ -34,7 +33,6 @@
   - `LineClamp` as the canonical multiline component name
   - `InlineClamp` as the canonical single-line native component name
   - `Clamp` as a compatibility alias of `LineClamp`
-- The package also exposes `vue-clamp/inline`.
 - There is no default export.
 - Public declaration types live in `packages/vue-clamp/src/types.ts`.
 - `LineClamp` keeps the existing `text`-based multiline clamp API.
@@ -95,7 +93,7 @@
 ### Reactivity and trade-offs
 
 - The component recalculates on:
-  - width changes when `autoresize` is enabled
+  - root width changes
   - slot size changes
   - text changes
   - relevant prop changes

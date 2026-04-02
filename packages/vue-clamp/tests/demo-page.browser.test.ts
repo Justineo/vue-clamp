@@ -444,6 +444,45 @@ describe("Website demo page", () => {
     );
   });
 
+  it("documents when to use each component and surfaces practical API notes", async () => {
+    const { default: App } = await import("../../website/src/App.vue");
+    const mountedPage = mountPage(App);
+
+    await settle(4);
+
+    const chooseSection = mountedPage.container.querySelector("#choose")?.closest(".section");
+    if (!(chooseSection instanceof HTMLElement)) {
+      throw new Error("Expected the choose-a-component section.");
+    }
+
+    expect(chooseSection.textContent).toContain("Browser-fit multiline clamp.");
+    expect(chooseSection.textContent).toContain("Filenames, emails, IDs, and paths.");
+    expect(chooseSection.textContent).toContain("Both components are exported from vue-clamp.");
+
+    const lineNotes = referenceShell(mountedPage.container).querySelector(
+      '[data-api-notes="line"]',
+    );
+    if (!(lineNotes instanceof HTMLElement)) {
+      throw new Error("Expected the LineClamp API notes.");
+    }
+    expect(lineNotes.textContent).toContain("max-lines");
+    expect(lineNotes.textContent).toContain("max-height");
+
+    await selectSurface(mountedPage.container, "inline");
+
+    const inlineNotes = referenceShell(mountedPage.container).querySelector(
+      '[data-api-notes="inline"]',
+    );
+    if (!(inlineNotes instanceof HTMLElement)) {
+      throw new Error("Expected the InlineClamp API notes.");
+    }
+    expect(inlineNotes.textContent).toContain(
+      "InlineClamp is native-only and single-line-only. It does not expose slots, events, or an instance API.",
+    );
+    expect(inlineNotes.textContent).toContain("split(text)");
+    expect(inlineNotes.textContent).toContain("one-line");
+  });
+
   it("copies installation and example code from the website code blocks", async () => {
     const { default: App } = await import("../../website/src/App.vue");
     const mountedPage = mountPage(App);
@@ -465,7 +504,8 @@ describe("Website demo page", () => {
     await settle(2);
 
     expect(clipboardWrites[0]).toBe("npm install vue-clamp");
-    expect(installButton.textContent).toBe("Copied");
+    expect(installButton.getAttribute("data-copy-state")).toBe("copied");
+    expect(installButton.getAttribute("aria-label")).toBe("installation command copied");
 
     const lineExampleButton = copyButton(mountedPage.container, "line-example");
     lineExampleButton.click();
@@ -481,5 +521,6 @@ describe("Website demo page", () => {
 
     expect(clipboardWrites[2]).toContain("import { InlineClamp } from 'vue-clamp'");
     expect(clipboardWrites[2]).toContain("splitImageFile");
+    expect(inlineExampleButton.getAttribute("data-copy-state")).toBe("copied");
   });
 });

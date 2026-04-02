@@ -62,10 +62,6 @@ const clampProps = {
     type: String,
     default: "div",
   },
-  autoresize: {
-    type: Boolean,
-    default: false,
-  },
   text: {
     type: String,
     default: "",
@@ -399,7 +395,7 @@ export const LineClamp = defineComponent({
       });
 
       const observed: Element[] = [];
-      if (props.autoresize && rootRef.value) {
+      if (rootRef.value) {
         observed.push(rootRef.value);
       }
       if (beforeRef.value) {

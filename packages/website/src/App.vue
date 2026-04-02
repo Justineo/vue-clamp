@@ -179,6 +179,29 @@ const pkgManagers: { id: PkgManager; label: string }[] = [
   { id: "agent", label: "agent" },
 ];
 
+const componentGuideRows = [
+  {
+    label: "Layout",
+    line: "Browser-fit multiline clamp.",
+    inline: "Native single-line clamp.",
+  },
+  {
+    label: "Best for",
+    line: "Paragraphs, excerpts, cards, and expandable UI.",
+    inline: "Filenames, emails, IDs, and paths.",
+  },
+  {
+    label: "Semantics",
+    line: "Supports before/after slots around the clamped text.",
+    inline: "Uses split(text) to keep fixed visible edges.",
+  },
+  {
+    label: "Control",
+    line: "Supports location, expansion, and clampchange.",
+    inline: "No slots, events, or instance API.",
+  },
+] as const;
+
 const installCommand = computed(() => {
   switch (pkgManager.value) {
     case "vp":
@@ -195,14 +218,22 @@ const installCommand = computed(() => {
 });
 
 const lineCodeExample = [
-  "<script setup>",
+  '<script setup lang="ts">',
+  "import { ref } from 'vue'",
   "import { LineClamp } from 'vue-clamp'",
   "",
-  "const text = 'Some very very long text content.'",
+  "const expanded = ref(false)",
+  "const text = 'A long line of text that should be clamped after three lines.'",
   "<" + "/script>",
   "",
   "<template>",
-  '  <LineClamp autoresize :max-lines="3" :text="text" />',
+  '  <LineClamp v-model:expanded="expanded" :text="text" :max-lines="3">',
+  '    <template #after="{ clamped, toggle }">',
+  '      <button v-if="clamped" type="button" @click="toggle">',
+  `        {{ expanded ? 'Less' : 'More' }}`,
+  "      </button>",
+  "    </template>",
+  "  </LineClamp>",
   "</template>",
 ].join("\n");
 
@@ -336,6 +367,34 @@ const highlightedInlineCode = computed(() => {
     </section>
 
     <section class="section">
+      <h2 class="section-title" id="choose"><a href="#choose">#</a> Choose a Component</h2>
+      <p class="section-lead">
+        Use <code>LineClamp</code> when wrapped text needs browser-fit clamping. Use
+        <code>InlineClamp</code> when one line should stay native and a meaningful edge must stay
+        visible.
+      </p>
+      <div class="api-table-wrap guide-table-wrap">
+        <table class="api-table guide-table">
+          <thead>
+            <tr>
+              <th></th>
+              <th><code>LineClamp</code></th>
+              <th><code>InlineClamp</code></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="row in componentGuideRows" :key="row.label">
+              <td>{{ row.label }}</td>
+              <td>{{ row.line }}</td>
+              <td>{{ row.inline }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="section-note">Both components are exported from <code>vue-clamp</code>.</p>
+    </section>
+
+    <section class="section">
       <div class="reference-root" data-reference-shell>
         <h2 class="section-title reference-title" id="components">
           <a href="#components">#</a> Components
@@ -402,7 +461,6 @@ const highlightedInlineCode = computed(() => {
                       :class="{ hyphens: hyphens1, rtl: rtl1 }"
                       :text="lineDemoText(rtl1)"
                       :max-lines="lines1"
-                      autoresize
                       :style="{ width: `${width1}px`, maxWidth: '100%' }"
                     >
                       <template #after="{ toggle, expanded, clamped }">
@@ -464,7 +522,6 @@ const highlightedInlineCode = computed(() => {
                       :text="lineDemoText(rtl2)"
                       :max-height="height2"
                       v-model:expanded="expanded2"
-                      autoresize
                       :style="{ width: `${width2}px`, maxWidth: '100%' }"
                     >
                       <template #before>
@@ -524,7 +581,6 @@ const highlightedInlineCode = computed(() => {
                       :class="{ hyphens: hyphens3, rtl: rtl3 }"
                       :text="lineDemoText(rtl3)"
                       :max-lines="lines3"
-                      autoresize
                       :style="{ width: `${width3}px`, maxWidth: '100%' }"
                       @clampchange="clamped3 = $event"
                     />
@@ -630,7 +686,6 @@ const highlightedInlineCode = computed(() => {
                       :max-lines="lines4"
                       :location="location4"
                       :ellipsis="ellipsis4"
-                      autoresize
                       :style="{ width: `${width4}px`, maxWidth: '100%' }"
                     >
                       <template #after="{ toggle, expanded, clamped }">
@@ -741,12 +796,6 @@ const highlightedInlineCode = computed(() => {
                       <td>The tag name of the generated root element.</td>
                     </tr>
                     <tr>
-                      <td><code>autoresize</code></td>
-                      <td><code>boolean</code></td>
-                      <td><code>false</code></td>
-                      <td>Whether to observe the root element's size.</td>
-                    </tr>
-                    <tr>
                       <td><code>text</code></td>
                       <td><code>string</code></td>
                       <td><code>''</code></td>
@@ -842,6 +891,27 @@ const highlightedInlineCode = computed(() => {
                   </tbody>
                 </table>
               </div>
+
+              <h3 class="subsection-title">Notes</h3>
+              <ul class="notes-list" data-api-notes="line">
+                <li>
+                  <code>text</code> is the source string. <code>before</code> and
+                  <code>after</code> render around it, but they are not part of the clamped source
+                  text.
+                </li>
+                <li>
+                  Use <code>max-lines</code> for line-based layouts, or <code>max-height</code>
+                  when the visible height comes from surrounding UI.
+                </li>
+                <li>
+                  <code>location="end"</code> and the numeric ratio <code>1</code> can use a native
+                  CSS fast path for the collapsed one-line default-ellipsis case.
+                </li>
+                <li>
+                  <code>before</code> and <code>after</code> are measured as atomic inline boxes, so
+                  they work best as concise inline content.
+                </li>
+              </ul>
             </template>
 
             <template v-else>
@@ -911,10 +981,25 @@ const highlightedInlineCode = computed(() => {
                   </tbody>
                 </table>
               </div>
-              <p class="api-note">
-                <code>InlineClamp</code> is native-only and single-line-only. It does not expose
-                slots, events, or an instance API.
-              </p>
+              <h3 class="subsection-title">Notes</h3>
+              <ul class="notes-list" data-api-notes="inline">
+                <li>
+                  <code>InlineClamp</code> is native-only and single-line-only. It does not expose
+                  slots, events, or an instance API.
+                </li>
+                <li>
+                  <code>InlineClamp</code> is best for one-line text where the start or end must
+                  remain visible, such as filenames, emails, and paths.
+                </li>
+                <li>
+                  <code>split(text)</code> should be pure and synchronous. <code>body</code> is
+                  always the only shrinking segment.
+                </li>
+                <li>
+                  Because it stays native, <code>InlineClamp</code> does not rewrite text and does
+                  not provide expansion state, events, or slot hooks.
+                </li>
+              </ul>
             </template>
           </section>
         </div>
@@ -1590,15 +1675,28 @@ pre code {
   border-bottom: none;
 }
 
+.guide-table th:first-child,
+.guide-table td:first-child {
+  width: 110px;
+  white-space: nowrap;
+}
+
 .api-table code {
   font-size: 0.78rem;
   white-space: nowrap;
 }
 
-.api-note {
-  margin-top: -4px;
-  font-size: 0.8rem;
-  color: var(--c-text-3);
+.notes-list {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 8px;
+  font-size: 0.84rem;
+  color: var(--c-text-2);
+}
+
+.notes-list li {
+  line-height: 1.7;
 }
 
 /* Footer */

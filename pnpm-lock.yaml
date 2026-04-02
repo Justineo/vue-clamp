@@ -6,6 +6,9 @@ settings:
 
 catalogs:
   default:
+    '@lucide/vue':
+      specifier: ^1.7.0
+      version: 1.7.0
     '@types/node':
       specifier: ^24
       version: 24.12.0
@@ -63,6 +66,9 @@ importers:
 
   packages/website:
     dependencies:
+      '@lucide/vue':
+        specifier: 'catalog:'
+        version: 1.7.0(vue@3.5.31(typescript@5.9.3))
       vue:
         specifier: 'catalog:'
         version: 3.5.31(typescript@5.9.3)
@@ -179,6 +185,11 @@ packages:
 
   '@jridgewell/sourcemap-codec@1.5.5':
     resolution: {integrity: sha512-cYQ9310grqxueWbl+WuIUIaiUaDcj7WOq5fVhEljNVgRfOUhY9fy2zTvfoqWsnebh8Sl70VScFbICvJnLKB0Og==}
+
+  '@lucide/vue@1.7.0':
+    resolution: {integrity: sha512-X3gTarOkNh2ThNK7IaDa4gdjFAtZyoKH/eoScklvmtNTWE5uxkycBQOuchGExY5swCqh1WptEIAWrmbuQcy2fA==}
+    peerDependencies:
+      vue: '>=3.0.1'
 
   '@napi-rs/wasm-runtime@1.1.2':
     resolution: {integrity: sha512-sNXv5oLJ7ob93xkZ1XnxisYhGYXfaG9f65/ZgYuAu3qt7b3NadcOEhLvx28hv31PgX8SZJRYrAIPQilQmFpLVw==}
@@ -1459,6 +1470,10 @@ snapshots:
     optional: true
 
   '@jridgewell/sourcemap-codec@1.5.5': {}
+
+  '@lucide/vue@1.7.0(vue@3.5.31(typescript@5.9.3))':
+    dependencies:
+      vue: 3.5.31(typescript@5.9.3)
 
   '@napi-rs/wasm-runtime@1.1.2(@emnapi/core@1.9.1)(@emnapi/runtime@1.9.1)':
     dependencies:

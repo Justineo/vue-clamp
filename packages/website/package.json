@@ -9,6 +9,7 @@
     "preview": "vp preview"
   },
   "dependencies": {
+    "@lucide/vue": "catalog:",
     "vue": "catalog:",
     "vue-clamp": "workspace:*"
   },
