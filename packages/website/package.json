@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@lucide/vue": "catalog:",
+    "simple-icons": "catalog:",
     "vue": "catalog:",
     "vue-clamp": "workspace:*"
   },

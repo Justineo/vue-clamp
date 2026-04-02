@@ -21,6 +21,9 @@ catalogs:
     shiki:
       specifier: ^4.0.2
       version: 4.0.2
+    simple-icons:
+      specifier: ^16.14.0
+      version: 16.14.0
     typescript:
       specifier: ^5
       version: 5.9.3
@@ -69,6 +72,9 @@ importers:
       '@lucide/vue':
         specifier: 'catalog:'
         version: 1.7.0(vue@3.5.31(typescript@5.9.3))
+      simple-icons:
+        specifier: 'catalog:'
+        version: 16.14.0
       vue:
         specifier: 'catalog:'
         version: 3.5.31(typescript@5.9.3)
@@ -1169,6 +1175,10 @@ packages:
   shiki@4.0.2:
     resolution: {integrity: sha512-eAVKTMedR5ckPo4xne/PjYQYrU3qx78gtJZ+sHlXEg5IHhhoQhMfZVzetTYuaJS0L2Ef3AcCRzCHV8T0WI6nIQ==}
     engines: {node: '>=20'}
+
+  simple-icons@16.14.0:
+    resolution: {integrity: sha512-2Nvs3jJpCfMWQerD4zdv91g/MpnWn81a7uhyAC0reuhrjmS2MtSmwIKwewOJR6Xe97ZmfltDntCDqKJIBawQOw==}
+    engines: {node: '>=0.12.18'}
 
   sirv@3.0.2:
     resolution: {integrity: sha512-2wcC/oGxHis/BoHkkPwldgiPSYcpZK3JU28WoMVv55yHJgcZ8rlXvuG9iZggz+sU1d4bRgIGASwyWqjxu3FM0g==}
@@ -2390,6 +2400,8 @@ snapshots:
       '@shikijs/types': 4.0.2
       '@shikijs/vscode-textmate': 10.0.2
       '@types/hast': 3.0.4
+
+  simple-icons@16.14.0: {}
 
   sirv@3.0.2:
     dependencies:

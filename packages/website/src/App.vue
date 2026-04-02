@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
+import { ArrowUpRight } from "@lucide/vue";
+import { siGithub } from "simple-icons";
 import { InlineClamp, LineClamp } from "vue-clamp";
 import ComponentTabs from "./ComponentTabs.vue";
 import CodeBlock from "./CodeBlock.vue";
@@ -28,6 +30,18 @@ const arabicText =
 
 function lineDemoText(rtl: boolean): string {
   return rtl ? arabicText : text;
+}
+
+function lineToggleLabel(expanded: boolean, rtl: boolean): string {
+  if (rtl) {
+    return expanded ? "أقل" : "المزيد";
+  }
+
+  return expanded ? "Less" : "More";
+}
+
+function lineBadgeLabel(rtl: boolean): string {
+  return rtl ? "مميز" : "Featured";
 }
 
 // Demo 1: max-lines + after slot toggle
@@ -282,23 +296,11 @@ const highlightedInlineCode = computed(() => {
           target="_blank"
           rel="noopener"
         >
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
-            <path
-              d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"
-            />
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path :d="siGithub.path" fill="currentColor" />
           </svg>
           GitHub
-          <svg
-            width="12"
-            height="12"
-            viewBox="0 0 12 12"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="1.5"
-            aria-hidden="true"
-          >
-            <path d="M3.5 1.5h7v7M10.5 1.5L1.5 10.5" />
-          </svg>
+          <ArrowUpRight :size="12" :stroke-width="1.75" aria-hidden="true" />
         </a>
       </nav>
     </header>
@@ -414,7 +416,7 @@ const highlightedInlineCode = computed(() => {
                     >
                       <template #after="{ toggle, expanded, clamped }">
                         <button v-if="expanded || clamped" class="toggle-btn" @click="toggle">
-                          {{ expanded ? "Collapse" : "Expand" }}
+                          {{ lineToggleLabel(expanded, rtl1) }}
                         </button>
                       </template>
                     </LineClamp>
@@ -474,7 +476,7 @@ const highlightedInlineCode = computed(() => {
                       :style="{ width: `${width2}px`, maxWidth: '100%' }"
                     >
                       <template #before>
-                        <span class="badge">Featured</span>
+                        <span class="badge">{{ lineBadgeLabel(rtl2) }}</span>
                       </template>
                     </LineClamp>
                   </div>
@@ -639,7 +641,7 @@ const highlightedInlineCode = computed(() => {
                     >
                       <template #after="{ toggle, expanded, clamped }">
                         <button v-if="expanded || clamped" class="toggle-btn" @click="toggle">
-                          {{ expanded ? "Collapse" : "Expand" }}
+                          {{ lineToggleLabel(expanded, rtl4) }}
                         </button>
                       </template>
                     </LineClamp>

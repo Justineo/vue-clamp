@@ -56,10 +56,14 @@ function widthInput(container: HTMLElement): HTMLInputElement {
 }
 
 function workspaceDemoBlock(container: HTMLElement): HTMLElement {
+  return demoBlock(container, 0);
+}
+
+function demoBlock(container: HTMLElement, index: number): HTMLElement {
   const blocks = container.querySelectorAll(".demo-block");
-  const block = blocks.item(0);
+  const block = blocks.item(index);
   if (!(block instanceof HTMLElement)) {
-    throw new Error("Expected the first demo block.");
+    throw new Error(`Expected demo block ${index}.`);
   }
 
   return block;
@@ -195,6 +199,18 @@ function referencePanelNames(container: HTMLElement): string[] {
   );
 }
 
+function checkboxInBlock(block: HTMLElement, label: string): HTMLInputElement {
+  const control = Array.from(block.querySelectorAll(".control-check")).find((candidate) =>
+    candidate.textContent?.includes(label),
+  );
+  const input = control?.querySelector("input");
+  if (!(input instanceof HTMLInputElement)) {
+    throw new Error(`Expected the ${label} checkbox.`);
+  }
+
+  return input;
+}
+
 async function setRangeValue(input: HTMLInputElement, value: number): Promise<void> {
   input.value = String(value);
   input.dispatchEvent(new Event("input", { bubbles: true }));
@@ -279,6 +295,41 @@ describe("Website demo page", () => {
     }
 
     expect(failures).toEqual([]);
+  });
+
+  it("switches line demo slot copy with the RTL examples", async () => {
+    const { default: App } = await import("../../website/src/App.vue");
+    const mountedPage = mountPage(App);
+
+    await settle(4);
+    await mountedPage.container.ownerDocument.fonts?.ready;
+
+    const firstBlock = workspaceDemoBlock(mountedPage.container);
+    const secondBlock = demoBlock(mountedPage.container, 1);
+    const firstToggle = firstBlock.querySelector(".toggle-btn");
+    const secondBadge = secondBlock.querySelector(".badge");
+
+    if (!(firstToggle instanceof HTMLButtonElement)) {
+      throw new Error("Expected the first demo toggle button.");
+    }
+    if (!(secondBadge instanceof HTMLElement)) {
+      throw new Error("Expected the second demo badge.");
+    }
+
+    expect(firstToggle.textContent?.trim()).toBe("More");
+    expect(secondBadge.textContent?.trim()).toBe("Featured");
+
+    checkboxInBlock(firstBlock, "RTL").click();
+    checkboxInBlock(secondBlock, "RTL").click();
+    await settle(4);
+
+    expect(firstToggle.textContent?.trim()).toBe("المزيد");
+    expect(secondBadge.textContent?.trim()).toBe("مميز");
+
+    firstToggle.click();
+    await settle(4);
+
+    expect(firstToggle.textContent?.trim()).toBe("أقل");
   });
 
   it("keeps the inline-toggle demo close to the browser-fit maximum at 373px", async () => {
