@@ -12,6 +12,8 @@ import ts from "shiki/langs/typescript.mjs";
 import vitesseDark from "shiki/themes/vitesse-dark.mjs";
 import vitesseLight from "shiki/themes/vitesse-light.mjs";
 
+import type { ClampLocation } from "vue-clamp";
+
 const shiki = createHighlighterCoreSync({
   themes: [vitesseLight, vitesseDark],
   langs: [vue, shellscript, css, html, js, ts],
@@ -47,7 +49,28 @@ const width4 = ref(480);
 const hyphens4 = ref(true);
 const rtl4 = ref(false);
 const ellipsis4 = ref("\u2026");
-const location4 = ref<"start" | "middle" | "end">("end");
+const locationRatio4 = ref(1);
+const locationPresets4 = [
+  { label: "Start", ratio: 0, value: "start" as const },
+  { label: "Middle", ratio: 0.5, value: "middle" as const },
+  { label: "End", ratio: 1, value: "end" as const },
+] as const;
+
+const selectedLocationPreset4 = computed(() => {
+  const preset = locationPresets4.find(
+    (candidate) => Math.abs(locationRatio4.value - candidate.ratio) < 0.001,
+  );
+
+  return preset?.value ?? null;
+});
+
+const location4 = computed<ClampLocation>(() => {
+  return selectedLocationPreset4.value ?? locationRatio4.value;
+});
+
+function selectLocationPreset4(ratio: number): void {
+  locationRatio4.value = ratio;
+}
 
 type PkgManager = "vp" | "npm" | "pnpm" | "yarn" | "agent";
 
@@ -148,7 +171,7 @@ const highlightedCode = computed(() => {
         <li>Automatically updates upon layout change.</li>
         <li>The clamped text can be expanded/collapsed.</li>
         <li>Customizable and responsive content before/after clamped text.</li>
-        <li>Place ellipsis at the end, middle, or the start of the clamped text.</li>
+        <li>Place ellipsis at the start, middle, end, or anywhere between with numeric ratios.</li>
       </ul>
     </section>
 
@@ -325,26 +348,45 @@ const highlightedCode = computed(() => {
       </div>
 
       <!-- Demo 4: ellipsis + location -->
-      <div class="demo-block">
-        <div class="demo-label">ellipsis / location</div>
+      <div class="demo-block" data-demo="location">
+        <div class="demo-label">ellipsis / location keywords + ratios</div>
         <div class="demo-controls">
-          <label class="control">
+          <div class="control control--stack">
             <span class="control-label">Location</span>
-            <span class="control-row">
-              <label class="control-radio">
-                <input v-model="location4" type="radio" value="start" />
-                <span>Start</span>
-              </label>
-              <label class="control-radio">
-                <input v-model="location4" type="radio" value="middle" />
-                <span>Middle</span>
-              </label>
-              <label class="control-radio">
-                <input v-model="location4" type="radio" value="end" />
-                <span>End</span>
-              </label>
+            <span class="control-stack">
+              <span class="control-pills" role="group" aria-label="Location presets">
+                <button
+                  v-for="preset in locationPresets4"
+                  :key="preset.value"
+                  class="control-pill"
+                  :class="{ active: selectedLocationPreset4 === preset.value }"
+                  :data-location-preset="preset.value"
+                  type="button"
+                  :aria-pressed="selectedLocationPreset4 === preset.value"
+                  @click="selectLocationPreset4(preset.ratio)"
+                >
+                  {{ preset.label }}
+                </button>
+              </span>
             </span>
-          </label>
+          </div>
+          <div class="control control--stack">
+            <span class="control-label">Ratio</span>
+            <span class="control-stack">
+              <span class="control-row">
+                <input
+                  v-model.number="locationRatio4"
+                  data-location-ratio-slider
+                  class="control-range"
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.05"
+                />
+                <span class="control-value">{{ locationRatio4.toFixed(2) }}</span>
+              </span>
+            </span>
+          </div>
           <label class="control">
             <span class="control-label">Ellipsis</span>
             <input v-model="ellipsis4" class="control-input" maxlength="6" />
@@ -365,6 +407,7 @@ const highlightedCode = computed(() => {
             <span class="control-row">
               <input
                 v-model.number="width4"
+                data-location-width-slider
                 class="control-range"
                 type="range"
                 min="240"
@@ -489,14 +532,18 @@ const highlightedCode = computed(() => {
             <tr>
               <td><code>ellipsis</code></td>
               <td><code>string</code></td>
-              <td><code>'...'</code></td>
+              <td><code>'…'</code></td>
               <td>The ellipsis string displayed when text is clamped.</td>
             </tr>
             <tr>
               <td><code>location</code></td>
-              <td><code>'start' | 'middle' | 'end'</code></td>
+              <td><code>number | 'start' | 'middle' | 'end'</code></td>
               <td><code>'end'</code></td>
-              <td>Where the ellipsis is placed within the text.</td>
+              <td>
+                Where the ellipsis is placed within the text. Keyword aliases map to numeric ratios:
+                <code>start</code> → <code>0</code>, <code>middle</code> → <code>0.5</code>,
+                <code>end</code> → <code>1</code>.
+              </td>
             </tr>
             <tr>
               <td><code>expanded</code></td>
@@ -605,6 +652,7 @@ const highlightedCode = computed(() => {
     "JetBrains Mono", "Fira Code", "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
   --radius: 6px;
   --radius-lg: 8px;
+  --demo-range-width: 140px;
 }
 
 html {
@@ -809,11 +857,23 @@ pre code {
   font-size: 0.8rem;
 }
 
+.control--stack {
+  align-items: flex-start;
+}
+
 .control-label {
   flex-shrink: 0;
   width: 72px;
   color: var(--c-text-2);
   font-weight: 500;
+}
+
+.control-stack {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
 }
 
 .control-input {
@@ -844,7 +904,7 @@ pre code {
 
 .control-range {
   flex: 1;
-  max-width: 140px;
+  max-width: var(--demo-range-width);
   height: 4px;
   appearance: none;
   background: var(--c-bg-mute);
@@ -886,6 +946,44 @@ pre code {
 .control-check input,
 .control-radio input {
   accent-color: var(--c-accent);
+}
+
+.control-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.control-pills--compact {
+  gap: 6px;
+}
+
+.control-pill {
+  min-width: 60px;
+  padding: 4px 10px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  font-family: var(--font-body);
+  color: var(--c-text-2);
+  background: var(--c-bg-soft);
+  border: 1px solid var(--c-border);
+  border-radius: 999px;
+  cursor: pointer;
+  transition:
+    border-color 0.15s,
+    background 0.15s,
+    color 0.15s;
+}
+
+.control-pill:hover {
+  border-color: var(--c-border-dark);
+  color: var(--c-text);
+}
+
+.control-pill.active {
+  color: var(--c-accent-text);
+  background: var(--c-accent-soft);
+  border-color: var(--c-accent);
 }
 
 .demo-preview {

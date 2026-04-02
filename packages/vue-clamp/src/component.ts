@@ -8,10 +8,11 @@ import {
   watch,
   watchPostEffect,
 } from "vue";
-import { displayTextForKeptCount, splitGraphemes } from "./text.ts";
+import { displayTextForKeptCount, prepareText } from "./text.ts";
 
 import type { CSSProperties, PropType } from "vue";
 import type { ClampExposed, ClampLocation, ClampSlotProps } from "./types.ts";
+import type { PreparedText } from "./text.ts";
 
 const slotStyle: CSSProperties = {
   display: "inline-flex",
@@ -76,10 +77,15 @@ const clampProps = {
     default: "…",
   },
   location: {
-    type: String as PropType<ClampLocation>,
+    type: [String, Number] as PropType<ClampLocation>,
     default: "end",
-    validator(value: string) {
-      return value === "start" || value === "middle" || value === "end";
+    validator(value: unknown) {
+      return (
+        value === "start" ||
+        value === "middle" ||
+        value === "end" ||
+        (typeof value === "number" && Number.isFinite(value))
+      );
     },
   },
   expanded: {
@@ -103,18 +109,34 @@ function nativeTextOverflowValue(ellipsis: string): string | null {
   return ellipsis === "…" ? "ellipsis" : null;
 }
 
+function normalizeLocationRatio(location: ClampLocation): number {
+  if (location === "start") {
+    return 0;
+  }
+
+  if (location === "middle") {
+    return 0.5;
+  }
+
+  if (location === "end") {
+    return 1;
+  }
+
+  return Math.max(0, Math.min(1, location));
+}
+
 function canUseNativeClamp(
   expanded: boolean,
   maxLines: number | undefined,
   maxHeight: number | string | undefined,
-  location: ClampLocation,
+  locationRatio: number,
   ellipsis: string,
 ): string | null {
   if (
     expanded ||
     normalizeLineLimit(maxLines) !== 1 ||
     maxHeight !== undefined ||
-    location !== "end"
+    locationRatio !== 1
   ) {
     return null;
   }
@@ -131,45 +153,29 @@ function isNativeClamped(textElement: HTMLElement): boolean | null {
 }
 
 function clampText(
-  text: string,
+  preparedText: PreparedText,
   rootElement: HTMLElement,
   contentElement: HTMLElement,
   textElement: HTMLElement,
-  location: ClampLocation,
+  locationRatio: number,
   ellipsis: string,
   maxLines: number | undefined,
   maxHeight: number | string | undefined,
 ): string | null {
-  const style = getComputedStyle(rootElement);
+  const rootRect = rootElement.getBoundingClientRect();
 
-  function readPx(value: string | null | undefined): number | undefined {
-    if (!value || value === "none" || value === "normal") {
-      return undefined;
-    }
-
-    const numeric = Number.parseFloat(value);
-    return Number.isFinite(numeric) ? numeric : undefined;
-  }
-
-  const padding = (readPx(style.paddingLeft) ?? 0) + (readPx(style.paddingRight) ?? 0);
-  const border = (readPx(style.borderLeftWidth) ?? 0) + (readPx(style.borderRightWidth) ?? 0);
-  const styledWidth = readPx(style.width);
-  const widthAdjustment = style.boxSizing === "border-box" ? padding + border : 0;
-  const width =
-    styledWidth !== undefined
-      ? Math.max(0, styledWidth - widthAdjustment)
-      : Math.max(0, rootElement.getBoundingClientRect().width - padding - border);
-
-  if (width <= 0) {
+  if (rootRect.width <= 0) {
     return null;
   }
 
   const lineLimit = normalizeLineLimit(maxLines);
-  const graphemes = splitGraphemes(text);
+  const graphemeCount = preparedText.boundaryOffsets.length - 1;
   let currentText = textElement.textContent ?? "";
+  const visibleTop = rootRect.top + rootElement.clientTop;
+  const visibleBottom = visibleTop + rootElement.clientHeight;
 
   function applyKept(kept: number): string {
-    const nextText = displayTextForKeptCount(text, graphemes, location, ellipsis, kept);
+    const nextText = displayTextForKeptCount(preparedText, locationRatio, ellipsis, kept);
 
     if (nextText !== currentText) {
       textElement.textContent = nextText;
@@ -180,16 +186,12 @@ function clampText(
   }
 
   function fits(): boolean {
+    const rects = Array.from(contentElement.getClientRects()).filter(
+      (rect) => rect.width > 0 && rect.height > 0,
+    );
+
     if (maxHeight !== undefined) {
-      const rects = Array.from(contentElement.getClientRects()).filter(
-        (rect) => rect.width > 0 && rect.height > 0,
-      );
-
       if (rects.length > 0) {
-        const rootRect = rootElement.getBoundingClientRect();
-        const visibleTop = rootRect.top + rootElement.clientTop;
-        const visibleBottom = visibleTop + rootElement.clientHeight;
-
         if (
           rects.some((rect) => rect.top < visibleTop - 0.5 || rect.bottom > visibleBottom + 0.5)
         ) {
@@ -201,7 +203,7 @@ function clampText(
     if (lineLimit !== undefined) {
       const lines = new Set<string>();
 
-      for (const rect of Array.from(contentElement.getClientRects())) {
+      for (const rect of rects) {
         lines.add(`${rect.top}/${rect.bottom}`);
       }
 
@@ -213,27 +215,28 @@ function clampText(
     return true;
   }
 
-  if (applyKept(graphemes.length) === text && fits()) {
-    return text;
-  }
+  function search(low: number, high: number, best: number): number {
+    while (low <= high) {
+      const kept = Math.floor((low + high) / 2);
 
-  let low = 0;
-  let high = graphemes.length - 1;
-  let best = 0;
+      applyKept(kept);
 
-  while (low <= high) {
-    const kept = Math.floor((low + high) / 2);
-
-    applyKept(kept);
-
-    if (fits()) {
-      best = kept;
-      low = kept + 1;
-    } else {
-      high = kept - 1;
+      if (fits()) {
+        best = kept;
+        low = kept + 1;
+      } else {
+        high = kept - 1;
+      }
     }
+
+    return best;
   }
 
+  if (applyKept(graphemeCount) === preparedText.text && fits()) {
+    return preparedText.text;
+  }
+
+  const best = search(0, graphemeCount - 1, 0);
   return applyKept(best);
 }
 
@@ -253,6 +256,7 @@ export const Clamp = defineComponent({
     const isClamped = ref(false);
     const nativeTextOverflow = ref<string | null>(null);
 
+    let preparedText = prepareText(props.text);
     let resizeObserver: ResizeObserver | null = null;
     let stopFonts = () => {};
 
@@ -268,21 +272,41 @@ export const Clamp = defineComponent({
       expanded.value = !expanded.value;
     }
 
+    function commitClamp(nextText: string, nextClamped: boolean): void {
+      if (visibleText.value !== nextText) {
+        visibleText.value = nextText;
+      }
+
+      if (isClamped.value !== nextClamped) {
+        isClamped.value = nextClamped;
+      }
+    }
+
+    function currentPreparedText(): PreparedText {
+      if (preparedText.text !== props.text) {
+        preparedText = prepareText(props.text);
+      }
+
+      return preparedText;
+    }
+
     function resetClamp(): void {
-      visibleText.value = props.text;
-      isClamped.value = false;
+      commitClamp(props.text, false);
     }
 
     function recompute(): void {
       const hasLimit = props.maxLines !== undefined || props.maxHeight !== undefined;
+      const locationRatio = normalizeLocationRatio(props.location);
       const nextNativeTextOverflow = canUseNativeClamp(
         expanded.value,
         props.maxLines,
         props.maxHeight,
-        props.location,
+        locationRatio,
         props.ellipsis,
       );
-      nativeTextOverflow.value = nextNativeTextOverflow;
+      if (nativeTextOverflow.value !== nextNativeTextOverflow) {
+        nativeTextOverflow.value = nextNativeTextOverflow;
+      }
 
       if (expanded.value || props.text.length === 0 || !hasLimit) {
         resetClamp();
@@ -299,19 +323,18 @@ export const Clamp = defineComponent({
       }
 
       if (nextNativeTextOverflow) {
-        visibleText.value = props.text;
-
         const nextClamped = isNativeClamped(textElement);
-        isClamped.value = nextClamped ?? false;
+        commitClamp(props.text, nextClamped ?? false);
         return;
       }
 
+      const source = currentPreparedText();
       const nextText = clampText(
-        props.text,
+        source,
         rootElement,
         contentElement,
         textElement,
-        props.location,
+        locationRatio,
         props.ellipsis,
         props.maxLines,
         props.maxHeight,
@@ -322,8 +345,7 @@ export const Clamp = defineComponent({
         return;
       }
 
-      visibleText.value = nextText;
-      isClamped.value = nextText !== props.text;
+      commitClamp(nextText, nextText !== source.text);
     }
 
     watch(

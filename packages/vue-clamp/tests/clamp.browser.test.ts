@@ -125,6 +125,26 @@ describe("Clamp browser contract", () => {
     expect(await sampleVisibleLineCounts(root)).toEqual([1, 1, 1]);
   });
 
+  it("keeps the native one-line overflow path when location is 1", async () => {
+    const sourceText = "abcdefghijklmnopqrstuvwxyz";
+    const mounted = mountClamp({
+      text: sourceText,
+      props: {
+        maxLines: 1,
+        location: 1,
+      },
+    });
+
+    const root = rootElement(mounted.container);
+    await waitUntilVisible(root);
+
+    const textNode = textElement(root);
+    expect(textNode.textContent).toBe(sourceText);
+    expect(getComputedStyle(textNode).textOverflow).toBe("ellipsis");
+    expect(accessibleTextElement(root)).toBeNull();
+    expect((mounted.exposed.value as ClampExposed).clamped).toBe(true);
+  });
+
   it("keeps the native one-line path clamped when width comes from the parent container", async () => {
     const sourceText = "abcdefghijklmnopqrstuvwxyz";
     const mounted = mountClamp({
@@ -188,6 +208,27 @@ describe("Clamp browser contract", () => {
     expect(accessibleTextElement(root)).toBeNull();
     expect((mounted.exposed.value as ClampExposed).clamped).toBe(true);
     expect(await sampleVisibleLineCounts(root)).toEqual([1, 1, 1]);
+  });
+
+  it("supports numeric ratio locations in the DOM-trimmed path", async () => {
+    const sourceText = "abcdefghijklmnopqrstuvwxyz";
+    const mounted = mountClamp({
+      text: sourceText,
+      width: 120,
+      props: {
+        maxLines: 1,
+        location: 0.75,
+      },
+    });
+
+    const root = rootElement(mounted.container);
+    await waitUntilVisible(root);
+
+    const textNode = textElement(root);
+    expect(textNode.getAttribute("aria-hidden")).toBe("true");
+    expect(textNode.textContent).toBe(bestBrowserFitText(root, sourceText, 1, 0.75));
+    expect(accessibleTextElement(root)?.textContent).toBe(sourceText);
+    expect((mounted.exposed.value as ClampExposed).clamped).toBe(true);
   });
 
   it("falls back to DOM-trimmed text for custom one-line ellipsis values", async () => {

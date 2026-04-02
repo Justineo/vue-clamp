@@ -1,4 +1,4 @@
-export type ClampLocation = "start" | "middle" | "end";
+export type ClampLocation = "start" | "middle" | "end" | number;
 
 export interface ClampSlotProps {
   expand: () => void;

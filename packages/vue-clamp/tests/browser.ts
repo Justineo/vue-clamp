@@ -1,9 +1,9 @@
 import { createApp, defineComponent, h, nextTick, ref } from "vue";
 import { Clamp } from "../src/index.ts";
-import { displayTextForKeptCount, splitGraphemes } from "../src/text.ts";
+import { displayTextForKeptCount, prepareText } from "../src/text.ts";
 
 import type { App, Component, Ref, VNodeChild } from "vue";
-import type { ClampExposed, ClampProps, ClampSlotProps } from "../src/index.ts";
+import type { ClampExposed, ClampLocation, ClampProps, ClampSlotProps } from "../src/index.ts";
 
 type MountOptions = {
   text?: string;
@@ -201,11 +201,27 @@ export async function waitUntilVisible(root: HTMLElement, frames = 12): Promise<
   throw new Error("Clamp never became visible.");
 }
 
+function normalizeLocationRatio(location: ClampLocation): number {
+  if (location === "start") {
+    return 0;
+  }
+
+  if (location === "middle") {
+    return 0.5;
+  }
+
+  if (location === "end") {
+    return 1;
+  }
+
+  return Math.max(0, Math.min(1, location));
+}
+
 export function bestBrowserFitText(
   root: HTMLElement,
   sourceText: string,
   maxLines: number,
-  location: "start" | "middle" | "end" = "end",
+  location: ClampLocation = "end",
   ellipsis = "…",
 ): string {
   const clone = root.cloneNode(true);
@@ -224,20 +240,15 @@ export function bestBrowserFitText(
   document.body.append(clone);
 
   try {
-    const graphemes = splitGraphemes(sourceText);
+    const prepared = prepareText(sourceText);
+    const ratio = normalizeLocationRatio(location);
     let low = 0;
-    let high = Math.max(0, graphemes.length - 1);
+    let high = Math.max(0, prepared.boundaryOffsets.length - 2);
     let best = 0;
 
     while (low <= high) {
       const kept = Math.floor((low + high) / 2);
-      cloneText.textContent = displayTextForKeptCount(
-        sourceText,
-        graphemes,
-        location,
-        ellipsis,
-        kept,
-      );
+      cloneText.textContent = displayTextForKeptCount(prepared, ratio, ellipsis, kept);
 
       if (naturalLineCount(clone) <= maxLines) {
         best = kept;
@@ -247,7 +258,7 @@ export function bestBrowserFitText(
       }
     }
 
-    return displayTextForKeptCount(sourceText, graphemes, location, ellipsis, best);
+    return displayTextForKeptCount(prepared, ratio, ellipsis, best);
   } finally {
     clone.remove();
   }

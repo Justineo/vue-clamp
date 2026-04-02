@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vite-plus/test";
-import { displayTextForKeptCount, splitGraphemes } from "../src/text.ts";
+import { displayTextForKeptCount, prepareText, splitGraphemes } from "../src/text.ts";
 
 describe("text helpers", () => {
   it("splits ascii text into single characters", () => {
@@ -11,16 +11,20 @@ describe("text helpers", () => {
   });
 
   it("builds end-clamped text from a kept grapheme count", () => {
-    const text = "abcdef";
-    const graphemes = splitGraphemes(text);
+    const prepared = prepareText("abcdef");
 
-    expect(displayTextForKeptCount(text, graphemes, "end", "…", 3)).toBe("abc…");
+    expect(displayTextForKeptCount(prepared, 1, "…", 3)).toBe("abc…");
   });
 
   it("builds middle-clamped text from a kept grapheme count", () => {
-    const text = "abcdef";
-    const graphemes = splitGraphemes(text);
+    const prepared = prepareText("abcdef");
 
-    expect(displayTextForKeptCount(text, graphemes, "middle", "…", 4)).toBe("ab…ef");
+    expect(displayTextForKeptCount(prepared, 0.5, "…", 4)).toBe("ab…ef");
+  });
+
+  it("builds ratio-clamped text from a kept grapheme count", () => {
+    const prepared = prepareText("abcdefgh");
+
+    expect(displayTextForKeptCount(prepared, 0.75, "…", 4)).toBe("abc…h");
   });
 });

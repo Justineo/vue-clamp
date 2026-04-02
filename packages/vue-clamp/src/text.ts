@@ -1,8 +1,11 @@
-import type { ClampLocation } from "./types.ts";
-
 const graphemeSegmenter = new Intl.Segmenter(undefined, {
   granularity: "grapheme",
 });
+
+export interface PreparedText {
+  text: string;
+  boundaryOffsets: number[];
+}
 
 function isAsciiSafe(text: string): boolean {
   for (let index = 0; index < text.length; index += 1) {
@@ -15,42 +18,65 @@ function isAsciiSafe(text: string): boolean {
   return true;
 }
 
-function join(graphemes: string[], start: number, end: number): string {
-  return graphemes.slice(start, end).join("");
+export function prepareText(text: string): PreparedText {
+  if (isAsciiSafe(text)) {
+    return {
+      text,
+      boundaryOffsets: Array.from({ length: text.length + 1 }, (_, index) => index),
+    };
+  }
+
+  const boundaryOffsets = [0];
+  let offset = 0;
+
+  for (const part of graphemeSegmenter.segment(text)) {
+    offset += part.segment.length;
+    boundaryOffsets.push(offset);
+  }
+
+  return {
+    text,
+    boundaryOffsets,
+  };
 }
 
 export function splitGraphemes(text: string): string[] {
-  if (isAsciiSafe(text)) {
-    return text.split("");
+  const prepared = prepareText(text);
+  const graphemes: string[] = [];
+
+  for (let index = 1; index < prepared.boundaryOffsets.length; index += 1) {
+    graphemes.push(
+      text.slice(prepared.boundaryOffsets[index - 1], prepared.boundaryOffsets[index]),
+    );
   }
 
-  return [...graphemeSegmenter.segment(text)].map((part) => part.segment);
+  return graphemes;
 }
 
 export function displayTextForKeptCount(
-  text: string,
-  graphemes: string[],
-  location: ClampLocation,
+  prepared: PreparedText,
+  ratio: number,
   ellipsis: string,
   kept: number,
 ): string {
-  if (kept >= graphemes.length) {
-    return text;
+  const graphemeCount = prepared.boundaryOffsets.length - 1;
+
+  if (kept >= graphemeCount) {
+    return prepared.text;
   }
 
-  if (location === "start") {
-    return `${ellipsis}${join(graphemes, graphemes.length - kept, graphemes.length).trim()}`;
+  const prefix = Math.floor(kept * ratio);
+  const suffix = kept - prefix;
+
+  if (prefix <= 0) {
+    return `${ellipsis}${prepared.text.slice(prepared.boundaryOffsets[graphemeCount - suffix]).trim()}`;
   }
 
-  if (location === "middle") {
-    const prefix = Math.floor(kept / 2);
-    const suffix = kept - prefix;
-    return `${join(graphemes, 0, prefix).trim()}${ellipsis}${join(
-      graphemes,
-      graphemes.length - suffix,
-      graphemes.length,
-    ).trim()}`;
+  if (suffix <= 0) {
+    return `${prepared.text.slice(0, prepared.boundaryOffsets[prefix]).trim()}${ellipsis}`;
   }
 
-  return `${join(graphemes, 0, kept).trim()}${ellipsis}`;
+  return `${prepared.text.slice(0, prepared.boundaryOffsets[prefix]).trim()}${ellipsis}${prepared.text
+    .slice(prepared.boundaryOffsets[graphemeCount - suffix])
+    .trim()}`;
 }

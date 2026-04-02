@@ -33,6 +33,7 @@
 - Public types remain `ClampProps`, `ClampExposed`, `ClampSlotProps`, and `ClampLocation`.
 - Public declaration types live in `packages/vue-clamp/src/types.ts`.
 - The clamped source content comes from the `text` prop.
+- `location` accepts the keyword aliases `start`, `middle`, and `end`, plus numeric ratios from `0` to `1`.
 - `before` and `after` remain rich Vue slots.
 
 ### Runtime model
@@ -50,6 +51,7 @@
 - The component now keeps only the minimum moving pieces:
   - reactive `visibleText`, `expanded`, and `isClamped`
   - DOM refs for root/content/text and optional `before`/`after` slot wrappers
+  - a per-instance prepared-text cache keyed by `text`
 
 ### Accessibility model
 
@@ -64,11 +66,13 @@
 
 - The actual clamp pass:
   - starts from the `text` prop
+  - normalizes `location` to an internal ratio before clamp rendering
+  - prepares grapheme boundary offsets once per source text and reuses them across width/slot/font reclamps
   - measures the live content width from the rendered root
   - normalizes `maxLines` and `maxHeight`
-  - uses a native CSS overflow fast path for the collapsed single-line `end` case when the default `…` ellipsis is used
+  - uses a native CSS overflow fast path for the collapsed single-line end case when the default `…` ellipsis is used and the normalized location ratio is `1`
   - in that native path, `before` and `after` stay as fixed inline-flex items while the text cell becomes the only flexible width consumer
-  - otherwise splits the source text into graphemes and binary-searches the kept grapheme count directly against the live DOM
+  - otherwise binary-searches the kept grapheme count directly against the live DOM
   - uses the browser as the source of truth for wrapping and overflow in both paths
 - `before` and `after` slots render directly into the same inline flow and are observed for size changes via `ResizeObserver`.
 

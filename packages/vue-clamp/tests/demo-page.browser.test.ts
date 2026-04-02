@@ -33,13 +33,17 @@ function mountPage(component: Component): MountedPage {
   return mountedPage;
 }
 
-function workspaceClamp(container: HTMLElement): HTMLElement {
-  const clampRoot = workspaceDemoBlock(container).querySelector(".demo-clamp");
+function clampInDemoBlock(block: HTMLElement): HTMLElement {
+  const clampRoot = block.querySelector(".demo-clamp");
   if (!(clampRoot instanceof HTMLElement)) {
-    throw new Error("Expected the workspace clamp root.");
+    throw new Error("Expected the demo clamp root.");
   }
 
   return clampRoot;
+}
+
+function workspaceClamp(container: HTMLElement): HTMLElement {
+  return clampInDemoBlock(workspaceDemoBlock(container));
 }
 
 function widthInput(container: HTMLElement): HTMLInputElement {
@@ -61,11 +65,73 @@ function workspaceDemoBlock(container: HTMLElement): HTMLElement {
   return block;
 }
 
-async function setWorkspaceWidth(container: HTMLElement, width: number): Promise<void> {
-  const input = widthInput(container);
-  input.value = String(width);
+function locationDemoBlock(container: HTMLElement): HTMLElement {
+  const block = container.querySelector('[data-demo="location"]');
+  if (!(block instanceof HTMLElement)) {
+    throw new Error("Expected the location demo block.");
+  }
+
+  return block;
+}
+
+function locationClamp(container: HTMLElement): HTMLElement {
+  return clampInDemoBlock(locationDemoBlock(container));
+}
+
+function locationRatioInput(container: HTMLElement): HTMLInputElement {
+  const input = locationDemoBlock(container).querySelector("[data-location-ratio-slider]");
+  if (!(input instanceof HTMLInputElement)) {
+    throw new Error("Expected the location ratio slider.");
+  }
+
+  return input;
+}
+
+function locationWidthInput(container: HTMLElement): HTMLInputElement {
+  const input = locationDemoBlock(container).querySelector("[data-location-width-slider]");
+  if (!(input instanceof HTMLInputElement)) {
+    throw new Error("Expected the location width slider.");
+  }
+
+  return input;
+}
+
+function locationPresetButtons(container: HTMLElement): HTMLButtonElement[] {
+  return Array.from(locationDemoBlock(container).querySelectorAll("[data-location-preset]")).filter(
+    (button): button is HTMLButtonElement => button instanceof HTMLButtonElement,
+  );
+}
+
+function locationPresetButton(container: HTMLElement, preset: string): HTMLButtonElement {
+  const button = locationDemoBlock(container).querySelector(`[data-location-preset="${preset}"]`);
+  if (!(button instanceof HTMLButtonElement)) {
+    throw new Error(`Expected the ${preset} location preset button.`);
+  }
+
+  return button;
+}
+
+async function setRangeValue(input: HTMLInputElement, value: number): Promise<void> {
+  input.value = String(value);
   input.dispatchEvent(new Event("input", { bubbles: true }));
   input.dispatchEvent(new Event("change", { bubbles: true }));
+  await settle(4);
+}
+
+async function setWorkspaceWidth(container: HTMLElement, width: number): Promise<void> {
+  await setRangeValue(widthInput(container), width);
+}
+
+async function setLocationWidth(container: HTMLElement, width: number): Promise<void> {
+  await setRangeValue(locationWidthInput(container), width);
+}
+
+async function setLocationRatio(container: HTMLElement, ratio: number): Promise<void> {
+  await setRangeValue(locationRatioInput(container), ratio);
+}
+
+async function clickLocationPreset(container: HTMLElement, preset: string): Promise<void> {
+  locationPresetButton(container, preset).click();
   await settle(4);
 }
 
@@ -144,5 +210,76 @@ describe("Website demo page", () => {
 
     expect(await sampleVisibleLineCounts(clampRoot)).toEqual([3, 3, 3]);
     expect(current.length).toBeGreaterThanOrEqual(best.length - 1);
+  });
+
+  it("applies numeric ratio locations in the location demo and stays aligned with browser fit", async () => {
+    const { default: App } = await import("../../website/src/App.vue");
+    const mountedPage = mountPage(App);
+
+    await settle(4);
+    await mountedPage.container.ownerDocument.fonts?.ready;
+    await setLocationWidth(mountedPage.container, 320);
+
+    const initialText = textElement(locationClamp(mountedPage.container)).textContent ?? "";
+    const presetButtons = locationPresetButtons(mountedPage.container);
+    expect(presetButtons.map((button) => button.dataset.locationPreset)).toEqual([
+      "start",
+      "middle",
+      "end",
+    ]);
+    expect(
+      locationDemoBlock(mountedPage.container).querySelector("[data-location-value]"),
+    ).toBeNull();
+    expect(
+      locationDemoBlock(mountedPage.container).querySelector('[data-location-mode="custom"]'),
+    ).toBeNull();
+    expect(locationRatioInput(mountedPage.container).value).toBe("1");
+    expect(locationPresetButton(mountedPage.container, "end").getAttribute("aria-pressed")).toBe(
+      "true",
+    );
+
+    await clickLocationPreset(mountedPage.container, "middle");
+
+    expect(locationRatioInput(mountedPage.container).value).toBe("0.5");
+    expect(
+      locationPresetButtons(mountedPage.container).map((button) =>
+        button.getAttribute("aria-pressed"),
+      ),
+    ).toEqual(["false", "true", "false"]);
+
+    await setLocationRatio(mountedPage.container, 0.25);
+
+    const clampRoot = locationClamp(mountedPage.container);
+    await waitUntilVisible(clampRoot);
+
+    const textNode = textElement(clampRoot);
+    const sourceText = accessibleTextElement(clampRoot)?.textContent ?? textNode.textContent;
+    if (!sourceText) {
+      throw new Error("Expected the location demo clamp source text.");
+    }
+
+    const current = textNode.textContent ?? "";
+    const [prefix = "", suffix = ""] = current.split("…");
+
+    expect(locationRatioInput(mountedPage.container).value).toBe("0.25");
+    expect(
+      locationPresetButtons(mountedPage.container).every(
+        (button) => button.getAttribute("aria-pressed") === "false",
+      ),
+    ).toBe(true);
+    expect(initialText.endsWith("…")).toBe(true);
+    expect(current).not.toBe(initialText);
+    expect(current.includes("…")).toBe(true);
+    expect(current.endsWith("…")).toBe(false);
+    expect(prefix.length).toBeGreaterThan(0);
+    expect(prefix.length).toBeLessThan(suffix.length);
+    expect(suffix.endsWith(sourceText.slice(-16))).toBe(true);
+
+    await setLocationRatio(mountedPage.container, 0.5);
+
+    expect(locationPresetButton(mountedPage.container, "middle").getAttribute("aria-pressed")).toBe(
+      "true",
+    );
+    expect(await sampleVisibleLineCounts(clampRoot)).toEqual([5, 5, 5]);
   });
 });
