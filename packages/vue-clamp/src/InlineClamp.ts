@@ -1,4 +1,4 @@
-import { computed, defineComponent, h, mergeProps } from "vue";
+import { defineComponent, h, mergeProps } from "vue";
 
 import type { CSSProperties, PropType } from "vue";
 import type { InlineClampParts, InlineClampSplit } from "./types.ts";
@@ -69,43 +69,42 @@ export const InlineClamp = defineComponent({
   inheritAttrs: false,
   props: inlineClampProps,
   setup(props, { attrs }) {
-    const parts = computed(() => {
-      return resolveParts(props.text, props.split);
-    });
-
     return () => {
+      const parts = resolveParts(props.text, props.split);
+
       return h(
         props.as,
         mergeProps(attrs, {
+          "data-part": "root",
           style: inlineRootStyle,
         }),
         [
-          parts.value.start
+          parts.start
             ? h(
                 "span",
                 {
-                  "data-inline-start": "",
+                  "data-part": "start",
                   style: fixedSegmentStyle,
                 },
-                parts.value.start,
+                parts.start,
               )
             : null,
           h(
             "span",
             {
-              "data-inline-body": "",
+              "data-part": "body",
               style: bodySegmentStyle,
             },
-            parts.value.body,
+            parts.body,
           ),
-          parts.value.end
+          parts.end
             ? h(
                 "span",
                 {
-                  "data-inline-end": "",
+                  "data-part": "end",
                   style: fixedSegmentStyle,
                 },
-                parts.value.end,
+                parts.end,
               )
             : null,
         ],

@@ -68,7 +68,7 @@ export function rootElement(container: HTMLElement): HTMLElement {
 }
 
 function contentElement(root: HTMLElement): HTMLElement {
-  const content = root.firstElementChild;
+  const content = root.querySelector('[data-part="content"]');
   if (!(content instanceof HTMLElement)) {
     throw new Error("Expected clamp content element.");
   }
@@ -77,18 +77,7 @@ function contentElement(root: HTMLElement): HTMLElement {
 }
 
 function textContainerElement(root: HTMLElement): HTMLElement {
-  const content = contentElement(root);
-
-  if (content.children.length === 1 && content.firstElementChild instanceof HTMLElement) {
-    return content.firstElementChild;
-  }
-
-  const textContainer = Array.from(content.children).find(
-    (child) =>
-      child instanceof HTMLElement &&
-      (child.style.position === "relative" || child.style.flexGrow === "1"),
-  );
-
+  const textContainer = root.querySelector('[data-part="body"]');
   if (!(textContainer instanceof HTMLElement)) {
     throw new Error("Expected clamp text container element.");
   }
@@ -122,19 +111,13 @@ export function accessibleTextElement(root: HTMLElement): HTMLElement | null {
 }
 
 export function beforeElement(root: HTMLElement): HTMLElement | null {
-  const content = contentElement(root);
-  const textContainer = textContainerElement(root);
-  return content.firstElementChild === textContainer
-    ? null
-    : (content.firstElementChild as HTMLElement | null);
+  const element = root.querySelector('[data-part="before"]');
+  return element instanceof HTMLElement ? element : null;
 }
 
 export function afterElement(root: HTMLElement): HTMLElement | null {
-  const content = contentElement(root);
-  const textContainer = textContainerElement(root);
-  return content.lastElementChild === textContainer
-    ? null
-    : (content.lastElementChild as HTMLElement | null);
+  const element = root.querySelector('[data-part="after"]');
+  return element instanceof HTMLElement ? element : null;
 }
 
 function countLines(root: HTMLElement, clipToRoot: boolean): number {

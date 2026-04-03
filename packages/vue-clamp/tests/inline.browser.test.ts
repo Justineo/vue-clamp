@@ -94,7 +94,7 @@ function rootElement(container: HTMLElement): HTMLElement {
 }
 
 function segment(root: HTMLElement, name: "start" | "body" | "end"): HTMLElement | null {
-  const element = root.querySelector(`[data-inline-${name}]`);
+  const element = root.querySelector(`[data-part="${name}"]`);
   return element instanceof HTMLElement ? element : null;
 }
 
@@ -117,6 +117,7 @@ describe("InlineClamp browser contract", () => {
 
     const root = rootElement(mountedClamp.container);
     expect(root.tagName).toBe("SPAN");
+    expect(root.getAttribute("data-part")).toBe("root");
     expect(segment(root, "start")).toBeNull();
     expect(segment(root, "body")?.textContent).toBe("alpha beta gamma");
     expect(segment(root, "end")).toBeNull();

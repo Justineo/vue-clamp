@@ -1,4 +1,5 @@
 import {
+  computed,
   defineComponent,
   h,
   mergeProps,
@@ -8,6 +9,7 @@ import {
   watch,
   watchPostEffect,
 } from "vue";
+import { hasSlotContent } from "./slot.ts";
 import { displayTextForKeptCount, prepareText } from "./text.ts";
 
 import type { CSSProperties, PropType } from "vue";
@@ -101,10 +103,6 @@ function normalizeLineLimit(maxLines: number | undefined): number | undefined {
     : Math.max(1, Math.floor(maxLines));
 }
 
-function nativeTextOverflowValue(ellipsis: string): string | null {
-  return ellipsis === "…" ? "ellipsis" : null;
-}
-
 function normalizeLocationRatio(location: LineClampLocation): number {
   if (location === "start") {
     return 0;
@@ -123,21 +121,16 @@ function normalizeLocationRatio(location: LineClampLocation): number {
 
 function canUseNativeClamp(
   expanded: boolean,
-  maxLines: number | undefined,
+  lineLimit: number | undefined,
   maxHeight: number | string | undefined,
   locationRatio: number,
   ellipsis: string,
 ): string | null {
-  if (
-    expanded ||
-    normalizeLineLimit(maxLines) !== 1 ||
-    maxHeight !== undefined ||
-    locationRatio !== 1
-  ) {
+  if (expanded || lineLimit !== 1 || maxHeight !== undefined || locationRatio !== 1) {
     return null;
   }
 
-  return nativeTextOverflowValue(ellipsis);
+  return ellipsis === "…" ? "ellipsis" : null;
 }
 
 function isNativeClamped(textElement: HTMLElement): boolean | null {
@@ -155,16 +148,13 @@ function clampText(
   textElement: HTMLElement,
   locationRatio: number,
   ellipsis: string,
-  maxLines: number | undefined,
+  lineLimit: number | undefined,
   maxHeight: number | string | undefined,
 ): string | null {
-  const rootRect = rootElement.getBoundingClientRect();
-
-  if (rootRect.width <= 0) {
+  if (rootElement.getBoundingClientRect().width <= 0) {
     return null;
   }
 
-  const lineLimit = normalizeLineLimit(maxLines);
   const graphemeCount = preparedText.boundaryOffsets.length - 1;
   let currentText = textElement.textContent ?? "";
 
@@ -252,9 +242,21 @@ export const LineClamp = defineComponent({
     const visibleText = ref("");
     const expanded = ref(props.expanded);
     const isClamped = ref(false);
-    const nativeTextOverflow = ref<string | null>(null);
 
-    let preparedText = prepareText(props.text);
+    const lineLimit = computed(() => normalizeLineLimit(props.maxLines));
+    const hasLimit = computed(() => lineLimit.value !== undefined || props.maxHeight !== undefined);
+    const locationRatio = computed(() => normalizeLocationRatio(props.location));
+    const preparedText = computed(() => prepareText(props.text));
+    const nativeTextOverflow = computed(() =>
+      canUseNativeClamp(
+        expanded.value,
+        lineLimit.value,
+        props.maxHeight,
+        locationRatio.value,
+        props.ellipsis,
+      ),
+    );
+
     let resizeObserver: ResizeObserver | null = null;
     let stopFonts = () => {};
 
@@ -280,33 +282,12 @@ export const LineClamp = defineComponent({
       }
     }
 
-    function currentPreparedText(): PreparedText {
-      if (preparedText.text !== props.text) {
-        preparedText = prepareText(props.text);
-      }
-
-      return preparedText;
-    }
-
     function resetClamp(): void {
       commitClamp(props.text, false);
     }
 
     function recompute(): void {
-      const hasLimit = props.maxLines !== undefined || props.maxHeight !== undefined;
-      const locationRatio = normalizeLocationRatio(props.location);
-      const nextNativeTextOverflow = canUseNativeClamp(
-        expanded.value,
-        props.maxLines,
-        props.maxHeight,
-        locationRatio,
-        props.ellipsis,
-      );
-      if (nativeTextOverflow.value !== nextNativeTextOverflow) {
-        nativeTextOverflow.value = nextNativeTextOverflow;
-      }
-
-      if (expanded.value || props.text.length === 0 || !hasLimit) {
+      if (expanded.value || props.text.length === 0 || !hasLimit.value) {
         resetClamp();
         return;
       }
@@ -320,21 +301,21 @@ export const LineClamp = defineComponent({
         return;
       }
 
-      if (nextNativeTextOverflow) {
+      if (nativeTextOverflow.value) {
         const nextClamped = isNativeClamped(textElement);
         commitClamp(props.text, nextClamped ?? false);
         return;
       }
 
-      const source = currentPreparedText();
+      const source = preparedText.value;
       const nextText = clampText(
         source,
         rootElement,
         contentElement,
         textElement,
-        locationRatio,
+        locationRatio.value,
         props.ellipsis,
-        props.maxLines,
+        lineLimit.value,
         props.maxHeight,
       );
 
@@ -386,10 +367,6 @@ export const LineClamp = defineComponent({
     );
 
     watchPostEffect((onCleanup) => {
-      if (typeof ResizeObserver === "undefined") {
-        return;
-      }
-
       resizeObserver ??= new ResizeObserver(() => {
         recompute();
       });
@@ -429,9 +406,9 @@ export const LineClamp = defineComponent({
       }
 
       void fontFaceSet.ready.then(handleFontLoad);
-      fontFaceSet.addEventListener?.("loadingdone", handleFontLoad);
+      fontFaceSet.addEventListener("loadingdone", handleFontLoad);
       stopFonts = () => {
-        fontFaceSet.removeEventListener?.("loadingdone", handleFontLoad);
+        fontFaceSet.removeEventListener("loadingdone", handleFontLoad);
       };
     });
 
@@ -453,7 +430,6 @@ export const LineClamp = defineComponent({
     } satisfies LineClampExposed);
 
     return () => {
-      const hasLimit = props.maxLines !== undefined || props.maxHeight !== undefined;
       let collapsedMaxHeight: string | number | undefined;
 
       if (!expanded.value && props.maxHeight !== undefined) {
@@ -470,8 +446,11 @@ export const LineClamp = defineComponent({
       };
       const beforeSlot = slots.before?.(slotProps);
       const afterSlot = slots.after?.(slotProps);
+      const hasBeforeSlot = hasSlotContent(beforeSlot);
+      const hasAfterSlot = hasSlotContent(afterSlot);
+      const nativeOverflow = nativeTextOverflow.value;
       const renderedText =
-        nativeTextOverflow.value || expanded.value || visibleText.value.length === 0 || !hasLimit
+        nativeOverflow || expanded.value || visibleText.value.length === 0 || !hasLimit.value
           ? props.text
           : visibleText.value;
 
@@ -480,6 +459,7 @@ export const LineClamp = defineComponent({
       return h(
         props.as,
         mergeProps(attrs, {
+          "data-part": "root",
           ref: rootRef,
           style: {
             maxHeight: collapsedMaxHeight,
@@ -489,16 +469,18 @@ export const LineClamp = defineComponent({
         h(
           "span",
           {
+            "data-part": "content",
             ref: contentRef,
-            style: nativeTextOverflow.value ? nativeContentStyle : undefined,
+            style: nativeOverflow ? nativeContentStyle : undefined,
           },
           [
-            beforeSlot
+            hasBeforeSlot
               ? h(
                   "span",
                   {
+                    "data-part": "before",
                     ref: beforeRef,
-                    style: nativeTextOverflow.value ? nativeSlotStyle : slotStyle,
+                    style: nativeOverflow ? nativeSlotStyle : slotStyle,
                   },
                   beforeSlot,
                 )
@@ -506,9 +488,8 @@ export const LineClamp = defineComponent({
             h(
               "span",
               {
-                style: nativeTextOverflow.value
-                  ? nativeTextContainerStyle
-                  : { position: "relative" },
+                "data-part": "body",
+                style: nativeOverflow ? nativeTextContainerStyle : { position: "relative" },
               },
               [
                 needsAccessibleSourceText
@@ -525,10 +506,10 @@ export const LineClamp = defineComponent({
                   {
                     ref: textRef,
                     "aria-hidden": needsAccessibleSourceText ? "true" : undefined,
-                    style: nativeTextOverflow.value
+                    style: nativeOverflow
                       ? {
                           ...nativeTextStyle,
-                          textOverflow: nativeTextOverflow.value,
+                          textOverflow: nativeOverflow,
                         }
                       : undefined,
                   },
@@ -536,12 +517,13 @@ export const LineClamp = defineComponent({
                 ),
               ],
             ),
-            afterSlot
+            hasAfterSlot
               ? h(
                   "span",
                   {
+                    "data-part": "after",
                     ref: afterRef,
-                    style: nativeTextOverflow.value ? nativeSlotStyle : slotStyle,
+                    style: nativeOverflow ? nativeSlotStyle : slotStyle,
                   },
                   afterSlot,
                 )

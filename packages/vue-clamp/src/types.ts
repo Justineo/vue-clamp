@@ -40,6 +40,41 @@ export interface InlineClampProps {
   split?: InlineClampSplit;
 }
 
+export type WrapClampItemKey<T = unknown> = string | ((item: T, index: number) => string | number);
+
+export interface WrapClampItemSlotProps<T = unknown> {
+  item: T;
+  index: number;
+}
+
+export interface WrapClampSlotProps<T = unknown> {
+  expand: () => void;
+  collapse: () => void;
+  toggle: () => void;
+  clamped: boolean;
+  expanded: boolean;
+  visibleCount: number;
+  hiddenCount: number;
+  hiddenItems: readonly T[];
+}
+
+export interface WrapClampExposed {
+  expand: () => void;
+  collapse: () => void;
+  toggle: () => void;
+  readonly clamped: boolean;
+  readonly expanded: boolean;
+}
+
+export interface WrapClampProps<T = unknown> {
+  as?: string;
+  items: readonly T[];
+  itemKey?: WrapClampItemKey<T>;
+  maxLines?: number;
+  maxHeight?: number | string;
+  expanded?: boolean;
+}
+
 export type ClampLocation = LineClampLocation;
 export type ClampSlotProps = LineClampSlotProps;
 export type ClampExposed = LineClampExposed;

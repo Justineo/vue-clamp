@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vite-plus/test";
-import { createApp, defineComponent, h, ref } from "vue";
+import { Comment, createApp, defineComponent, h, ref } from "vue";
 import { LineClamp } from "../src/index.ts";
 import {
   accessibleTextElement,
@@ -50,7 +50,11 @@ describe("LineClamp browser contract", () => {
 
     await settle();
 
-    expect(rootElement(mounted.container).tagName).toBe("ARTICLE");
+    const root = rootElement(mounted.container);
+    expect(root.tagName).toBe("ARTICLE");
+    expect(root.getAttribute("data-part")).toBe("root");
+    expect(root.querySelector('[data-part="content"]')).toBeInstanceOf(HTMLElement);
+    expect(root.querySelector('[data-part="body"]')).toBeInstanceOf(HTMLElement);
   });
 
   it("emits update:expanded when the exposed toggle is called", async () => {
@@ -82,8 +86,24 @@ describe("LineClamp browser contract", () => {
     await settle();
 
     const root = rootElement(mounted.container);
+    expect(beforeElement(root)?.getAttribute("data-part")).toBe("before");
+    expect(afterElement(root)?.getAttribute("data-part")).toBe("after");
     expect(beforeElement(root)?.textContent).toBe("Before");
     expect(afterElement(root)?.textContent).toBe("After");
+  });
+
+  it("does not render before and after wrappers for empty slot output", async () => {
+    const mounted = mountClamp({
+      text: "abcdefghijklmno",
+      before: () => [],
+      after: () => h(Comment),
+    });
+
+    await settle();
+
+    const root = rootElement(mounted.container);
+    expect(beforeElement(root)).toBeNull();
+    expect(afterElement(root)).toBeNull();
   });
 
   it("clamps within the requested line limit when font metrics are inherited from the parent context", async () => {

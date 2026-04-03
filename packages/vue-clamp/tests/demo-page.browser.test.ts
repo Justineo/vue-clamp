@@ -157,6 +157,45 @@ function inlineRow(scope: ParentNode, mode: "plain" | "split"): HTMLElement {
   return row;
 }
 
+function wrapDemoBlock(container: HTMLElement): HTMLElement {
+  const block = container.querySelector('[data-demo="wrap"]');
+  if (!(block instanceof HTMLElement)) {
+    throw new Error("Expected the wrap demo block.");
+  }
+
+  return block;
+}
+
+function wrapExampleBlocks(container: HTMLElement): HTMLElement[] {
+  return Array.from(wrapDemoBlock(container).querySelectorAll("[data-wrap-example]")).filter(
+    (block): block is HTMLElement => block instanceof HTMLElement,
+  );
+}
+
+function wrapExampleBlock(container: HTMLElement, example: string): HTMLElement {
+  const block = wrapDemoBlock(container).querySelector(`[data-wrap-example="${example}"]`);
+  if (!(block instanceof HTMLElement)) {
+    throw new Error(`Expected the ${example} wrap example block.`);
+  }
+
+  return block;
+}
+
+function wrapVisibleTabs(block: HTMLElement): string[] {
+  return Array.from(block.querySelectorAll(".wrap-tab"))
+    .map((tab) => tab.textContent?.trim())
+    .filter((label): label is string => Boolean(label));
+}
+
+function rangeInput(scope: ParentNode): HTMLInputElement {
+  const input = scope.querySelector(".control-range");
+  if (!(input instanceof HTMLInputElement)) {
+    throw new Error("Expected a range input.");
+  }
+
+  return input;
+}
+
 function copyButton(container: ParentNode, blockId: string): HTMLButtonElement {
   const button = container.querySelector(`[data-copy-button="${blockId}"]`);
   if (!(button instanceof HTMLButtonElement)) {
@@ -166,7 +205,10 @@ function copyButton(container: ParentNode, blockId: string): HTMLButtonElement {
   return button;
 }
 
-function surfaceTab(container: HTMLElement, surface: "line" | "inline"): HTMLButtonElement {
+function surfaceTab(
+  container: HTMLElement,
+  surface: "line" | "inline" | "wrap",
+): HTMLButtonElement {
   const button = container.querySelector(`[data-surface-tab="${surface}"]`);
   if (!(button instanceof HTMLButtonElement)) {
     throw new Error(`Expected the ${surface} surface tab.`);
@@ -175,7 +217,7 @@ function surfaceTab(container: HTMLElement, surface: "line" | "inline"): HTMLBut
   return button;
 }
 
-function surfaceTooltip(container: HTMLElement, surface: "line" | "inline"): HTMLElement {
+function surfaceTooltip(container: HTMLElement, surface: "line" | "inline" | "wrap"): HTMLElement {
   const tooltip = container.querySelector(`[data-surface-tooltip="${surface}"]`);
   if (!(tooltip instanceof HTMLElement)) {
     throw new Error(`Expected the ${surface} surface tooltip.`);
@@ -239,7 +281,10 @@ async function clickLocationPreset(container: HTMLElement, preset: string): Prom
   await settle(4);
 }
 
-async function selectSurface(container: HTMLElement, surface: "line" | "inline"): Promise<void> {
+async function selectSurface(
+  container: HTMLElement,
+  surface: "line" | "inline" | "wrap",
+): Promise<void> {
   surfaceTab(container, surface).click();
   await settle(4);
 }
@@ -427,7 +472,7 @@ describe("Website demo page", () => {
     expect(await sampleVisibleLineCounts(clampRoot)).toEqual([5, 5, 5]);
   });
 
-  it("shows InlineClamp plain vs split behavior across stacked examples", async () => {
+  it("switches between the documented component surfaces and shows their demos", async () => {
     const { default: App } = await import("../../website/src/App.vue");
     const mountedPage = mountPage(App);
 
@@ -439,11 +484,15 @@ describe("Website demo page", () => {
     ).toBeNull();
     expect(surfaceTab(mountedPage.container, "line").getAttribute("aria-pressed")).toBe("true");
     expect(surfaceTab(mountedPage.container, "inline").getAttribute("aria-pressed")).toBe("false");
+    expect(surfaceTab(mountedPage.container, "wrap").getAttribute("aria-pressed")).toBe("false");
     expect(surfaceTooltip(mountedPage.container, "line").textContent).toBe(
-      "Multiline browser-fit clamp with slots, expansion, and ratio-based ellipsis.",
+      "Multiline browser-fit clamp for previews, cards, and expandable copy.",
     );
     expect(surfaceTooltip(mountedPage.container, "inline").textContent).toBe(
-      "Native single-line clamp with optional split(text) semantics for fixed edges.",
+      "Native single-line clamp for filenames, paths, and email addresses.",
+    );
+    expect(surfaceTooltip(mountedPage.container, "wrap").textContent).toBe(
+      "Wrapped atomic-item clamp for labels, filters, and selected-value lists.",
     );
     expect(surfaceTab(mountedPage.container, "line").getAttribute("aria-describedby")).toBe(
       "component-tab-tooltip-line",
@@ -451,12 +500,16 @@ describe("Website demo page", () => {
     expect(surfaceTab(mountedPage.container, "inline").getAttribute("aria-describedby")).toBe(
       "component-tab-tooltip-inline",
     );
+    expect(surfaceTab(mountedPage.container, "wrap").getAttribute("aria-describedby")).toBe(
+      "component-tab-tooltip-wrap",
+    );
 
     await selectSurface(mountedPage.container, "inline");
     await setInlineWidth(mountedPage.container, 220);
 
     expect(surfaceTab(mountedPage.container, "line").getAttribute("aria-pressed")).toBe("false");
     expect(surfaceTab(mountedPage.container, "inline").getAttribute("aria-pressed")).toBe("true");
+    expect(surfaceTab(mountedPage.container, "wrap").getAttribute("aria-pressed")).toBe("false");
     expect(mountedPage.container.querySelector('[data-demo="location"]')).toBeNull();
 
     expect(
@@ -466,11 +519,11 @@ describe("Website demo page", () => {
     const fileListBlock = inlineExampleBlock(mountedPage.container, "file-list");
     const plainFileListRow = inlineRow(fileListBlock, "plain");
     const splitFileListRow = inlineRow(fileListBlock, "split");
-    const splitFileListBody = splitFileListRow.querySelector("[data-inline-body]");
-    const splitFileListEnd = splitFileListRow.querySelector("[data-inline-end]");
+    const splitFileListBody = splitFileListRow.querySelector('[data-part="body"]');
+    const splitFileListEnd = splitFileListRow.querySelector('[data-part="end"]');
     const splitFileListClamp = splitFileListRow.querySelector(".demo-inline");
 
-    expect(plainFileListRow.querySelector("[data-inline-end]")).toBeNull();
+    expect(plainFileListRow.querySelector('[data-part="end"]')).toBeNull();
     expect(splitFileListEnd?.textContent).toBe(".jpeg");
     expect(splitFileListClamp?.textContent).toBe("summer-campaign-panorama-final.jpeg");
     if (!(splitFileListBody instanceof HTMLElement)) {
@@ -479,23 +532,121 @@ describe("Website demo page", () => {
     expect(splitFileListBody.scrollWidth).toBeGreaterThan(splitFileListBody.clientWidth);
 
     const splitEmailRow = inlineRow(inlineExampleBlock(mountedPage.container, "email"), "split");
-    expect(splitEmailRow.querySelector("[data-inline-end]")?.textContent).toBe("@acme.dev");
+    expect(splitEmailRow.querySelector('[data-part="end"]')?.textContent).toBe("@acme.dev");
 
     const splitPathRow = inlineRow(inlineExampleBlock(mountedPage.container, "path"), "split");
-    expect(splitPathRow.querySelector("[data-inline-start]")?.textContent).toBe("~/screenshots/");
-    expect(splitPathRow.querySelector("[data-inline-end]")?.textContent).toBe(".png");
+    expect(splitPathRow.querySelector('[data-part="start"]')?.textContent).toBe("~/screenshots/");
+    expect(splitPathRow.querySelector('[data-part="end"]')?.textContent).toBe(".png");
 
     await selectSurface(mountedPage.container, "line");
 
     expect(surfaceTab(mountedPage.container, "line").getAttribute("aria-pressed")).toBe("true");
     expect(surfaceTab(mountedPage.container, "inline").getAttribute("aria-pressed")).toBe("false");
+    expect(surfaceTab(mountedPage.container, "wrap").getAttribute("aria-pressed")).toBe("false");
     expect(referencePanelNames(mountedPage.container)).toEqual(["demo", "example", "api"]);
     expect(mountedPage.container.querySelector('[data-demo="location"]')).toBeInstanceOf(
       HTMLElement,
     );
+
+    await selectSurface(mountedPage.container, "wrap");
+    await setRangeValue(rangeInput(wrapExampleBlock(mountedPage.container, "tabs")), 280);
+
+    expect(surfaceTab(mountedPage.container, "line").getAttribute("aria-pressed")).toBe("false");
+    expect(surfaceTab(mountedPage.container, "inline").getAttribute("aria-pressed")).toBe("false");
+    expect(surfaceTab(mountedPage.container, "wrap").getAttribute("aria-pressed")).toBe("true");
+    expect(referencePanelNames(mountedPage.container)).toEqual(["demo", "example", "api"]);
+    expect(mountedPage.container.querySelector('[data-demo="inline"]')).toBeNull();
+    expect(
+      wrapExampleBlocks(mountedPage.container).map((block) => block.dataset.wrapExample),
+    ).toEqual(["tabs", "invitees", "table"]);
+
+    const tabsTrigger = wrapExampleBlock(mountedPage.container, "tabs").querySelector(
+      "[data-wrap-tabs-trigger]",
+    );
+    if (!(tabsTrigger instanceof HTMLButtonElement)) {
+      throw new Error("Expected the tabs overflow trigger.");
+    }
+    expect(tabsTrigger.getAttribute("aria-label")).toContain("hidden tabs");
+    const tabsBlock = wrapExampleBlock(mountedPage.container, "tabs");
+    const visibleLabelsBefore = wrapVisibleTabs(tabsBlock);
+    expect(visibleLabelsBefore.length).toBeGreaterThan(0);
+    expect(visibleLabelsBefore.length).toBeLessThan(7);
+    tabsTrigger.click();
+    await settle(4);
+    const tabsMenu = mountedPage.container.ownerDocument.querySelector("[data-wrap-tabs-menu]");
+    if (!(tabsMenu instanceof HTMLElement)) {
+      throw new Error("Expected the tabs overflow menu.");
+    }
+    const firstHiddenTab = tabsMenu.querySelector(".wrap-tabs-menu-item");
+    if (!(firstHiddenTab instanceof HTMLElement)) {
+      throw new Error("Expected at least one hidden tab option.");
+    }
+    const selectedHiddenLabel = firstHiddenTab.textContent?.trim() ?? "";
+    firstHiddenTab.click();
+    await settle(4);
+    expect(mountedPage.container.ownerDocument.querySelector("[data-wrap-tabs-menu]")).toBeNull();
+    const visibleLabelsAfter = wrapVisibleTabs(tabsBlock);
+    expect(visibleLabelsAfter).toEqual(visibleLabelsBefore);
+
+    tabsTrigger.click();
+    await settle(4);
+    const reopenedTabsMenu =
+      mountedPage.container.ownerDocument.querySelector("[data-wrap-tabs-menu]");
+    if (!(reopenedTabsMenu instanceof HTMLElement)) {
+      throw new Error("Expected the reopened tabs overflow menu.");
+    }
+    expect(
+      Array.from(reopenedTabsMenu.querySelectorAll(".wrap-tabs-menu-item.active")).some(
+        (item) => item.textContent?.trim() === selectedHiddenLabel,
+      ),
+    ).toBe(true);
+    const tabsVerboseToggle = checkboxInBlock(tabsBlock, "Verbose labels");
+    expect(tabsVerboseToggle.checked).toBe(false);
+    tabsVerboseToggle.click();
+    await settle(4);
+    expect(tabsBlock.textContent).toContain("Workspace overview");
+    expect(tabsVerboseToggle.checked).toBe(true);
+
+    const tabsRtlToggle = checkboxInBlock(tabsBlock, "RTL");
+    expect(tabsRtlToggle.checked).toBe(false);
+    tabsRtlToggle.click();
+    await settle(4);
+    const tabsTriggerAfterRtl = tabsBlock.querySelector("[data-wrap-tabs-trigger]");
+    if (!(tabsTriggerAfterRtl instanceof HTMLButtonElement)) {
+      throw new Error("Expected the tabs overflow trigger after RTL toggle.");
+    }
+    expect(tabsTriggerAfterRtl.getAttribute("aria-label")).toBe("إظهار التبويبات المخفية");
+    expect(tabsBlock.textContent).toContain("نظرة عامة على مساحة العمل");
+    expect(tabsRtlToggle.checked).toBe(true);
+
+    const inviteesBlock = wrapExampleBlock(mountedPage.container, "invitees");
+    const inviteesToggle = inviteesBlock.querySelector("[data-wrap-toggle]");
+    if (!(inviteesToggle instanceof HTMLButtonElement)) {
+      throw new Error("Expected the invitees wrap toggle.");
+    }
+    expect(inviteesToggle.textContent?.trim()).toBe("More");
+    inviteesToggle.click();
+    await settle(4);
+    expect(inviteesToggle.textContent?.trim()).toBe("Less");
+
+    const inviteesRtlToggle = checkboxInBlock(inviteesBlock, "RTL");
+    expect(inviteesRtlToggle.checked).toBe(false);
+    inviteesRtlToggle.click();
+    await settle(4);
+    expect(inviteesBlock.textContent).toContain("المراجعون");
+    expect(inviteesBlock.textContent).toContain("مايا تشن");
+    expect(inviteesToggle.textContent?.trim()).toBe("أقل");
+    expect(inviteesRtlToggle.checked).toBe(true);
+
+    const tableBlock = wrapExampleBlock(mountedPage.container, "table");
+    const stressTable = tableBlock.querySelector("[data-wrap-stress-table]");
+    if (!(stressTable instanceof HTMLTableElement)) {
+      throw new Error("Expected the WrapClamp stress table.");
+    }
+    expect(stressTable.tBodies[0]?.rows.length).toBe(200);
   });
 
-  it("surfaces practical API notes for both components", async () => {
+  it("surfaces practical API notes for all components", async () => {
     const { default: App } = await import("../../website/src/App.vue");
     const mountedPage = mountPage(App);
 
@@ -523,6 +674,18 @@ describe("Website demo page", () => {
     );
     expect(inlineNotes.textContent).toContain("split(text)");
     expect(inlineNotes.textContent).toContain("one-line");
+
+    await selectSurface(mountedPage.container, "wrap");
+
+    const wrapNotes = referenceShell(mountedPage.container).querySelector(
+      '[data-api-notes="wrap"]',
+    );
+    if (!(wrapNotes instanceof HTMLElement)) {
+      throw new Error("Expected the WrapClamp API notes.");
+    }
+    expect(wrapNotes.textContent).toContain("preserves whole rendered items");
+    expect(wrapNotes.textContent).toContain("after");
+    expect(wrapNotes.textContent).toContain("hidden-item metadata");
   });
 
   it("copies installation and example code from the website code blocks", async () => {
@@ -578,5 +741,15 @@ describe("Website demo page", () => {
     expect(clipboardWrites[3]).toContain("import { InlineClamp } from 'vue-clamp'");
     expect(clipboardWrites[3]).toContain("splitImageFile");
     expect(inlineExampleButton.getAttribute("data-copy-state")).toBe("copied");
+
+    await selectSurface(mountedPage.container, "wrap");
+
+    const wrapExampleButton = copyButton(mountedPage.container, "wrap-example");
+    wrapExampleButton.click();
+    await settle(2);
+
+    expect(clipboardWrites[4]).toContain("import { WrapClamp } from 'vue-clamp'");
+    expect(clipboardWrites[4]).toContain("hiddenCount");
+    expect(wrapExampleButton.getAttribute("data-copy-state")).toBe("copied");
   });
 });

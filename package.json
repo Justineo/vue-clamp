@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "benchmark:wrap": "vp test -c vite.browser.benchmark.config.ts",
     "build": "vp run build -r",
     "check": "vp check",
     "test": "vp test",

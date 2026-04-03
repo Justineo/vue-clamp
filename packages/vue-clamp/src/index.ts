@@ -1,5 +1,6 @@
-export { Clamp, LineClamp } from "./component.ts";
-export { InlineClamp } from "./inline.ts";
+export { Clamp, LineClamp } from "./LineClamp.ts";
+export { InlineClamp } from "./InlineClamp.ts";
+export { WrapClamp } from "./WrapClamp.ts";
 
 export type {
   ClampExposed,
@@ -13,4 +14,9 @@ export type {
   LineClampLocation,
   LineClampProps,
   LineClampSlotProps,
+  WrapClampExposed,
+  WrapClampItemKey,
+  WrapClampItemSlotProps,
+  WrapClampProps,
+  WrapClampSlotProps,
 } from "./types.ts";
