@@ -236,6 +236,15 @@ function heroTagline(container: HTMLElement): HTMLElement {
   return element;
 }
 
+function heroTaglinePart(container: HTMLElement, part: "body" | "end"): HTMLElement {
+  const element = container.querySelector(`.hero-tagline [data-part="${part}"]`);
+  if (!(element instanceof HTMLElement)) {
+    throw new Error(`Expected the hero tagline ${part} segment.`);
+  }
+
+  return element;
+}
+
 async function waitFrames(count: number): Promise<void> {
   for (let index = 0; index < count; index += 1) {
     await frame();
@@ -269,6 +278,37 @@ async function waitForHeroTaglineShrink(
   }
 
   return maxDelta;
+}
+
+async function maxHeroTaglineSuffixOverflow(container: HTMLElement): Promise<{
+  maxOverflow: number;
+  sawCollapsed: boolean;
+}> {
+  let maxOverflow = Number.NEGATIVE_INFINITY;
+  let sawCollapsed = false;
+
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    await waitTime(250);
+    await waitFrames(2);
+
+    const tagline = heroTagline(container);
+    const body = heroTaglinePart(container, "body");
+    const end = heroTaglinePart(container, "end");
+
+    if (body.scrollWidth <= body.clientWidth) {
+      continue;
+    }
+
+    sawCollapsed = true;
+    const taglineRect = tagline.getBoundingClientRect();
+    const endRect = end.getBoundingClientRect();
+    maxOverflow = Math.max(maxOverflow, endRect.right - taglineRect.right);
+  }
+
+  return {
+    maxOverflow,
+    sawCollapsed,
+  };
 }
 
 function referenceShell(container: HTMLElement): HTMLElement {
@@ -738,6 +778,10 @@ describe("Website demo page", () => {
     const tagline = heroTagline(mountedPage.container);
     const delta = await waitForHeroTaglineShrink(tagline, 8);
     expect(delta).toBeGreaterThan(8);
+
+    const suffixOverflow = await maxHeroTaglineSuffixOverflow(mountedPage.container);
+    expect(suffixOverflow.sawCollapsed).toBe(true);
+    expect(suffixOverflow.maxOverflow).toBeLessThanOrEqual(0.5);
   });
 
   it("copies installation and example code from the website code blocks", async () => {

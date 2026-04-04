@@ -425,6 +425,17 @@ function measureWidth(selector: string): number | null {
   return element instanceof HTMLElement ? element.getBoundingClientRect().width : null;
 }
 
+function measureMinWidth(selector: string): number | null {
+  const element = heroTaglineMeasureRef.value?.querySelector(selector);
+
+  if (!(element instanceof HTMLElement)) {
+    return null;
+  }
+
+  const minWidth = Number.parseFloat(getComputedStyle(element).minWidth);
+  return Number.isFinite(minWidth) ? minWidth : null;
+}
+
 function measureHeroTaglineWidths(): void {
   const measuredExpandedWidths = createHeroTaglineWidthMap();
 
@@ -436,9 +447,11 @@ function measureHeroTaglineWidths(): void {
   const startWidth = measureWidth('[data-measure-part="start"]') ?? 0;
   const endWidth = measureWidth('[data-measure-part="end"]') ?? 0;
   const ellipsisWidth = measureWidth('[data-measure-part="ellipsis"]') ?? 0;
+  const bodyMinWidth = measureMinWidth('.hero-tagline-measure-item [data-part="body"]') ?? 0;
+  const collapsedBodyWidth = Math.max(ellipsisWidth, bodyMinWidth);
 
   heroTaglineExpandedWidths.value = measuredExpandedWidths;
-  heroTaglineCollapsedWidth.value = Math.ceil(startWidth + endWidth + ellipsisWidth + 2);
+  heroTaglineCollapsedWidth.value = Math.ceil(startWidth + endWidth + collapsedBodyWidth);
   heroTaglineMeasured.value = true;
 }
 
