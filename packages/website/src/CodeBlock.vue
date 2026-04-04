@@ -189,7 +189,7 @@ onBeforeUnmount(() => {
 .code-block {
   margin: 0;
   padding: 14px 16px;
-  font-size: 0.9rem;
+  font-size: 0.84rem;
   font-family: var(--font-mono);
   line-height: 1.65;
   background: var(--c-bg-soft);
@@ -202,7 +202,7 @@ onBeforeUnmount(() => {
 .shiki-wrap :deep(pre.shiki) {
   margin: 0;
   padding: 14px 16px;
-  font-size: 0.9rem;
+  font-size: 0.84rem;
   font-family: var(--font-mono);
   line-height: 1.65;
   background: var(--c-bg-soft) !important;

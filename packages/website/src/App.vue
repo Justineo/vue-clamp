@@ -1458,30 +1458,11 @@ const highlightedWrapCode = computed(() => {
                       </div>
                     </div>
                     <div class="api-entry-copy">
-                      <p>Ordered source items. Each item stays whole.</p>
-                      <dl class="api-detail-list">
-                        <div class="api-detail-item">
-                          <dt class="api-detail-term"><code>T</code></dt>
-                          <dd class="api-detail-desc">
-                            Your item shape, inferred from <code>items</code>. There is no built-in
-                            schema.
-                          </dd>
-                        </div>
-                        <div class="api-detail-item">
-                          <dt class="api-detail-term">Example</dt>
-                          <dd class="api-detail-desc">
-                            If <code>items</code> is
-                            <code>Array&lt;{ id: string; label: string }&gt;</code>, then
-                            <code>T</code> is <code>{ id: string; label: string }</code>.
-                          </dd>
-                        </div>
-                        <div class="api-detail-item">
-                          <dt class="api-detail-term">Used by</dt>
-                          <dd class="api-detail-desc">
-                            <code>item: T</code> and <code>hiddenItems: readonly T[]</code>.
-                          </dd>
-                        </div>
-                      </dl>
+                      <p>
+                        Ordered source items. Each item stays whole. <code>T</code> is inferred from
+                        <code>items</code>, so slot props like <code>item</code> and
+                        <code>hiddenItems</code> use the same shape.
+                      </p>
                     </div>
                   </div>
                   <div class="api-entry">
@@ -2678,11 +2659,7 @@ pre code {
 
 .api-detail-term {
   margin: 0;
-  display: inline-flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
+  display: block;
   font-family: inherit;
   font-size: 0.68rem;
   font-weight: 600;
@@ -2741,12 +2718,6 @@ pre code {
 }
 
 @media (min-width: 640px) {
-  .api-detail-item {
-    grid-template-columns: minmax(0, 110px) minmax(0, 1fr);
-    column-gap: 14px;
-    align-items: start;
-  }
-
   .api-entry {
     grid-template-columns: minmax(0, 176px) minmax(0, 1fr);
     column-gap: 18px;
