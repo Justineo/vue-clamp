@@ -1,16 +1,14 @@
 import { describe, expect, it } from "vite-plus/test";
-import { Clamp, InlineClamp, LineClamp, WrapClamp } from "../src/index.ts";
+import * as exports from "../src/index.ts";
 
 describe("Public exports", () => {
-  it("keeps Clamp as a compatibility alias of LineClamp", () => {
-    expect(Clamp).toBe(LineClamp);
+  it("exports the documented root components", () => {
+    expect(exports.LineClamp.name).toBe("LineClamp");
+    expect(exports.InlineClamp.name).toBe("InlineClamp");
+    expect(exports.WrapClamp.name).toBe("WrapClamp");
   });
 
-  it("re-exports InlineClamp from the root entry", () => {
-    expect(InlineClamp.name).toBe("InlineClamp");
-  });
-
-  it("re-exports WrapClamp from the root entry", () => {
-    expect(WrapClamp.name).toBe("WrapClamp");
+  it("does not expose the old Clamp alias", () => {
+    expect("Clamp" in exports).toBe(false);
   });
 });

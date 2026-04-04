@@ -534,5 +534,3 @@ export const LineClamp = defineComponent({
     };
   },
 });
-
-export const Clamp = LineClamp;

@@ -9,14 +9,15 @@ First stable release of `vue-clamp` for Vue 3.
 ### Breaking changes
 
 - Vue 3 is now required. The `0.x` line targeted Vue 2.
-- The package no longer has a default export. Import named exports such as `LineClamp`, `InlineClamp`,
-  `WrapClamp`, or `Clamp`.
+- The package no longer has a default export. Import named exports such as `LineClamp`,
+  `InlineClamp`, or `WrapClamp`.
 - The multiline component now takes its source text from the `text` prop. The default slot is no
   longer the clamped text source.
 - The root tag prop was renamed from `tag` to `as`.
 - `autoresize` was removed.
 - Expansion now uses Vue 3 `v-model:expanded` instead of the Vue 2 `.sync` pattern.
 - If you style component internals, switch to the documented `data-part` hooks.
+- The old `Clamp` alias was removed. Use `LineClamp`.
 
 ### New in 1.0
 
@@ -24,7 +25,6 @@ First stable release of `vue-clamp` for Vue 3.
 - `WrapClamp` for wrapped atomic items such as tags, chips, and selections.
 - Built-in TypeScript types for props, slots, emits, and exposed methods.
 - Numeric `location` ratios for `LineClamp`, in addition to `start`, `middle`, and `end`.
-- `Clamp` remains available as a compatibility alias of `LineClamp`.
 
 ### Migration
 

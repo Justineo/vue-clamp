@@ -72,8 +72,3 @@ export interface WrapClampProps<T = unknown> {
   maxHeight?: number | string;
   expanded?: boolean;
 }
-
-export type ClampLocation = LineClampLocation;
-export type ClampSlotProps = LineClampSlotProps;
-export type ClampExposed = LineClampExposed;
-export type ClampProps = LineClampProps;

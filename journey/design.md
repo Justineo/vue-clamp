@@ -34,7 +34,6 @@
   - `LineClamp` as the canonical multiline component name
   - `InlineClamp` as the canonical single-line native component name
   - `WrapClamp` as the canonical wrapped-item component name
-  - `Clamp` as a compatibility alias of `LineClamp`
 - There is no default export.
 - Public declaration types live in `packages/vue-clamp/src/types.ts`.
 - `LineClamp` keeps the existing `text`-based multiline clamp API.

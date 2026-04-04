@@ -65,13 +65,6 @@ const text = "Some very very long text content.";
 </template>
 ```
 
-If you want to keep the old component name closer to the `0.x` API, you can import the multiline
-component as `Clamp`:
-
-```ts
-import { Clamp } from "vue-clamp";
-```
-
 ## Breaking Changes
 
 ### Vue 3 Only
@@ -85,7 +78,6 @@ import { Clamp } from "vue-clamp";
 - `LineClamp`
 - `InlineClamp`
 - `WrapClamp`
-- `Clamp` as an alias of `LineClamp`
 
 ### Text Source Moves To `text`
 
