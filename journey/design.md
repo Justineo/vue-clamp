@@ -187,6 +187,10 @@
 ## Repo Standards
 
 - Use Vite+ commands only.
+- The website hero should lead with real use cases instead of component taxonomy. The animated line
+  now rotates through a randomized but category-balanced set of concrete nouns from the multiline,
+  inline, and wrapped-item surfaces, while the API names remain `LineClamp`, `InlineClamp`, and
+  `WrapClamp`.
 - GitHub automation now follows a two-lane publish model:
   - `.github/workflows/ci.yml` remains the validation workflow and also publishes preview builds for
     `packages/vue-clamp` with `pkg-pr-new`.

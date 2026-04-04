@@ -120,11 +120,65 @@ const surfaceOptions = [
   },
 ] as const;
 
-const heroTaglineWords = ["inline", "line", "wrap"] as const;
-type HeroTaglineWord = (typeof heroTaglineWords)[number];
+const heroTaglineWordCatalog = {
+  line: ["messages", "excerpts", "summaries"],
+  inline: ["filenames", "emails", "paths"],
+  wrap: ["tags", "filters", "chips"],
+} as const;
+type HeroTaglineCategory = keyof typeof heroTaglineWordCatalog;
+type HeroTaglineWord = (typeof heroTaglineWordCatalog)[HeroTaglineCategory][number];
 
-const heroTaglineTextStart = "The only";
-const heroTaglineTextEnd = "clamp you need for Vue.";
+function shuffleItems<T>(items: readonly T[]): T[] {
+  const shuffled = [...items];
+
+  for (let index = shuffled.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.floor(Math.random() * (index + 1));
+    const current = shuffled[index];
+    shuffled[index] = shuffled[swapIndex]!;
+    shuffled[swapIndex] = current!;
+  }
+
+  return shuffled;
+}
+
+function createHeroTaglineWidthMap(): Record<HeroTaglineWord, number> {
+  return Object.fromEntries(
+    Object.values(heroTaglineWordCatalog)
+      .flat()
+      .map((word) => [word, 0]),
+  ) as Record<HeroTaglineWord, number>;
+}
+
+function createHeroTaglineWords(): HeroTaglineWord[] {
+  const categories = Object.keys(heroTaglineWordCatalog) as HeroTaglineCategory[];
+  const shuffledPools = Object.fromEntries(
+    categories.map((category) => [category, shuffleItems(heroTaglineWordCatalog[category])]),
+  ) as Record<HeroTaglineCategory, HeroTaglineWord[]>;
+
+  const rounds = Math.max(...categories.map((category) => shuffledPools[category].length));
+  const words: HeroTaglineWord[] = [];
+
+  for (let roundIndex = 0; roundIndex < rounds; roundIndex += 1) {
+    const roundCategories = shuffleItems(
+      categories.filter((category) => roundIndex < shuffledPools[category].length),
+    );
+
+    for (const category of roundCategories) {
+      const word = shuffledPools[category][roundIndex];
+      if (word) {
+        words.push(word);
+      }
+    }
+  }
+
+  return words;
+}
+
+const heroTaglineWords = createHeroTaglineWords();
+const defaultHeroTaglineWord = heroTaglineWords[0] ?? heroTaglineWordCatalog.line[0];
+
+const heroTaglineTextStart = "Clamping";
+const heroTaglineTextEnd = "in Vue.";
 const heroTaglineExpandedPadding = 8;
 const heroTaglineTiming = {
   collapsedHold: 380,
@@ -132,7 +186,7 @@ const heroTaglineTiming = {
   swapSettle: 220,
   transition: 1320,
 } as const;
-const heroTaglineWord = ref<HeroTaglineWord>("inline");
+const heroTaglineWord = ref<HeroTaglineWord>(defaultHeroTaglineWord);
 const heroTaglineWidth = ref<number | null>(null);
 const heroTaglineCollapsed = ref(false);
 const heroTaglineMeasured = ref(false);
@@ -140,11 +194,7 @@ const heroTaglinePaused = ref(false);
 const heroTaglineReducedMotion = ref(false);
 const heroTaglineShellRef = ref<HTMLElement | null>(null);
 const heroTaglineMeasureRef = ref<HTMLElement | null>(null);
-const heroTaglineExpandedWidths = ref<Record<HeroTaglineWord, number>>({
-  inline: 0,
-  line: 0,
-  wrap: 0,
-});
+const heroTaglineExpandedWidths = ref<Record<HeroTaglineWord, number>>(createHeroTaglineWidthMap());
 const heroTaglineCollapsedWidth = ref(0);
 
 let heroTaglineTimer: ReturnType<typeof window.setTimeout> | null = null;
@@ -376,7 +426,7 @@ function measureWidth(selector: string): number | null {
 }
 
 function measureHeroTaglineWidths(): void {
-  const measuredExpandedWidths = {} as Record<HeroTaglineWord, number>;
+  const measuredExpandedWidths = createHeroTaglineWidthMap();
 
   for (const word of heroTaglineWords) {
     measuredExpandedWidths[word] =
@@ -419,7 +469,7 @@ function animateHeroTagline(index: number): void {
     return;
   }
 
-  const word = heroTaglineWords.at(index % heroTaglineWords.length) ?? "line";
+  const word = heroTaglineWords.at(index % heroTaglineWords.length) ?? defaultHeroTaglineWord;
   setHeroTaglineWord(word);
 
   scheduleHeroTagline(heroTaglineTiming.expandedHold, () => {
@@ -434,7 +484,8 @@ function animateHeroTagline(index: number): void {
         return;
       }
 
-      const nextWord = heroTaglineWords.at((index + 1) % heroTaglineWords.length) ?? "line";
+      const nextWord =
+        heroTaglineWords.at((index + 1) % heroTaglineWords.length) ?? defaultHeroTaglineWord;
       scheduleHeroTagline(heroTaglineTiming.collapsedHold, () => {
         if (heroTaglineReducedMotion.value || heroTaglinePaused.value) {
           return;
@@ -506,7 +557,7 @@ function applyHeroTaglineMotionPreference(matches: boolean): void {
 
   if (matches) {
     clearHeroTaglineTimer();
-    setHeroTaglineWord("inline");
+    setHeroTaglineWord(defaultHeroTaglineWord);
     return;
   }
 
@@ -747,7 +798,10 @@ const highlightedWrapCode = computed(() => {
     <header class="hero">
       <div class="hero-copy">
         <h1 class="hero-title">&lt;vue-clamp&gt;</h1>
-        <p class="sr-only">Clamp lines, inline labels, and wrapped items in Vue.</p>
+        <p class="sr-only">
+          Clamping messages, excerpts, summaries, filenames, emails, paths, tags, filters, and chips
+          in Vue.
+        </p>
         <div
           ref="heroTaglineShellRef"
           class="hero-tagline-shell"
