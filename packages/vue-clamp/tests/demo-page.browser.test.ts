@@ -3,6 +3,7 @@ import { createApp } from "vue";
 import {
   accessibleTextElement,
   bestBrowserFitText,
+  frame,
   sampleVisibleLineCounts,
   settle,
   textElement,
@@ -224,6 +225,50 @@ function surfaceTooltip(container: HTMLElement, surface: "line" | "inline" | "wr
   }
 
   return tooltip;
+}
+
+function heroTagline(container: HTMLElement): HTMLElement {
+  const element = container.querySelector(".hero-tagline");
+  if (!(element instanceof HTMLElement)) {
+    throw new Error("Expected the hero tagline.");
+  }
+
+  return element;
+}
+
+async function waitFrames(count: number): Promise<void> {
+  for (let index = 0; index < count; index += 1) {
+    await frame();
+  }
+}
+
+function waitTime(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, ms);
+  });
+}
+
+async function waitForHeroTaglineShrink(
+  tagline: HTMLElement,
+  minimumDelta: number,
+): Promise<number> {
+  const initialWidth = tagline.getBoundingClientRect().width;
+  let maxDelta = 0;
+
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    await waitTime(250);
+    await waitFrames(2);
+
+    const currentWidth = tagline.getBoundingClientRect().width;
+    const delta = initialWidth - currentWidth;
+    maxDelta = Math.max(maxDelta, delta);
+
+    if (delta > minimumDelta) {
+      return delta;
+    }
+  }
+
+  return maxDelta;
 }
 
 function referenceShell(container: HTMLElement): HTMLElement {
@@ -678,6 +723,21 @@ describe("Website demo page", () => {
     expect(wrapSummary.textContent).toContain("wrapped items");
     expect(wrapSummary.textContent).toContain("after");
     expect(wrapSummary.textContent).toContain("Less");
+  });
+
+  it("animates the hero tagline width at mobile content widths", async () => {
+    const { default: App } = await import("../../website/src/App.vue");
+    const mountedPage = mountPage(App);
+
+    mountedPage.container.style.width = "375px";
+
+    await settle(4);
+    await mountedPage.container.ownerDocument.fonts?.ready;
+    await settle(2);
+
+    const tagline = heroTagline(mountedPage.container);
+    const delta = await waitForHeroTaglineShrink(tagline, 8);
+    expect(delta).toBeGreaterThan(8);
   });
 
   it("copies installation and example code from the website code blocks", async () => {

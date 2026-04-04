@@ -2,6 +2,15 @@
 
 Vue 3 line, inline, and wrapped-item clamping with browser-aligned DOM primitives.
 
+## 1.0.0
+
+`1.0.0` is the first stable Vue 3 release and includes breaking changes from the `0.x` line.
+
+- Breaking changes and release notes:
+  [CHANGELOG.md](https://github.com/Justineo/vue-clamp/blob/main/CHANGELOG.md#100)
+- Migration guide from `0.x`:
+  [MIGRATION.md](https://github.com/Justineo/vue-clamp/blob/main/MIGRATION.md)
+
 ## Install
 
 ```bash
@@ -36,6 +45,20 @@ The package exports:
 - `InlineClamp` for a native one-line clamp with optional `split(text) => { start?, body, end? }`
 - `WrapClamp` for wrapped atomic items such as badges, tags, and pills
 - `Clamp` as a compatibility alias of `LineClamp`
+
+## Migrating From 0.x
+
+The main upgrade changes are:
+
+- upgrade the host app to Vue 3
+- replace the default export with `LineClamp` or `Clamp`
+- move the multiline source text from the default slot into the `text` prop
+- rename `tag` to `as`
+- remove `autoresize`
+- replace `:expanded.sync` with `v-model:expanded`
+
+Full guide:
+[MIGRATION.md](https://github.com/Justineo/vue-clamp/blob/main/MIGRATION.md)
 
 ## API
 

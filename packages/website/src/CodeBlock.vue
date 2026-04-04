@@ -154,6 +154,7 @@ onBeforeUnmount(() => {
   outline: none;
   border-color: var(--c-accent);
   color: var(--c-accent-text);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--c-accent) 18%, transparent);
 }
 
 .copy-button[data-copy-state="copied"] {
@@ -197,6 +198,15 @@ onBeforeUnmount(() => {
   border-radius: var(--radius);
   overflow-x: auto;
   color: var(--c-text);
+}
+
+.code-block code {
+  font-family: inherit;
+  font-size: inherit;
+  line-height: inherit;
+  background: none;
+  padding: 0;
+  color: inherit;
 }
 
 .shiki-wrap :deep(pre.shiki) {

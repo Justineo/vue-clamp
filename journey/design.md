@@ -85,6 +85,9 @@
   - one root inline-flex container
   - optional fixed `start` and `end` segments
   - one shrinking `body` segment with native `text-overflow: ellipsis`
+  - the `body` keeps at least an ellipsis-width minimum so native truncation still has room to render
+  - leading and trailing plain-space runs inside split segments are rendered through preserved-space
+    inline children so boundary spaces do not disappear across segment boxes
   - no JS text rewriting, slots, or exposed instance API
 - `WrapClamp` is item-driven and browser-aligned:
   - one root clamp container with live DOM measurement
@@ -184,6 +187,16 @@
 ## Repo Standards
 
 - Use Vite+ commands only.
+- GitHub automation now follows a two-lane publish model:
+  - `.github/workflows/ci.yml` remains the validation workflow and also publishes preview builds for
+    `packages/vue-clamp` with `pkg-pr-new`.
+  - `.github/workflows/release.yml` publishes tagged releases from `v*` tags after running the full
+    validation/build pipeline, uses the matching `CHANGELOG.md` section as the GitHub release body,
+    and uses npm trusted publishing plus prerelease dist-tags derived from the tag name.
+- Release documentation now lives in:
+  - `CHANGELOG.md` for versioned release notes
+  - `MIGRATION.md` for `0.x` -> `1.x` migration guidance
+  - `packages/vue-clamp/README.md` for the npm-facing release and migration summary
 - Validation standard:
   - `vp install`
   - `vp check`

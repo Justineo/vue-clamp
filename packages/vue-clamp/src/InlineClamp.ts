@@ -19,12 +19,18 @@ const fixedSegmentStyle: CSSProperties = {
 
 const bodySegmentStyle: CSSProperties = {
   display: "block",
-  flex: "1 1 auto",
-  minWidth: "0",
+  flex: "0 1 auto",
+  minWidth: "1em",
   overflow: "hidden",
   textOverflow: "ellipsis",
   whiteSpace: "nowrap",
 };
+
+const preservedSpaceStyle: CSSProperties = {
+  whiteSpace: "pre",
+};
+
+const boundarySpacePattern = /^( *)([\s\S]*?)( *)$/;
 
 const inlineClampProps = {
   as: {
@@ -64,6 +70,44 @@ function resolveParts(text: string, split: InlineClampSplit | undefined): Inline
   return normalizedParts;
 }
 
+function renderPreservedSpaces(text: string) {
+  return text
+    ? h(
+        "span",
+        {
+          style: preservedSpaceStyle,
+        },
+        text,
+      )
+    : null;
+}
+
+function renderSegmentContent(text: string) {
+  const [, leadingSpaces = "", content = "", trailingSpaces = ""] =
+    boundarySpacePattern.exec(text) ?? [];
+
+  if (!leadingSpaces && !trailingSpaces) {
+    return text;
+  }
+
+  return [
+    renderPreservedSpaces(leadingSpaces),
+    content || null,
+    renderPreservedSpaces(trailingSpaces),
+  ];
+}
+
+function renderSegment(name: "start" | "body" | "end", text: string, style: CSSProperties) {
+  return h(
+    "span",
+    {
+      "data-part": name,
+      style,
+    },
+    renderSegmentContent(text),
+  );
+}
+
 export const InlineClamp = defineComponent({
   name: "InlineClamp",
   inheritAttrs: false,
@@ -79,34 +123,9 @@ export const InlineClamp = defineComponent({
           style: inlineRootStyle,
         }),
         [
-          parts.start
-            ? h(
-                "span",
-                {
-                  "data-part": "start",
-                  style: fixedSegmentStyle,
-                },
-                parts.start,
-              )
-            : null,
-          h(
-            "span",
-            {
-              "data-part": "body",
-              style: bodySegmentStyle,
-            },
-            parts.body,
-          ),
-          parts.end
-            ? h(
-                "span",
-                {
-                  "data-part": "end",
-                  style: fixedSegmentStyle,
-                },
-                parts.end,
-              )
-            : null,
+          parts.start ? renderSegment("start", parts.start, fixedSegmentStyle) : null,
+          renderSegment("body", parts.body, bodySegmentStyle),
+          parts.end ? renderSegment("end", parts.end, fixedSegmentStyle) : null,
         ],
       );
     };

@@ -98,6 +98,19 @@ function segment(root: HTMLElement, name: "start" | "body" | "end"): HTMLElement
   return element instanceof HTMLElement ? element : null;
 }
 
+function measureReferenceWidth(text: string): number {
+  const reference = document.createElement("span");
+  reference.style.position = "absolute";
+  reference.style.visibility = "hidden";
+  reference.style.whiteSpace = "pre";
+  reference.style.font = "16px Georgia, serif";
+  reference.textContent = text;
+  document.body.append(reference);
+  const width = reference.getBoundingClientRect().width;
+  reference.remove();
+  return width;
+}
+
 afterEach(() => {
   for (const mountedClamp of mounted) {
     mountedClamp.app.unmount();
@@ -148,6 +161,8 @@ describe("InlineClamp browser contract", () => {
     expect(body.textContent).toBe("very-long-generated-types");
     expect(end.textContent).toBe(".d.ts");
     expect(root.textContent).toBe("very-long-generated-types.d.ts");
+    expect(getComputedStyle(body).flexGrow).toBe("0");
+    expect(parseFloat(getComputedStyle(body).minWidth)).toBeGreaterThan(0);
     expect(getComputedStyle(body).textOverflow).toBe("ellipsis");
     expect(body.scrollWidth).toBeGreaterThan(body.clientWidth);
   });
@@ -176,5 +191,32 @@ describe("InlineClamp browser contract", () => {
     expect(segment(root, "start")?.textContent).toBe("/Users/justineo/screenshots/");
     expect(segment(root, "body")?.textContent).toBe("interface-preview");
     expect(segment(root, "end")?.textContent).toBe(".png");
+  });
+
+  it("preserves visible boundary spaces across split segments", async () => {
+    const mountedClamp = mountInlineClamp({
+      text: "The only line clamp you need for Vue.",
+      width: 640,
+      style: "display:inline-block;width:auto",
+      split() {
+        return {
+          start: "The only ",
+          body: "line",
+          end: " clamp you need for Vue.",
+        };
+      },
+    });
+
+    await settle();
+
+    const root = rootElement(mountedClamp.container);
+    const renderedWidth = root.getBoundingClientRect().width;
+    const expectedWidth = measureReferenceWidth("The only line clamp you need for Vue.");
+    const collapsedWidth = measureReferenceWidth("The onlylineclamp you need for Vue.");
+
+    expect(Math.abs(renderedWidth - expectedWidth)).toBeLessThan(1.5);
+    expect(Math.abs(renderedWidth - expectedWidth)).toBeLessThan(
+      Math.abs(renderedWidth - collapsedWidth),
+    );
   });
 });

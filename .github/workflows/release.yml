@@ -1,0 +1,74 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v**"
+
+permissions:
+  id-token: write
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    environment: npm-publish
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Vite+
+        uses: voidzero-dev/setup-vp@v1
+        with:
+          cache: true
+
+      - name: Install dependencies
+        run: vp install --frozen-lockfile
+
+      - name: Verify tag matches package version
+        id: version
+        run: |
+          expected="${GITHUB_REF_NAME#v}"
+          actual="$(node --input-type=module -e "import fs from 'node:fs'; const pkg = JSON.parse(fs.readFileSync('packages/vue-clamp/package.json', 'utf8')); process.stdout.write(pkg.version);")"
+
+          if [ "$actual" != "$expected" ]; then
+            echo "Tag ${GITHUB_REF_NAME} does not match packages/vue-clamp/package.json version ${actual}" >&2
+            exit 1
+          fi
+
+          echo "version=$expected" >> "$GITHUB_OUTPUT"
+
+      - name: Validate
+        run: vp check
+
+      - name: Test
+        run: vp test
+
+      - name: Install Playwright
+        run: vp exec playwright install --with-deps chromium
+
+      - name: Browser test
+        run: vp run test:browser
+
+      - name: Build
+        run: vp run build -r
+
+      - name: Extract release notes
+        run: node ./scripts/changelog-notes.mjs "${{ steps.version.outputs.version }}" > RELEASE_NOTES.md
+
+      - name: Get dist tag
+        id: dist-tag
+        run: echo "tag=$(node ./scripts/dist-tag.mjs '${{ github.ref_name }}')" >> "$GITHUB_OUTPUT"
+
+      - name: Publish to npm
+        run: vp pm publish packages/vue-clamp --access public --tag "${{ steps.dist-tag.outputs.tag }}" --no-git-checks --report-summary -- --provenance
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          body_path: RELEASE_NOTES.md
+          prerelease: ${{ contains(github.ref_name, '-') }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

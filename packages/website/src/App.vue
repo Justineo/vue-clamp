@@ -120,6 +120,39 @@ const surfaceOptions = [
   },
 ] as const;
 
+const heroTaglineWords = ["inline", "line", "wrap"] as const;
+type HeroTaglineWord = (typeof heroTaglineWords)[number];
+
+const heroTaglineTextStart = "The only";
+const heroTaglineTextEnd = "clamp you need for Vue.";
+const heroTaglineExpandedPadding = 8;
+const heroTaglineTiming = {
+  collapsedHold: 380,
+  expandedHold: 2240,
+  swapSettle: 220,
+  transition: 1320,
+} as const;
+const heroTaglineWord = ref<HeroTaglineWord>("inline");
+const heroTaglineWidth = ref<number | null>(null);
+const heroTaglineCollapsed = ref(false);
+const heroTaglineMeasured = ref(false);
+const heroTaglinePaused = ref(false);
+const heroTaglineReducedMotion = ref(false);
+const heroTaglineShellRef = ref<HTMLElement | null>(null);
+const heroTaglineMeasureRef = ref<HTMLElement | null>(null);
+const heroTaglineExpandedWidths = ref<Record<HeroTaglineWord, number>>({
+  inline: 0,
+  line: 0,
+  wrap: 0,
+});
+const heroTaglineCollapsedWidth = ref(0);
+
+let heroTaglineTimer: ReturnType<typeof window.setTimeout> | null = null;
+let heroTaglineMotionQuery: MediaQueryList | null = null;
+let heroTaglineResizeObserver: ResizeObserver | null = null;
+let heroTaglineFontsReady = false;
+let heroTaglineMounted = false;
+
 const inlineWidth5 = ref(280);
 const commonImageExtensions = [".png", ".jpg", ".jpeg", ".webp", ".gif", ".avif"] as const;
 
@@ -164,6 +197,22 @@ const splitPath: InlineClampSplit = (text) => {
         body: text.slice(slashIndex, dotIndex),
         end: text.slice(dotIndex),
       };
+};
+
+const splitHeroTagline: InlineClampSplit = (text) => {
+  for (const word of heroTaglineWords) {
+    if (text === `${heroTaglineTextStart} ${word} ${heroTaglineTextEnd}`) {
+      return {
+        start: heroTaglineTextStart,
+        body: ` ${word} `,
+        end: heroTaglineTextEnd,
+      };
+    }
+  }
+
+  return {
+    body: text,
+  };
 };
 
 const inlineExamples = [
@@ -292,6 +341,182 @@ function wrapTabsTriggerLabel(rtl: boolean): string {
   return rtl ? "إظهار التبويبات المخفية" : "Show hidden tabs";
 }
 
+function heroTaglineWordIndex(word: HeroTaglineWord): number {
+  return heroTaglineWords.indexOf(word);
+}
+
+function heroTaglineText(): string {
+  return `${heroTaglineTextStart} ${heroTaglineWord.value} ${heroTaglineTextEnd}`;
+}
+
+function heroTaglineMeasuredText(word: HeroTaglineWord): string {
+  return `${heroTaglineTextStart} ${word} ${heroTaglineTextEnd}`;
+}
+
+function clearHeroTaglineTimer(): void {
+  if (heroTaglineTimer !== null) {
+    clearTimeout(heroTaglineTimer);
+    heroTaglineTimer = null;
+  }
+}
+
+function scheduleHeroTagline(delay: number, callback: () => void): void {
+  clearHeroTaglineTimer();
+  heroTaglineTimer = window.setTimeout(callback, delay);
+}
+
+async function waitForFonts(): Promise<void> {
+  await document.fonts?.ready;
+}
+
+function measureWidth(selector: string): number | null {
+  const element = heroTaglineMeasureRef.value?.querySelector(selector);
+
+  return element instanceof HTMLElement ? element.getBoundingClientRect().width : null;
+}
+
+function measureHeroTaglineWidths(): void {
+  const measuredExpandedWidths = {} as Record<HeroTaglineWord, number>;
+
+  for (const word of heroTaglineWords) {
+    measuredExpandedWidths[word] =
+      Math.ceil(measureWidth(`[data-measure-word="${word}"]`) ?? 0) + heroTaglineExpandedPadding;
+  }
+
+  const startWidth = measureWidth('[data-measure-part="start"]') ?? 0;
+  const endWidth = measureWidth('[data-measure-part="end"]') ?? 0;
+  const ellipsisWidth = measureWidth('[data-measure-part="ellipsis"]') ?? 0;
+
+  heroTaglineExpandedWidths.value = measuredExpandedWidths;
+  heroTaglineCollapsedWidth.value = Math.ceil(startWidth + endWidth + ellipsisWidth + 2);
+  heroTaglineMeasured.value = true;
+}
+
+function syncHeroTaglineWidth(): void {
+  if (!heroTaglineMeasured.value) {
+    heroTaglineWidth.value = null;
+    return;
+  }
+
+  heroTaglineWidth.value = heroTaglineCollapsed.value
+    ? heroTaglineCollapsedWidth.value
+    : heroTaglineExpandedWidths.value[heroTaglineWord.value];
+}
+
+function setHeroTaglineWord(word: HeroTaglineWord): void {
+  heroTaglineWord.value = word;
+  heroTaglineCollapsed.value = false;
+  syncHeroTaglineWidth();
+}
+
+function collapseHeroTagline(): void {
+  heroTaglineCollapsed.value = true;
+  syncHeroTaglineWidth();
+}
+
+function animateHeroTagline(index: number): void {
+  if (heroTaglineReducedMotion.value || heroTaglinePaused.value || !heroTaglineMeasured.value) {
+    return;
+  }
+
+  const word = heroTaglineWords.at(index % heroTaglineWords.length) ?? "line";
+  setHeroTaglineWord(word);
+
+  scheduleHeroTagline(heroTaglineTiming.expandedHold, () => {
+    if (heroTaglineReducedMotion.value || heroTaglinePaused.value) {
+      return;
+    }
+
+    collapseHeroTagline();
+
+    scheduleHeroTagline(heroTaglineTiming.transition, () => {
+      if (heroTaglineReducedMotion.value || heroTaglinePaused.value) {
+        return;
+      }
+
+      const nextWord = heroTaglineWords.at((index + 1) % heroTaglineWords.length) ?? "line";
+      scheduleHeroTagline(heroTaglineTiming.collapsedHold, () => {
+        if (heroTaglineReducedMotion.value || heroTaglinePaused.value) {
+          return;
+        }
+
+        heroTaglineWord.value = nextWord;
+
+        scheduleHeroTagline(heroTaglineTiming.swapSettle, () => {
+          if (heroTaglineReducedMotion.value || heroTaglinePaused.value) {
+            return;
+          }
+
+          heroTaglineCollapsed.value = false;
+          syncHeroTaglineWidth();
+
+          scheduleHeroTagline(heroTaglineTiming.transition, () => {
+            if (heroTaglineReducedMotion.value || heroTaglinePaused.value) {
+              return;
+            }
+
+            animateHeroTagline(index + 1);
+          });
+        });
+      });
+    });
+  });
+}
+
+function startHeroTagline(reset = false): void {
+  if (heroTaglineReducedMotion.value || heroTaglinePaused.value || !heroTaglineMeasured.value) {
+    return;
+  }
+
+  clearHeroTaglineTimer();
+  const startIndex = reset ? 0 : Math.max(heroTaglineWordIndex(heroTaglineWord.value), 0);
+  animateHeroTagline(startIndex);
+}
+
+function pauseHeroTagline(): void {
+  heroTaglinePaused.value = true;
+  clearHeroTaglineTimer();
+}
+
+function resumeHeroTagline(): void {
+  if (heroTaglineReducedMotion.value) {
+    return;
+  }
+
+  heroTaglinePaused.value = false;
+  startHeroTagline();
+}
+
+function handleHeroTaglineFocusOut(event: FocusEvent): void {
+  const currentTarget = event.currentTarget;
+  if (!(currentTarget instanceof HTMLElement)) {
+    return;
+  }
+
+  const relatedTarget = event.relatedTarget;
+  if (relatedTarget instanceof Node && currentTarget.contains(relatedTarget)) {
+    return;
+  }
+
+  resumeHeroTagline();
+}
+
+function applyHeroTaglineMotionPreference(matches: boolean): void {
+  heroTaglineReducedMotion.value = matches;
+
+  if (matches) {
+    clearHeroTaglineTimer();
+    setHeroTaglineWord("inline");
+    return;
+  }
+
+  startHeroTagline(true);
+}
+
+function handleHeroTaglineMotionChange(event: MediaQueryListEvent): void {
+  applyHeroTaglineMotionPreference(event.matches);
+}
+
 function selectWrapTab6(id: string): void {
   selectedWrapTab6.value = id;
   wrapTabsMenuOpen6.value = false;
@@ -333,13 +558,50 @@ function handleWrapTabsKeydown(event: KeyboardEvent): void {
 }
 
 onMounted(() => {
+  heroTaglineMounted = true;
   document.addEventListener("pointerdown", handleWrapTabsPointerDown);
   document.addEventListener("keydown", handleWrapTabsKeydown);
+
+  heroTaglineMotionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
+  heroTaglineResizeObserver = new ResizeObserver(() => {
+    if (!heroTaglineFontsReady) {
+      syncHeroTaglineWidth();
+      return;
+    }
+
+    measureHeroTaglineWidths();
+    syncHeroTaglineWidth();
+  });
+
+  if (heroTaglineShellRef.value) {
+    heroTaglineResizeObserver.observe(heroTaglineShellRef.value);
+  }
+
+  heroTaglineMotionQuery.addEventListener("change", handleHeroTaglineMotionChange);
+
+  void (async () => {
+    await waitForFonts();
+
+    if (!heroTaglineMounted) {
+      return;
+    }
+
+    heroTaglineFontsReady = true;
+    measureHeroTaglineWidths();
+    syncHeroTaglineWidth();
+    applyHeroTaglineMotionPreference(heroTaglineMotionQuery?.matches ?? false);
+  })();
 });
 
 onBeforeUnmount(() => {
+  heroTaglineFontsReady = false;
+  heroTaglineMounted = false;
   document.removeEventListener("pointerdown", handleWrapTabsPointerDown);
   document.removeEventListener("keydown", handleWrapTabsKeydown);
+
+  clearHeroTaglineTimer();
+  heroTaglineMotionQuery?.removeEventListener("change", handleHeroTaglineMotionChange);
+  heroTaglineResizeObserver?.disconnect();
 });
 
 type PkgManager = "vp" | "npm" | "pnpm" | "yarn" | "bun" | "agent";
@@ -368,7 +630,7 @@ const installCommand = computed(() => {
     case "bun":
       return "bun add vue-clamp";
     case "agent":
-      return "Install the vue-clamp package into this project";
+      return "Add the npm package `vue-clamp` to this project.";
   }
 });
 
@@ -483,40 +745,110 @@ const highlightedWrapCode = computed(() => {
   <div class="page" lang="en">
     <!-- Hero -->
     <header class="hero">
-      <h1 class="hero-title">&lt;vue-clamp&gt;</h1>
-      <p class="hero-tagline">LineClamp, InlineClamp, and WrapClamp for Vue 3 clamping.</p>
-      <nav class="hero-links">
-        <a
-          class="link-github"
-          href="https://github.com/Justineo/vue-clamp"
-          target="_blank"
-          rel="noopener"
+      <div class="hero-copy">
+        <h1 class="hero-title">&lt;vue-clamp&gt;</h1>
+        <p class="sr-only">Clamp lines, inline labels, and wrapped items in Vue.</p>
+        <div
+          ref="heroTaglineShellRef"
+          class="hero-tagline-shell"
+          aria-hidden="true"
+          @mouseenter="pauseHeroTagline"
+          @mouseleave="resumeHeroTagline"
+          @focusin="pauseHeroTagline"
+          @focusout="handleHeroTaglineFocusOut"
         >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-            <path :d="siGithub.path" fill="currentColor" />
-          </svg>
-          GitHub
-          <ArrowUpRight :size="12" :stroke-width="1.75" aria-hidden="true" />
-        </a>
-      </nav>
+          <span
+            class="hero-tagline-frame"
+            :style="{
+              '--hero-tagline-transition': heroTaglineMeasured
+                ? `${heroTaglineTiming.transition}ms`
+                : '0ms',
+              width: heroTaglineWidth === null ? undefined : `${heroTaglineWidth}px`,
+            }"
+          >
+            <InlineClamp
+              :text="heroTaglineText()"
+              :split="splitHeroTagline"
+              as="span"
+              class="hero-tagline hero-tagline-live"
+              style="width: 100%"
+            />
+          </span>
+        </div>
+        <div ref="heroTaglineMeasureRef" class="hero-tagline-measure" aria-hidden="true">
+          <InlineClamp
+            v-for="word in heroTaglineWords"
+            :key="word"
+            :data-measure-word="word"
+            :text="heroTaglineMeasuredText(word)"
+            :split="splitHeroTagline"
+            as="span"
+            class="hero-tagline hero-tagline-measure-item"
+          />
+          <div class="hero-tagline-measure-parts">
+            <span class="hero-tagline-measure-text" data-measure-part="start">
+              {{ heroTaglineTextStart }}
+            </span>
+            <span class="hero-tagline-measure-text" data-measure-part="end">
+              {{ heroTaglineTextEnd }}
+            </span>
+            <span class="hero-tagline-measure-text" data-measure-part="ellipsis">…</span>
+          </div>
+        </div>
+        <nav class="hero-links" aria-label="Project links">
+          <a
+            class="hero-link"
+            href="https://github.com/Justineo/vue-clamp"
+            target="_blank"
+            rel="noopener"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path :d="siGithub.path" fill="currentColor" />
+            </svg>
+            GitHub
+            <ArrowUpRight :size="11" :stroke-width="1.75" aria-hidden="true" />
+          </a>
+          <span class="hero-link-separator" aria-hidden="true">/</span>
+          <a
+            class="hero-link"
+            href="https://npmx.dev/package/vue-clamp"
+            target="_blank"
+            rel="noopener"
+          >
+            <svg
+              class="hero-link-mark hero-link-mark-npmx"
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              aria-hidden="true"
+            >
+              <rect class="hero-link-mark-bg" x="1.5" y="1.5" width="21" height="21" rx="4" />
+              <rect class="hero-link-mark-dot" x="5.25" y="14.5" width="3" height="3" rx="0.75" />
+              <path class="hero-link-mark-slash" d="M16.5 5.5H18.6L13.25 18.5H11.1L16.5 5.5Z" />
+            </svg>
+            npmx
+            <ArrowUpRight :size="11" :stroke-width="1.75" aria-hidden="true" />
+          </a>
+        </nav>
+      </div>
     </header>
 
     <!-- Features -->
     <section class="section">
-      <h2 class="section-title" id="features"><a href="#features">#</a> Features</h2>
+      <h2 class="section-title" id="features"><a href="#features">#</a> Choose a surface</h2>
       <ul class="features-list">
         <li>
-          <code>LineClamp</code> fits text to real multiline layouts, making it a good default for
-          previews, cards, lists, and any expandable content that depends on actual browser
-          wrapping.
+          <code>LineClamp</code> for previews, cards, lists, and expandable copy that should follow
+          real browser wrapping.
         </li>
         <li>
-          <code>InlineClamp</code> keeps a single line compact while preserving meaningful edges,
-          which works well for filenames, paths, email addresses, and other label-like text.
+          <code>InlineClamp</code> for one-line labels where the start or end should stay visible,
+          such as filenames, paths, and email addresses.
         </li>
         <li>
-          <code>WrapClamp</code> keeps wrapped chips, tags, and selected-value rails tidy while
-          preserving whole items, which works well for labels, filters, invitees, and token lists.
+          <code>WrapClamp</code> for wrapped chips, filters, invitees, and token rails where each
+          item must stay whole.
         </li>
       </ul>
     </section>
@@ -605,10 +937,7 @@ const highlightedWrapCode = computed(() => {
                       </div>
                     </div>
                     <div class="demo-preview">
-                      <div
-                        class="demo-output width-guide"
-                        :style="{ width: `${width1}px`, maxWidth: '100%' }"
-                      >
+                      <div class="demo-output width-guide" :style="{ width: `${width1}px` }">
                         <LineClamp
                           class="demo-clamp"
                           :class="{ hyphens: hyphens1, rtl: rtl1 }"
@@ -667,7 +996,7 @@ const highlightedWrapCode = computed(() => {
                     <div class="demo-preview">
                       <div
                         class="demo-output width-guide height-guide"
-                        :style="{ width: `${width2}px`, maxWidth: '100%' }"
+                        :style="{ width: `${width2}px` }"
                       >
                         <LineClamp
                           class="demo-clamp"
@@ -725,10 +1054,7 @@ const highlightedWrapCode = computed(() => {
                       </div>
                     </div>
                     <div class="demo-preview">
-                      <div
-                        class="demo-output width-guide"
-                        :style="{ width: `${width3}px`, maxWidth: '100%' }"
-                      >
+                      <div class="demo-output width-guide" :style="{ width: `${width3}px` }">
                         <LineClamp
                           class="demo-clamp"
                           :class="{ hyphens: hyphens3, rtl: rtl3 }"
@@ -828,10 +1154,7 @@ const highlightedWrapCode = computed(() => {
                       </div>
                     </div>
                     <div class="demo-preview">
-                      <div
-                        class="demo-output width-guide"
-                        :style="{ width: `${width4}px`, maxWidth: '100%' }"
-                      >
+                      <div class="demo-output width-guide" :style="{ width: `${width4}px` }">
                         <LineClamp
                           class="demo-clamp"
                           :class="{ hyphens: hyphens4, rtl: rtl4 }"
@@ -888,7 +1211,7 @@ const highlightedWrapCode = computed(() => {
                         <div class="comparison-label">Plain</div>
                         <div
                           class="demo-output width-guide"
-                          :style="{ width: `${inlineWidth5}px`, maxWidth: '100%' }"
+                          :style="{ width: `${inlineWidth5}px` }"
                         >
                           <InlineClamp class="demo-inline" :text="example.text" />
                         </div>
@@ -897,7 +1220,7 @@ const highlightedWrapCode = computed(() => {
                         <div class="comparison-label">Split</div>
                         <div
                           class="demo-output width-guide"
-                          :style="{ width: `${inlineWidth5}px`, maxWidth: '100%' }"
+                          :style="{ width: `${inlineWidth5}px` }"
                         >
                           <InlineClamp
                             class="demo-inline"
@@ -944,10 +1267,7 @@ const highlightedWrapCode = computed(() => {
                     </div>
                   </div>
                   <div class="demo-preview">
-                    <div
-                      class="demo-output width-guide"
-                      :style="{ width: `${wrapWidth6}px`, maxWidth: '100%' }"
-                    >
+                    <div class="demo-output width-guide" :style="{ width: `${wrapWidth6}px` }">
                       <WrapClamp
                         class="demo-wrap wrap-tabs"
                         :class="{ rtl: wrapRtl6 }"
@@ -1047,7 +1367,7 @@ const highlightedWrapCode = computed(() => {
                   <div class="demo-preview">
                     <div
                       class="demo-output width-guide height-guide"
-                      :style="{ width: `${wrapWidth7}px`, maxWidth: '100%' }"
+                      :style="{ width: `${wrapWidth7}px` }"
                     >
                       <WrapClamp
                         class="demo-wrap"
@@ -1696,11 +2016,17 @@ const highlightedWrapCode = computed(() => {
 </template>
 
 <style>
+@import url("https://fonts.googleapis.com/css2?family=Geist+Mono:wght@500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap");
+
 *,
 *::before,
 *::after {
   box-sizing: border-box;
   margin: 0;
+}
+
+* {
+  scrollbar-width: thin;
 }
 
 :root {
@@ -1718,10 +2044,11 @@ const highlightedWrapCode = computed(() => {
   --c-code-bg: #f4f4f8;
   --c-success: #16a34a;
   --c-muted: #9ca3af;
-  --font-body:
-    Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, sans-serif;
+  --focus-ring: 0 0 0 3px color-mix(in srgb, var(--c-accent) 18%, transparent);
+  --focus-ring-subtle: 0 0 0 2px color-mix(in srgb, var(--c-accent) 22%, transparent);
+  --font-body: Manrope, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
   --font-mono:
-    "JetBrains Mono", "Fira Code", "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+    "Geist Mono", "JetBrains Mono", "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
   --radius: 6px;
   --radius-lg: 8px;
   --demo-range-width: 140px;
@@ -1750,6 +2077,12 @@ a:hover {
   text-decoration: underline;
 }
 
+a:focus-visible {
+  outline: none;
+  border-radius: 4px;
+  box-shadow: var(--focus-ring);
+}
+
 code {
   font-family: var(--font-mono);
   font-size: 0.875em;
@@ -1776,55 +2109,154 @@ pre code {
 /* Hero */
 
 .hero {
-  padding: 56px 0 40px;
+  padding: 42px 0 28px;
+  border-bottom: 1px solid var(--c-border);
+}
+
+.hero-copy {
+  max-width: 620px;
 }
 
 .hero-title {
+  margin: 0;
   font-family: var(--font-mono);
-  font-size: 2rem;
-  font-weight: 700;
-  letter-spacing: -0.02em;
-  line-height: 1.2;
+  font-size: clamp(2.1rem, 5.5vw, 2.9rem);
+  font-weight: 600;
+  letter-spacing: -0.045em;
+  line-height: 1;
   color: var(--c-text);
 }
 
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.hero-tagline-shell {
+  margin-top: 20px;
+  width: 100%;
+  max-width: 100%;
+}
+
+.hero-tagline-frame {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  vertical-align: top;
+  transition: width var(--hero-tagline-transition, 1120ms) cubic-bezier(0.2, 0.9, 0.28, 1);
+}
+
 .hero-tagline {
-  margin-top: 8px;
-  font-size: 1.05rem;
-  color: var(--c-text-2);
+  display: inline-flex;
+  font-size: clamp(0.98rem, 2.2vw, 1.26rem);
+  font-weight: 700;
+  letter-spacing: -0.035em;
+  line-height: 1.24;
+  color: var(--c-text);
+}
+
+.hero-tagline-live {
+  width: 100%;
+}
+
+.hero-tagline-measure {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  visibility: hidden;
+  pointer-events: none;
+  display: grid;
+  gap: 4px;
+}
+
+.hero-tagline-measure-item {
+  width: auto;
+  max-width: none;
+  transition: none;
+}
+
+.hero-tagline-measure-parts {
+  display: flex;
+  align-items: baseline;
+  gap: 0;
+}
+
+.hero-tagline-measure-text {
+  font-size: clamp(0.98rem, 2.2vw, 1.26rem);
+  font-weight: 700;
+  letter-spacing: -0.035em;
+  line-height: 1.24;
+  white-space: nowrap;
+}
+
+.hero-tagline :deep([data-part="start"]),
+.hero-tagline :deep([data-part="end"]) {
+  color: var(--c-text);
+}
+
+.hero-tagline :deep([data-part="body"]) {
+  color: var(--c-accent-text);
 }
 
 .hero-links {
   margin-top: 16px;
   display: flex;
-  gap: 12px;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  font-size: 0.78rem;
 }
 
-.link-github {
+.hero-link {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 6px 14px;
-  font-size: 0.8rem;
-  font-weight: 500;
-  color: var(--c-text);
-  border: 1px solid var(--c-border);
-  border-radius: var(--radius);
-  transition:
-    border-color 0.15s,
-    color 0.15s;
+  gap: 5px;
+  padding: 0;
+  font-size: inherit;
+  font-weight: 600;
+  color: var(--c-text-2);
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  transition: color 0.15s;
 }
 
-.link-github:hover {
-  border-color: var(--c-border-dark);
+.hero-link-mark {
+  display: block;
+  flex: none;
+}
+
+.hero-link-mark-npmx .hero-link-mark-bg {
+  fill: currentColor;
+}
+
+.hero-link-mark-npmx .hero-link-mark-dot {
+  fill: color-mix(in srgb, currentColor 48%, var(--c-bg));
+}
+
+.hero-link-mark-npmx .hero-link-mark-slash {
+  fill: var(--c-bg);
+}
+
+.hero-link:hover {
   color: var(--c-accent);
   text-decoration: none;
 }
 
-.link-github:focus-visible {
-  outline: none;
-  border-color: var(--c-accent);
+.hero-link:focus-visible {
   color: var(--c-accent);
+  box-shadow: var(--focus-ring);
+}
+
+.hero-link-separator {
+  color: var(--c-text-3);
 }
 
 /* Sections */
@@ -2021,6 +2453,7 @@ pre code {
 
 .control-input:focus-visible {
   border-color: var(--c-accent);
+  box-shadow: var(--focus-ring);
 }
 
 .control-row {
@@ -2043,7 +2476,7 @@ pre code {
 
 .control-range:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--c-accent) 18%, transparent);
+  box-shadow: var(--focus-ring);
 }
 
 .control-range::-webkit-slider-thumb {
@@ -2081,6 +2514,13 @@ pre code {
   accent-color: var(--c-accent);
 }
 
+.control-check:focus-within,
+.control-radio:focus-within {
+  color: var(--c-text);
+  border-radius: 999px;
+  box-shadow: var(--focus-ring-subtle);
+}
+
 .control-pills {
   display: flex;
   flex-wrap: wrap;
@@ -2113,6 +2553,13 @@ pre code {
   color: var(--c-accent-text);
   background: var(--c-accent-soft);
   border-color: var(--c-accent);
+}
+
+.control-pill:focus-visible {
+  outline: none;
+  color: var(--c-accent-text);
+  border-color: var(--c-accent);
+  box-shadow: var(--focus-ring);
 }
 
 .demo-preview {
@@ -2332,6 +2779,7 @@ pre code {
   outline: none;
   color: var(--c-accent-text);
   background: rgba(124, 58, 237, 0.06);
+  box-shadow: var(--focus-ring);
 }
 
 .wrap-tabs-menu {
@@ -2380,6 +2828,7 @@ pre code {
   outline: none;
   background: var(--c-bg-soft);
   color: var(--c-text);
+  box-shadow: var(--focus-ring-subtle);
 }
 
 .wrap-summary-button {
@@ -2402,6 +2851,7 @@ pre code {
   outline: none;
   border-color: var(--c-accent);
   color: var(--c-accent-text);
+  box-shadow: var(--focus-ring);
 }
 
 .wrap-person {
@@ -2736,6 +3186,18 @@ pre code {
 
   .api-entry-copy {
     grid-column: 2;
+  }
+}
+
+@media (max-width: 639px) {
+  .hero-tagline-shell {
+    max-width: 100%;
+  }
+
+  .demo-preview {
+    overflow-x: auto;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
   }
 }
 

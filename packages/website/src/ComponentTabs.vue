@@ -83,6 +83,9 @@ function select(value: string): void {
   outline: none;
   color: var(--c-text);
   background: rgba(255, 255, 255, 0.32);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--c-accent) 18%, transparent);
+  position: relative;
+  z-index: 1;
 }
 
 .component-tab.active {

@@ -1,5 +1,8 @@
 name: CI
 
+permissions:
+  contents: read
+
 on:
   push:
     branches:
@@ -29,3 +32,6 @@ jobs:
       - run: vp exec playwright install --with-deps chromium
       - run: vp run test:browser
       - run: vp run build -r
+      - name: Publish preview package
+        if: ${{ github.event_name != 'workflow_dispatch' }}
+        run: vp dlx pkg-pr-new publish --compact ./packages/vue-clamp
