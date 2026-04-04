@@ -2070,7 +2070,7 @@ const highlightedWrapCode = computed(() => {
 </template>
 
 <style>
-@import url("https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700;800&family=Geist+Mono:wght@500;600;700&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@500;600;700&display=swap");
 
 *,
 *::before,
