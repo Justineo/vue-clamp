@@ -1,6 +1,6 @@
 {
   "name": "vue-clamp-workspace",
-  "version": "1.0.0",
+  "version": "0.0.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -10,7 +10,7 @@
     "test": "vp test",
     "test:browser": "vp test -c vite.browser.config.ts",
     "ready": "vp check && vp test && vp run test:browser && vp run build -r",
-    "release": "vp exec bumpp",
+    "release": "vp exec bumpp packages/vue-clamp/package.json",
     "dev": "vp run website#dev",
     "prepare": "vp config"
   },
