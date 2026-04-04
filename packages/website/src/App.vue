@@ -186,7 +186,15 @@ function scrollReferenceToTop(): void {
   });
 }
 
-function updateActiveSurface(surface: SurfaceKey): void {
+function isSurfaceKey(value: string): value is SurfaceKey {
+  return value === "line" || value === "inline" || value === "wrap";
+}
+
+function updateActiveSurface(surface: string): void {
+  if (!isSurfaceKey(surface)) {
+    return;
+  }
+
   activeSurface.value = surface;
 
   void nextTick(() => {
@@ -217,7 +225,7 @@ const heroTaglineMeasureRef = ref<HTMLElement | null>(null);
 const heroTaglineExpandedWidths = ref<Record<HeroTaglineWord, number>>(createHeroTaglineWidthMap());
 const heroTaglineCollapsedWidth = ref(0);
 
-let heroTaglineTimer: ReturnType<typeof window.setTimeout> | null = null;
+let heroTaglineTimer: number | null = null;
 let heroTaglineMotionQuery: MediaQueryList | null = null;
 let heroTaglineResizeObserver: ResizeObserver | null = null;
 let heroTaglineFontsReady = false;
