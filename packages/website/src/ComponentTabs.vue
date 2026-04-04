@@ -49,19 +49,14 @@ function select(value: string): void {
 .component-tabs {
   display: flex;
   width: 100%;
-  border-top: 1px solid var(--c-border);
   border-bottom: 1px solid var(--c-border);
-  background: var(--c-bg-soft);
+  background: var(--c-bg);
 }
 
 .component-tab-slot {
   position: relative;
   flex: 1 1 0;
   min-width: 0;
-}
-
-.component-tab-slot + .component-tab-slot {
-  box-shadow: inset 1px 0 0 var(--c-border);
 }
 
 .component-tab {
@@ -80,6 +75,12 @@ function select(value: string): void {
 }
 
 .component-tab:hover {
+  color: var(--c-text);
+  background: rgba(255, 255, 255, 0.32);
+}
+
+.component-tab:focus-visible {
+  outline: none;
   color: var(--c-text);
   background: rgba(255, 255, 255, 0.32);
 }

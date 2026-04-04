@@ -558,7 +558,7 @@ describe("Website demo page", () => {
     expect(mountedPage.container.querySelector('[data-demo="inline"]')).toBeNull();
     expect(
       wrapExampleBlocks(mountedPage.container).map((block) => block.dataset.wrapExample),
-    ).toEqual(["tabs", "invitees", "table"]);
+    ).toEqual(["tabs", "invitees"]);
 
     const tabsTrigger = wrapExampleBlock(mountedPage.container, "tabs").querySelector(
       "[data-wrap-tabs-trigger]",
@@ -637,55 +637,47 @@ describe("Website demo page", () => {
     expect(inviteesBlock.textContent).toContain("مايا تشن");
     expect(inviteesToggle.textContent?.trim()).toBe("أقل");
     expect(inviteesRtlToggle.checked).toBe(true);
-
-    const tableBlock = wrapExampleBlock(mountedPage.container, "table");
-    const stressTable = tableBlock.querySelector("[data-wrap-stress-table]");
-    if (!(stressTable instanceof HTMLTableElement)) {
-      throw new Error("Expected the WrapClamp stress table.");
-    }
-    expect(stressTable.tBodies[0]?.rows.length).toBe(200);
   });
 
-  it("surfaces practical API notes for all components", async () => {
+  it("surfaces concise API summaries for all components", async () => {
     const { default: App } = await import("../../website/src/App.vue");
     const mountedPage = mountPage(App);
 
     await settle(4);
 
-    const lineNotes = referenceShell(mountedPage.container).querySelector(
-      '[data-api-notes="line"]',
+    const lineSummary = referenceShell(mountedPage.container).querySelector(
+      '[data-api-summary="line"]',
     );
-    if (!(lineNotes instanceof HTMLElement)) {
-      throw new Error("Expected the LineClamp API notes.");
+    if (!(lineSummary instanceof HTMLElement)) {
+      throw new Error("Expected the LineClamp API summary.");
     }
-    expect(lineNotes.textContent).toContain("max-lines");
-    expect(lineNotes.textContent).toContain("max-height");
+    expect(lineSummary.textContent).toContain("max-lines");
+    expect(lineSummary.textContent).toContain("max-height");
 
     await selectSurface(mountedPage.container, "inline");
 
-    const inlineNotes = referenceShell(mountedPage.container).querySelector(
-      '[data-api-notes="inline"]',
+    const inlineSummary = referenceShell(mountedPage.container).querySelector(
+      '[data-api-summary="inline"]',
     );
-    if (!(inlineNotes instanceof HTMLElement)) {
-      throw new Error("Expected the InlineClamp API notes.");
+    if (!(inlineSummary instanceof HTMLElement)) {
+      throw new Error("Expected the InlineClamp API summary.");
     }
-    expect(inlineNotes.textContent).toContain(
-      "InlineClamp is native-only and single-line-only. It does not expose slots, events, or an instance API.",
-    );
-    expect(inlineNotes.textContent).toContain("split(text)");
-    expect(inlineNotes.textContent).toContain("one-line");
+    expect(inlineSummary.textContent).toContain("single-line text");
+    expect(inlineSummary.textContent).toContain("no slots or events");
+    expect(inlineSummary.textContent).toContain("split(text)");
+    expect(inlineSummary.textContent).toContain("body");
 
     await selectSurface(mountedPage.container, "wrap");
 
-    const wrapNotes = referenceShell(mountedPage.container).querySelector(
-      '[data-api-notes="wrap"]',
+    const wrapSummary = referenceShell(mountedPage.container).querySelector(
+      '[data-api-summary="wrap"]',
     );
-    if (!(wrapNotes instanceof HTMLElement)) {
-      throw new Error("Expected the WrapClamp API notes.");
+    if (!(wrapSummary instanceof HTMLElement)) {
+      throw new Error("Expected the WrapClamp API summary.");
     }
-    expect(wrapNotes.textContent).toContain("preserves whole rendered items");
-    expect(wrapNotes.textContent).toContain("after");
-    expect(wrapNotes.textContent).toContain("hidden-item metadata");
+    expect(wrapSummary.textContent).toContain("wrapped items");
+    expect(wrapSummary.textContent).toContain("after");
+    expect(wrapSummary.textContent).toContain("Less");
   });
 
   it("copies installation and example code from the website code blocks", async () => {

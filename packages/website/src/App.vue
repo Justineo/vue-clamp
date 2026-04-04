@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
-import { ArrowUpRight } from "@lucide/vue";
+import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import { ArrowUpRight, Ellipsis } from "@lucide/vue";
 import { siGithub } from "simple-icons";
-import { InlineClamp, LineClamp } from "vue-clamp";
+import { InlineClamp, LineClamp, WrapClamp } from "vue-clamp";
 import ComponentTabs from "./ComponentTabs.vue";
 import CodeBlock from "./CodeBlock.vue";
 import { createHighlighterCoreSync } from "shiki/core";
@@ -93,19 +93,30 @@ function selectLocationPreset4(ratio: number): void {
   locationRatio4.value = ratio;
 }
 
-type SurfaceKey = "line" | "inline";
+type SurfaceKey = "line" | "inline" | "wrap";
+type WrapDemoItem = {
+  id: string;
+  label: string;
+  tone?: "neutral" | "accent" | "success" | "warm";
+  avatar?: string;
+};
 
 const activeSurface = ref<SurfaceKey>("line");
 const surfaceOptions = [
   {
-    description: "Multiline browser-fit clamp with slots, expansion, and ratio-based ellipsis.",
+    description: "Multiline browser-fit clamp for previews, cards, and expandable copy.",
     label: "LineClamp",
     value: "line",
   },
   {
-    description: "Native single-line clamp with optional split(text) semantics for fixed edges.",
+    description: "Native single-line clamp for filenames, paths, and email addresses.",
     label: "InlineClamp",
     value: "inline",
+  },
+  {
+    description: "Wrapped atomic-item clamp for labels, filters, and selected-value lists.",
+    label: "WrapClamp",
+    value: "wrap",
   },
 ] as const;
 
@@ -180,6 +191,156 @@ const inlineExamples = [
   split: InlineClampSplit;
   text: string;
 }>;
+
+const wrapTabItems = [
+  { id: "overview", label: "Overview" },
+  { id: "roadmap", label: "Roadmap" },
+  { id: "releases", label: "Releases" },
+  { id: "analytics", label: "Analytics" },
+  { id: "billing", label: "Billing" },
+  { id: "team", label: "Team access" },
+  { id: "audit", label: "Audit log" },
+] as const satisfies readonly WrapDemoItem[];
+
+const wrapTabItemsVerbose = [
+  { id: "overview", label: "Workspace overview" },
+  { id: "roadmap", label: "Delivery roadmap" },
+  { id: "releases", label: "Release notes" },
+  { id: "analytics", label: "Usage analytics" },
+  { id: "billing", label: "Billing settings" },
+  { id: "team", label: "Team access roles" },
+  { id: "audit", label: "Audit activity log" },
+] as const satisfies readonly WrapDemoItem[];
+
+const wrapTabItemsAr = [
+  { id: "overview", label: "نظرة عامة" },
+  { id: "roadmap", label: "الخارطة" },
+  { id: "releases", label: "الإصدارات" },
+  { id: "analytics", label: "التحليلات" },
+  { id: "billing", label: "الفوترة" },
+  { id: "team", label: "صلاحيات الفريق" },
+  { id: "audit", label: "سجل التدقيق" },
+] as const satisfies readonly WrapDemoItem[];
+
+const wrapTabItemsVerboseAr = [
+  { id: "overview", label: "نظرة عامة على مساحة العمل" },
+  { id: "roadmap", label: "خارطة التسليم" },
+  { id: "releases", label: "ملاحظات الإصدار" },
+  { id: "analytics", label: "تحليلات الاستخدام" },
+  { id: "billing", label: "إعدادات الفوترة" },
+  { id: "team", label: "صلاحيات وصول الفريق" },
+  { id: "audit", label: "سجل نشاط التدقيق" },
+] as const satisfies readonly WrapDemoItem[];
+
+const wrapInviteeItems = [
+  { id: "maya", label: "Maya Chen", avatar: "MC" },
+  { id: "sam", label: "Sam Rivera", avatar: "SR" },
+  { id: "nina", label: "Nina Patel", avatar: "NP" },
+  { id: "alex", label: "Alex Kim", avatar: "AK" },
+  { id: "morgan", label: "Morgan Lee", avatar: "ML" },
+  { id: "diego", label: "Diego Ruiz", avatar: "DR" },
+  { id: "sofia", label: "Sofia Park", avatar: "SP" },
+] as const satisfies readonly WrapDemoItem[];
+
+const wrapInviteeItemsAr = [
+  { id: "maya", label: "مايا تشن", avatar: "MC" },
+  { id: "sam", label: "سام ريفيرا", avatar: "SR" },
+  { id: "nina", label: "نينا باتيل", avatar: "NP" },
+  { id: "alex", label: "أليكس كيم", avatar: "AK" },
+  { id: "morgan", label: "مورغان لي", avatar: "ML" },
+  { id: "diego", label: "دييغو رويز", avatar: "DR" },
+  { id: "sofia", label: "صوفيا بارك", avatar: "SP" },
+] as const satisfies readonly WrapDemoItem[];
+
+const selectedWrapTab6 = ref("overview");
+const wrapTabsMenuOpen6 = ref(false);
+const wrapTabsTriggerRef6 = ref<HTMLElement | null>(null);
+const wrapTabsMenuRef6 = ref<HTMLElement | null>(null);
+const wrapWidth6 = ref(360);
+const wrapRtl6 = ref(false);
+const wrapVerboseLabels6 = ref(false);
+const wrapHeight7 = ref("58px");
+const wrapWidth7 = ref(420);
+const wrapRtl7 = ref(false);
+const wrapExpanded7 = ref(false);
+
+const wrapTabItems6 = computed(() => {
+  if (wrapRtl6.value) {
+    return wrapVerboseLabels6.value ? wrapTabItemsVerboseAr : wrapTabItemsAr;
+  }
+
+  return wrapVerboseLabels6.value ? wrapTabItemsVerbose : wrapTabItems;
+});
+
+const wrapInviteeItems7 = computed(() => {
+  return wrapRtl7.value ? wrapInviteeItemsAr : wrapInviteeItems;
+});
+
+function wrapToggleLabel(expanded: boolean, rtl = false): string {
+  if (rtl) {
+    return expanded ? "أقل" : "المزيد";
+  }
+
+  return expanded ? "Less" : "More";
+}
+
+function wrapInviteePrefixLabel(rtl: boolean): string {
+  return rtl ? "المراجعون" : "Reviewers";
+}
+
+function wrapTabsTriggerLabel(rtl: boolean): string {
+  return rtl ? "إظهار التبويبات المخفية" : "Show hidden tabs";
+}
+
+function selectWrapTab6(id: string): void {
+  selectedWrapTab6.value = id;
+  wrapTabsMenuOpen6.value = false;
+}
+
+function isSelectedWrapTabHidden6(hiddenItems: readonly WrapDemoItem[]): boolean {
+  return hiddenItems.some((item) => item.id === selectedWrapTab6.value);
+}
+
+function closeWrapTabsMenu6(): void {
+  wrapTabsMenuOpen6.value = false;
+}
+
+function toggleWrapTabsMenu6(): void {
+  wrapTabsMenuOpen6.value = !wrapTabsMenuOpen6.value;
+}
+
+function handleWrapTabsPointerDown(event: PointerEvent): void {
+  if (!wrapTabsMenuOpen6.value) {
+    return;
+  }
+
+  const target = event.target;
+  if (!(target instanceof Node)) {
+    return;
+  }
+
+  if (wrapTabsTriggerRef6.value?.contains(target) || wrapTabsMenuRef6.value?.contains(target)) {
+    return;
+  }
+
+  closeWrapTabsMenu6();
+}
+
+function handleWrapTabsKeydown(event: KeyboardEvent): void {
+  if (event.key === "Escape") {
+    closeWrapTabsMenu6();
+  }
+}
+
+onMounted(() => {
+  document.addEventListener("pointerdown", handleWrapTabsPointerDown);
+  document.addEventListener("keydown", handleWrapTabsKeydown);
+});
+
+onBeforeUnmount(() => {
+  document.removeEventListener("pointerdown", handleWrapTabsPointerDown);
+  document.removeEventListener("keydown", handleWrapTabsKeydown);
+});
 
 type PkgManager = "vp" | "npm" | "pnpm" | "yarn" | "bun" | "agent";
 
@@ -258,6 +419,34 @@ const inlineCodeExample = [
   "</template>",
 ].join("\n");
 
+const wrapCodeExample = [
+  '<script setup lang="ts">',
+  "import { ref } from 'vue'",
+  "import { WrapClamp } from 'vue-clamp'",
+  "",
+  "const expanded = ref(false)",
+  "const labels = [",
+  "  { id: 'perf', label: 'Performance' },",
+  "  { id: 'a11y', label: 'Accessibility' },",
+  "  { id: 'docs', label: 'Docs' },",
+  "  { id: 'qa', label: 'Needs QA' },",
+  "]",
+  "<" + "/script>",
+  "",
+  "<template>",
+  '  <WrapClamp v-model:expanded="expanded" :items="labels" item-key="id" :max-lines="2">',
+  '    <template #item="{ item }">',
+  '      <span class="tag">{{ item.label }}</span>',
+  "    </template>",
+  '    <template #after="{ expanded, clamped, hiddenCount, toggle }">',
+  '      <button v-if="expanded || clamped" type="button" @click="toggle">',
+  `        {{ expanded ? 'Less' : \`+\${hiddenCount} more\` }}`,
+  "      </button>",
+  "    </template>",
+  "  </WrapClamp>",
+  "</template>",
+].join("\n");
+
 const highlightedInstall = computed(() => {
   if (pkgManager.value === "agent") {
     return null;
@@ -281,6 +470,13 @@ const highlightedInlineCode = computed(() => {
     theme: websiteShikiTheme.name,
   });
 });
+
+const highlightedWrapCode = computed(() => {
+  return shiki.codeToHtml(wrapCodeExample, {
+    lang: "vue",
+    theme: websiteShikiTheme.name,
+  });
+});
 </script>
 
 <template>
@@ -288,7 +484,7 @@ const highlightedInlineCode = computed(() => {
     <!-- Hero -->
     <header class="hero">
       <h1 class="hero-title">&lt;vue-clamp&gt;</h1>
-      <p class="hero-tagline">LineClamp and InlineClamp for Vue 3 text truncation.</p>
+      <p class="hero-tagline">LineClamp, InlineClamp, and WrapClamp for Vue 3 clamping.</p>
       <nav class="hero-links">
         <a
           class="link-github"
@@ -317,6 +513,10 @@ const highlightedInlineCode = computed(() => {
         <li>
           <code>InlineClamp</code> keeps a single line compact while preserving meaningful edges,
           which works well for filenames, paths, email addresses, and other label-like text.
+        </li>
+        <li>
+          <code>WrapClamp</code> keeps wrapped chips, tags, and selected-value rails tidy while
+          preserving whole items, which works well for labels, filters, invitees, and token lists.
         </li>
       </ul>
     </section>
@@ -363,296 +563,299 @@ const highlightedInlineCode = computed(() => {
             <h3 class="subsection-title">Demo</h3>
 
             <template v-if="activeSurface === 'line'">
-              <!-- Demo 1: max-lines + after slot toggle -->
-              <div class="demo-block">
-                <div class="demo-label">max-lines / slot <code>after</code> / toggle</div>
-                <div class="demo-controls">
-                  <label class="control">
-                    <span class="control-label">Max lines</span>
-                    <input
-                      v-model.number="lines1"
-                      class="control-input"
-                      type="number"
-                      min="1"
-                      max="8"
-                      step="1"
-                    />
-                  </label>
-                  <label class="control">
-                    <span class="control-label">Width</span>
-                    <span class="control-row">
-                      <input
-                        v-model.number="width1"
-                        class="control-range"
-                        type="range"
-                        min="240"
-                        max="600"
-                      />
-                      <span class="control-value">{{ width1 }}px</span>
-                    </span>
-                  </label>
-                  <div class="control-row">
-                    <label class="control-check">
-                      <input v-model="hyphens1" type="checkbox" />
-                      <span>CSS Hyphens</span>
-                    </label>
-                    <label class="control-check">
-                      <input v-model="rtl1" type="checkbox" />
-                      <span>RTL</span>
-                    </label>
-                  </div>
-                </div>
-                <div class="demo-preview">
-                  <div
-                    class="demo-output width-guide"
-                    :style="{ width: `${width1}px`, maxWidth: '100%' }"
-                  >
-                    <LineClamp
-                      class="demo-clamp"
-                      :class="{ hyphens: hyphens1, rtl: rtl1 }"
-                      :text="lineDemoText(rtl1)"
-                      :max-lines="lines1"
-                      :style="{ width: `${width1}px`, maxWidth: '100%' }"
-                    >
-                      <template #after="{ toggle, expanded, clamped }">
-                        <button v-if="expanded || clamped" class="toggle-btn" @click="toggle">
-                          {{ lineToggleLabel(expanded, rtl1) }}
-                        </button>
-                      </template>
-                    </LineClamp>
-                  </div>
-                </div>
-              </div>
-
-              <!-- Demo 2: max-height + before slot + external expanded -->
-              <div class="demo-block">
-                <div class="demo-label">
-                  max-height / slot <code>before</code> / external control
-                </div>
-                <div class="demo-controls">
-                  <label class="control">
-                    <span class="control-label">Max height</span>
-                    <input v-model="height2" class="control-input" />
-                  </label>
-                  <label class="control">
-                    <span class="control-label">Width</span>
-                    <span class="control-row">
-                      <input
-                        v-model.number="width2"
-                        class="control-range"
-                        type="range"
-                        min="240"
-                        max="600"
-                      />
-                      <span class="control-value">{{ width2 }}px</span>
-                    </span>
-                  </label>
-                  <div class="control-row">
-                    <label class="control-check">
-                      <input v-model="hyphens2" type="checkbox" />
-                      <span>CSS Hyphens</span>
-                    </label>
-                    <label class="control-check">
-                      <input v-model="rtl2" type="checkbox" />
-                      <span>RTL</span>
-                    </label>
-                    <label class="control-check">
-                      <input v-model="expanded2" type="checkbox" />
-                      <span>Expanded</span>
-                    </label>
-                  </div>
-                </div>
-                <div class="demo-preview">
-                  <div
-                    class="demo-output width-guide height-guide"
-                    :style="{ width: `${width2}px`, maxWidth: '100%' }"
-                  >
-                    <LineClamp
-                      class="demo-clamp"
-                      :class="{ hyphens: hyphens2, rtl: rtl2 }"
-                      :text="lineDemoText(rtl2)"
-                      :max-height="height2"
-                      v-model:expanded="expanded2"
-                      :style="{ width: `${width2}px`, maxWidth: '100%' }"
-                    >
-                      <template #before>
-                        <span class="badge">{{ lineBadgeLabel(rtl2) }}</span>
-                      </template>
-                    </LineClamp>
-                  </div>
-                </div>
-              </div>
-
-              <!-- Demo 3: clampchange event -->
-              <div class="demo-block">
-                <div class="demo-label"><code>clampchange</code> event</div>
-                <div class="demo-controls">
-                  <label class="control">
-                    <span class="control-label">Max lines</span>
-                    <input
-                      v-model.number="lines3"
-                      class="control-input"
-                      type="number"
-                      min="1"
-                      max="8"
-                      step="1"
-                    />
-                  </label>
-                  <label class="control">
-                    <span class="control-label">Width</span>
-                    <span class="control-row">
-                      <input
-                        v-model.number="width3"
-                        class="control-range"
-                        type="range"
-                        min="240"
-                        max="600"
-                      />
-                      <span class="control-value">{{ width3 }}px</span>
-                    </span>
-                  </label>
-                  <div class="control-row">
-                    <label class="control-check">
-                      <input v-model="hyphens3" type="checkbox" />
-                      <span>CSS Hyphens</span>
-                    </label>
-                    <label class="control-check">
-                      <input v-model="rtl3" type="checkbox" />
-                      <span>RTL</span>
-                    </label>
-                  </div>
-                </div>
-                <div class="demo-preview">
-                  <div
-                    class="demo-output width-guide"
-                    :style="{ width: `${width3}px`, maxWidth: '100%' }"
-                  >
-                    <LineClamp
-                      class="demo-clamp"
-                      :class="{ hyphens: hyphens3, rtl: rtl3 }"
-                      :text="lineDemoText(rtl3)"
-                      :max-lines="lines3"
-                      :style="{ width: `${width3}px`, maxWidth: '100%' }"
-                      @clampchange="clamped3 = $event"
-                    />
-                  </div>
-                  <p class="clamp-status">
-                    Clamped:
-                    <strong :class="clamped3 ? 'status-yes' : 'status-no'">{{
-                      clamped3 ? "Yes" : "No"
-                    }}</strong>
-                  </p>
-                </div>
-              </div>
-
-              <!-- Demo 4: ellipsis + location -->
-              <div class="demo-block" data-demo="location">
-                <div class="demo-label">ellipsis / location keywords + ratios</div>
-                <div class="demo-controls">
-                  <div class="control stacked-control">
-                    <span class="control-label">Location</span>
-                    <span class="control-stack">
-                      <span class="control-pills" role="group" aria-label="Location presets">
-                        <button
-                          v-for="preset in locationPresets4"
-                          :key="preset.value"
-                          class="control-pill"
-                          :class="{ active: selectedLocationPreset4 === preset.value }"
-                          :data-location-preset="preset.value"
-                          type="button"
-                          :aria-pressed="selectedLocationPreset4 === preset.value"
-                          @click="selectLocationPreset4(preset.ratio)"
-                        >
-                          {{ preset.label }}
-                        </button>
-                      </span>
-                    </span>
-                  </div>
-                  <div class="control stacked-control">
-                    <span class="control-label">Ratio</span>
-                    <span class="control-stack">
-                      <span class="control-row">
+              <div class="demo-surface">
+                <div class="demo-example-list">
+                  <!-- Demo 1: max-lines + after slot toggle -->
+                  <div class="demo-block">
+                    <div class="demo-label">max-lines / slot <code>after</code> / toggle</div>
+                    <div class="demo-controls">
+                      <label class="control">
+                        <span class="control-label">Max lines</span>
                         <input
-                          v-model.number="locationRatio4"
-                          data-location-ratio-slider
-                          class="control-range"
-                          type="range"
-                          min="0"
-                          max="1"
-                          step="0.05"
+                          v-model.number="lines1"
+                          class="control-input"
+                          type="number"
+                          min="1"
+                          max="8"
+                          step="1"
                         />
-                        <span class="control-value">{{ locationRatio4.toFixed(2) }}</span>
-                      </span>
-                    </span>
+                      </label>
+                      <label class="control">
+                        <span class="control-label">Width</span>
+                        <span class="control-row">
+                          <input
+                            v-model.number="width1"
+                            class="control-range"
+                            type="range"
+                            min="240"
+                            max="600"
+                          />
+                          <span class="control-value">{{ width1 }}px</span>
+                        </span>
+                      </label>
+                      <div class="control-row">
+                        <label class="control-check">
+                          <input v-model="hyphens1" type="checkbox" />
+                          <span>CSS Hyphens</span>
+                        </label>
+                        <label class="control-check">
+                          <input v-model="rtl1" type="checkbox" />
+                          <span>RTL</span>
+                        </label>
+                      </div>
+                    </div>
+                    <div class="demo-preview">
+                      <div
+                        class="demo-output width-guide"
+                        :style="{ width: `${width1}px`, maxWidth: '100%' }"
+                      >
+                        <LineClamp
+                          class="demo-clamp"
+                          :class="{ hyphens: hyphens1, rtl: rtl1 }"
+                          :text="lineDemoText(rtl1)"
+                          :max-lines="lines1"
+                          :style="{ width: `${width1}px`, maxWidth: '100%' }"
+                        >
+                          <template #after="{ toggle, expanded, clamped }">
+                            <button v-if="expanded || clamped" class="toggle-btn" @click="toggle">
+                              {{ lineToggleLabel(expanded, rtl1) }}
+                            </button>
+                          </template>
+                        </LineClamp>
+                      </div>
+                    </div>
                   </div>
-                  <label class="control">
-                    <span class="control-label">Ellipsis</span>
-                    <input v-model="ellipsis4" class="control-input" maxlength="6" />
-                  </label>
-                  <label class="control">
-                    <span class="control-label">Max lines</span>
-                    <input
-                      v-model.number="lines4"
-                      class="control-input"
-                      type="number"
-                      min="1"
-                      max="8"
-                      step="1"
-                    />
-                  </label>
-                  <label class="control">
-                    <span class="control-label">Width</span>
-                    <span class="control-row">
-                      <input
-                        v-model.number="width4"
-                        data-location-width-slider
-                        class="control-range"
-                        type="range"
-                        min="240"
-                        max="600"
-                      />
-                      <span class="control-value">{{ width4 }}px</span>
-                    </span>
-                  </label>
-                  <div class="control-row">
-                    <label class="control-check">
-                      <input v-model="hyphens4" type="checkbox" />
-                      <span>CSS Hyphens</span>
-                    </label>
-                    <label class="control-check">
-                      <input v-model="rtl4" type="checkbox" />
-                      <span>RTL</span>
-                    </label>
+
+                  <!-- Demo 2: max-height + before slot + external expanded -->
+                  <div class="demo-block">
+                    <div class="demo-label">
+                      max-height / slot <code>before</code> / external control
+                    </div>
+                    <div class="demo-controls">
+                      <label class="control">
+                        <span class="control-label">Max height</span>
+                        <input v-model="height2" class="control-input" />
+                      </label>
+                      <label class="control">
+                        <span class="control-label">Width</span>
+                        <span class="control-row">
+                          <input
+                            v-model.number="width2"
+                            class="control-range"
+                            type="range"
+                            min="240"
+                            max="600"
+                          />
+                          <span class="control-value">{{ width2 }}px</span>
+                        </span>
+                      </label>
+                      <div class="control-row">
+                        <label class="control-check">
+                          <input v-model="hyphens2" type="checkbox" />
+                          <span>CSS Hyphens</span>
+                        </label>
+                        <label class="control-check">
+                          <input v-model="rtl2" type="checkbox" />
+                          <span>RTL</span>
+                        </label>
+                        <label class="control-check">
+                          <input v-model="expanded2" type="checkbox" />
+                          <span>Expanded</span>
+                        </label>
+                      </div>
+                    </div>
+                    <div class="demo-preview">
+                      <div
+                        class="demo-output width-guide height-guide"
+                        :style="{ width: `${width2}px`, maxWidth: '100%' }"
+                      >
+                        <LineClamp
+                          class="demo-clamp"
+                          :class="{ hyphens: hyphens2, rtl: rtl2 }"
+                          :text="lineDemoText(rtl2)"
+                          :max-height="height2"
+                          v-model:expanded="expanded2"
+                          :style="{ width: `${width2}px`, maxWidth: '100%' }"
+                        >
+                          <template #before>
+                            <span class="badge">{{ lineBadgeLabel(rtl2) }}</span>
+                          </template>
+                        </LineClamp>
+                      </div>
+                    </div>
                   </div>
-                </div>
-                <div class="demo-preview">
-                  <div
-                    class="demo-output width-guide"
-                    :style="{ width: `${width4}px`, maxWidth: '100%' }"
-                  >
-                    <LineClamp
-                      class="demo-clamp"
-                      :class="{ hyphens: hyphens4, rtl: rtl4 }"
-                      :text="lineDemoText(rtl4)"
-                      :max-lines="lines4"
-                      :location="location4"
-                      :ellipsis="ellipsis4"
-                      :style="{ width: `${width4}px`, maxWidth: '100%' }"
-                    >
-                      <template #after="{ toggle, expanded, clamped }">
-                        <button v-if="expanded || clamped" class="toggle-btn" @click="toggle">
-                          {{ lineToggleLabel(expanded, rtl4) }}
-                        </button>
-                      </template>
-                    </LineClamp>
+
+                  <!-- Demo 3: clampchange event -->
+                  <div class="demo-block">
+                    <div class="demo-label"><code>clampchange</code> event</div>
+                    <div class="demo-controls">
+                      <label class="control">
+                        <span class="control-label">Max lines</span>
+                        <input
+                          v-model.number="lines3"
+                          class="control-input"
+                          type="number"
+                          min="1"
+                          max="8"
+                          step="1"
+                        />
+                      </label>
+                      <label class="control">
+                        <span class="control-label">Width</span>
+                        <span class="control-row">
+                          <input
+                            v-model.number="width3"
+                            class="control-range"
+                            type="range"
+                            min="240"
+                            max="600"
+                          />
+                          <span class="control-value">{{ width3 }}px</span>
+                        </span>
+                      </label>
+                      <div class="control-row">
+                        <label class="control-check">
+                          <input v-model="hyphens3" type="checkbox" />
+                          <span>CSS Hyphens</span>
+                        </label>
+                        <label class="control-check">
+                          <input v-model="rtl3" type="checkbox" />
+                          <span>RTL</span>
+                        </label>
+                      </div>
+                    </div>
+                    <div class="demo-preview">
+                      <div
+                        class="demo-output width-guide"
+                        :style="{ width: `${width3}px`, maxWidth: '100%' }"
+                      >
+                        <LineClamp
+                          class="demo-clamp"
+                          :class="{ hyphens: hyphens3, rtl: rtl3 }"
+                          :text="lineDemoText(rtl3)"
+                          :max-lines="lines3"
+                          :style="{ width: `${width3}px`, maxWidth: '100%' }"
+                          @clampchange="clamped3 = $event"
+                        />
+                      </div>
+                      <p class="clamp-status">
+                        Clamped:
+                        <strong :class="clamped3 ? 'status-yes' : 'status-no'">{{
+                          clamped3 ? "Yes" : "No"
+                        }}</strong>
+                      </p>
+                    </div>
+                  </div>
+
+                  <!-- Demo 4: ellipsis + location -->
+                  <div class="demo-block" data-demo="location">
+                    <div class="demo-label">ellipsis / location keywords + ratios</div>
+                    <div class="demo-controls">
+                      <div class="control stacked-control">
+                        <span class="control-label">Location</span>
+                        <span class="control-stack">
+                          <span class="control-pills" role="group" aria-label="Location presets">
+                            <button
+                              v-for="preset in locationPresets4"
+                              :key="preset.value"
+                              class="control-pill"
+                              :class="{ active: selectedLocationPreset4 === preset.value }"
+                              :data-location-preset="preset.value"
+                              type="button"
+                              :aria-pressed="selectedLocationPreset4 === preset.value"
+                              @click="selectLocationPreset4(preset.ratio)"
+                            >
+                              {{ preset.label }}
+                            </button>
+                          </span>
+                        </span>
+                      </div>
+                      <div class="control stacked-control">
+                        <span class="control-label">Ratio</span>
+                        <span class="control-stack">
+                          <span class="control-row">
+                            <input
+                              v-model.number="locationRatio4"
+                              data-location-ratio-slider
+                              class="control-range"
+                              type="range"
+                              min="0"
+                              max="1"
+                              step="0.05"
+                            />
+                            <span class="control-value">{{ locationRatio4.toFixed(2) }}</span>
+                          </span>
+                        </span>
+                      </div>
+                      <label class="control">
+                        <span class="control-label">Ellipsis</span>
+                        <input v-model="ellipsis4" class="control-input" maxlength="6" />
+                      </label>
+                      <label class="control">
+                        <span class="control-label">Max lines</span>
+                        <input
+                          v-model.number="lines4"
+                          class="control-input"
+                          type="number"
+                          min="1"
+                          max="8"
+                          step="1"
+                        />
+                      </label>
+                      <label class="control">
+                        <span class="control-label">Width</span>
+                        <span class="control-row">
+                          <input
+                            v-model.number="width4"
+                            data-location-width-slider
+                            class="control-range"
+                            type="range"
+                            min="240"
+                            max="600"
+                          />
+                          <span class="control-value">{{ width4 }}px</span>
+                        </span>
+                      </label>
+                      <div class="control-row">
+                        <label class="control-check">
+                          <input v-model="hyphens4" type="checkbox" />
+                          <span>CSS Hyphens</span>
+                        </label>
+                        <label class="control-check">
+                          <input v-model="rtl4" type="checkbox" />
+                          <span>RTL</span>
+                        </label>
+                      </div>
+                    </div>
+                    <div class="demo-preview">
+                      <div
+                        class="demo-output width-guide"
+                        :style="{ width: `${width4}px`, maxWidth: '100%' }"
+                      >
+                        <LineClamp
+                          class="demo-clamp"
+                          :class="{ hyphens: hyphens4, rtl: rtl4 }"
+                          :text="lineDemoText(rtl4)"
+                          :max-lines="lines4"
+                          :location="location4"
+                          :ellipsis="ellipsis4"
+                          :style="{ width: `${width4}px`, maxWidth: '100%' }"
+                        >
+                          <template #after="{ toggle, expanded, clamped }">
+                            <button v-if="expanded || clamped" class="toggle-btn" @click="toggle">
+                              {{ lineToggleLabel(expanded, rtl4) }}
+                            </button>
+                          </template>
+                        </LineClamp>
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
             </template>
 
-            <div v-else data-demo="inline">
-              <div class="demo-block">
-                <div class="demo-label">native one-line clamp / optional <code>split()</code></div>
+            <div v-else-if="activeSurface === 'inline'" class="demo-surface" data-demo="inline">
+              <div class="demo-shared-controls">
                 <div class="demo-controls">
                   <label class="control">
                     <span class="control-label">Width</span>
@@ -671,36 +874,213 @@ const highlightedInlineCode = computed(() => {
                 </div>
               </div>
 
-              <div
-                v-for="example in inlineExamples"
-                :key="example.id"
-                class="demo-block"
-                :data-inline-example="example.id"
-              >
-                <div class="demo-label">{{ example.label }}</div>
-                <div class="demo-preview">
-                  <div class="comparison-grid">
-                    <div class="comparison-panel" data-inline-mode="plain">
-                      <div class="comparison-label">Plain</div>
-                      <div
-                        class="demo-output width-guide"
-                        :style="{ width: `${inlineWidth5}px`, maxWidth: '100%' }"
-                      >
-                        <InlineClamp class="demo-inline" :text="example.text" />
+              <div class="demo-example-list">
+                <div
+                  v-for="example in inlineExamples"
+                  :key="example.id"
+                  class="demo-block"
+                  :data-inline-example="example.id"
+                >
+                  <div class="demo-label">{{ example.label }}</div>
+                  <div class="demo-preview">
+                    <div class="comparison-grid">
+                      <div class="comparison-panel" data-inline-mode="plain">
+                        <div class="comparison-label">Plain</div>
+                        <div
+                          class="demo-output width-guide"
+                          :style="{ width: `${inlineWidth5}px`, maxWidth: '100%' }"
+                        >
+                          <InlineClamp class="demo-inline" :text="example.text" />
+                        </div>
+                      </div>
+                      <div class="comparison-panel" data-inline-mode="split">
+                        <div class="comparison-label">Split</div>
+                        <div
+                          class="demo-output width-guide"
+                          :style="{ width: `${inlineWidth5}px`, maxWidth: '100%' }"
+                        >
+                          <InlineClamp
+                            class="demo-inline"
+                            :text="example.text"
+                            :split="example.split"
+                          />
+                        </div>
                       </div>
                     </div>
-                    <div class="comparison-panel" data-inline-mode="split">
-                      <div class="comparison-label">Split</div>
-                      <div
-                        class="demo-output width-guide"
-                        :style="{ width: `${inlineWidth5}px`, maxWidth: '100%' }"
-                      >
-                        <InlineClamp
-                          class="demo-inline"
-                          :text="example.text"
-                          :split="example.split"
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div v-else class="demo-surface" data-demo="wrap">
+              <div class="demo-example-list">
+                <div class="demo-block" data-wrap-example="tabs">
+                  <div class="demo-label">
+                    tabs / fixed one-line / hidden items in <code>after</code>
+                  </div>
+                  <div class="demo-controls">
+                    <label class="control">
+                      <span class="control-label">Width</span>
+                      <span class="control-row">
+                        <input
+                          v-model.number="wrapWidth6"
+                          class="control-range"
+                          type="range"
+                          min="240"
+                          max="600"
                         />
-                      </div>
+                        <span class="control-value">{{ wrapWidth6 }}px</span>
+                      </span>
+                    </label>
+                    <div class="control-row">
+                      <label class="control-check">
+                        <input v-model="wrapRtl6" type="checkbox" />
+                        <span>RTL</span>
+                      </label>
+                      <label class="control-check">
+                        <input v-model="wrapVerboseLabels6" type="checkbox" />
+                        <span>Verbose labels</span>
+                      </label>
+                    </div>
+                  </div>
+                  <div class="demo-preview">
+                    <div
+                      class="demo-output width-guide"
+                      :style="{ width: `${wrapWidth6}px`, maxWidth: '100%' }"
+                    >
+                      <WrapClamp
+                        class="demo-wrap wrap-tabs"
+                        :class="{ rtl: wrapRtl6 }"
+                        :items="wrapTabItems6"
+                        item-key="id"
+                        :max-lines="1"
+                      >
+                        <template #item="{ item }">
+                          <button
+                            class="wrap-tab"
+                            :class="{ active: item.id === selectedWrapTab6 }"
+                            type="button"
+                            role="tab"
+                            :aria-selected="item.id === selectedWrapTab6"
+                            @click="selectWrapTab6(item.id)"
+                          >
+                            {{ item.label }}
+                          </button>
+                        </template>
+                        <template #after="{ clamped, hiddenItems }">
+                          <span
+                            v-if="clamped"
+                            class="wrap-tabs-after"
+                            :class="{ 'is-active': isSelectedWrapTabHidden6(hiddenItems) }"
+                          >
+                            <button
+                              class="wrap-tab-trigger"
+                              data-wrap-tabs-trigger
+                              type="button"
+                              ref="wrapTabsTriggerRef6"
+                              :aria-expanded="wrapTabsMenuOpen6"
+                              :aria-label="wrapTabsTriggerLabel(wrapRtl6)"
+                              @click="toggleWrapTabsMenu6"
+                            >
+                              <Ellipsis :size="16" :stroke-width="2" aria-hidden="true" />
+                            </button>
+                            <Teleport to="body">
+                              <div
+                                v-if="wrapTabsMenuOpen6"
+                                ref="wrapTabsMenuRef6"
+                                class="wrap-tabs-menu"
+                                data-wrap-tabs-menu
+                              >
+                                <button
+                                  v-for="item in hiddenItems"
+                                  :key="item.id"
+                                  class="wrap-tabs-menu-item"
+                                  :class="{ active: item.id === selectedWrapTab6 }"
+                                  type="button"
+                                  :aria-pressed="item.id === selectedWrapTab6"
+                                  @click="selectWrapTab6(item.id)"
+                                >
+                                  {{ item.label }}
+                                </button>
+                              </div>
+                            </Teleport>
+                          </span>
+                        </template>
+                      </WrapClamp>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="demo-block" data-wrap-example="invitees">
+                  <div class="demo-label">
+                    max-height / slot <code>before</code> / expandable selection
+                  </div>
+                  <div class="demo-controls">
+                    <label class="control">
+                      <span class="control-label">Max height</span>
+                      <input v-model="wrapHeight7" class="control-input" />
+                    </label>
+                    <label class="control">
+                      <span class="control-label">Width</span>
+                      <span class="control-row">
+                        <input
+                          v-model.number="wrapWidth7"
+                          class="control-range"
+                          type="range"
+                          min="260"
+                          max="560"
+                        />
+                        <span class="control-value">{{ wrapWidth7 }}px</span>
+                      </span>
+                    </label>
+                    <div class="control-row">
+                      <label class="control-check">
+                        <input v-model="wrapExpanded7" type="checkbox" />
+                        <span>Expanded</span>
+                      </label>
+                      <label class="control-check">
+                        <input v-model="wrapRtl7" type="checkbox" />
+                        <span>RTL</span>
+                      </label>
+                    </div>
+                  </div>
+                  <div class="demo-preview">
+                    <div
+                      class="demo-output width-guide height-guide"
+                      :style="{ width: `${wrapWidth7}px`, maxWidth: '100%' }"
+                    >
+                      <WrapClamp
+                        class="demo-wrap"
+                        :class="{ rtl: wrapRtl7 }"
+                        :items="wrapInviteeItems7"
+                        item-key="id"
+                        :max-height="wrapHeight7"
+                        v-model:expanded="wrapExpanded7"
+                        :style="{ width: `${wrapWidth7}px`, maxWidth: '100%' }"
+                      >
+                        <template #before>
+                          <span class="wrap-prefix" data-wrap-prefix>{{
+                            wrapInviteePrefixLabel(wrapRtl7)
+                          }}</span>
+                        </template>
+                        <template #item="{ item }">
+                          <span class="wrap-pill wrap-person">
+                            <span v-if="item.avatar" class="wrap-avatar">{{ item.avatar }}</span>
+                            {{ item.label }}
+                          </span>
+                        </template>
+                        <template #after="{ expanded, clamped, toggle }">
+                          <button
+                            v-if="expanded || clamped"
+                            class="wrap-pill wrap-summary wrap-summary-button"
+                            data-wrap-toggle
+                            type="button"
+                            @click="toggle"
+                          >
+                            {{ wrapToggleLabel(expanded, wrapRtl7) }}
+                          </button>
+                        </template>
+                      </WrapClamp>
                     </div>
                   </div>
                 </div>
@@ -718,239 +1098,603 @@ const highlightedInlineCode = computed(() => {
               block-id="line-example"
             />
             <CodeBlock
-              v-else
+              v-else-if="activeSurface === 'inline'"
               :code="inlineCodeExample"
               :html="highlightedInlineCode"
               label="InlineClamp example"
               block-id="inline-example"
             />
+            <CodeBlock
+              v-else
+              :code="wrapCodeExample"
+              :html="highlightedWrapCode"
+              label="WrapClamp example"
+              block-id="wrap-example"
+            />
           </section>
 
           <section class="reference-section" data-reference-panel="api">
             <template v-if="activeSurface === 'line'">
-              <h3 class="subsection-title">Props</h3>
-              <div class="api-table-wrap">
-                <table class="api-table">
-                  <thead>
-                    <tr>
-                      <th>Prop</th>
-                      <th>Type</th>
-                      <th>Default</th>
-                      <th>Description</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr>
-                      <td><code>as</code></td>
-                      <td><code>string</code></td>
-                      <td><code>'div'</code></td>
-                      <td>The tag name of the generated root element.</td>
-                    </tr>
-                    <tr>
-                      <td><code>text</code></td>
-                      <td><code>string</code></td>
-                      <td><code>''</code></td>
-                      <td>The text content to clamp.</td>
-                    </tr>
-                    <tr>
-                      <td><code>max-lines</code></td>
-                      <td><code>number</code></td>
-                      <td>--</td>
-                      <td>The max number of lines that can be displayed.</td>
-                    </tr>
-                    <tr>
-                      <td><code>max-height</code></td>
-                      <td><code>number | string</code></td>
-                      <td>--</td>
-                      <td>
-                        The max height of the root element. Numbers are converted to
-                        <code>px</code>; strings are used directly as CSS.
-                      </td>
-                    </tr>
-                    <tr>
-                      <td><code>ellipsis</code></td>
-                      <td><code>string</code></td>
-                      <td><code>'…'</code></td>
-                      <td>The ellipsis string displayed when text is clamped.</td>
-                    </tr>
-                    <tr>
-                      <td><code>location</code></td>
-                      <td><code>number | 'start' | 'middle' | 'end'</code></td>
-                      <td><code>'end'</code></td>
-                      <td>
-                        Where the ellipsis is placed within the text. Keyword aliases map to numeric
-                        ratios: <code>start</code> → <code>0</code>, <code>middle</code> →
-                        <code>0.5</code>, <code>end</code> → <code>1</code>.
-                      </td>
-                    </tr>
-                    <tr>
-                      <td><code>expanded</code></td>
-                      <td><code>boolean</code></td>
-                      <td><code>false</code></td>
-                      <td>Whether the clamped area is expanded. Supports <code>v-model</code>.</td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
+              <p class="api-summary" data-api-summary="line">
+                Use for real multiline text where the browser decides wrapping. Pick
+                <code>max-lines</code> for text-driven limits or <code>max-height</code> for
+                layout-driven limits.
+              </p>
 
-              <h3 class="subsection-title">Slots</h3>
-              <div class="api-table-wrap">
-                <table class="api-table">
-                  <thead>
-                    <tr>
-                      <th>Slot</th>
-                      <th>Scope</th>
-                      <th>Description</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr>
-                      <td><code>before</code></td>
-                      <td><code>{ expand, collapse, toggle, clamped, expanded }</code></td>
-                      <td>Content displayed before the clamped text.</td>
-                    </tr>
-                    <tr>
-                      <td><code>after</code></td>
-                      <td><code>{ expand, collapse, toggle, clamped, expanded }</code></td>
-                      <td>Content displayed after the clamped text.</td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
+              <section class="api-group">
+                <h3 class="subsection-title">Props</h3>
+                <div class="api-list">
+                  <div class="api-entry">
+                    <div class="api-entry-header">
+                      <div class="api-entry-name"><code>as</code></div>
+                      <div class="api-entry-meta">
+                        <span class="api-meta-pair">
+                          <span class="api-meta-label">Type</span>
+                          <code>string</code>
+                        </span>
+                        <span class="api-meta-pair">
+                          <span class="api-meta-label">Default</span>
+                          <code>'div'</code>
+                        </span>
+                      </div>
+                    </div>
+                    <p class="api-entry-copy">Root tag name.</p>
+                  </div>
+                  <div class="api-entry">
+                    <div class="api-entry-header">
+                      <div class="api-entry-name"><code>text</code></div>
+                      <div class="api-entry-meta">
+                        <span class="api-meta-pair">
+                          <span class="api-meta-label">Type</span>
+                          <code>string</code>
+                        </span>
+                        <span class="api-meta-pair">
+                          <span class="api-meta-label">Default</span>
+                          <code>''</code>
+                        </span>
+                      </div>
+                    </div>
+                    <p class="api-entry-copy">Source string to clamp.</p>
+                  </div>
+                  <div class="api-entry">
+                    <div class="api-entry-header">
+                      <div class="api-entry-name"><code>max-lines</code></div>
+                      <div class="api-entry-meta">
+                        <span class="api-meta-pair">
+                          <span class="api-meta-label">Type</span>
+                          <code>number</code>
+                        </span>
+                      </div>
+                    </div>
+                    <p class="api-entry-copy">Maximum number of visible lines.</p>
+                  </div>
+                  <div class="api-entry">
+                    <div class="api-entry-header">
+                      <div class="api-entry-name"><code>max-height</code></div>
+                      <div class="api-entry-meta">
+                        <span class="api-meta-pair">
+                          <span class="api-meta-label">Type</span>
+                          <code>number | string</code>
+                        </span>
+                      </div>
+                    </div>
+                    <p class="api-entry-copy">
+                      Maximum visible height. Numbers use <code>px</code>.
+                    </p>
+                  </div>
+                  <div class="api-entry">
+                    <div class="api-entry-header">
+                      <div class="api-entry-name"><code>ellipsis</code></div>
+                      <div class="api-entry-meta">
+                        <span class="api-meta-pair">
+                          <span class="api-meta-label">Type</span>
+                          <code>string</code>
+                        </span>
+                        <span class="api-meta-pair">
+                          <span class="api-meta-label">Default</span>
+                          <code>'…'</code>
+                        </span>
+                      </div>
+                    </div>
+                    <p class="api-entry-copy">Ellipsis inserted into clamped text.</p>
+                  </div>
+                  <div class="api-entry">
+                    <div class="api-entry-header">
+                      <div class="api-entry-name"><code>location</code></div>
+                      <div class="api-entry-meta">
+                        <span class="api-meta-pair">
+                          <span class="api-meta-label">Type</span>
+                          <code>number | 'start' | 'middle' | 'end'</code>
+                        </span>
+                        <span class="api-meta-pair">
+                          <span class="api-meta-label">Default</span>
+                          <code>'end'</code>
+                        </span>
+                      </div>
+                    </div>
+                    <p class="api-entry-copy">
+                      Ellipsis position. Keywords map to <code>0</code>, <code>0.5</code>, and
+                      <code>1</code>.
+                    </p>
+                  </div>
+                  <div class="api-entry">
+                    <div class="api-entry-header">
+                      <div class="api-entry-name"><code>expanded</code></div>
+                      <div class="api-entry-meta">
+                        <span class="api-meta-pair">
+                          <span class="api-meta-label">Type</span>
+                          <code>boolean</code>
+                        </span>
+                        <span class="api-meta-pair">
+                          <span class="api-meta-label">Default</span>
+                          <code>false</code>
+                        </span>
+                      </div>
+                    </div>
+                    <p class="api-entry-copy">
+                      Shows the full text. Supports <code>v-model</code>.
+                    </p>
+                  </div>
+                </div>
+              </section>
 
-              <h3 class="subsection-title">Events</h3>
-              <div class="api-table-wrap">
-                <table class="api-table">
-                  <thead>
-                    <tr>
-                      <th>Event</th>
-                      <th>Payload</th>
-                      <th>Description</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr>
-                      <td><code>clampchange</code></td>
-                      <td><code>(clamped: boolean)</code></td>
-                      <td>Emitted when the clamp state changes.</td>
-                    </tr>
-                    <tr>
-                      <td><code>update:expanded</code></td>
-                      <td><code>(expanded: boolean)</code></td>
-                      <td>Emitted when the expanded state changes.</td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
+              <section class="api-group">
+                <h3 class="subsection-title">Slots</h3>
+                <div class="api-list">
+                  <div class="api-entry">
+                    <div class="api-entry-header">
+                      <div class="api-entry-name"><code>before</code></div>
+                    </div>
+                    <div class="api-entry-copy">
+                      <p>Leading inline content measured with the text flow.</p>
+                      <dl class="api-detail-list">
+                        <div class="api-detail-item">
+                          <dt class="api-detail-term">Slot props</dt>
+                          <dd class="api-detail-desc">
+                            <dl class="api-subdetail-list">
+                              <div class="api-subdetail-item">
+                                <dt class="api-subdetail-term"><code>expand(): void</code></dt>
+                                <dd class="api-subdetail-desc">Expands to the full text.</dd>
+                              </div>
+                              <div class="api-subdetail-item">
+                                <dt class="api-subdetail-term"><code>collapse(): void</code></dt>
+                                <dd class="api-subdetail-desc">Returns to the clamped state.</dd>
+                              </div>
+                              <div class="api-subdetail-item">
+                                <dt class="api-subdetail-term"><code>toggle(): void</code></dt>
+                                <dd class="api-subdetail-desc">
+                                  Switches between expanded and collapsed.
+                                </dd>
+                              </div>
+                              <div class="api-subdetail-item">
+                                <dt class="api-subdetail-term"><code>clamped: boolean</code></dt>
+                                <dd class="api-subdetail-desc">
+                                  Whether the collapsed output is truncated.
+                                </dd>
+                              </div>
+                              <div class="api-subdetail-item">
+                                <dt class="api-subdetail-term"><code>expanded: boolean</code></dt>
+                                <dd class="api-subdetail-desc">
+                                  Whether the full text is currently shown.
+                                </dd>
+                              </div>
+                            </dl>
+                          </dd>
+                        </div>
+                      </dl>
+                    </div>
+                  </div>
+                  <div class="api-entry">
+                    <div class="api-entry-header">
+                      <div class="api-entry-name"><code>after</code></div>
+                    </div>
+                    <div class="api-entry-copy">
+                      <p>Trailing inline content, usually toggle UI.</p>
+                      <dl class="api-detail-list">
+                        <div class="api-detail-item">
+                          <dt class="api-detail-term">Slot props</dt>
+                          <dd class="api-detail-desc">Same as <code>before</code>.</dd>
+                        </div>
+                      </dl>
+                    </div>
+                  </div>
+                </div>
+              </section>
 
-              <h3 class="subsection-title">Notes</h3>
-              <ul class="notes-list" data-api-notes="line">
-                <li>
-                  <code>text</code> is the source string. <code>before</code> and
-                  <code>after</code> render around it, but they are not part of the clamped source
-                  text.
-                </li>
-                <li>
-                  Use <code>max-lines</code> for line-based layouts, or <code>max-height</code>
-                  when the visible height comes from surrounding UI.
-                </li>
-                <li>
-                  <code>location="end"</code> and the numeric ratio <code>1</code> can use a native
-                  CSS fast path for the collapsed one-line default-ellipsis case.
-                </li>
-                <li>
-                  <code>before</code> and <code>after</code> are measured as atomic inline boxes, so
-                  they work best as concise inline content.
-                </li>
-              </ul>
+              <section class="api-group">
+                <h3 class="subsection-title">Events</h3>
+                <div class="api-list">
+                  <div class="api-entry">
+                    <div class="api-entry-header">
+                      <div class="api-entry-name"><code>clampchange</code></div>
+                      <div class="api-entry-meta">
+                        <span class="api-meta-pair">
+                          <span class="api-meta-label">Payload</span>
+                          <code>(clamped: boolean)</code>
+                        </span>
+                      </div>
+                    </div>
+                    <p class="api-entry-copy">Emitted when truncation turns on or off.</p>
+                  </div>
+                  <div class="api-entry">
+                    <div class="api-entry-header">
+                      <div class="api-entry-name"><code>update:expanded</code></div>
+                      <div class="api-entry-meta">
+                        <span class="api-meta-pair">
+                          <span class="api-meta-label">Payload</span>
+                          <code>(expanded: boolean)</code>
+                        </span>
+                      </div>
+                    </div>
+                    <p class="api-entry-copy">Emitted when expansion changes.</p>
+                  </div>
+                </div>
+              </section>
+            </template>
+
+            <template v-else-if="activeSurface === 'inline'">
+              <p class="api-summary" data-api-summary="inline">
+                Use for single-line text where the start or end should stay visible. It has no slots
+                or events, and <code>split(text)</code> should stay pure because only
+                <code>body</code> shrinks.
+              </p>
+
+              <section class="api-group">
+                <h3 class="subsection-title">Props</h3>
+                <div class="api-list">
+                  <div class="api-entry">
+                    <div class="api-entry-header">
+                      <div class="api-entry-name"><code>as</code></div>
+                      <div class="api-entry-meta">
+                        <span class="api-meta-pair">
+                          <span class="api-meta-label">Type</span>
+                          <code>string</code>
+                        </span>
+                        <span class="api-meta-pair">
+                          <span class="api-meta-label">Default</span>
+                          <code>'span'</code>
+                        </span>
+                      </div>
+                    </div>
+                    <p class="api-entry-copy">Root tag name.</p>
+                  </div>
+                  <div class="api-entry">
+                    <div class="api-entry-header">
+                      <div class="api-entry-name"><code>text</code></div>
+                      <div class="api-entry-meta">
+                        <span class="api-meta-pair">
+                          <span class="api-meta-flag">required</span>
+                        </span>
+                        <span class="api-meta-pair">
+                          <span class="api-meta-label">Type</span>
+                          <code>string</code>
+                        </span>
+                      </div>
+                    </div>
+                    <p class="api-entry-copy">Full one-line source text.</p>
+                  </div>
+                  <div class="api-entry">
+                    <div class="api-entry-header">
+                      <div class="api-entry-name"><code>split</code></div>
+                      <div class="api-entry-meta">
+                        <span class="api-meta-pair">
+                          <span class="api-meta-label">Type</span>
+                          <code>(text: string) =&gt; { start?, body, end? }</code>
+                        </span>
+                      </div>
+                    </div>
+                    <div class="api-entry-copy">
+                      <p>
+                        Optional splitter for dividing one line into fixed and shrinkable parts.
+                      </p>
+                      <dl class="api-detail-list">
+                        <div class="api-detail-item">
+                          <dt class="api-detail-term">Return fields</dt>
+                          <dd class="api-detail-desc">
+                            <dl class="api-subdetail-list">
+                              <div class="api-subdetail-item">
+                                <dt class="api-subdetail-term"><code>start?: string</code></dt>
+                                <dd class="api-subdetail-desc">Optional fixed leading segment.</dd>
+                              </div>
+                              <div class="api-subdetail-item">
+                                <dt class="api-subdetail-term">
+                                  <code>body: string</code>
+                                  <span class="api-meta-flag">required</span>
+                                </dt>
+                                <dd class="api-subdetail-desc">Required shrinkable segment.</dd>
+                              </div>
+                              <div class="api-subdetail-item">
+                                <dt class="api-subdetail-term"><code>end?: string</code></dt>
+                                <dd class="api-subdetail-desc">Optional fixed trailing segment.</dd>
+                              </div>
+                            </dl>
+                          </dd>
+                        </div>
+                      </dl>
+                    </div>
+                  </div>
+                </div>
+              </section>
             </template>
 
             <template v-else>
-              <h3 class="subsection-title">Props</h3>
-              <div class="api-table-wrap">
-                <table class="api-table">
-                  <thead>
-                    <tr>
-                      <th>Prop</th>
-                      <th>Type</th>
-                      <th>Default</th>
-                      <th>Description</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr>
-                      <td><code>as</code></td>
-                      <td><code>string</code></td>
-                      <td><code>'span'</code></td>
-                      <td>The tag name of the generated root element.</td>
-                    </tr>
-                    <tr>
-                      <td><code>text</code></td>
-                      <td><code>string</code></td>
-                      <td>--</td>
-                      <td>The full one-line source text.</td>
-                    </tr>
-                    <tr>
-                      <td><code>split</code></td>
-                      <td><code>(text: string) =&gt; { start?, body, end? }</code></td>
-                      <td>--</td>
-                      <td>
-                        Optional semantic splitter. <code>body</code> is the only shrinking segment;
-                        <code>start</code> and <code>end</code> stay fixed.
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
+              <p class="api-summary" data-api-summary="wrap">
+                Use for wrapped items that must stay whole. Render each visible item through
+                <code>item</code>, and use <code>after</code> for <code>+N</code>,
+                <code>More</code>, or <code>Less</code> UI.
+              </p>
 
-              <h3 class="subsection-title">split() result</h3>
-              <div class="api-table-wrap">
-                <table class="api-table">
-                  <thead>
-                    <tr>
-                      <th>Field</th>
-                      <th>Required</th>
-                      <th>Description</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr>
-                      <td><code>start</code></td>
-                      <td>No</td>
-                      <td>Fixed leading segment.</td>
-                    </tr>
-                    <tr>
-                      <td><code>body</code></td>
-                      <td>Yes</td>
-                      <td>The only shrinkable segment.</td>
-                    </tr>
-                    <tr>
-                      <td><code>end</code></td>
-                      <td>No</td>
-                      <td>Fixed trailing segment.</td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-              <h3 class="subsection-title">Notes</h3>
-              <ul class="notes-list" data-api-notes="inline">
-                <li>
-                  <code>InlineClamp</code> is native-only and single-line-only. It does not expose
-                  slots, events, or an instance API.
-                </li>
-                <li>
-                  <code>InlineClamp</code> is best for one-line text where the start or end must
-                  remain visible, such as filenames, emails, and paths.
-                </li>
-                <li>
-                  <code>split(text)</code> should be pure and synchronous. <code>body</code> is
-                  always the only shrinking segment.
-                </li>
-                <li>
-                  Because it stays native, <code>InlineClamp</code> does not rewrite text and does
-                  not provide expansion state, events, or slot hooks.
-                </li>
-              </ul>
+              <section class="api-group">
+                <h3 class="subsection-title">Props</h3>
+                <div class="api-list">
+                  <div class="api-entry">
+                    <div class="api-entry-header">
+                      <div class="api-entry-name"><code>as</code></div>
+                      <div class="api-entry-meta">
+                        <span class="api-meta-pair">
+                          <span class="api-meta-label">Type</span>
+                          <code>string</code>
+                        </span>
+                        <span class="api-meta-pair">
+                          <span class="api-meta-label">Default</span>
+                          <code>'div'</code>
+                        </span>
+                      </div>
+                    </div>
+                    <p class="api-entry-copy">Root tag name.</p>
+                  </div>
+                  <div class="api-entry">
+                    <div class="api-entry-header">
+                      <div class="api-entry-name"><code>items</code></div>
+                      <div class="api-entry-meta">
+                        <span class="api-meta-pair">
+                          <span class="api-meta-label">Type</span>
+                          <code>readonly T[]</code>
+                        </span>
+                        <span class="api-meta-pair">
+                          <span class="api-meta-label">Default</span>
+                          <code>[]</code>
+                        </span>
+                      </div>
+                    </div>
+                    <div class="api-entry-copy">
+                      <p>Ordered source items. Each item stays whole.</p>
+                      <dl class="api-detail-list">
+                        <div class="api-detail-item">
+                          <dt class="api-detail-term"><code>T</code></dt>
+                          <dd class="api-detail-desc">
+                            Your item shape, inferred from <code>items</code>. There is no built-in
+                            schema.
+                          </dd>
+                        </div>
+                        <div class="api-detail-item">
+                          <dt class="api-detail-term">Example</dt>
+                          <dd class="api-detail-desc">
+                            If <code>items</code> is
+                            <code>Array&lt;{ id: string; label: string }&gt;</code>, then
+                            <code>T</code> is <code>{ id: string; label: string }</code>.
+                          </dd>
+                        </div>
+                        <div class="api-detail-item">
+                          <dt class="api-detail-term">Used by</dt>
+                          <dd class="api-detail-desc">
+                            <code>item: T</code> and <code>hiddenItems: readonly T[]</code>.
+                          </dd>
+                        </div>
+                      </dl>
+                    </div>
+                  </div>
+                  <div class="api-entry">
+                    <div class="api-entry-header">
+                      <div class="api-entry-name"><code>item-key</code></div>
+                      <div class="api-entry-meta">
+                        <span class="api-meta-pair">
+                          <span class="api-meta-label">Type</span>
+                          <code>string | (item, index) =&gt; string | number</code>
+                        </span>
+                      </div>
+                    </div>
+                    <p class="api-entry-copy">
+                      Stable key resolver for custom item rendering. With a string key such as
+                      <code>'id'</code>, each <code>T</code> should expose that field as a string or
+                      number. A function receives <code>(item: T, index: number)</code> and returns
+                      a string or number key.
+                    </p>
+                  </div>
+                  <div class="api-entry">
+                    <div class="api-entry-header">
+                      <div class="api-entry-name"><code>max-lines</code></div>
+                      <div class="api-entry-meta">
+                        <span class="api-meta-pair">
+                          <span class="api-meta-label">Type</span>
+                          <code>number</code>
+                        </span>
+                      </div>
+                    </div>
+                    <p class="api-entry-copy">Maximum number of visible wrapped lines.</p>
+                  </div>
+                  <div class="api-entry">
+                    <div class="api-entry-header">
+                      <div class="api-entry-name"><code>max-height</code></div>
+                      <div class="api-entry-meta">
+                        <span class="api-meta-pair">
+                          <span class="api-meta-label">Type</span>
+                          <code>number | string</code>
+                        </span>
+                      </div>
+                    </div>
+                    <p class="api-entry-copy">
+                      Maximum visible height. Numbers use <code>px</code>.
+                    </p>
+                  </div>
+                  <div class="api-entry">
+                    <div class="api-entry-header">
+                      <div class="api-entry-name"><code>expanded</code></div>
+                      <div class="api-entry-meta">
+                        <span class="api-meta-pair">
+                          <span class="api-meta-label">Type</span>
+                          <code>boolean</code>
+                        </span>
+                        <span class="api-meta-pair">
+                          <span class="api-meta-label">Default</span>
+                          <code>false</code>
+                        </span>
+                      </div>
+                    </div>
+                    <p class="api-entry-copy">
+                      Shows the full item list. Supports <code>v-model</code>.
+                    </p>
+                  </div>
+                </div>
+              </section>
+
+              <section class="api-group">
+                <h3 class="subsection-title">Slots</h3>
+                <div class="api-list">
+                  <div class="api-entry">
+                    <div class="api-entry-header">
+                      <div class="api-entry-name"><code>item</code></div>
+                    </div>
+                    <div class="api-entry-copy">
+                      <p>Renders each visible source item.</p>
+                      <dl class="api-detail-list">
+                        <div class="api-detail-item">
+                          <dt class="api-detail-term">Slot props</dt>
+                          <dd class="api-detail-desc">
+                            <dl class="api-subdetail-list">
+                              <div class="api-subdetail-item">
+                                <dt class="api-subdetail-term"><code>item: T</code></dt>
+                                <dd class="api-subdetail-desc">
+                                  Current visible item, using the same <code>T</code> shape as
+                                  <code>items</code>.
+                                </dd>
+                              </div>
+                              <div class="api-subdetail-item">
+                                <dt class="api-subdetail-term"><code>index: number</code></dt>
+                                <dd class="api-subdetail-desc">Zero-based visible index.</dd>
+                              </div>
+                            </dl>
+                          </dd>
+                        </div>
+                      </dl>
+                    </div>
+                  </div>
+                  <div class="api-entry">
+                    <div class="api-entry-header">
+                      <div class="api-entry-name"><code>before</code></div>
+                    </div>
+                    <div class="api-entry-copy">
+                      <p>Leading atomic content measured with the wrapped item flow.</p>
+                      <dl class="api-detail-list">
+                        <div class="api-detail-item">
+                          <dt class="api-detail-term">Slot props</dt>
+                          <dd class="api-detail-desc">
+                            <dl class="api-subdetail-list">
+                              <div class="api-subdetail-item">
+                                <dt class="api-subdetail-term"><code>expand(): void</code></dt>
+                                <dd class="api-subdetail-desc">Expands to the full item list.</dd>
+                              </div>
+                              <div class="api-subdetail-item">
+                                <dt class="api-subdetail-term"><code>collapse(): void</code></dt>
+                                <dd class="api-subdetail-desc">
+                                  Returns to the clamped item list.
+                                </dd>
+                              </div>
+                              <div class="api-subdetail-item">
+                                <dt class="api-subdetail-term"><code>toggle(): void</code></dt>
+                                <dd class="api-subdetail-desc">
+                                  Switches between expanded and collapsed.
+                                </dd>
+                              </div>
+                              <div class="api-subdetail-item">
+                                <dt class="api-subdetail-term"><code>clamped: boolean</code></dt>
+                                <dd class="api-subdetail-desc">
+                                  Whether any items are currently hidden.
+                                </dd>
+                              </div>
+                              <div class="api-subdetail-item">
+                                <dt class="api-subdetail-term"><code>expanded: boolean</code></dt>
+                                <dd class="api-subdetail-desc">
+                                  Whether the full item list is shown.
+                                </dd>
+                              </div>
+                              <div class="api-subdetail-item">
+                                <dt class="api-subdetail-term">
+                                  <code>visibleCount: number</code>
+                                </dt>
+                                <dd class="api-subdetail-desc">
+                                  Number of currently visible items.
+                                </dd>
+                              </div>
+                              <div class="api-subdetail-item">
+                                <dt class="api-subdetail-term">
+                                  <code>hiddenCount: number</code>
+                                </dt>
+                                <dd class="api-subdetail-desc">
+                                  Number of currently hidden items.
+                                </dd>
+                              </div>
+                              <div class="api-subdetail-item">
+                                <dt class="api-subdetail-term">
+                                  <code>hiddenItems: readonly T[]</code>
+                                </dt>
+                                <dd class="api-subdetail-desc">
+                                  Hidden items in original order, using the same
+                                  <code>T</code> shape as <code>items</code>.
+                                </dd>
+                              </div>
+                            </dl>
+                          </dd>
+                        </div>
+                      </dl>
+                    </div>
+                  </div>
+                  <div class="api-entry">
+                    <div class="api-entry-header">
+                      <div class="api-entry-name"><code>after</code></div>
+                    </div>
+                    <div class="api-entry-copy">
+                      <p>Trailing atomic content, usually <code>+N</code> or toggle UI.</p>
+                      <dl class="api-detail-list">
+                        <div class="api-detail-item">
+                          <dt class="api-detail-term">Slot props</dt>
+                          <dd class="api-detail-desc">Same as <code>before</code>.</dd>
+                        </div>
+                      </dl>
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              <section class="api-group">
+                <h3 class="subsection-title">Events</h3>
+                <div class="api-list">
+                  <div class="api-entry">
+                    <div class="api-entry-header">
+                      <div class="api-entry-name"><code>clampchange</code></div>
+                      <div class="api-entry-meta">
+                        <span class="api-meta-pair">
+                          <span class="api-meta-label">Payload</span>
+                          <code>(clamped: boolean)</code>
+                        </span>
+                      </div>
+                    </div>
+                    <p class="api-entry-copy">Emitted when truncation turns on or off.</p>
+                  </div>
+                  <div class="api-entry">
+                    <div class="api-entry-header">
+                      <div class="api-entry-name"><code>update:expanded</code></div>
+                      <div class="api-entry-meta">
+                        <span class="api-meta-pair">
+                          <span class="api-meta-label">Payload</span>
+                          <code>(expanded: boolean)</code>
+                        </span>
+                      </div>
+                    </div>
+                    <p class="api-entry-copy">Emitted when expansion changes.</p>
+                  </div>
+                </div>
+              </section>
             </template>
           </section>
         </div>
@@ -1056,7 +1800,6 @@ pre code {
 
 .hero {
   padding: 56px 0 40px;
-  border-bottom: 1px solid var(--c-border);
 }
 
 .hero-title {
@@ -1101,11 +1844,16 @@ pre code {
   text-decoration: none;
 }
 
+.link-github:focus-visible {
+  outline: none;
+  border-color: var(--c-accent);
+  color: var(--c-accent);
+}
+
 /* Sections */
 
 .section {
   padding: 32px 0;
-  border-bottom: 1px solid var(--c-border);
 }
 
 .section-title {
@@ -1200,15 +1948,35 @@ pre code {
 
 /* Demo blocks */
 
+.demo-surface {
+  display: flex;
+  flex-direction: column;
+}
+
+.demo-shared-controls {
+  padding-bottom: 4px;
+}
+
+.demo-shared-controls .demo-controls {
+  padding-bottom: 0;
+}
+
+.demo-example-list {
+  display: flex;
+  flex-direction: column;
+}
+
 .demo-block {
   margin-bottom: 0;
   padding: 18px 0 20px;
-  border-top: 1px solid var(--c-border);
 }
 
 .demo-block:first-child {
   padding-top: 0;
-  border-top: none;
+}
+
+.demo-block + .demo-block {
+  border-top: 1px solid var(--c-border);
 }
 
 .demo-label {
@@ -1259,11 +2027,6 @@ pre code {
   gap: 8px;
 }
 
-.control-hint {
-  font-size: 0.75rem;
-  color: var(--c-text-3);
-}
-
 .control-input {
   flex: 1;
   max-width: 180px;
@@ -1299,6 +2062,11 @@ pre code {
   border-radius: 2px;
   outline: none;
   cursor: pointer;
+}
+
+.control-range:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--c-accent) 18%, transparent);
 }
 
 .control-range::-webkit-slider-thumb {
@@ -1393,7 +2161,6 @@ pre code {
 
 .comparison-panel + .comparison-panel {
   padding-top: 12px;
-  border-top: 1px solid var(--c-border);
 }
 
 .comparison-label {
@@ -1411,7 +2178,6 @@ pre code {
   border: 1px solid var(--c-border);
   border-radius: var(--radius);
   overflow: hidden;
-  box-shadow: var(--guide-shadow-x, none), var(--guide-shadow-y, none);
 }
 
 :deep(.demo-clamp) {
@@ -1422,11 +2188,11 @@ pre code {
 }
 
 :deep(.width-guide) {
-  --guide-shadow-x: inset -1px 0 0 rgba(208, 208, 218, 0.95);
+  border-inline-end-color: rgba(208, 208, 218, 0.95);
 }
 
 :deep(.height-guide) {
-  --guide-shadow-y: inset 0 -1px 0 rgba(208, 208, 218, 0.95);
+  border-block-end-color: rgba(208, 208, 218, 0.95);
 }
 
 :deep(.demo-inline) {
@@ -1435,12 +2201,248 @@ pre code {
   line-height: 1.6;
 }
 
-:deep(.demo-inline [data-inline-start]) {
+:deep(.demo-wrap) {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  line-height: 1.5;
+}
+
+:deep(.demo-wrap [data-part="content"]) {
+  align-items: flex-start;
+  gap: 8px;
+}
+
+:deep(.demo-inline [data-part="start"]) {
   color: var(--c-text-3);
 }
 
-:deep(.demo-inline [data-inline-end]) {
+:deep(.demo-inline [data-part="end"]) {
   color: var(--c-accent-text);
+}
+
+.wrap-pill,
+.wrap-prefix,
+.wrap-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  min-height: 28px;
+  padding: 0 10px;
+  font-size: 0.8rem;
+  font-weight: 500;
+  white-space: nowrap;
+  border: 1px solid var(--c-border);
+  border-radius: 999px;
+  background: var(--c-bg-soft);
+  color: var(--c-text);
+}
+
+.wrap-pill[data-tone="accent"] {
+  border-color: #d9ccff;
+  background: #f4f0ff;
+  color: var(--c-accent-text);
+}
+
+.wrap-pill[data-tone="success"] {
+  border-color: #cdebd6;
+  background: #f1faf4;
+  color: #137a36;
+}
+
+.wrap-pill[data-tone="warm"] {
+  border-color: #f3d8bd;
+  background: #fff5ea;
+  color: #a55a19;
+}
+
+.wrap-prefix {
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--c-text-2);
+  background: var(--c-bg);
+}
+
+.wrap-summary {
+  color: var(--c-accent-text);
+  background: var(--c-accent-soft);
+  border-color: #d9ccff;
+}
+
+.wrap-tab {
+  font-family: inherit;
+  color: var(--c-text-2);
+  background: transparent;
+  cursor: pointer;
+  transition:
+    background 0.15s,
+    border-color 0.15s,
+    color 0.15s,
+    transform 0.15s;
+}
+
+.wrap-tabs {
+  overflow: visible;
+  border-bottom: 1px solid var(--c-border);
+}
+
+.wrap-tabs :deep([data-part="content"]) {
+  align-items: stretch;
+  gap: 2px;
+}
+
+.wrap-tabs .wrap-tab {
+  min-height: 34px;
+  padding-inline: 10px;
+  border-color: transparent;
+  border-width: 0 0 2px;
+  border-radius: 0;
+  background: transparent;
+}
+
+.wrap-tabs .wrap-tab:hover {
+  color: var(--c-text);
+}
+
+.wrap-tabs .wrap-tab.active {
+  color: var(--c-accent-text);
+  border-color: var(--c-accent);
+}
+
+.wrap-tabs-after {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  min-height: 34px;
+  border-bottom: 2px solid transparent;
+}
+
+.wrap-tabs-after.is-active {
+  border-color: var(--c-accent);
+}
+
+.wrap-tab-trigger {
+  anchor-name: --wrap-tabs-trigger;
+  display: inline-flex;
+  align-items: center;
+  vertical-align: middle;
+  width: 24px;
+  height: 24px;
+  justify-content: center;
+  padding-inline: 0;
+  line-height: 0;
+  color: var(--c-text-3);
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+}
+
+.wrap-tabs-after.is-active .wrap-tab-trigger {
+  color: var(--c-accent-text);
+}
+
+.wrap-tab-trigger:hover,
+.wrap-tab-trigger[aria-expanded="true"] {
+  color: var(--c-accent-text);
+  background: rgba(124, 58, 237, 0.06);
+}
+
+.wrap-tabs .wrap-tab:focus-visible,
+.wrap-tab-trigger:focus-visible {
+  outline: none;
+  color: var(--c-accent-text);
+  background: rgba(124, 58, 237, 0.06);
+}
+
+.wrap-tabs-menu {
+  position: fixed;
+  position-anchor: --wrap-tabs-trigger;
+  top: calc(anchor(bottom) + 8px);
+  left: anchor(left);
+  min-width: 220px;
+  padding: 8px;
+  background: var(--c-bg);
+  border: 1px solid var(--c-border);
+  border-radius: 12px;
+  box-shadow: 0 18px 38px rgba(18, 20, 28, 0.14);
+  z-index: 20;
+}
+
+.wrap-tabs-menu-item {
+  display: flex;
+  width: 100%;
+  padding: 7px 10px;
+  font-size: 0.8rem;
+  font-family: inherit;
+  color: var(--c-text-2);
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.wrap-tabs-menu-item.active {
+  color: var(--c-accent-text);
+  background: rgba(124, 58, 237, 0.08);
+}
+
+.wrap-tabs-menu-item + .wrap-tabs-menu-item {
+  margin-top: 2px;
+}
+
+.wrap-tabs-menu-item:hover {
+  background: var(--c-bg-soft);
+  color: var(--c-text);
+}
+
+.wrap-tabs-menu-item:focus-visible {
+  outline: none;
+  background: var(--c-bg-soft);
+  color: var(--c-text);
+}
+
+.wrap-summary-button {
+  font-family: inherit;
+  cursor: pointer;
+  transition:
+    background 0.15s,
+    border-color 0.15s,
+    color 0.15s;
+}
+
+.wrap-summary-button:hover {
+  background: #f6f3ff;
+  border-color: var(--c-accent);
+}
+
+.wrap-summary-button:focus-visible,
+.toggle-btn:focus-visible,
+.install-tab:focus-visible {
+  outline: none;
+  border-color: var(--c-accent);
+  color: var(--c-accent-text);
+}
+
+.wrap-person {
+  padding-inline-start: 5px;
+}
+
+.wrap-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  background: var(--c-text);
+  color: var(--c-bg);
+  font-size: 0.63rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
 }
 
 @media (min-width: 640px) {
@@ -1453,7 +2455,6 @@ pre code {
     padding-top: 0;
     padding-left: 14px;
     border-top: none;
-    border-left: 1px solid var(--c-border);
   }
 }
 
@@ -1575,61 +2576,200 @@ pre code {
   border-bottom-color: var(--c-accent);
 }
 
-/* API tables */
+/* API reference */
 
-.api-table-wrap {
-  overflow-x: auto;
-  margin-top: 4px;
-  margin-bottom: 16px;
+.api-summary {
+  margin: 0 0 18px;
+  font-size: 0.82rem;
+  line-height: 1.6;
+  color: var(--c-text-2);
+}
+
+.api-group + .api-group {
+  margin-top: 16px;
+}
+
+.api-group > .subsection-title {
+  margin-bottom: 8px;
+}
+
+.api-list {
+  margin: 0;
   border: 1px solid var(--c-border);
   border-radius: var(--radius);
+  overflow: hidden;
 }
 
-.api-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 0.8rem;
+.api-entry + .api-entry {
+  border-top: 1px solid var(--c-border);
 }
 
-.api-table th {
-  text-align: left;
+.api-entry {
+  padding: 12px 14px;
+  display: grid;
+  gap: 6px;
+}
+
+.api-entry-header {
+  display: grid;
+  gap: 4px;
+}
+
+.api-entry-name {
+  font-size: 0.86rem;
   font-weight: 600;
-  font-size: 0.72rem;
+  color: var(--c-text);
+  min-width: 0;
+}
+
+.api-entry-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 14px;
+}
+
+.api-meta-pair {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+
+.api-meta-label {
+  font-size: 0.68rem;
+  font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.06em;
   color: var(--c-text-3);
-  background: var(--c-bg-soft);
-  padding: 8px 12px;
-  border-bottom: 1px solid var(--c-border);
 }
 
-.api-table td {
-  padding: 8px 12px;
-  border-bottom: 1px solid var(--c-border);
+.api-meta-flag {
+  font-size: 0.68rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--c-accent-text);
+}
+
+.api-entry-copy {
+  margin: 0;
+  font-size: 0.82rem;
+  line-height: 1.6;
   color: var(--c-text-2);
-  vertical-align: top;
 }
 
-.api-table tr:last-child td {
-  border-bottom: none;
+.api-entry-copy p {
+  margin: 0;
 }
 
-.api-table code {
-  font-size: 0.78rem;
-  white-space: nowrap;
-}
-
-.notes-list {
+.api-detail-list {
   margin: 8px 0 0;
-  padding-left: 18px;
+  padding: 0;
   display: grid;
   gap: 8px;
-  font-size: 0.84rem;
+}
+
+.api-detail-item {
+  display: grid;
+  gap: 4px;
+}
+
+.api-detail-term {
+  margin: 0;
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-family: inherit;
+  font-size: 0.68rem;
+  font-weight: 600;
+  line-height: 1.4;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--c-text-3);
+}
+
+.api-detail-desc {
+  margin: 0;
+  font-family: inherit;
+  font-size: 0.82rem;
+  line-height: 1.6;
   color: var(--c-text-2);
 }
 
-.notes-list li {
-  line-height: 1.7;
+.api-subdetail-list {
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.api-subdetail-item {
+  display: grid;
+  gap: 2px;
+}
+
+.api-subdetail-term {
+  margin: 0;
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-family: inherit;
+  font-size: 0.82rem;
+  font-weight: 500;
+  line-height: 1.6;
+  color: var(--c-text);
+}
+
+.api-subdetail-desc {
+  margin: 0;
+  font-family: inherit;
+  font-size: 0.82rem;
+  line-height: 1.6;
+  color: var(--c-text-2);
+}
+
+.api-list code {
+  font-size: 0.78rem;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+@media (min-width: 640px) {
+  .api-detail-item {
+    grid-template-columns: minmax(0, 110px) minmax(0, 1fr);
+    column-gap: 14px;
+    align-items: start;
+  }
+
+  .api-entry {
+    grid-template-columns: minmax(0, 176px) minmax(0, 1fr);
+    column-gap: 18px;
+    align-items: start;
+  }
+
+  .api-entry-header {
+    display: contents;
+  }
+
+  .api-entry-name {
+    grid-column: 1;
+    grid-row: 1 / span 2;
+    padding-top: 2px;
+  }
+
+  .api-entry-meta {
+    grid-column: 2;
+  }
+
+  .api-entry-copy {
+    grid-column: 2;
+  }
 }
 
 /* Footer */
