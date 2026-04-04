@@ -741,7 +741,7 @@ describe("Website demo page", () => {
     await settle(2);
 
     expect(clipboardWrites[4]).toContain("import { WrapClamp } from 'vue-clamp'");
-    expect(clipboardWrites[4]).toContain("hiddenCount");
+    expect(clipboardWrites[4]).toContain("hiddenItems");
     expect(wrapExampleButton.getAttribute("data-copy-state")).toBe("copied");
   });
 });

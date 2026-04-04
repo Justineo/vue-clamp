@@ -438,9 +438,9 @@ const wrapCodeExample = [
   '    <template #item="{ item }">',
   '      <span class="tag">{{ item.label }}</span>',
   "    </template>",
-  '    <template #after="{ expanded, clamped, hiddenCount, toggle }">',
+  '    <template #after="{ expanded, clamped, hiddenItems, toggle }">',
   '      <button v-if="expanded || clamped" type="button" @click="toggle">',
-  `        {{ expanded ? 'Less' : \`+\${hiddenCount} more\` }}`,
+  `        {{ expanded ? 'Less' : \`+\${hiddenItems.length} more\` }}`,
   "      </button>",
   "    </template>",
   "  </WrapClamp>",
@@ -1253,15 +1253,21 @@ const highlightedWrapCode = computed(() => {
                           <dd class="api-detail-desc">
                             <dl class="api-subdetail-list">
                               <div class="api-subdetail-item">
-                                <dt class="api-subdetail-term"><code>expand(): void</code></dt>
+                                <dt class="api-subdetail-term">
+                                  <code>expand: () =&gt; void</code>
+                                </dt>
                                 <dd class="api-subdetail-desc">Expands to the full text.</dd>
                               </div>
                               <div class="api-subdetail-item">
-                                <dt class="api-subdetail-term"><code>collapse(): void</code></dt>
+                                <dt class="api-subdetail-term">
+                                  <code>collapse: () =&gt; void</code>
+                                </dt>
                                 <dd class="api-subdetail-desc">Returns to the clamped state.</dd>
                               </div>
                               <div class="api-subdetail-item">
-                                <dt class="api-subdetail-term"><code>toggle(): void</code></dt>
+                                <dt class="api-subdetail-term">
+                                  <code>toggle: () =&gt; void</code>
+                                </dt>
                                 <dd class="api-subdetail-desc">
                                   Switches between expanded and collapsed.
                                 </dd>
@@ -1572,17 +1578,23 @@ const highlightedWrapCode = computed(() => {
                           <dd class="api-detail-desc">
                             <dl class="api-subdetail-list">
                               <div class="api-subdetail-item">
-                                <dt class="api-subdetail-term"><code>expand(): void</code></dt>
+                                <dt class="api-subdetail-term">
+                                  <code>expand: () =&gt; void</code>
+                                </dt>
                                 <dd class="api-subdetail-desc">Expands to the full item list.</dd>
                               </div>
                               <div class="api-subdetail-item">
-                                <dt class="api-subdetail-term"><code>collapse(): void</code></dt>
+                                <dt class="api-subdetail-term">
+                                  <code>collapse: () =&gt; void</code>
+                                </dt>
                                 <dd class="api-subdetail-desc">
                                   Returns to the clamped item list.
                                 </dd>
                               </div>
                               <div class="api-subdetail-item">
-                                <dt class="api-subdetail-term"><code>toggle(): void</code></dt>
+                                <dt class="api-subdetail-term">
+                                  <code>toggle: () =&gt; void</code>
+                                </dt>
                                 <dd class="api-subdetail-desc">
                                   Switches between expanded and collapsed.
                                 </dd>
@@ -1597,22 +1609,6 @@ const highlightedWrapCode = computed(() => {
                                 <dt class="api-subdetail-term"><code>expanded: boolean</code></dt>
                                 <dd class="api-subdetail-desc">
                                   Whether the full item list is shown.
-                                </dd>
-                              </div>
-                              <div class="api-subdetail-item">
-                                <dt class="api-subdetail-term">
-                                  <code>visibleCount: number</code>
-                                </dt>
-                                <dd class="api-subdetail-desc">
-                                  Number of currently visible items.
-                                </dd>
-                              </div>
-                              <div class="api-subdetail-item">
-                                <dt class="api-subdetail-term">
-                                  <code>hiddenCount: number</code>
-                                </dt>
-                                <dd class="api-subdetail-desc">
-                                  Number of currently hidden items.
                                 </dd>
                               </div>
                               <div class="api-subdetail-item">
@@ -2646,15 +2642,15 @@ pre code {
 }
 
 .api-detail-list {
-  margin: 8px 0 0;
+  margin: 12px 0 0;
   padding: 0;
   display: grid;
-  gap: 8px;
+  gap: 12px;
 }
 
 .api-detail-item {
   display: grid;
-  gap: 4px;
+  gap: 6px;
 }
 
 .api-detail-term {
@@ -2681,12 +2677,12 @@ pre code {
   margin: 0;
   padding: 0;
   display: grid;
-  gap: 8px;
+  gap: 10px;
 }
 
 .api-subdetail-item {
   display: grid;
-  gap: 2px;
+  gap: 4px;
 }
 
 .api-subdetail-term {

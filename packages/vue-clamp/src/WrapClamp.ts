@@ -265,9 +265,7 @@ export const WrapClamp = defineComponent({
         toggle,
         clamped: nextVisibleCount < props.items.length,
         expanded: expanded.value,
-        hiddenCount: hiddenItems.length,
         hiddenItems,
-        visibleCount: nextVisibleCount,
       };
     }
 

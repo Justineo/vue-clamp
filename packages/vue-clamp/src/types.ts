@@ -53,8 +53,6 @@ export interface WrapClampSlotProps<T = unknown> {
   toggle: () => void;
   clamped: boolean;
   expanded: boolean;
-  visibleCount: number;
-  hiddenCount: number;
   hiddenItems: readonly T[];
 }
 

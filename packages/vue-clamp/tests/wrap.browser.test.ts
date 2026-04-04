@@ -201,8 +201,8 @@ describe("WrapClamp browser contract", () => {
       },
       width: 190,
       item: ({ item }) => h("span", { style: badgeStyle }, item),
-      after: ({ clamped, hiddenCount }) =>
-        clamped ? h("span", { style: badgeStyle }, `+${hiddenCount}`) : null,
+      after: ({ clamped, hiddenItems }) =>
+        clamped ? h("span", { style: badgeStyle }, `+${hiddenItems.length}`) : null,
     });
 
     await settle(5);
@@ -231,8 +231,8 @@ describe("WrapClamp browser contract", () => {
       },
       width: 140,
       item: ({ item }) => h("span", { style: fixedBadgeStyle(72) }, item),
-      after: ({ clamped, hiddenCount }) =>
-        clamped ? h("span", { style: fixedBadgeStyle(72) }, `+${hiddenCount}`) : null,
+      after: ({ clamped, hiddenItems }) =>
+        clamped ? h("span", { style: fixedBadgeStyle(72) }, `+${hiddenItems.length}`) : null,
     });
 
     await settle(5);
@@ -248,7 +248,7 @@ describe("WrapClamp browser contract", () => {
     );
   });
 
-  it("uses the one-line calculation path when the after width depends on hiddenCount", async () => {
+  it("uses the one-line calculation path when the after width depends on hiddenItems length", async () => {
     const mountedClamp = mountWrapClamp({
       items: ["Alpha", "Beta", "Gamma"],
       props: {
@@ -256,9 +256,13 @@ describe("WrapClamp browser contract", () => {
       },
       width: 140,
       item: ({ item }) => h("span", { style: fixedBadgeStyle(48) }, item),
-      after: ({ clamped, hiddenCount }) =>
+      after: ({ clamped, hiddenItems }) =>
         clamped
-          ? h("span", { style: fixedBadgeStyle(hiddenCount === 2 ? 60 : 28) }, `+${hiddenCount}`)
+          ? h(
+              "span",
+              { style: fixedBadgeStyle(hiddenItems.length === 2 ? 60 : 28) },
+              `+${hiddenItems.length}`,
+            )
           : null,
     });
 
@@ -314,8 +318,8 @@ describe("WrapClamp browser contract", () => {
       },
       width: 260,
       item: ({ item }) => h("span", { style: fixedBadgeStyle(itemWidth(item)) }, item),
-      after: ({ clamped, hiddenCount }) =>
-        clamped ? h("span", { style: fixedBadgeStyle(40) }, `+${hiddenCount}`) : null,
+      after: ({ clamped, hiddenItems }) =>
+        clamped ? h("span", { style: fixedBadgeStyle(40) }, `+${hiddenItems.length}`) : null,
     });
 
     await settle(5);
@@ -382,8 +386,8 @@ describe("WrapClamp browser contract", () => {
       },
       width: 190,
       item: ({ item }) => h("span", { style: badgeStyle }, item),
-      after: ({ clamped, hiddenCount }) =>
-        clamped ? h("span", { style: badgeStyle }, `+${hiddenCount}`) : null,
+      after: ({ clamped, hiddenItems }) =>
+        clamped ? h("span", { style: badgeStyle }, `+${hiddenItems.length}`) : null,
     });
 
     await settle(5);
@@ -403,8 +407,8 @@ describe("WrapClamp browser contract", () => {
       },
       width: 170,
       item: ({ item }) => h("span", { style: badgeStyle }, item),
-      after: ({ clamped, hiddenCount }) =>
-        clamped ? h("span", { style: badgeStyle }, `+${hiddenCount}`) : null,
+      after: ({ clamped, hiddenItems }) =>
+        clamped ? h("span", { style: badgeStyle }, `+${hiddenItems.length}`) : null,
     });
 
     await settle(5);
@@ -472,9 +476,9 @@ describe("WrapClamp browser contract", () => {
         slotRenderCount += 1;
         return h("span", { style: badgeStyle }, item);
       },
-      after: ({ clamped, hiddenCount }) => {
+      after: ({ clamped, hiddenItems }) => {
         slotRenderCount += 1;
-        return clamped ? h("span", { style: badgeStyle }, `+${hiddenCount}`) : null;
+        return clamped ? h("span", { style: badgeStyle }, `+${hiddenItems.length}`) : null;
       },
     });
 

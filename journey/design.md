@@ -60,7 +60,7 @@
   - `as`
 - `WrapClamp` exposes:
   - `item` slot for visible item rendering
-  - `before` / `after` slots with `{ expand, collapse, toggle, clamped, expanded, visibleCount, hiddenCount, hiddenItems }`
+  - `before` / `after` slots with `{ expand, collapse, toggle, clamped, expanded, hiddenItems }`
   - `update:expanded`
   - `clampchange`
   - imperative `expand`, `collapse`, and `toggle`

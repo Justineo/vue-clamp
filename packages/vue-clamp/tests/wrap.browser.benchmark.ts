@@ -248,8 +248,15 @@ function mountSingleLineVariant(component: Component): MountedVariant {
             style: hostStyle(width.value),
           },
           {
-            before: ({ clamped, visibleCount }: { clamped: boolean; visibleCount: number }) => {
+            before: ({
+              clamped,
+              hiddenItems,
+            }: {
+              clamped: boolean;
+              hiddenItems: readonly string[];
+            }) => {
               beforeSlotCalls += 1;
+              const visibleCount = items.length - hiddenItems.length;
               return h(
                 "span",
                 {
@@ -264,8 +271,15 @@ function mountSingleLineVariant(component: Component): MountedVariant {
               itemSlotCalls += 1;
               return h("span", { style: fixedBadgeStyle(52) }, item);
             },
-            after: ({ clamped, hiddenCount }: { clamped: boolean; hiddenCount: number }) => {
+            after: ({
+              clamped,
+              hiddenItems,
+            }: {
+              clamped: boolean;
+              hiddenItems: readonly string[];
+            }) => {
               afterSlotCalls += 1;
+              const hiddenCount = hiddenItems.length;
               return clamped
                 ? h(
                     "span",
@@ -356,12 +370,13 @@ function mountTableVariant(component: Component): MountedVariant {
                         },
                         after: ({
                           clamped,
-                          hiddenCount,
+                          hiddenItems,
                         }: {
                           clamped: boolean;
-                          hiddenCount: number;
+                          hiddenItems: readonly string[];
                         }) => {
                           afterSlotCalls += 1;
+                          const hiddenCount = hiddenItems.length;
                           return clamped
                             ? h("span", { style: fixedBadgeStyle(52) }, `+${hiddenCount}`)
                             : null;
