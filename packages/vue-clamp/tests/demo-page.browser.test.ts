@@ -689,12 +689,6 @@ describe("Website demo page", () => {
         (item) => item.textContent?.trim() === selectedHiddenLabel,
       ),
     ).toBe(true);
-    const tabsVerboseToggle = checkboxInBlock(tabsBlock, "Verbose labels");
-    expect(tabsVerboseToggle.checked).toBe(false);
-    tabsVerboseToggle.click();
-    await settle(4);
-    expect(tabsBlock.textContent).toContain("Workspace overview");
-    expect(tabsVerboseToggle.checked).toBe(true);
 
     const tabsRtlToggle = checkboxInBlock(tabsBlock, "RTL");
     expect(tabsRtlToggle.checked).toBe(false);
@@ -705,7 +699,7 @@ describe("Website demo page", () => {
       throw new Error("Expected the tabs overflow trigger after RTL toggle.");
     }
     expect(tabsTriggerAfterRtl.getAttribute("aria-label")).toBe("إظهار التبويبات المخفية");
-    expect(tabsBlock.textContent).toContain("نظرة عامة على مساحة العمل");
+    expect(tabsBlock.textContent).toContain("نظرة عامة");
     expect(tabsRtlToggle.checked).toBe(true);
 
     const inviteesBlock = wrapExampleBlock(mountedPage.container, "invitees");

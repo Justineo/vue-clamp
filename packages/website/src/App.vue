@@ -321,16 +321,6 @@ const wrapTabItems = [
   { id: "audit", label: "Audit log" },
 ] as const satisfies readonly WrapDemoItem[];
 
-const wrapTabItemsVerbose = [
-  { id: "overview", label: "Workspace overview" },
-  { id: "roadmap", label: "Delivery roadmap" },
-  { id: "releases", label: "Release notes" },
-  { id: "analytics", label: "Usage analytics" },
-  { id: "billing", label: "Billing settings" },
-  { id: "team", label: "Team access roles" },
-  { id: "audit", label: "Audit activity log" },
-] as const satisfies readonly WrapDemoItem[];
-
 const wrapTabItemsAr = [
   { id: "overview", label: "نظرة عامة" },
   { id: "roadmap", label: "الخارطة" },
@@ -339,16 +329,6 @@ const wrapTabItemsAr = [
   { id: "billing", label: "الفوترة" },
   { id: "team", label: "صلاحيات الفريق" },
   { id: "audit", label: "سجل التدقيق" },
-] as const satisfies readonly WrapDemoItem[];
-
-const wrapTabItemsVerboseAr = [
-  { id: "overview", label: "نظرة عامة على مساحة العمل" },
-  { id: "roadmap", label: "خارطة التسليم" },
-  { id: "releases", label: "ملاحظات الإصدار" },
-  { id: "analytics", label: "تحليلات الاستخدام" },
-  { id: "billing", label: "إعدادات الفوترة" },
-  { id: "team", label: "صلاحيات وصول الفريق" },
-  { id: "audit", label: "سجل نشاط التدقيق" },
 ] as const satisfies readonly WrapDemoItem[];
 
 const wrapInviteeItems = [
@@ -377,18 +357,13 @@ const wrapTabsTriggerRef6 = ref<HTMLElement | null>(null);
 const wrapTabsMenuRef6 = ref<HTMLElement | null>(null);
 const wrapWidth6 = ref(360);
 const wrapRtl6 = ref(false);
-const wrapVerboseLabels6 = ref(false);
 const wrapHeight7 = ref("58px");
 const wrapWidth7 = ref(420);
 const wrapRtl7 = ref(false);
 const wrapExpanded7 = ref(false);
 
 const wrapTabItems6 = computed(() => {
-  if (wrapRtl6.value) {
-    return wrapVerboseLabels6.value ? wrapTabItemsVerboseAr : wrapTabItemsAr;
-  }
-
-  return wrapVerboseLabels6.value ? wrapTabItemsVerbose : wrapTabItems;
+  return wrapRtl6.value ? wrapTabItemsAr : wrapTabItems;
 });
 
 const wrapInviteeItems7 = computed(() => {
@@ -1347,10 +1322,6 @@ const highlightedWrapCode = computed(() => {
                       <label class="control-check">
                         <input v-model="wrapRtl6" type="checkbox" />
                         <span>RTL</span>
-                      </label>
-                      <label class="control-check">
-                        <input v-model="wrapVerboseLabels6" type="checkbox" />
-                        <span>Verbose labels</span>
                       </label>
                     </div>
                   </div>
