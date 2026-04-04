@@ -2070,7 +2070,7 @@ const highlightedWrapCode = computed(() => {
 </template>
 
 <style>
-@import url("https://fonts.googleapis.com/css2?family=Geist+Mono:wght@500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700;800&family=Geist+Mono:wght@500;600;700&display=swap");
 
 *,
 *::before,
@@ -2100,7 +2100,7 @@ const highlightedWrapCode = computed(() => {
   --c-muted: #9ca3af;
   --focus-ring: 0 0 0 3px color-mix(in srgb, var(--c-accent) 18%, transparent);
   --focus-ring-subtle: 0 0 0 2px color-mix(in srgb, var(--c-accent) 22%, transparent);
-  --font-body: Manrope, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  --font-body: Geist, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
   --font-mono:
     "Geist Mono", "JetBrains Mono", "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
   --radius: 6px;
