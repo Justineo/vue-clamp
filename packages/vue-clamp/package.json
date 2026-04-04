@@ -1,8 +1,23 @@
 {
   "name": "vue-clamp",
   "version": "0.5.0",
-  "description": "Vue 3 line and inline text clamping with browser-aligned DOM primitives.",
+  "description": "Vue 3 line, inline, and wrapped-item clamping with browser-aligned DOM primitives.",
+  "keywords": [
+    "clamp",
+    "ellipsis",
+    "text-overflow",
+    "truncate",
+    "vue"
+  ],
+  "homepage": "https://github.com/Justineo/vue-clamp#readme",
+  "bugs": {
+    "url": "https://github.com/Justineo/vue-clamp/issues"
+  },
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Justineo/vue-clamp.git"
+  },
   "files": [
     "dist"
   ],
@@ -34,6 +49,6 @@
     "vue": "catalog:"
   },
   "peerDependencies": {
-    "vue": "^3.5.0"
+    "vue": "^3.3.0"
   }
 }

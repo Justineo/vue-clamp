@@ -10,12 +10,15 @@
     "test": "vp test",
     "test:browser": "vp test -c vite.browser.config.ts",
     "ready": "vp check && vp test && vp run test:browser && vp run build -r",
+    "release": "vp exec bumpp",
     "dev": "vp run website#dev",
     "prepare": "vp config"
   },
   "devDependencies": {
     "@types/node": "catalog:",
+    "bumpp": "catalog:",
     "playwright": "catalog:",
+    "releaselog": "catalog:",
     "vite-plus": "catalog:"
   },
   "engines": {

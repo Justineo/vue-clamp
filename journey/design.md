@@ -196,6 +196,13 @@
   - `.github/workflows/release.yml` publishes tagged releases from `v*` tags after running the full
     validation/build pipeline, uses the matching `CHANGELOG.md` section as the GitHub release body,
     and uses npm trusted publishing plus prerelease dist-tags derived from the tag name.
+- Local release prep now goes through `vp run release`, which delegates to `bumpp` through
+  `bump.config.ts`:
+  - only `packages/vue-clamp/package.json` is versioned
+  - `bumpp` enforces a clean worktree through `gitCheck`
+  - `bumpp` creates the release commit/tag/push for the existing tag-driven GitHub publish workflow
+  - release-note extraction and final publish validation live in `.github/workflows/release.yml`
+    through `releaselog`, `vp check`, `vp test`, browser tests, and build steps
 - Release documentation now lives in:
   - `CHANGELOG.md` for versioned release notes
   - `MIGRATION.md` for `0.x` -> `1.x` migration guidance

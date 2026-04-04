@@ -7,7 +7,10 @@ catalog:
   "@lucide/vue": ^1.7.0
   "@types/node": ^24
   "@vitejs/plugin-vue": ^6.0.5
+  bumpp: ^11.0.1
   playwright: ^1.58.2
+  releaselog: ^7.0.2
+  semver: ^7.7.4
   shiki: ^4.0.2
   simple-icons: ^16.14.0
   typescript: ^5

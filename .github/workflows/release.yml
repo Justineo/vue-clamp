@@ -56,7 +56,7 @@ jobs:
         run: vp run build -r
 
       - name: Extract release notes
-        run: node ./scripts/changelog-notes.mjs "${{ steps.version.outputs.version }}" > RELEASE_NOTES.md
+        run: vp exec releaselog --format notes "${{ steps.version.outputs.version }}" > RELEASE_NOTES.md
 
       - name: Get dist tag
         id: dist-tag
