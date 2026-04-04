@@ -1,7 +1,7 @@
 {
   "name": "vue-clamp",
   "version": "0.5.0",
-  "description": "Vue 3 line, inline, and wrapped-item clamping with browser-aligned DOM primitives.",
+  "description": "Clamping primitives for Vue.",
   "keywords": [
     "clamp",
     "ellipsis",
