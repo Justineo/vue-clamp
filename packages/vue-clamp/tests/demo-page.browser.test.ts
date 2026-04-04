@@ -320,6 +320,10 @@ function referenceShell(container: HTMLElement): HTMLElement {
   return shell;
 }
 
+function referenceShellPageTop(container: HTMLElement): number {
+  return referenceShell(container).getBoundingClientRect().top + window.scrollY;
+}
+
 function referencePanelNames(container: HTMLElement): string[] {
   return Array.from(referenceShell(container).querySelectorAll("[data-reference-panel]")).map(
     (panel) => panel.getAttribute("data-reference-panel") ?? "",
@@ -722,6 +726,31 @@ describe("Website demo page", () => {
     expect(inviteesBlock.textContent).toContain("مايا تشن");
     expect(inviteesToggle.textContent?.trim()).toBe("أقل");
     expect(inviteesRtlToggle.checked).toBe(true);
+  });
+
+  it("returns to the component section when a surface tab is clicked", async () => {
+    const { default: App } = await import("../../website/src/App.vue");
+    const mountedPage = mountPage(App);
+
+    await settle(4);
+    await mountedPage.container.ownerDocument.fonts?.ready;
+    await selectSurface(mountedPage.container, "wrap");
+
+    const referenceTop = referenceShellPageTop(mountedPage.container);
+    window.scrollTo(0, referenceTop + 1200);
+    await waitFrames(2);
+
+    expect(window.scrollY).toBeGreaterThan(referenceTop + 1000);
+    expect(referenceShell(mountedPage.container).getBoundingClientRect().top).toBeLessThan(-1000);
+
+    await selectSurface(mountedPage.container, "inline");
+    await waitFrames(2);
+
+    expect(surfaceTab(mountedPage.container, "inline").getAttribute("aria-pressed")).toBe("true");
+    expect(Math.abs(window.scrollY - referenceTop)).toBeLessThanOrEqual(1);
+    expect(
+      Math.abs(referenceShell(mountedPage.container).getBoundingClientRect().top),
+    ).toBeLessThanOrEqual(1);
   });
 
   it("surfaces concise API summaries for all components", async () => {

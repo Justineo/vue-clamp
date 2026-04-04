@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from "vue";
 import { ArrowUpRight, Ellipsis } from "@lucide/vue";
 import { siGithub } from "simple-icons";
 import { InlineClamp, LineClamp, WrapClamp } from "vue-clamp";
@@ -102,6 +102,7 @@ type WrapDemoItem = {
 };
 
 const activeSurface = ref<SurfaceKey>("line");
+const referenceRootRef = ref<HTMLElement | null>(null);
 const surfaceOptions = [
   {
     description: "Multiline browser-fit clamp for previews, cards, and expandable copy.",
@@ -172,6 +173,25 @@ function createHeroTaglineWords(): HeroTaglineWord[] {
   }
 
   return words;
+}
+
+function scrollReferenceToTop(): void {
+  const target = referenceRootRef.value;
+  if (!target) {
+    return;
+  }
+
+  window.scrollTo({
+    top: target.getBoundingClientRect().top + window.scrollY,
+  });
+}
+
+function updateActiveSurface(surface: SurfaceKey): void {
+  activeSurface.value = surface;
+
+  void nextTick(() => {
+    scrollReferenceToTop();
+  });
 }
 
 const heroTaglineWords = createHeroTaglineWords();
@@ -945,15 +965,16 @@ const highlightedWrapCode = computed(() => {
     </section>
 
     <section class="section">
-      <div class="reference-root" data-reference-shell>
+      <div ref="referenceRootRef" class="reference-root" data-reference-shell>
         <h2 class="section-title reference-title" id="components">
           <a href="#components">#</a> Components
         </h2>
         <div class="reference-tabs-row">
           <ComponentTabs
-            v-model="activeSurface"
+            :model-value="activeSurface"
             aria-label="Component tabs"
             :options="surfaceOptions"
+            @update:modelValue="updateActiveSurface"
           />
         </div>
 
