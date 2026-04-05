@@ -51,15 +51,6 @@ const lineTextInput = ref(text);
 const selectedLineTextPreset = computed(() => {
   return lineTextPresets.find((preset) => preset.value === lineTextInput.value)?.id ?? null;
 });
-const lineTextStats = computed(() => {
-  const trimmedText = lineTextInput.value.trim();
-  const words = trimmedText ? trimmedText.split(/\s+/u).length : 0;
-
-  return {
-    characters: lineTextInput.value.length,
-    words,
-  };
-});
 
 function selectLineTextPreset(value: string): void {
   lineTextInput.value = value;
@@ -1009,8 +1000,7 @@ const highlightedWrapCode = computed(() => {
               <div class="demo-surface">
                 <div class="demo-shared-controls">
                   <div class="demo-controls">
-                    <div class="control stacked-control line-text-control">
-                      <span class="control-label">Text</span>
+                    <div class="control stacked-control">
                       <span class="control-stack">
                         <span
                           class="control-pills"
@@ -1038,14 +1028,7 @@ const highlightedWrapCode = computed(() => {
                           aria-label="LineClamp demo text"
                           placeholder="Paste or type text to try in every LineClamp example."
                         ></textarea>
-                        <span class="control-row line-text-meta">
-                          <span class="control-help">
-                            Updates every multiline example live so you can test real copy.
-                          </span>
-                          <span class="control-value line-text-stats">
-                            {{ lineTextStats.words }}w · {{ lineTextStats.characters }}c
-                          </span>
-                        </span>
+                        <span class="control-help">Paste text to try it across these demos.</span>
                       </span>
                     </div>
                   </div>
@@ -2649,27 +2632,9 @@ pre code {
   flex: 1;
 }
 
-.line-text-control .control-label {
-  padding-top: 6px;
-}
-
-.line-text-meta {
-  inline-size: min(100%, 720px);
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 8px 12px;
-  flex-wrap: wrap;
-}
-
 .control-help {
-  max-inline-size: 44rem;
-  font-size: 0.78rem;
   color: var(--c-text-3);
-  line-height: 1.5;
-}
-
-.line-text-stats {
-  min-width: 74px;
+  line-height: 1.4;
 }
 
 .control-range {
