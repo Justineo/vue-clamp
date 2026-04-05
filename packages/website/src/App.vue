@@ -2132,13 +2132,18 @@ html {
   font-family: var(--font-body);
   font-size: 15px;
   line-height: 1.6;
-  -webkit-text-size-adjust: 100%;
-  text-size-adjust: 100%;
   color: var(--c-text);
   background: var(--c-bg);
   scroll-behavior: smooth;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+@supports (-webkit-touch-callout: none) {
+  html {
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
 }
 
 body {
