@@ -3,7 +3,6 @@ import {
   defineComponent,
   h,
   mergeProps,
-  nextTick,
   onBeforeUnmount,
   onMounted,
   ref,
@@ -260,26 +259,6 @@ export const LineClamp = defineComponent({
 
     let resizeObserver: ResizeObserver | null = null;
     let stopFonts = () => {};
-    let deferredRecomputePending = false;
-
-    function scheduleDeferredRecompute(): void {
-      if (deferredRecomputePending) {
-        return;
-      }
-
-      deferredRecomputePending = true;
-      void nextTick(() => {
-        requestAnimationFrame(() => {
-          deferredRecomputePending = false;
-
-          if (!rootRef.value) {
-            return;
-          }
-
-          recompute();
-        });
-      });
-    }
 
     function expand(): void {
       expanded.value = true;
@@ -416,7 +395,6 @@ export const LineClamp = defineComponent({
 
     onMounted(() => {
       recompute();
-      scheduleDeferredRecompute();
 
       const fontFaceSet = document.fonts;
       if (!fontFaceSet) {
@@ -424,7 +402,7 @@ export const LineClamp = defineComponent({
       }
 
       function handleFontLoad(): void {
-        scheduleDeferredRecompute();
+        recompute();
       }
 
       void fontFaceSet.ready.then(handleFontLoad);

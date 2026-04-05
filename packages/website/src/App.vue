@@ -2626,7 +2626,9 @@ pre code {
   inline-size: min(100%, 720px);
   min-block-size: 120px;
   padding: 10px 12px;
-  font: inherit;
+  font-family: inherit;
+  font-size: 16px;
+  font-weight: inherit;
   line-height: 1.6;
   color: var(--c-text);
   background: var(--c-bg);

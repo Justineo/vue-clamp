@@ -539,6 +539,7 @@ describe("Website demo page", () => {
     await mountedPage.container.ownerDocument.fonts?.ready;
 
     const input = lineTextInput(mountedPage.container);
+    expect(getComputedStyle(input).fontSize).toBe("16px");
     expect(input.value).toContain("Vue (pronounced");
     expect(
       lineTextPresetButtons(mountedPage.container).map((button) => button.dataset.lineTextPreset),
