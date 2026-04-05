@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vite-plus/test";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import { createApp } from "vue";
 import {
   accessibleTextElement,
@@ -256,7 +256,6 @@ function waitTime(ms: number): Promise<void> {
     window.setTimeout(resolve, ms);
   });
 }
-
 async function waitForHeroTaglineShrink(
   tagline: HTMLElement,
   minimumDelta: number,
@@ -322,6 +321,19 @@ function referenceShell(container: HTMLElement): HTMLElement {
 
 function referenceShellPageTop(container: HTMLElement): number {
   return referenceShell(container).getBoundingClientRect().top + window.scrollY;
+}
+
+function referenceTabsAnchor(container: HTMLElement): HTMLElement {
+  const anchor = referenceShell(container).querySelector(".reference-tabs-anchor");
+  if (!(anchor instanceof HTMLElement)) {
+    throw new Error("Expected the reference tabs anchor.");
+  }
+
+  return anchor;
+}
+
+function referenceTabsAnchorPageTop(container: HTMLElement): number {
+  return referenceTabsAnchor(container).getBoundingClientRect().top + window.scrollY;
 }
 
 function referencePanelNames(container: HTMLElement): string[] {
@@ -722,7 +734,7 @@ describe("Website demo page", () => {
     expect(inviteesRtlToggle.checked).toBe(true);
   });
 
-  it("returns to the component section when a surface tab is clicked", async () => {
+  it("scrolls to the tabs row when its in-flow top edge is above the viewport", async () => {
     const { default: App } = await import("../../website/src/App.vue");
     const mountedPage = mountPage(App);
 
@@ -730,21 +742,49 @@ describe("Website demo page", () => {
     await mountedPage.container.ownerDocument.fonts?.ready;
     await selectSurface(mountedPage.container, "wrap");
 
-    const referenceTop = referenceShellPageTop(mountedPage.container);
-    window.scrollTo(0, referenceTop + 1200);
-    await waitFrames(2);
+    const anchor = referenceTabsAnchor(mountedPage.container);
+    const scrollToSpy = vi.spyOn(window, "scrollTo").mockImplementation(() => {});
+    const scrollYSpy = vi.spyOn(window, "scrollY", "get").mockReturnValue(640);
+    const rectSpy = vi
+      .spyOn(anchor, "getBoundingClientRect")
+      .mockReturnValue(new DOMRect(0, -240, 0, 0));
 
-    expect(window.scrollY).toBeGreaterThan(referenceTop + 1000);
-    expect(referenceShell(mountedPage.container).getBoundingClientRect().top).toBeLessThan(-1000);
+    try {
+      await selectSurface(mountedPage.container, "inline");
 
-    await selectSurface(mountedPage.container, "inline");
-    await waitFrames(2);
+      expect(surfaceTab(mountedPage.container, "inline").getAttribute("aria-pressed")).toBe("true");
+      expect(scrollToSpy).toHaveBeenCalledWith({
+        top: 400,
+      });
+    } finally {
+      rectSpy.mockRestore();
+      scrollYSpy.mockRestore();
+      scrollToSpy.mockRestore();
+    }
+  });
 
-    expect(surfaceTab(mountedPage.container, "inline").getAttribute("aria-pressed")).toBe("true");
-    expect(Math.abs(window.scrollY - referenceTop)).toBeLessThanOrEqual(1);
-    expect(
-      Math.abs(referenceShell(mountedPage.container).getBoundingClientRect().top),
-    ).toBeLessThanOrEqual(1);
+  it("does not scroll when the tabs row in-flow top edge is already in view", async () => {
+    const { default: App } = await import("../../website/src/App.vue");
+    const mountedPage = mountPage(App);
+
+    await settle(4);
+    await mountedPage.container.ownerDocument.fonts?.ready;
+
+    const anchor = referenceTabsAnchor(mountedPage.container);
+    const scrollToSpy = vi.spyOn(window, "scrollTo").mockImplementation(() => {});
+    const rectSpy = vi
+      .spyOn(anchor, "getBoundingClientRect")
+      .mockReturnValue(new DOMRect(0, 120, 0, 0));
+
+    try {
+      await selectSurface(mountedPage.container, "wrap");
+
+      expect(surfaceTab(mountedPage.container, "wrap").getAttribute("aria-pressed")).toBe("true");
+      expect(scrollToSpy).not.toHaveBeenCalled();
+    } finally {
+      rectSpy.mockRestore();
+      scrollToSpy.mockRestore();
+    }
   });
 
   it("surfaces concise API summaries for all components", async () => {

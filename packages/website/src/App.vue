@@ -102,7 +102,7 @@ type WrapDemoItem = {
 };
 
 const activeSurface = ref<SurfaceKey>("line");
-const referenceRootRef = ref<HTMLElement | null>(null);
+const referenceTabsAnchorRef = ref<HTMLElement | null>(null);
 const surfaceOptions = [
   {
     description: "Multiline browser-fit clamp for previews, cards, and expandable copy.",
@@ -175,9 +175,15 @@ function createHeroTaglineWords(): HeroTaglineWord[] {
   return words;
 }
 
-function scrollReferenceToTop(): void {
-  const target = referenceRootRef.value;
-  if (!target) {
+function shouldScrollReferenceTabsIntoView(target: HTMLElement): boolean {
+  const { top } = target.getBoundingClientRect();
+
+  return top < 0 || top > window.innerHeight;
+}
+
+function scrollReferenceTabsToTop(): void {
+  const target = referenceTabsAnchorRef.value;
+  if (!target || !shouldScrollReferenceTabsIntoView(target)) {
     return;
   }
 
@@ -198,7 +204,7 @@ function updateActiveSurface(surface: string): void {
   activeSurface.value = surface;
 
   void nextTick(() => {
-    scrollReferenceToTop();
+    scrollReferenceTabsToTop();
   });
 }
 
@@ -948,10 +954,11 @@ const highlightedWrapCode = computed(() => {
     </section>
 
     <section class="section">
-      <div ref="referenceRootRef" class="reference-root" data-reference-shell>
+      <div class="reference-root" data-reference-shell>
         <h2 class="section-title reference-title" id="components">
           <a href="#components">#</a> Components
         </h2>
+        <div ref="referenceTabsAnchorRef" class="reference-tabs-anchor" aria-hidden="true"></div>
         <div class="reference-tabs-row">
           <ComponentTabs
             :model-value="activeSurface"
@@ -2127,12 +2134,21 @@ html {
   line-height: 1.6;
   color: var(--c-text);
   background: var(--c-bg);
+  scroll-behavior: smooth;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
 body {
   margin: 0;
+  scroll-behavior: smooth;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html,
+  body {
+    scroll-behavior: auto;
+  }
 }
 
 a {
@@ -2393,6 +2409,10 @@ pre code {
 .reference-root {
   display: flex;
   flex-direction: column;
+}
+
+.reference-tabs-anchor {
+  block-size: 0;
 }
 
 .reference-tabs-row {

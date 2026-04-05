@@ -213,6 +213,10 @@
   - `MIGRATION.md` for `0.x` -> `1.x` migration guidance
   - `packages/vue-clamp/README.md` as a brief npm-facing entry point that sends users to the
     website for full docs and demos
+- `README.md` at the repo root stays repo-facing:
+  - short package summary
+  - links to the website and package docs
+  - local development commands
 - Validation standard:
   - `vp install`
   - `vp check`
