@@ -23,13 +23,52 @@ const shiki = createHighlighterCoreSync({
   engine: createJavaScriptRegexEngine(),
 });
 
-const text =
+const englishText =
   "Vue (pronounced /vju\u02D0/, like view) is a progressive framework for building user interfaces. Unlike other monolithic frameworks, Vue is designed from the ground up to be incrementally adoptable. The core library is focused on the view layer only, and is easy to pick up and integrate with other libraries or existing projects. On the other hand, Vue is also perfectly capable of powering sophisticated Single-Page Applications when used in combination with modern tooling and supporting libraries.";
+const chineseText =
+  "Vue 是一个用于构建用户界面的渐进式框架。你可以只在页面的一小部分引入它，也可以结合现代工具链把它扩展成完整的单页应用。在这个示例里，我们使用一段较长的中文文本来观察多行截断、换行和省略号在不同宽度下的表现。";
 const arabicText =
   "فيو 3 إطار تدريجي لبناء واجهات المستخدم، وقد صُمم ليكون سهل التبنّي بشكل متدرج داخل المشاريع المختلفة. تركز المكتبة الأساسية على طبقة العرض فقط، لكنها قادرة أيضًا على تشغيل تطبيقات أكثر تعقيدًا عند استخدامها مع أدوات حديثة ومكتبات مساندة. في هذا المثال نعرض نصًا عربيًا مع Vue 3 وبعض الكلمات اللاتينية مثل SPA لاختبار الالتفاف والاقتطاع في اتجاه من اليمين إلى اليسار.";
+const mixedLanguageText =
+  "Design systems move fast: ship once, then verify the same preview with English, 中文标签, العربية, and locale-aware tokens like /docs/getting-started before you freeze the layout.";
+const emojiText =
+  "Status update ✨ Ship notes are ready, screenshots are approved, and the launch checklist is almost done 🚀 Add a few longer phrases with emoji reactions 😄📦🧪 to see how the clamp behaves.";
 
-function lineDemoText(rtl: boolean): string {
-  return rtl ? arabicText : text;
+const lineTextPresets = [
+  {
+    id: "english",
+    label: "English",
+    value: englishText,
+  },
+  {
+    id: "chinese",
+    label: "中文",
+    value: chineseText,
+  },
+  {
+    id: "arabic",
+    label: "العربية",
+    value: arabicText,
+  },
+  {
+    id: "mixed",
+    label: "Mixed",
+    value: mixedLanguageText,
+  },
+  {
+    id: "emoji",
+    label: "Emoji",
+    value: emojiText,
+  },
+] as const;
+
+const lineTextInput = ref(englishText);
+const selectedLineTextPreset = computed(() => {
+  return lineTextPresets.find((preset) => preset.value === lineTextInput.value)?.id ?? null;
+});
+
+function selectLineTextPreset(value: string): void {
+  lineTextInput.value = value;
 }
 
 function lineToggleLabel(expanded: boolean, rtl: boolean): string {
@@ -974,6 +1013,42 @@ const highlightedWrapCode = computed(() => {
 
             <template v-if="activeSurface === 'line'">
               <div class="demo-surface">
+                <div class="demo-shared-controls">
+                  <div class="demo-controls">
+                    <div class="control stacked-control line-text-settings">
+                      <span class="control-stack">
+                        <span
+                          class="control-pills"
+                          role="group"
+                          aria-label="Line demo text presets"
+                        >
+                          <button
+                            v-for="preset in lineTextPresets"
+                            :key="preset.id"
+                            class="control-pill"
+                            :class="{ active: selectedLineTextPreset === preset.id }"
+                            :data-line-text-preset="preset.id"
+                            type="button"
+                            :aria-pressed="selectedLineTextPreset === preset.id"
+                            @click="selectLineTextPreset(preset.value)"
+                          >
+                            {{ preset.label }}
+                          </button>
+                        </span>
+                        <textarea
+                          v-model="lineTextInput"
+                          class="control-textarea"
+                          data-line-text-input
+                          rows="5"
+                          aria-label="LineClamp demo text"
+                          placeholder="Paste or type text to try in every LineClamp example."
+                        ></textarea>
+                        <span class="control-help">Paste text to try it across these demos.</span>
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
                 <div class="demo-example-list">
                   <!-- Demo 1: max-lines + after slot toggle -->
                   <div class="demo-block">
@@ -1019,7 +1094,7 @@ const highlightedWrapCode = computed(() => {
                         <LineClamp
                           class="demo-clamp"
                           :class="{ hyphens: hyphens1, rtl: rtl1 }"
-                          :text="lineDemoText(rtl1)"
+                          :text="lineTextInput"
                           :max-lines="lines1"
                           :style="{ width: `${width1}px`, maxWidth: '100%' }"
                         >
@@ -1079,7 +1154,7 @@ const highlightedWrapCode = computed(() => {
                         <LineClamp
                           class="demo-clamp"
                           :class="{ hyphens: hyphens2, rtl: rtl2 }"
-                          :text="lineDemoText(rtl2)"
+                          :text="lineTextInput"
                           :max-height="height2"
                           v-model:expanded="expanded2"
                           :style="{ width: `${width2}px`, maxWidth: '100%' }"
@@ -1136,7 +1211,7 @@ const highlightedWrapCode = computed(() => {
                         <LineClamp
                           class="demo-clamp"
                           :class="{ hyphens: hyphens3, rtl: rtl3 }"
-                          :text="lineDemoText(rtl3)"
+                          :text="lineTextInput"
                           :max-lines="lines3"
                           :style="{ width: `${width3}px`, maxWidth: '100%' }"
                           @clampchange="clamped3 = $event"
@@ -1236,7 +1311,7 @@ const highlightedWrapCode = computed(() => {
                         <LineClamp
                           class="demo-clamp"
                           :class="{ hyphens: hyphens4, rtl: rtl4 }"
-                          :text="lineDemoText(rtl4)"
+                          :text="lineTextInput"
                           :max-lines="lines4"
                           :location="location4"
                           :ellipsis="ellipsis4"
@@ -2457,11 +2532,15 @@ pre code {
 }
 
 .demo-shared-controls {
-  padding-bottom: 4px;
+  padding-bottom: 18px;
 }
 
 .demo-shared-controls .demo-controls {
   padding-bottom: 0;
+}
+
+.line-text-settings {
+  padding: 6px 0;
 }
 
 .demo-example-list {
@@ -2550,11 +2629,40 @@ pre code {
   box-shadow: var(--focus-ring);
 }
 
+.control-textarea {
+  inline-size: min(100%, 720px);
+  min-block-size: 120px;
+  padding: 10px 12px;
+  font-family: inherit;
+  font-size: 16px;
+  font-weight: inherit;
+  line-height: 1.6;
+  color: var(--c-text);
+  background: var(--c-bg);
+  border: 1px solid var(--c-border);
+  border-radius: 10px;
+  resize: vertical;
+  outline: none;
+  transition:
+    border-color 0.15s,
+    box-shadow 0.15s;
+}
+
+.control-textarea:focus-visible {
+  border-color: var(--c-accent);
+  box-shadow: var(--focus-ring);
+}
+
 .control-row {
   display: flex;
   align-items: center;
   gap: 10px;
   flex: 1;
+}
+
+.control-help {
+  color: var(--c-text-3);
+  line-height: 1.4;
 }
 
 .control-range {

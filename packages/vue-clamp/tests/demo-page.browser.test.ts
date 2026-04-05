@@ -56,6 +56,25 @@ function widthInput(container: HTMLElement): HTMLInputElement {
   return input;
 }
 
+function lineTextInput(container: HTMLElement): HTMLTextAreaElement {
+  const input = container.querySelector("[data-line-text-input]");
+  if (!(input instanceof HTMLTextAreaElement)) {
+    throw new Error("Expected the shared line demo text input.");
+  }
+
+  return input;
+}
+
+function lineTextPresetButtons(container: HTMLElement): HTMLButtonElement[] {
+  return Array.from(container.querySelectorAll("[data-line-text-preset]")).map((button) => {
+    if (!(button instanceof HTMLButtonElement)) {
+      throw new Error("Expected the shared line text preset button.");
+    }
+
+    return button;
+  });
+}
+
 function workspaceDemoBlock(container: HTMLElement): HTMLElement {
   return demoBlock(container, 0);
 }
@@ -361,8 +380,18 @@ async function setRangeValue(input: HTMLInputElement, value: number): Promise<vo
   await settle(4);
 }
 
+async function setTextareaValue(input: HTMLTextAreaElement, value: string): Promise<void> {
+  input.value = value;
+  input.dispatchEvent(new Event("input", { bubbles: true }));
+  await settle(4);
+}
+
 async function setWorkspaceWidth(container: HTMLElement, width: number): Promise<void> {
   await setRangeValue(widthInput(container), width);
+}
+
+async function setLineDemoText(container: HTMLElement, value: string): Promise<void> {
+  await setTextareaValue(lineTextInput(container), value);
 }
 
 async function setLocationWidth(container: HTMLElement, width: number): Promise<void> {
@@ -500,6 +529,45 @@ describe("Website demo page", () => {
 
     expect(await sampleVisibleLineCounts(clampRoot)).toEqual([3, 3, 3]);
     expect(current.length).toBeGreaterThanOrEqual(best.length - 1);
+  });
+
+  it("updates all multiline demos from the shared line text editor", async () => {
+    const { default: App } = await import("../../website/src/App.vue");
+    const mountedPage = mountPage(App);
+
+    await settle(4);
+    await mountedPage.container.ownerDocument.fonts?.ready;
+
+    const input = lineTextInput(mountedPage.container);
+    expect(getComputedStyle(input).fontSize).toBe("16px");
+    expect(input.value).toContain("Vue (pronounced");
+    expect(
+      lineTextPresetButtons(mountedPage.container).map((button) => button.dataset.lineTextPreset),
+    ).toEqual(["english", "chinese", "arabic", "mixed", "emoji"]);
+
+    const customText =
+      "Custom demo copy for live testing. It should flow through every LineClamp example without needing to reload the page.";
+
+    await setLineDemoText(mountedPage.container, customText);
+
+    expect(input.value).toBe(customText);
+    const allPresetsUnpressed = lineTextPresetButtons(mountedPage.container).every(
+      (button) => button.getAttribute("aria-pressed") === "false",
+    );
+    expect(allPresetsUnpressed).toBe(true);
+
+    const workspaceRoot = workspaceClamp(mountedPage.container);
+    const locationRoot = locationClamp(mountedPage.container);
+
+    await waitUntilVisible(workspaceRoot);
+    await waitUntilVisible(locationRoot);
+
+    expect(
+      accessibleTextElement(workspaceRoot)?.textContent ?? textElement(workspaceRoot).textContent,
+    ).toBe(customText);
+    expect(
+      accessibleTextElement(locationRoot)?.textContent ?? textElement(locationRoot).textContent,
+    ).toBe(customText);
   });
 
   it("applies numeric ratio locations in the location demo and stays aligned with browser fit", async () => {
