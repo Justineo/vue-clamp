@@ -2139,6 +2139,13 @@ html {
   -moz-osx-font-smoothing: grayscale;
 }
 
+@supports (-webkit-touch-callout: none) {
+  html {
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
+}
+
 body {
   margin: 0;
   scroll-behavior: smooth;
