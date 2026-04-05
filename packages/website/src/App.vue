@@ -28,8 +28,44 @@ const text =
 const arabicText =
   "فيو 3 إطار تدريجي لبناء واجهات المستخدم، وقد صُمم ليكون سهل التبنّي بشكل متدرج داخل المشاريع المختلفة. تركز المكتبة الأساسية على طبقة العرض فقط، لكنها قادرة أيضًا على تشغيل تطبيقات أكثر تعقيدًا عند استخدامها مع أدوات حديثة ومكتبات مساندة. في هذا المثال نعرض نصًا عربيًا مع Vue 3 وبعض الكلمات اللاتينية مثل SPA لاختبار الالتفاف والاقتطاع في اتجاه من اليمين إلى اليسار.";
 
-function lineDemoText(rtl: boolean): string {
-  return rtl ? arabicText : text;
+const lineTextPresets = [
+  {
+    id: "article",
+    label: "Article",
+    value: text,
+  },
+  {
+    id: "release",
+    label: "Release",
+    value:
+      "Vue Clamp 1.0 ships three focused components for multiline copy, inline labels, and wrapped token rails. Use the demos below to test your own strings, compare fit decisions, and see how each surface behaves under different widths and expansion states.",
+  },
+  {
+    id: "rtl",
+    label: "RTL",
+    value: arabicText,
+  },
+] as const;
+
+const lineTextInput = ref(text);
+const selectedLineTextPreset = computed(() => {
+  return lineTextPresets.find((preset) => preset.value === lineTextInput.value)?.id ?? null;
+});
+const lineTextStats = computed(() => {
+  const words = lineTextInput.value.trim() ? lineTextInput.value.trim().split(/\s+/u).length : 0;
+
+  return {
+    characters: lineTextInput.value.length,
+    words,
+  };
+});
+
+function lineDemoText(): string {
+  return lineTextInput.value;
+}
+
+function selectLineTextPreset(value: string): void {
+  lineTextInput.value = value;
 }
 
 function lineToggleLabel(expanded: boolean, rtl: boolean): string {
@@ -974,6 +1010,50 @@ const highlightedWrapCode = computed(() => {
 
             <template v-if="activeSurface === 'line'">
               <div class="demo-surface">
+                <div class="demo-shared-controls">
+                  <div class="demo-controls">
+                    <div class="control stacked-control line-text-control">
+                      <span class="control-label">Text</span>
+                      <span class="control-stack">
+                        <span
+                          class="control-pills"
+                          role="group"
+                          aria-label="Line demo text presets"
+                        >
+                          <button
+                            v-for="preset in lineTextPresets"
+                            :key="preset.id"
+                            class="control-pill"
+                            :class="{ active: selectedLineTextPreset === preset.id }"
+                            :data-line-text-preset="preset.id"
+                            type="button"
+                            :aria-pressed="selectedLineTextPreset === preset.id"
+                            @click="selectLineTextPreset(preset.value)"
+                          >
+                            {{ preset.label }}
+                          </button>
+                        </span>
+                        <textarea
+                          v-model="lineTextInput"
+                          class="control-textarea"
+                          data-line-text-input
+                          rows="5"
+                          aria-label="LineClamp demo text"
+                          placeholder="Paste or type text to try in every LineClamp example."
+                        ></textarea>
+                        <span class="control-row line-text-meta">
+                          <span class="control-help">
+                            Updates every multiline example live so you can test real copy.
+                          </span>
+                          <span class="control-value line-text-stats">
+                            {{ lineTextStats.words }}w · {{ lineTextStats.characters }}c
+                          </span>
+                        </span>
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
                 <div class="demo-example-list">
                   <!-- Demo 1: max-lines + after slot toggle -->
                   <div class="demo-block">
@@ -1019,7 +1099,7 @@ const highlightedWrapCode = computed(() => {
                         <LineClamp
                           class="demo-clamp"
                           :class="{ hyphens: hyphens1, rtl: rtl1 }"
-                          :text="lineDemoText(rtl1)"
+                          :text="lineDemoText()"
                           :max-lines="lines1"
                           :style="{ width: `${width1}px`, maxWidth: '100%' }"
                         >
@@ -1079,7 +1159,7 @@ const highlightedWrapCode = computed(() => {
                         <LineClamp
                           class="demo-clamp"
                           :class="{ hyphens: hyphens2, rtl: rtl2 }"
-                          :text="lineDemoText(rtl2)"
+                          :text="lineDemoText()"
                           :max-height="height2"
                           v-model:expanded="expanded2"
                           :style="{ width: `${width2}px`, maxWidth: '100%' }"
@@ -1136,7 +1216,7 @@ const highlightedWrapCode = computed(() => {
                         <LineClamp
                           class="demo-clamp"
                           :class="{ hyphens: hyphens3, rtl: rtl3 }"
-                          :text="lineDemoText(rtl3)"
+                          :text="lineDemoText()"
                           :max-lines="lines3"
                           :style="{ width: `${width3}px`, maxWidth: '100%' }"
                           @clampchange="clamped3 = $event"
@@ -1236,7 +1316,7 @@ const highlightedWrapCode = computed(() => {
                         <LineClamp
                           class="demo-clamp"
                           :class="{ hyphens: hyphens4, rtl: rtl4 }"
-                          :text="lineDemoText(rtl4)"
+                          :text="lineDemoText()"
                           :max-lines="lines4"
                           :location="location4"
                           :ellipsis="ellipsis4"
@@ -2543,11 +2623,56 @@ pre code {
   box-shadow: var(--focus-ring);
 }
 
+.control-textarea {
+  inline-size: min(100%, 720px);
+  min-block-size: 120px;
+  padding: 10px 12px;
+  font: inherit;
+  line-height: 1.6;
+  color: var(--c-text);
+  background: var(--c-bg);
+  border: 1px solid var(--c-border);
+  border-radius: 10px;
+  resize: vertical;
+  outline: none;
+  transition:
+    border-color 0.15s,
+    box-shadow 0.15s;
+}
+
+.control-textarea:focus-visible {
+  border-color: var(--c-accent);
+  box-shadow: var(--focus-ring);
+}
+
 .control-row {
   display: flex;
   align-items: center;
   gap: 10px;
   flex: 1;
+}
+
+.line-text-control .control-label {
+  padding-top: 6px;
+}
+
+.line-text-meta {
+  inline-size: min(100%, 720px);
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 8px 12px;
+  flex-wrap: wrap;
+}
+
+.control-help {
+  max-inline-size: 44rem;
+  font-size: 0.78rem;
+  color: var(--c-text-3);
+  line-height: 1.5;
+}
+
+.line-text-stats {
+  min-width: 74px;
 }
 
 .control-range {
