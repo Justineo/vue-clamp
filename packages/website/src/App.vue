@@ -2810,6 +2810,7 @@ pre code {
   display: block;
   width: 100%;
   max-width: 100%;
+  font-size: 0.95rem;
   line-height: 1.8;
 }
 
