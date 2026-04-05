@@ -542,7 +542,7 @@ describe("Website demo page", () => {
     expect(input.value).toContain("Vue (pronounced");
     expect(
       lineTextPresetButtons(mountedPage.container).map((button) => button.dataset.lineTextPreset),
-    ).toEqual(["article", "release", "rtl"]);
+    ).toEqual(["english", "chinese", "arabic", "mixed", "emoji"]);
 
     const customText =
       "Custom demo copy for live testing. It should flow through every LineClamp example without needing to reload the page.";

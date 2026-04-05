@@ -25,25 +25,40 @@ const shiki = createHighlighterCoreSync({
 
 const text =
   "Vue (pronounced /vju\u02D0/, like view) is a progressive framework for building user interfaces. Unlike other monolithic frameworks, Vue is designed from the ground up to be incrementally adoptable. The core library is focused on the view layer only, and is easy to pick up and integrate with other libraries or existing projects. On the other hand, Vue is also perfectly capable of powering sophisticated Single-Page Applications when used in combination with modern tooling and supporting libraries.";
+const chineseText =
+  "Vue 是一个用于构建用户界面的渐进式框架。你可以只在页面的一小部分引入它，也可以结合现代工具链把它扩展成完整的单页应用。在这个示例里，我们使用一段较长的中文文本来观察多行截断、换行和省略号在不同宽度下的表现。";
 const arabicText =
   "فيو 3 إطار تدريجي لبناء واجهات المستخدم، وقد صُمم ليكون سهل التبنّي بشكل متدرج داخل المشاريع المختلفة. تركز المكتبة الأساسية على طبقة العرض فقط، لكنها قادرة أيضًا على تشغيل تطبيقات أكثر تعقيدًا عند استخدامها مع أدوات حديثة ومكتبات مساندة. في هذا المثال نعرض نصًا عربيًا مع Vue 3 وبعض الكلمات اللاتينية مثل SPA لاختبار الالتفاف والاقتطاع في اتجاه من اليمين إلى اليسار.";
+const mixedText =
+  "Design systems move fast: ship once, then verify the same preview with English, 中文标签, العربية, and locale-aware tokens like /docs/getting-started before you freeze the layout.";
+const emojiText =
+  "Status update ✨ Ship notes are ready, screenshots are approved, and the launch checklist is almost done 🚀 Add a few longer phrases with emoji reactions 😄📦🧪 to see how the clamp behaves.";
 
 const lineTextPresets = [
   {
-    id: "article",
-    label: "Article",
+    id: "english",
+    label: "English",
     value: text,
   },
   {
-    id: "release",
-    label: "Release",
-    value:
-      "Vue Clamp 1.0 ships three focused components for multiline copy, inline labels, and wrapped token rails. Use the demos below to test your own strings, compare fit decisions, and see how each surface behaves under different widths and expansion states.",
+    id: "chinese",
+    label: "中文",
+    value: chineseText,
   },
   {
-    id: "rtl",
-    label: "RTL",
+    id: "arabic",
+    label: "العربية",
     value: arabicText,
+  },
+  {
+    id: "mixed",
+    label: "Mixed",
+    value: mixedText,
+  },
+  {
+    id: "emoji",
+    label: "Emoji",
+    value: emojiText,
   },
 ] as const;
 
@@ -1000,7 +1015,7 @@ const highlightedWrapCode = computed(() => {
               <div class="demo-surface">
                 <div class="demo-shared-controls">
                   <div class="demo-controls">
-                    <div class="control stacked-control">
+                    <div class="control stacked-control line-text-settings">
                       <span class="control-stack">
                         <span
                           class="control-pills"
@@ -2510,11 +2525,15 @@ pre code {
 }
 
 .demo-shared-controls {
-  padding-bottom: 4px;
+  padding-bottom: 18px;
 }
 
 .demo-shared-controls .demo-controls {
   padding-bottom: 0;
+}
+
+.line-text-settings {
+  padding: 6px 0;
 }
 
 .demo-example-list {
