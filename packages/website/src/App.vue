@@ -2634,7 +2634,6 @@ pre code {
   min-block-size: 120px;
   padding: 10px 12px;
   font-family: inherit;
-  font-size: 16px;
   font-weight: inherit;
   line-height: 1.6;
   color: var(--c-text);
@@ -2810,7 +2809,6 @@ pre code {
   display: block;
   width: 100%;
   max-width: 100%;
-  font-size: 0.95rem;
   line-height: 1.8;
 }
 
