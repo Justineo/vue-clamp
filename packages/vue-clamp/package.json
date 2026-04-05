@@ -9,7 +9,7 @@
     "truncate",
     "vue"
   ],
-  "homepage": "https://github.com/Justineo/vue-clamp#readme",
+  "homepage": "https://vue-clamp.vercel.app/",
   "bugs": {
     "url": "https://github.com/Justineo/vue-clamp/issues"
   },

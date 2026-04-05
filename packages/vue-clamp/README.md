@@ -1,15 +1,11 @@
 # vue-clamp
 
-Vue 3 line, inline, and wrapped-item clamping with browser-aligned DOM primitives.
+[![GitHub stars](https://img.shields.io/github/stars/Justineo/vue-clamp?style=plastic&logo=github)](https://github.com/Justineo/vue-clamp)
+[![npm version](https://img.shields.io/npm/v/vue-clamp?logo=npm)](https://www.npmjs.com/package/vue-clamp)
 
-## 1.0.0
+Clamping primitives for Vue.
 
-`1.0.0` is the first stable Vue 3 release and includes breaking changes from the `0.x` line.
-
-- Breaking changes and release notes:
-  [CHANGELOG.md](https://github.com/Justineo/vue-clamp/blob/main/CHANGELOG.md#100)
-- Migration guide from `0.x`:
-  [MIGRATION.md](https://github.com/Justineo/vue-clamp/blob/main/MIGRATION.md)
+Docs and demo: [vue-clamp.vercel.app](https://vue-clamp.vercel.app/)
 
 ## Install
 
@@ -17,81 +13,33 @@ Vue 3 line, inline, and wrapped-item clamping with browser-aligned DOM primitive
 pnpm add vue-clamp vue
 ```
 
+## Components
+
+- `LineClamp` for multiline text
+- `InlineClamp` for one-line strings such as filenames, paths, and emails
+- `WrapClamp` for wrapped items such as tags, filters, and chips
+
 ## Usage
 
 ```vue
 <script setup lang="ts">
-import { ref } from "vue";
 import { LineClamp } from "vue-clamp";
-
-const expanded = ref(false);
-const text = "A long line of text that should be clamped after two lines.";
 </script>
 
 <template>
-  <LineClamp v-model:expanded="expanded" :text="text" :max-lines="2">
-    <template #after="{ clamped, toggle }">
-      <button v-if="clamped" type="button" @click="toggle">
-        {{ expanded ? "Less" : "More" }}
-      </button>
-    </template>
-  </LineClamp>
+  <LineClamp :text="text" :max-lines="2" />
 </template>
 ```
 
-The package exports:
+## Docs
 
-- `LineClamp` for the existing multiline clamp
-- `InlineClamp` for a native one-line clamp with optional `split(text) => { start?, body, end? }`
-- `WrapClamp` for wrapped atomic items such as badges, tags, and pills
+See the website for installation, examples, API, and live demos:
 
-## Migrating From 0.x
+- [https://vue-clamp.vercel.app/](https://vue-clamp.vercel.app/)
 
-The main upgrade changes are:
+## Migrating from 0.x
 
-- upgrade the host app to Vue 3
-- replace the default export with `LineClamp`
-- move the multiline source text from the default slot into the `text` prop
-- rename `tag` to `as`
-- remove `autoresize`
-- replace `:expanded.sync` with `v-model:expanded`
+`1.x` is the Vue 3 line and includes breaking changes from `0.x`.
 
-Full guide:
-[MIGRATION.md](https://github.com/Justineo/vue-clamp/blob/main/MIGRATION.md)
-
-## API
-
-- `LineClamp`
-  - Props: `as`, `text`, `maxLines`, `maxHeight`, `ellipsis`, `location`, `expanded`
-  - Slots: `before`, `after`
-  - Emits: `update:expanded`, `clampchange`
-  - Exposed instance: `expand()`, `collapse()`, `toggle()`, `clamped`, `expanded`
-
-- `InlineClamp`
-  - Props: `as`, `text`, `split`
-  - No slots, emits, or exposed instance contract
-
-- `WrapClamp`
-  - Props: `as`, `items`, `itemKey`, `maxLines`, `maxHeight`, `expanded`
-  - Slots: `item`, `before`, `after`
-  - Emits: `update:expanded`, `clampchange`
-  - Exposed instance: `expand()`, `collapse()`, `toggle()`, `clamped`, `expanded`
-
-`location` accepts `"start"`, `"middle"`, `"end"`, or a numeric ratio from `0` to `1`. Ratios map to where the preserved text budget sits around the ellipsis: `0` keeps the suffix, `0.5` splits evenly, and `1` keeps the prefix.
-
-## Constraints
-
-- The text to clamp comes from the `text` prop.
-- Stable internal styling hooks use `data-part` only. Documented parts are:
-  - `LineClamp`: `root`, `content`, `before`, `body`, `after`
-  - `InlineClamp`: `root`, `start`, `body`, `end`
-  - `WrapClamp`: `root`, `content`, `before`, `item`, `after`
-- DOM nesting itself is not public API. Target `data-part` selectors instead of structural child selectors.
-- `before` and `after` are measured as single inline boxes. They can render rich Vue content, but clamp math assumes each slot occupies one atomic inline width.
-- The collapsed one-line end case with the default `…` ellipsis may use native CSS `text-overflow`. That native path applies to `location="end"` and `location={1}`. In that path, the DOM text remains the full source string and the ellipsis is visual. `before` and `after` stay fixed while the text portion shrinks.
-- When the component must rewrite the visible string, it keeps a visually hidden full-text node in the DOM for assistive tech and marks only the rewritten visible text as presentational.
-- The component follows live browser layout directly. Its collapsed root only applies explicit `maxHeight`; it does not derive a synthetic line-based clip.
-- `WrapClamp` preserves whole rendered items. It does not split inside an item, and the recommended place for `+N`, `More`, or `Less` UI is the `after` slot.
-- `WrapClamp` follows live DOM measurement for all clamp modes.
-- `maxLines="1"` is still the lightest case, but it does not use a separate predictive clamp engine.
-- Larger line limits and `max-height` clamps may do more layout work during resize, especially in auto-layout containers.
+- Migration guide: [MIGRATION.md](https://github.com/Justineo/vue-clamp/blob/main/MIGRATION.md)
+- Release notes: [CHANGELOG.md](https://github.com/Justineo/vue-clamp/blob/main/CHANGELOG.md#100)

@@ -190,11 +190,11 @@
   now rotates through a randomized but category-balanced set of concrete nouns from the multiline,
   inline, and wrapped-item surfaces, while the API names remain `LineClamp`, `InlineClamp`, and
   `WrapClamp`.
-- The website now carries repo-side Vercel deployment config in `vercel.json`:
+- Vercel deployment settings now live in the Vercel project dashboard instead of `vercel.json`:
+  - production branch is `main`
   - install uses Corepack plus the pinned `pnpm@10.33.0`
   - build runs the root monorepo build
   - output comes from `packages/website/dist`
-  - Git deployments are enabled for `main` and disabled for `master`
 - GitHub automation now follows a two-lane publish model:
   - `.github/workflows/ci.yml` remains the validation workflow and also publishes preview builds for
     `packages/vue-clamp` with `pkg-pr-new`.
@@ -211,7 +211,8 @@
 - Release documentation now lives in:
   - `CHANGELOG.md` for versioned release notes
   - `MIGRATION.md` for `0.x` -> `1.x` migration guidance
-  - `packages/vue-clamp/README.md` for the npm-facing release and migration summary
+  - `packages/vue-clamp/README.md` as a brief npm-facing entry point that sends users to the
+    website for full docs and demos
 - Validation standard:
   - `vp install`
   - `vp check`
