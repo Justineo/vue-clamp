@@ -260,10 +260,18 @@ export const LineClamp = defineComponent({
 
     let resizeObserver: ResizeObserver | null = null;
     let stopFonts = () => {};
+    let deferredRecomputePending = false;
 
     function scheduleDeferredRecompute(): void {
+      if (deferredRecomputePending) {
+        return;
+      }
+
+      deferredRecomputePending = true;
       void nextTick(() => {
         requestAnimationFrame(() => {
+          deferredRecomputePending = false;
+
           if (!rootRef.value) {
             return;
           }
@@ -416,7 +424,6 @@ export const LineClamp = defineComponent({
       }
 
       function handleFontLoad(): void {
-        recompute();
         scheduleDeferredRecompute();
       }
 
