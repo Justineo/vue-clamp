@@ -379,7 +379,6 @@ async function setRangeValue(input: HTMLInputElement, value: number): Promise<vo
 async function setTextareaValue(input: HTMLTextAreaElement, value: string): Promise<void> {
   input.value = value;
   input.dispatchEvent(new Event("input", { bubbles: true }));
-  input.dispatchEvent(new Event("change", { bubbles: true }));
   await settle(4);
 }
 
