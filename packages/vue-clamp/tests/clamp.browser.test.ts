@@ -124,6 +124,36 @@ describe("LineClamp browser contract", () => {
     expect(await sampleVisibleLineCounts(root)).toEqual([2, 2, 2]);
   });
 
+  it("recomputes max-height clamps when typography changes without root box growth", async () => {
+    const style = document.createElement("style");
+    style.textContent = ".late-font-size { font-size: 28px; line-height: 1.4; }";
+    document.head.append(style);
+
+    const mounted = mountClamp({
+      text: DEMO_TEXT,
+      width: 320,
+      props: {
+        class: "late-font-size",
+        maxHeight: "6.2em",
+      },
+    });
+
+    const root = rootElement(mounted.container);
+    await waitUntilVisible(root);
+    await settle(4);
+
+    const before = textElement(root).textContent ?? "";
+
+    style.textContent = ".late-font-size { font-size: 14px; line-height: 1.4; }";
+    await settle(6);
+
+    const after = textElement(root).textContent ?? "";
+    style.remove();
+
+    expect(after.length).toBeGreaterThan(before.length);
+    expect(after).toContain("…");
+  });
+
   it("uses native one-line overflow when the default end-ellipsis path is eligible", async () => {
     const sourceText = "abcdefghijklmnopqrstuvwxyz";
     const mounted = mountClamp({
