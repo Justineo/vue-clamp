@@ -375,14 +375,8 @@ export const LineClamp = defineComponent({
       if (rootRef.value) {
         observed.push(rootRef.value);
       }
-      if (contentRef.value) {
-        observed.push(contentRef.value);
-      }
       if (beforeRef.value) {
         observed.push(beforeRef.value);
-      }
-      if (textRef.value) {
-        observed.push(textRef.value);
       }
       if (afterRef.value) {
         observed.push(afterRef.value);
