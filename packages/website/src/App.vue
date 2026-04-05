@@ -2715,11 +2715,10 @@ pre code {
   accent-color: var(--c-accent);
 }
 
-.control-check:focus-within,
-.control-radio:focus-within {
-  color: var(--c-text);
-  border-radius: 999px;
-  box-shadow: var(--focus-ring-subtle);
+.control-check input:focus-visible,
+.control-radio input:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
 }
 
 .control-pills {
