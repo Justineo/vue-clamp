@@ -547,11 +547,10 @@ describe("Website demo page", () => {
     await setLineDemoText(mountedPage.container, customText);
 
     expect(input.value).toBe(customText);
-    expect(
-      lineTextPresetButtons(mountedPage.container).every(
-        (button) => button.getAttribute("aria-pressed") === "false",
-      ),
-    ).toBe(true);
+    const allPresetsUnpressed = lineTextPresetButtons(mountedPage.container).every(
+      (button) => button.getAttribute("aria-pressed") === "false",
+    );
+    expect(allPresetsUnpressed).toBe(true);
 
     const workspaceRoot = workspaceClamp(mountedPage.container);
     const locationRoot = locationClamp(mountedPage.container);

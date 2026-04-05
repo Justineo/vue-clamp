@@ -52,7 +52,8 @@ const selectedLineTextPreset = computed(() => {
   return lineTextPresets.find((preset) => preset.value === lineTextInput.value)?.id ?? null;
 });
 const lineTextStats = computed(() => {
-  const words = lineTextInput.value.trim() ? lineTextInput.value.trim().split(/\s+/u).length : 0;
+  const trimmedText = lineTextInput.value.trim();
+  const words = trimmedText ? trimmedText.split(/\s+/u).length : 0;
 
   return {
     characters: lineTextInput.value.length,
