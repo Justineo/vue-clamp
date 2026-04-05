@@ -66,9 +66,13 @@ function lineTextInput(container: HTMLElement): HTMLTextAreaElement {
 }
 
 function lineTextPresetButtons(container: HTMLElement): HTMLButtonElement[] {
-  return Array.from(container.querySelectorAll("[data-line-text-preset]")).filter(
-    (button): button is HTMLButtonElement => button instanceof HTMLButtonElement,
-  );
+  return Array.from(container.querySelectorAll("[data-line-text-preset]")).map((button) => {
+    if (!(button instanceof HTMLButtonElement)) {
+      throw new Error("Expected the shared line text preset button.");
+    }
+
+    return button;
+  });
 }
 
 function workspaceDemoBlock(container: HTMLElement): HTMLElement {

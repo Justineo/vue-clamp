@@ -61,10 +61,6 @@ const lineTextStats = computed(() => {
   };
 });
 
-function lineDemoText(): string {
-  return lineTextInput.value;
-}
-
 function selectLineTextPreset(value: string): void {
   lineTextInput.value = value;
 }
@@ -1100,7 +1096,7 @@ const highlightedWrapCode = computed(() => {
                         <LineClamp
                           class="demo-clamp"
                           :class="{ hyphens: hyphens1, rtl: rtl1 }"
-                          :text="lineDemoText()"
+                          :text="lineTextInput"
                           :max-lines="lines1"
                           :style="{ width: `${width1}px`, maxWidth: '100%' }"
                         >
@@ -1160,7 +1156,7 @@ const highlightedWrapCode = computed(() => {
                         <LineClamp
                           class="demo-clamp"
                           :class="{ hyphens: hyphens2, rtl: rtl2 }"
-                          :text="lineDemoText()"
+                          :text="lineTextInput"
                           :max-height="height2"
                           v-model:expanded="expanded2"
                           :style="{ width: `${width2}px`, maxWidth: '100%' }"
@@ -1217,7 +1213,7 @@ const highlightedWrapCode = computed(() => {
                         <LineClamp
                           class="demo-clamp"
                           :class="{ hyphens: hyphens3, rtl: rtl3 }"
-                          :text="lineDemoText()"
+                          :text="lineTextInput"
                           :max-lines="lines3"
                           :style="{ width: `${width3}px`, maxWidth: '100%' }"
                           @clampchange="clamped3 = $event"
@@ -1317,7 +1313,7 @@ const highlightedWrapCode = computed(() => {
                         <LineClamp
                           class="demo-clamp"
                           :class="{ hyphens: hyphens4, rtl: rtl4 }"
-                          :text="lineDemoText()"
+                          :text="lineTextInput"
                           :max-lines="lines4"
                           :location="location4"
                           :ellipsis="ellipsis4"
