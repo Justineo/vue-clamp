@@ -1,7 +1,7 @@
 # vue-clamp
 
 [![GitHub stars](https://img.shields.io/github/stars/Justineo/vue-clamp?style=flat&logo=github)](https://github.com/Justineo/vue-clamp)
-[![npmx version](https://img.shields.io/npm/v/vue-clamp?style=flat&label=npmx&logo=data:image/svg%2Bxml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJub25lIj48cmVjdCB4PSIzLjI1IiB5PSIzLjI1IiB3aWR0aD0iMTcuNSIgaGVpZ2h0PSIxNy41IiByeD0iMy41IiBmaWxsPSIjRkZGRkZGIi8+PHJlY3QgeD0iNi45IiB5PSIxMy44IiB3aWR0aD0iMy40IiBoZWlnaHQ9IjMuNCIgcng9IjAuODUiIGZpbGw9IiM5Q0EzQUYiLz48cGF0aCBkPSJNMTUuNCA2LjhIMTguMDVMMTIuNCAxOC43SDkuNzVMMTUuNCA2LjhaIiBmaWxsPSIjMTExODI3Ii8+PC9zdmc+)](https://npmx.dev/package/vue-clamp)
+[![npmx version](https://img.shields.io/npm/v/vue-clamp?style=flat&label=npmx&logo=data:image/svg%2Bxml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJub25lIj48cmVjdCB4PSIyLjUiIHk9IjIuNSIgd2lkdGg9IjE5IiBoZWlnaHQ9IjE5IiByeD0iMy44IiBmaWxsPSIjMEEwQTBBIi8+PHJlY3QgeD0iNi4zIiB5PSIxMy41NSIgd2lkdGg9IjMuNyIgaGVpZ2h0PSIzLjciIHJ4PSIwLjkiIGZpbGw9IiM1MjUyNTIiLz48cGF0aCBkPSJNMTUuODUgNi40NUgxOC44NUwxMi41IDE5LjJIOS41TDE1Ljg1IDYuNDVaIiBmaWxsPSIjRkFGQUZBIi8+PC9zdmc+&logoWidth=16)](https://npmx.dev/package/vue-clamp)
 
 Clamping primitives for Vue.
 
