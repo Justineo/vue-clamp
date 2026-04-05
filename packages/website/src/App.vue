@@ -2132,6 +2132,8 @@ html {
   font-family: var(--font-body);
   font-size: 15px;
   line-height: 1.6;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
   color: var(--c-text);
   background: var(--c-bg);
   scroll-behavior: smooth;
