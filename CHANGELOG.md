@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.0.1]
+
+Patch release focused on multiline clamp correctness.
+
+### Fixed
+
+- Fixed `LineClamp` edge cases where browser layout could undercount wrapped lines, so collapsed
+  text now respects `maxLines` and `maxHeight` more reliably.
+
 ## [1.0.0]
 
 First stable release of `vue-clamp` for Vue 3.

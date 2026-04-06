@@ -170,9 +170,7 @@ function clampText(
   }
 
   function fits(): boolean {
-    const rects = Array.from(contentElement.getClientRects()).filter(
-      (rect) => rect.width > 0 && rect.height > 0,
-    );
+    const rects = Array.from(contentElement.getClientRects()).filter((rect) => rect.height > 0);
 
     if (maxHeight !== undefined) {
       if (rects.length > 0) {

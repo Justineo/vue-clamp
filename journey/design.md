@@ -228,3 +228,8 @@
   - demo-page regressions
   - width-sweep regressions
   - browser-fit checks around slots, inherited widths, and `maxHeight`
+- Browser test setup now filters the exact Chromium `ResizeObserver loop completed with
+undelivered notifications.` window error so `vp run test:browser` keeps signal focused on
+  real regressions. The browser config patches the Playwright provider to inject an init script
+  before page navigation, so the exact warning is suppressed before Vite/Vitest browser listeners
+  see it; this is test-only noise suppression, not a runtime scheduling change.

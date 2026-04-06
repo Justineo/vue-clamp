@@ -1,6 +1,53 @@
 import { defineConfig } from "vite-plus";
-import { playwright } from "vite-plus/test/browser-playwright";
+import { PlaywrightBrowserProvider, playwright } from "vite-plus/test/browser-playwright";
 import websiteConfig from "./packages/website/vite.config.ts";
+
+const resizeObserverLoopError = "ResizeObserver loop completed with undelivered notifications.";
+
+type PatchedPlaywrightProvider = {
+  __vueClampResizeObserverFilterPatched__?: boolean;
+  openBrowserPage(
+    sessionId: string,
+    options: { parallel: boolean },
+  ): Promise<{
+    addInitScript(
+      script: (args: { message: string }) => void,
+      arg: { message: string },
+    ): Promise<void>;
+  }>;
+};
+
+const providerPrototype =
+  PlaywrightBrowserProvider.prototype as unknown as PatchedPlaywrightProvider;
+
+if (!providerPrototype.__vueClampResizeObserverFilterPatched__) {
+  const openBrowserPage = Object.getOwnPropertyDescriptor(providerPrototype, "openBrowserPage")
+    ?.value as PatchedPlaywrightProvider["openBrowserPage"];
+
+  providerPrototype.openBrowserPage = async function (sessionId, options) {
+    const page = await Reflect.apply(openBrowserPage, this, [sessionId, options]);
+    await page.addInitScript(
+      ({ message }) => {
+        window.addEventListener(
+          "error",
+          (event) => {
+            if (event.message !== message) {
+              return;
+            }
+
+            event.preventDefault();
+            event.stopImmediatePropagation();
+          },
+          { capture: true },
+        );
+      },
+      { message: resizeObserverLoopError },
+    );
+    return page;
+  };
+
+  providerPrototype.__vueClampResizeObserverFilterPatched__ = true;
+}
 
 export default defineConfig({
   define: {
