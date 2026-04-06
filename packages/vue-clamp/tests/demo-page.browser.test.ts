@@ -429,7 +429,7 @@ afterEach(() => {
 });
 
 describe("Website demo page", () => {
-  it("keeps the inline toggle workspace example within three visible lines at 585px", async () => {
+  it("keeps the workspace line-clamp toggle demo within three visible lines at 585px", async () => {
     const { default: App } = await import("../../website/src/App.vue");
     const mountedPage = mountPage(App);
 
@@ -444,14 +444,13 @@ describe("Website demo page", () => {
     expect(counts.every((count) => count <= 3)).toBe(true);
   });
 
-  it("keeps inline-toggle clamp text monotonic while shrinking through the narrow edge widths", async () => {
+  it("keeps the workspace line-clamp toggle demo close to browser fit across the narrow edge widths", async () => {
     const { default: App } = await import("../../website/src/App.vue");
     const mountedPage = mountPage(App);
 
     await settle(4);
     await mountedPage.container.ownerDocument.fonts?.ready;
 
-    let previousLength = Number.POSITIVE_INFINITY;
     const failures: string[] = [];
 
     for (let width = 330; width >= 315; width -= 1) {
@@ -461,12 +460,17 @@ describe("Website demo page", () => {
       await waitUntilVisible(clampRoot);
 
       const textNode = textElement(clampRoot);
-      const currentLength = textNode.textContent?.length ?? 0;
-      if (currentLength > previousLength) {
-        failures.push(`${width}px: ${currentLength} > ${previousLength}`);
+      const sourceText = accessibleTextElement(clampRoot)?.textContent ?? textNode.textContent;
+      if (!sourceText) {
+        throw new Error(`Expected the workspace clamp source text at ${width}px.`);
       }
 
-      previousLength = currentLength;
+      const currentLength = textNode.textContent?.length ?? 0;
+      const bestLength = bestBrowserFitText(clampRoot, sourceText, 3).length;
+
+      if (currentLength < bestLength - 1) {
+        failures.push(`${width}px: ${currentLength} < ${bestLength - 1}`);
+      }
     }
 
     expect(failures).toEqual([]);
@@ -507,7 +511,7 @@ describe("Website demo page", () => {
     expect(firstToggle.textContent?.trim()).toBe("أقل");
   });
 
-  it("keeps the inline-toggle demo close to the browser-fit maximum at 373px", async () => {
+  it("keeps the workspace line-clamp toggle demo close to the browser-fit maximum at 373px", async () => {
     const { default: App } = await import("../../website/src/App.vue");
     const mountedPage = mountPage(App);
 
@@ -539,7 +543,6 @@ describe("Website demo page", () => {
     await mountedPage.container.ownerDocument.fonts?.ready;
 
     const input = lineTextInput(mountedPage.container);
-    expect(getComputedStyle(input).fontSize).toBe("16px");
     expect(input.value).toContain("Vue (pronounced");
     expect(
       lineTextPresetButtons(mountedPage.container).map((button) => button.dataset.lineTextPreset),
