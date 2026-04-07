@@ -202,26 +202,28 @@
   - Git-tracked deployment behavior should come from authored Vite/Void config instead
 - The website is intentionally a plain Vue SPA even though it deploys through the Void CLI:
   - [packages/website/vite.config.ts](/Users/yiling.gu@konghq.com/Developer/Justineo/vue-clamp/packages/website/vite.config.ts) uses only the Vue plugin, not `voidPlugin()`
-  - the website keeps the `void` package for CLI deployment, not for runtime or build features
+  - the website does not keep `void` in normal workspace dependencies; deployment installs a pinned CLI on demand instead
   - [packages/website/void.json](/Users/yiling.gu@konghq.com/Developer/Justineo/vue-clamp/packages/website/void.json) explicitly sets `inference.appType: "spa"` and `inference.outputDir: "dist"`
+  - because `void` is no longer installed locally by default, `void.json` no longer points at `./node_modules/void/schema.json`
   - this keeps the build output in the standard Vite SPA layout and avoids the extra `dist/client` / `dist/ssr` split that was previously causing deploy confusion
 - GitHub automation now follows a three-lane automation model:
   - `.github/workflows/ci.yml` is the validation workflow, publishes preview builds for
     `packages/vue-clamp` with `pkg-pr-new`, and on `push` to `main` also deploys
     `packages/website` to the Void project from the same validated workspace.
-  - That main-branch deploy path prepares GitHub Packages auth before `voidzero-dev/setup-vp` so
-    the action's built-in install can resolve `@void-sdk/*`, explicitly runs
-    `vp exec void staging off` on the runner because `void@0.2.2` defaults to staging mode in a
-    fresh environment, and deploys from `packages/website` via `vp exec void deploy --skip-build`
-    with `VOID_TOKEN` plus the explicit `VOID_PROJECT=vue-clamp` override so CI does not depend on
-    a checked-in `.void/project.json`.
+  - That main-branch deploy path keeps the normal `setup-vp` install free of private GitHub
+    Packages dependencies, writes the `@void-sdk` `.npmrc` only for the deploy-time steps, runs
+    `vp dlx @void-sdk/void@0.2.2 staging off` because `void@0.2.2` defaults to staging mode in a
+    fresh environment, and deploys from `packages/website` via
+    `vp dlx @void-sdk/void@0.2.2 deploy --skip-build` with `VOID_TOKEN` plus the explicit
+    `VOID_PROJECT=vue-clamp` override so CI does not depend on a checked-in `.void/project.json`.
   - `.github/workflows/release.yml` publishes tagged releases from `v*` tags after running the full
     validation/build pipeline, uses the matching `CHANGELOG.md` section as the GitHub release body,
     and uses npm trusted publishing plus prerelease dist-tags derived from the tag name.
-- Private GitHub Packages access is configured in GitHub Actions by writing a temporary runner
-  `.npmrc` for the `@void-sdk` scope before `voidzero-dev/setup-vp`, then exposing
-  `NODE_AUTH_TOKEN` from the `PACKAGES_READ_TOKEN` secret at the job level so the action-managed
-  install can authenticate consistently.
+- Private GitHub Packages access is now deploy-only:
+  - routine installs, checks, tests, release validation, Dependabot, and Renovate do not need the
+    private `@void-sdk/void` package in the workspace graph
+  - GitHub Actions writes the temporary `@void-sdk` `.npmrc` only around the deploy-time `vp dlx`
+    steps and sources auth from the `PACKAGES_READ_TOKEN` secret
 - Browser test and benchmark configs intentionally reuse the website's Vue plugin + alias setup
   without the website's `voidPlugin()` because the plugin enables a Cloudflare Worker environment
   that is incompatible with Vitest browser startup.

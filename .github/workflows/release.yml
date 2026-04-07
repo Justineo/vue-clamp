@@ -8,27 +8,16 @@ on:
 permissions:
   id-token: write
   contents: write
-  packages: read
 
 jobs:
   release:
     runs-on: ubuntu-latest
     environment: npm-publish
     timeout-minutes: 20
-    env:
-      NODE_AUTH_TOKEN: ${{ secrets.PACKAGES_READ_TOKEN }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Configure GitHub Packages auth
-        run: |
-          cat > "$HOME/.npmrc" <<'EOF'
-          @void-sdk:registry=https://npm.pkg.github.com
-          //npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}
-          always-auth=true
-          EOF
 
       - name: Setup Vite+
         uses: voidzero-dev/setup-vp@v1

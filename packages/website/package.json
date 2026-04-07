@@ -20,7 +20,6 @@
     "typescript": "catalog:",
     "vite": "catalog:",
     "vite-plus": "catalog:",
-    "void": "catalog:",
     "vue-tsc": "catalog:"
   }
 }

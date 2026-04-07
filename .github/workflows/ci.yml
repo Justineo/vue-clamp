@@ -2,7 +2,6 @@ name: CI
 
 permissions:
   contents: read
-  packages: read
 
 on:
   push:
@@ -20,19 +19,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
-      NODE_AUTH_TOKEN: ${{ secrets.PACKAGES_READ_TOKEN }}
       VOID_PROJECT: vue-clamp
 
     steps:
       - uses: actions/checkout@v4
-
-      - name: Configure GitHub Packages auth
-        run: |
-          cat > "$HOME/.npmrc" <<'EOF'
-          @void-sdk:registry=https://npm.pkg.github.com
-          //npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}
-          always-auth=true
-          EOF
 
       - uses: voidzero-dev/setup-vp@v1
         with:
@@ -46,13 +36,26 @@ jobs:
       - name: Publish preview package
         if: ${{ github.event_name != 'workflow_dispatch' }}
         run: vp dlx pkg-pr-new publish --compact ./packages/vue-clamp
+      - name: Configure GitHub Packages auth for Void CLI
+        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+        run: |
+          cat > "$HOME/.npmrc" <<'EOF'
+          @void-sdk:registry=https://npm.pkg.github.com
+          //npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}
+          always-auth=true
+          EOF
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.PACKAGES_READ_TOKEN }}
       - name: Disable Void staging mode
         if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
         working-directory: packages/website
-        run: vp exec void staging off
+        run: vp dlx @void-sdk/void@0.2.2 staging off
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.PACKAGES_READ_TOKEN }}
       - name: Deploy website to Void
         if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
         working-directory: packages/website
-        run: vp exec void deploy --skip-build
+        run: vp dlx @void-sdk/void@0.2.2 deploy --skip-build
         env:
+          NODE_AUTH_TOKEN: ${{ secrets.PACKAGES_READ_TOKEN }}
           VOID_TOKEN: ${{ secrets.VOID_TOKEN }}
