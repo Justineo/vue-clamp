@@ -197,6 +197,9 @@
   - output comes from `packages/website/dist`
   - the legacy `vue-clamp.vercel.app` hostname is handled separately through a tiny redirect-only
     Vercel project/repo rather than restoring long-term Vercel config to this repo
+- Generated deployment runtime state is not source config:
+  - `.wrangler/` is ignored and should not be committed
+  - Git-tracked deployment behavior should come from authored Vite/Void config instead
 - GitHub automation now follows a three-lane automation model:
   - `.github/workflows/ci.yml` remains the validation workflow and also publishes preview builds for
     `packages/vue-clamp` with `pkg-pr-new`.
@@ -212,6 +215,9 @@
   `.npmrc` for the `@void-sdk` scope before `voidzero-dev/setup-vp`, then exposing
   `NODE_AUTH_TOKEN` from the `PACKAGES_READ_TOKEN` secret at the job level so the action-managed
   install can authenticate consistently.
+- Browser test and benchmark configs intentionally reuse the website's Vue plugin + alias setup
+  without the website's `voidPlugin()` because the plugin enables a Cloudflare Worker environment
+  that is incompatible with Vitest browser startup.
 - Local release prep now goes through `vp run release`, which delegates to `bumpp` directly
   against `packages/vue-clamp/package.json`:
   - only `packages/vue-clamp/package.json` is versioned
