@@ -338,10 +338,6 @@ function referenceShell(container: HTMLElement): HTMLElement {
   return shell;
 }
 
-function referenceShellPageTop(container: HTMLElement): number {
-  return referenceShell(container).getBoundingClientRect().top + window.scrollY;
-}
-
 function referenceTabsAnchor(container: HTMLElement): HTMLElement {
   const anchor = referenceShell(container).querySelector(".reference-tabs-anchor");
   if (!(anchor instanceof HTMLElement)) {
@@ -349,10 +345,6 @@ function referenceTabsAnchor(container: HTMLElement): HTMLElement {
   }
 
   return anchor;
-}
-
-function referenceTabsAnchorPageTop(container: HTMLElement): number {
-  return referenceTabsAnchor(container).getBoundingClientRect().top + window.scrollY;
 }
 
 function referencePanelNames(container: HTMLElement): string[] {

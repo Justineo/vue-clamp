@@ -178,7 +178,7 @@
 - `maxLines="1"` is still the lightest case, but there is no separate predictive one-line engine.
 - Browser tests are still the main confidence layer because the component’s behavior depends on real DOM layout.
 - The repo now also has a dedicated browser benchmark:
-  - config: `packages/website/vite.browser.benchmark.config.ts`
+  - config: `vite.browser.benchmark.config.ts`
   - script: `vp run benchmark:wrap`
   - scope: measure current `WrapClamp` workloads
   - method: repeated browser runs with stable-state timing
@@ -224,15 +224,18 @@
     private `@void-sdk/void` package in the workspace graph
   - GitHub Actions writes the temporary `@void-sdk` `.npmrc` only around the deploy-time `vp dlx`
     steps and sources auth from the `PACKAGES_READ_TOKEN` secret
-- Browser test and benchmark configs now live under `packages/website/` instead of the repo root:
-  - they are website-specific Vite configs, so they should resolve `vite-plus` and
-    `@vitejs/plugin-vue` from the website package's own importer-local install
-  - keeping those configs at the repo root forced TypeScript to compare a root-owned `UserConfig`
-    against website-owned plugin and browser-provider types, which led to intermittent CI-only
-    `TS2322` / `TS2321` failures even though the runtime config was valid
-  - the root package only orchestrates them through `vp run test:browser` and
-    `vp run benchmark:wrap`; the website package owns the actual Vite config files and Vue plugin
-    dependency
+- Browser test and benchmark configs live at the repo root:
+  - the root package owns the `vp run test:browser` and `vp run benchmark:wrap` scripts, so it
+    also declares `@vitejs/plugin-vue` and owns the corresponding browser-only Vite configs
+  - those root configs must not import the website's typed `defineConfig(...)` object, because that
+    forces TypeScript to compare root-owned `UserConfig` types against website-owned plugin and
+    browser-provider types, which previously caused intermittent CI-only `TS2322` / `TS2321`
+    failures
+  - instead, the root configs import only plain shared fragments from
+    `packages/website/vite.shared.ts` such as the `vue-clamp` alias and `publicDir`
+  - keeping the configs under `packages/website/` turned out to be runtime-fragile: Vitest browser
+    sessions would connect but never start tests when the config lived in the website package while
+    the browser suites themselves lived under `packages/vue-clamp/tests`
 - Browser test and benchmark configs intentionally reuse the website's Vue plugin, alias setup, and
   public assets without the website's `voidPlugin()` because the plugin enables a Cloudflare Worker
   environment that is incompatible with Vitest browser startup.
@@ -273,10 +276,11 @@
   - demo-page regressions
   - width-sweep regressions
   - browser-fit checks around slots, inherited widths, and `maxHeight`
-- Browser test setup now filters the exact Chromium `ResizeObserver loop completed with
-undelivered notifications.` window error so `vp run test:browser` keeps signal focused on
-  real regressions. The filter lives in a dedicated init script under
-  `packages/website/test/resize-observer-error-filter.ts`, and the browser configs use a small
-  custom Playwright provider wrapper that appends that init script through the provider's
-  supported `initScripts` hook; this keeps the suppression isolated to the browser-test harness
-  instead of patching provider methods inside the config file.
+- Browser test setup keeps the `ResizeObserver loop completed with undelivered notifications.`
+  suppression logic isolated in `packages/website/test/resize-observer-error-filter.ts` and loads
+  it through browser `setupFiles`.
+  - do not reintroduce a custom Playwright provider wrapper just to inject this script unless the
+    browser-runner lifecycle is revalidated; the built-in provider path is the stable one for this
+    repo
+  - Vite's client-side error catcher still logs this warning during some browser runs, but it is
+    currently non-fatal and does not block the suite from completing

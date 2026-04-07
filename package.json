@@ -4,11 +4,11 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "benchmark:wrap": "vp test -c packages/website/vite.browser.benchmark.config.ts",
+    "benchmark:wrap": "vp test -c vite.browser.benchmark.config.ts",
     "build": "vp run build -r",
     "check": "vp check",
     "test": "vp test",
-    "test:browser": "vp test -c packages/website/vite.browser.config.ts",
+    "test:browser": "vp test -c vite.browser.config.ts",
     "ready": "vp check && vp test && vp run test:browser && vp run build -r",
     "release": "vp exec bumpp packages/vue-clamp/package.json",
     "dev": "vp run website#dev",
@@ -16,6 +16,7 @@
   },
   "devDependencies": {
     "@types/node": "catalog:",
+    "@vitejs/plugin-vue": "catalog:",
     "bumpp": "catalog:",
     "playwright": "catalog:",
     "releaselog": "catalog:",

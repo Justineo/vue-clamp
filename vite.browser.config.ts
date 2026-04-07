@@ -1,11 +1,8 @@
 import vue from "@vitejs/plugin-vue";
-import { defineConfig } from "vite-plus";
-import { websitePublicDir, websiteResolve } from "./vite.shared.ts";
-import { playwright } from "./test/playwright-provider.ts";
+import { playwright } from "vite-plus/test/browser-playwright";
+import { websitePublicDir, websiteResolve } from "./packages/website/vite.shared.ts";
 
-import type { UserConfig } from "vite-plus";
-
-const config: UserConfig = {
+export default {
   define: {
     __VUE_OPTIONS_API__: true,
     __VUE_PROD_DEVTOOLS__: false,
@@ -15,9 +12,10 @@ const config: UserConfig = {
   plugins: [vue()],
   resolve: websiteResolve,
   test: {
-    include: ["packages/vue-clamp/tests/**/*.browser.benchmark.ts"],
+    include: ["packages/vue-clamp/tests/**/*.browser.test.ts"],
     fileParallelism: false,
-    testTimeout: 120000,
+    setupFiles: ["packages/website/test/resize-observer-error-filter.ts"],
+    testTimeout: 30000,
     browser: {
       enabled: true,
       provider: playwright(),
@@ -32,5 +30,3 @@ const config: UserConfig = {
     },
   },
 };
-
-export default defineConfig(config);
