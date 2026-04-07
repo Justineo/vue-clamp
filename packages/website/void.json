@@ -2,6 +2,6 @@
   "$schema": "./node_modules/void/schema.json",
   "inference": {
     "appType": "spa",
-    "outputDir": "dist/client"
+    "outputDir": "dist"
   }
 }

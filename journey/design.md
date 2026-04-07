@@ -200,10 +200,11 @@
 - Generated deployment runtime state is not source config:
   - `.wrangler/` is ignored and should not be committed
   - Git-tracked deployment behavior should come from authored Vite/Void config instead
-- The website now carries an authored [packages/website/void.json](/Users/yiling.gu@konghq.com/Developer/Justineo/vue-clamp/packages/website/void.json) so Void deploy behavior is explicit:
-  - `inference.appType` is `spa`
-  - `inference.outputDir` is `dist/client`
-  - this prevents `void deploy --skip-build` from falling back to generic `dist/` static inference for the website
+- The website is intentionally a plain Vue SPA even though it deploys through the Void CLI:
+  - [packages/website/vite.config.ts](/Users/yiling.gu@konghq.com/Developer/Justineo/vue-clamp/packages/website/vite.config.ts) uses only the Vue plugin, not `voidPlugin()`
+  - the website keeps the `void` package for CLI deployment, not for runtime or build features
+  - [packages/website/void.json](/Users/yiling.gu@konghq.com/Developer/Justineo/vue-clamp/packages/website/void.json) explicitly sets `inference.appType: "spa"` and `inference.outputDir: "dist"`
+  - this keeps the build output in the standard Vite SPA layout and avoids the extra `dist/client` / `dist/ssr` split that was previously causing deploy confusion
 - GitHub automation now follows a three-lane automation model:
   - `.github/workflows/ci.yml` is the validation workflow, publishes preview builds for
     `packages/vue-clamp` with `pkg-pr-new`, and on `push` to `main` also deploys
