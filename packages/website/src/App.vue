@@ -2523,39 +2523,9 @@ pre code {
 
 .reference-tabs-row {
   position: sticky;
-  top: 0;
-  z-index: 12;
-  isolation: isolate;
+  top: -1px;
+  z-index: 8;
   background: var(--c-bg);
-  box-shadow:
-    0 -1px 0 var(--c-bg),
-    0 1px 0 var(--c-border),
-    0 10px 18px rgba(26, 26, 46, 0.05);
-}
-
-.reference-tabs-row::before,
-.reference-tabs-row::after {
-  content: "";
-  position: absolute;
-  inset-inline: 0;
-  pointer-events: none;
-}
-
-.reference-tabs-row::before {
-  bottom: 100%;
-  height: calc(env(safe-area-inset-top, 0px) + 16px);
-  background: var(--c-bg);
-}
-
-.reference-tabs-row::after {
-  top: 100%;
-  height: 18px;
-  background: linear-gradient(
-    to bottom,
-    var(--c-bg) 0%,
-    rgba(255, 255, 255, 0.94) 45%,
-    transparent 100%
-  );
 }
 
 .reference-body {
