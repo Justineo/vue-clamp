@@ -224,16 +224,19 @@
     private `@void-sdk/void` package in the workspace graph
   - GitHub Actions writes the temporary `@void-sdk` `.npmrc` only around the deploy-time `vp dlx`
     steps and sources auth from the `PACKAGES_READ_TOKEN` secret
-- Browser test and benchmark configs intentionally reuse the website's Vue plugin + alias setup
-  without the website's `voidPlugin()` because the plugin enables a Cloudflare Worker environment
-  that is incompatible with Vitest browser startup.
-- The browser config files intentionally avoid forcing the exported config through an explicit
-  `UserConfig` annotation:
-  - `vite.browser.config.ts`
-  - `vite.browser.benchmark.config.ts`
-  - newer CI type surfaces can trip deep structural comparisons around `playwright()` provider
-    values, while `defineConfig(...)` inference preserves the same runtime behavior without the
-    brittle TypeScript failure
+- Browser test and benchmark configs intentionally reuse the website's Vue plugin, alias setup, and
+  public assets without the website's `voidPlugin()` because the plugin enables a Cloudflare Worker
+  environment that is incompatible with Vitest browser startup.
+- Workspace packages that import `vite-plus` should declare `@types/node` explicitly in their own
+  `devDependencies`:
+  - `packages/vue-clamp` and `packages/website` each have importer-local `node_modules` symlinks
+    created by pnpm
+  - if only the workspace root declares `@types/node`, pnpm can satisfy the package importers with
+    a second peer-instantiated `vite-plus` tree using a different `@types/node` version
+  - that split is enough to make `@voidzero-dev/vite-plus-core` and
+    `@voidzero-dev/vite-plus-test` types incompatible inside one TypeScript program, which breaks
+    explicit `UserConfig` typing in shared browser config files even though the runtime config is
+    otherwise valid
 - Local release prep now goes through `vp run release`, which delegates to `bumpp` directly
   against `packages/vue-clamp/package.json`:
   - only `packages/vue-clamp/package.json` is versioned

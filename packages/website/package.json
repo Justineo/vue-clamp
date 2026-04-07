@@ -15,6 +15,7 @@
     "vue-clamp": "workspace:*"
   },
   "devDependencies": {
+    "@types/node": "catalog:",
     "@vitejs/plugin-vue": "catalog:",
     "shiki": "catalog:",
     "typescript": "catalog:",
