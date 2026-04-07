@@ -200,6 +200,10 @@
 - Generated deployment runtime state is not source config:
   - `.wrangler/` is ignored and should not be committed
   - Git-tracked deployment behavior should come from authored Vite/Void config instead
+- The website now carries an authored [packages/website/void.json](/Users/yiling.gu@konghq.com/Developer/Justineo/vue-clamp/packages/website/void.json) so Void deploy behavior is explicit:
+  - `inference.appType` is `spa`
+  - `inference.outputDir` is `dist/client`
+  - this prevents `void deploy --skip-build` from falling back to generic `dist/` static inference for the website
 - GitHub automation now follows a three-lane automation model:
   - `.github/workflows/ci.yml` is the validation workflow, publishes preview builds for
     `packages/vue-clamp` with `pkg-pr-new`, and on `push` to `main` also deploys
