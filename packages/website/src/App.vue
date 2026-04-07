@@ -2150,7 +2150,7 @@ const highlightedWrapCode = computed(() => {
     <!-- Footer -->
     <footer class="footer">
       <p class="footer-copy">
-        Built by
+        By
         <a href="https://github.com/Justineo" target="_blank" rel="noopener">@Justineo</a>
         and
         <a
@@ -2160,17 +2160,31 @@ const highlightedWrapCode = computed(() => {
           >contributors</a
         >.
       </p>
-      <a class="footer-host" href="https://void.app" target="_blank" rel="noopener">
-        <span class="footer-host-label">Hosted on</span>
-        <span class="sr-only">Void</span>
-        <svg class="footer-void-logo" viewBox="0 0 270 58" aria-hidden="true" focusable="false">
-          <circle class="footer-void-logo-mark" cx="262" cy="48.96" r="8" />
-          <path
-            class="footer-void-logo-mark"
-            d="M20.72 0.960003L35.52 41.28L50.08 0.960003H70L47.92 56.96H22.32L0.24 0.960003H20.72ZM106.542 57.92C82.9419 57.92 70.6219 48 70.6219 28.96C70.6219 9.92001 82.9419 0.00000572205 106.542 0.00000572205C130.142 0.00000572205 142.542 9.92001 142.542 28.96C142.542 48 130.142 57.92 106.542 57.92ZM106.542 44.08C117.662 44.08 122.862 39.36 122.862 28.96C122.862 18.48 117.662 13.76 106.542 13.76C95.4219 13.76 90.2219 18.48 90.2219 28.96C90.2219 39.36 95.4219 44.08 106.542 44.08ZM152.265 56.96V0.960003H171.465V56.96H152.265ZM184.687 56.96V0.960003H219.887C239.327 0.960003 250.447 9.84 250.447 28.96C250.447 48.16 239.247 56.96 219.807 56.96H184.687ZM230.767 28.96C230.767 18.48 226.287 14.56 217.167 14.56H203.887V43.36H217.167C226.287 43.36 230.767 39.44 230.767 28.96Z"
+      <p class="footer-meta">
+        Built with
+        <a class="footer-brand-link" href="https://viteplus.dev" target="_blank" rel="noopener">
+          <span class="sr-only">VitePlus</span>
+          <img
+            class="footer-viteplus-logo"
+            src="/viteplus.svg"
+            alt=""
+            aria-hidden="true"
+            decoding="async"
           />
-        </svg>
-      </a>
+        </a>
+        and hosted on
+        <a class="footer-brand-link" href="https://void.app" target="_blank" rel="noopener">
+          <span class="sr-only">Void</span>
+          <img
+            class="footer-void-logo"
+            src="/void.svg"
+            alt=""
+            aria-hidden="true"
+            decoding="async"
+          />
+        </a>
+        .
+      </p>
     </footer>
   </div>
 </template>
@@ -3442,37 +3456,39 @@ pre code {
   color: var(--c-accent);
 }
 
-.footer-host {
+.footer-meta {
+  margin: 0;
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+}
+
+.footer-brand-link {
   display: inline-flex;
   align-items: center;
-  gap: 0.5rem;
   text-decoration: none;
 }
 
-.footer-host:hover {
+.footer-brand-link:hover {
   text-decoration: none;
 }
 
-.footer-host-label {
-  color: var(--c-text-3);
+.footer-viteplus-logo {
+  width: 74px;
+  height: auto;
+  display: block;
 }
 
 .footer-void-logo {
   width: 46px;
   height: auto;
   display: block;
-  color: var(--c-text-2);
 }
 
-.footer-host:hover .footer-host-label {
-  color: var(--c-text-2);
-}
-
-.footer-host:hover .footer-void-logo {
-  color: var(--c-accent);
-}
-
-.footer-void-logo-mark {
-  fill: currentColor;
+.footer-brand-link:hover .footer-viteplus-logo,
+.footer-brand-link:hover .footer-void-logo {
+  opacity: 0.88;
 }
 </style>
