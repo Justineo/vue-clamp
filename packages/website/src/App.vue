@@ -2523,9 +2523,43 @@ pre code {
 
 .reference-tabs-row {
   position: sticky;
-  top: -1px;
+  top: 0;
   z-index: 8;
+  isolation: isolate;
   background: var(--c-bg);
+  transform: translateZ(0);
+}
+
+.reference-tabs-row::before,
+.reference-tabs-row::after {
+  content: "";
+  position: absolute;
+  inset-inline: 0;
+  pointer-events: none;
+}
+
+.reference-tabs-row::before {
+  bottom: 100%;
+  height: calc(env(safe-area-inset-top, 0px) + 12px);
+  background: var(--c-bg);
+}
+
+.reference-tabs-row::after {
+  top: 100%;
+  height: 14px;
+  background: linear-gradient(to bottom, var(--c-bg), transparent);
+}
+
+@supports (backdrop-filter: blur(12px)) or (-webkit-backdrop-filter: blur(12px)) {
+  .reference-tabs-row {
+    background: color-mix(in srgb, var(--c-bg) 88%, transparent);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+  }
+
+  .reference-tabs-row::before {
+    background: inherit;
+  }
 }
 
 .reference-body {
