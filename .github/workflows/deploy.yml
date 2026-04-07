@@ -45,6 +45,10 @@ jobs:
         with:
           cache: true
 
+      - name: Disable Void staging mode
+        working-directory: packages/website
+        run: vp exec void staging off
+
       - name: Deploy website to Void
         working-directory: packages/website
         run: vp exec void deploy

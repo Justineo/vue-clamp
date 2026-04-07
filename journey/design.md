@@ -205,8 +205,9 @@
     `packages/vue-clamp` with `pkg-pr-new`.
   - `.github/workflows/deploy.yml` deploys `packages/website` to the Void project after a successful
     `CI` run on `main`, prepares GitHub Packages auth before `voidzero-dev/setup-vp` so the action's
-    built-in install can resolve `@void-sdk/*`, then deploys from `packages/website` via
-    `vp exec void deploy` with `VOID_TOKEN` plus the explicit
+    built-in install can resolve `@void-sdk/*`, explicitly runs `vp exec void staging off` on the
+    runner because `void@0.2.2` defaults to staging mode in a fresh environment, then deploys from
+    `packages/website` via `vp exec void deploy` with `VOID_TOKEN` plus the explicit
     `VOID_PROJECT=vue-clamp` override so CI does not depend on a checked-in `.void/project.json`.
   - `.github/workflows/release.yml` publishes tagged releases from `v*` tags after running the full
     validation/build pipeline, uses the matching `CHANGELOG.md` section as the GitHub release body,
