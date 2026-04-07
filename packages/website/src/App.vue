@@ -2524,10 +2524,13 @@ pre code {
 .reference-tabs-row {
   position: sticky;
   top: 0;
-  z-index: 8;
+  z-index: 12;
   isolation: isolate;
   background: var(--c-bg);
-  transform: translateZ(0);
+  box-shadow:
+    0 -1px 0 var(--c-bg),
+    0 1px 0 var(--c-border),
+    0 10px 18px rgba(26, 26, 46, 0.05);
 }
 
 .reference-tabs-row::before,
@@ -2540,26 +2543,19 @@ pre code {
 
 .reference-tabs-row::before {
   bottom: 100%;
-  height: calc(env(safe-area-inset-top, 0px) + 12px);
+  height: calc(env(safe-area-inset-top, 0px) + 16px);
   background: var(--c-bg);
 }
 
 .reference-tabs-row::after {
   top: 100%;
-  height: 14px;
-  background: linear-gradient(to bottom, var(--c-bg), transparent);
-}
-
-@supports (backdrop-filter: blur(12px)) or (-webkit-backdrop-filter: blur(12px)) {
-  .reference-tabs-row {
-    background: color-mix(in srgb, var(--c-bg) 88%, transparent);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
-  }
-
-  .reference-tabs-row::before {
-    background: inherit;
-  }
+  height: 18px;
+  background: linear-gradient(
+    to bottom,
+    var(--c-bg) 0%,
+    rgba(255, 255, 255, 0.94) 45%,
+    transparent 100%
+  );
 }
 
 .reference-body {
