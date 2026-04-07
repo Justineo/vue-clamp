@@ -2,7 +2,7 @@ import { defineConfig } from "vite-plus";
 import { PlaywrightBrowserProvider, playwright } from "vite-plus/test/browser-playwright";
 import websiteConfig from "./packages/website/vite.config.ts";
 
-import type { PluginOption, UserConfig } from "vite-plus";
+import type { PluginOption } from "vite-plus";
 
 const resizeObserverLoopError = "ResizeObserver loop completed with undelivered notifications.";
 
@@ -53,7 +53,7 @@ if (!providerPrototype.__vueClampResizeObserverFilterPatched__) {
 
 const websiteVuePlugin = websiteConfig.plugins?.[0] as PluginOption | undefined;
 
-const config: UserConfig = {
+const config = {
   define: {
     __VUE_OPTIONS_API__: true,
     __VUE_PROD_DEVTOOLS__: false,

@@ -227,6 +227,13 @@
 - Browser test and benchmark configs intentionally reuse the website's Vue plugin + alias setup
   without the website's `voidPlugin()` because the plugin enables a Cloudflare Worker environment
   that is incompatible with Vitest browser startup.
+- The browser config files intentionally avoid forcing the exported config through an explicit
+  `UserConfig` annotation:
+  - `vite.browser.config.ts`
+  - `vite.browser.benchmark.config.ts`
+  - newer CI type surfaces can trip deep structural comparisons around `playwright()` provider
+    values, while `defineConfig(...)` inference preserves the same runtime behavior without the
+    brittle TypeScript failure
 - Local release prep now goes through `vp run release`, which delegates to `bumpp` directly
   against `packages/vue-clamp/package.json`:
   - only `packages/vue-clamp/package.json` is versioned
