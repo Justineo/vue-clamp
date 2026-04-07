@@ -1,8 +1,9 @@
 import { fileURLToPath, URL } from "node:url";
-import type { UserConfig } from "vite-plus";
 
-export const websiteResolve: NonNullable<UserConfig["resolve"]> = {
+export const websitePublicDir = "packages/website/public";
+
+export const websiteResolve = {
   alias: {
-    "vue-clamp": fileURLToPath(new URL("../../packages/vue-clamp/src/index.ts", import.meta.url)),
+    "vue-clamp": fileURLToPath(new URL("../vue-clamp/src/index.ts", import.meta.url)),
   },
 };

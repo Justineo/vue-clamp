@@ -1,10 +1,9 @@
+import vue from "@vitejs/plugin-vue";
 import { defineConfig } from "vite-plus";
-import { playwright } from "vite-plus/test/browser-playwright";
-import websiteConfig from "./packages/website/vite.config.ts";
+import { websitePublicDir, websiteResolve } from "./vite.shared.ts";
+import { playwright } from "./test/playwright-provider.ts";
 
-import type { PluginOption, UserConfig } from "vite-plus";
-
-const websiteVuePlugin = websiteConfig.plugins?.[0] as PluginOption | undefined;
+import type { UserConfig } from "vite-plus";
 
 const config: UserConfig = {
   define: {
@@ -12,9 +11,9 @@ const config: UserConfig = {
     __VUE_PROD_DEVTOOLS__: false,
     __VUE_PROD_HYDRATION_MISMATCH_DETAILS__: false,
   },
-  publicDir: "packages/website/public",
-  plugins: websiteVuePlugin ? [websiteVuePlugin] : undefined,
-  resolve: websiteConfig.resolve,
+  publicDir: websitePublicDir,
+  plugins: [vue()],
+  resolve: websiteResolve,
   test: {
     include: ["packages/vue-clamp/tests/**/*.browser.benchmark.ts"],
     fileParallelism: false,
