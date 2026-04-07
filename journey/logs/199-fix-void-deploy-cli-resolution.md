@@ -10,7 +10,7 @@
 - Updated `.github/workflows/deploy.yml` to:
   - set `run-install: false` on `voidzero-dev/setup-vp`
   - keep the explicit authenticated `vp install --frozen-lockfile`
-  - deploy from `packages/website` via `./node_modules/.bin/void deploy`
+  - deploy from `packages/website` via `vp exec void deploy`
 - Verified locally:
   - `.github/workflows/deploy.yml` parses as YAML
-  - `packages/website/./node_modules/.bin/void auth whoami` resolves and runs
+  - `packages/website: vp exec void auth whoami` resolves and runs

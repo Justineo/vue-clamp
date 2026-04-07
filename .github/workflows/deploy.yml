@@ -52,6 +52,6 @@ jobs:
 
       - name: Deploy website to Void
         working-directory: packages/website
-        run: ./node_modules/.bin/void deploy
+        run: vp exec void deploy
         env:
           VOID_TOKEN: ${{ secrets.VOID_TOKEN }}
