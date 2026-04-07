@@ -276,11 +276,11 @@
   - demo-page regressions
   - width-sweep regressions
   - browser-fit checks around slots, inherited widths, and `maxHeight`
-- Browser test setup keeps the `ResizeObserver loop completed with undelivered notifications.`
-  suppression logic isolated in `packages/website/test/resize-observer-error-filter.ts` and loads
-  it through browser `setupFiles`.
-  - do not reintroduce a custom Playwright provider wrapper just to inject this script unless the
-    browser-runner lifecycle is revalidated; the built-in provider path is the stable one for this
-    repo
-  - Vite's client-side error catcher still logs this warning during some browser runs, but it is
-    currently non-fatal and does not block the suite from completing
+- Browser runs can still print the Chromium
+  `ResizeObserver loop completed with undelivered notifications.` noise through Vite's client error
+  catcher.
+  - this is currently non-fatal and does not block the suite from completing
+  - the previous `setupFiles`-based suppression attempt was removed because it only downgraded the
+    event into terminal `console.error` noise instead of truly suppressing it
+  - do not reintroduce browser-runner patches for this unless they are proven to run before
+    Vitest's own error catcher

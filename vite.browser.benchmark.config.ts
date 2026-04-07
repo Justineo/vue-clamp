@@ -14,7 +14,6 @@ export default {
   test: {
     include: ["packages/vue-clamp/tests/**/*.browser.benchmark.ts"],
     fileParallelism: false,
-    setupFiles: ["packages/website/test/resize-observer-error-filter.ts"],
     testTimeout: 120000,
     browser: {
       enabled: true,

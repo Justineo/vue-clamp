@@ -16,3 +16,5 @@
 - The `ResizeObserver loop completed with undelivered notifications.` noise still appears through
   Vite's client error catcher during browser runs, but it is non-fatal and independent from the
   resolved config-location hang.
+- Removed the attempted `setupFiles` filter afterward because it did not truly suppress the noise;
+  it only changed Vitest's behavior from "treat as unhandled" to "print via console.error".
