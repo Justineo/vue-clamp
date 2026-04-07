@@ -2158,7 +2158,7 @@ const highlightedWrapCode = computed(() => {
           target="_blank"
           rel="noopener"
           >contributors</a
-        >.
+        >
       </p>
       <p class="footer-meta">
         Built with
@@ -2183,7 +2183,6 @@ const highlightedWrapCode = computed(() => {
             decoding="async"
           />
         </a>
-        .
       </p>
     </footer>
   </div>
@@ -3440,11 +3439,6 @@ pre code {
 
 .footer-copy {
   margin: 0;
-  display: inline-flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: center;
-  gap: 0.35rem;
 }
 
 .footer a {
@@ -3458,16 +3452,11 @@ pre code {
 
 .footer-meta {
   margin: 0;
-  display: inline-flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: center;
-  gap: 0.35rem;
 }
 
 .footer-brand-link {
-  display: inline-flex;
-  align-items: center;
+  display: inline-block;
+  vertical-align: baseline;
   text-decoration: none;
 }
 
@@ -3476,14 +3465,14 @@ pre code {
 }
 
 .footer-viteplus-logo {
-  width: 74px;
-  height: auto;
+  height: 0.5lh;
+  width: auto;
   display: block;
 }
 
 .footer-void-logo {
-  width: 46px;
-  height: auto;
+  height: 0.5lh;
+  width: auto;
   display: block;
 }
 
