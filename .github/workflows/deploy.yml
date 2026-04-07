@@ -23,6 +23,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
+      NODE_AUTH_TOKEN: ${{ secrets.PACKAGES_READ_TOKEN }}
       VOID_PROJECT: vue-clamp
 
     steps:
@@ -30,12 +31,6 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event.workflow_run.head_sha }}
-
-      - name: Setup Vite+
-        uses: voidzero-dev/setup-vp@v1
-        with:
-          cache: true
-          run-install: false
 
       - name: Configure GitHub Packages auth
         run: |
@@ -45,10 +40,10 @@ jobs:
           always-auth=true
           EOF
 
-      - name: Install dependencies
-        run: vp install --frozen-lockfile
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.PACKAGES_READ_TOKEN }}
+      - name: Setup Vite+
+        uses: voidzero-dev/setup-vp@v1
+        with:
+          cache: true
 
       - name: Deploy website to Void
         working-directory: packages/website

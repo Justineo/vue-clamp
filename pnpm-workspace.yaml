@@ -17,6 +17,7 @@ catalog:
   vite: npm:@voidzero-dev/vite-plus-core@latest
   vite-plus: latest
   vitest: npm:@voidzero-dev/vite-plus-test@latest
+  void: npm:@void-sdk/void@^0.2.2
   vue: ^3.5.31
   vue-tsc: ^3.2.6
 

@@ -8,8 +8,8 @@
   - `Command 'void' not found in node_modules/.bin`
 - Verified locally that the Void CLI is installed at `packages/website/node_modules/.bin/void`.
 - Updated `.github/workflows/deploy.yml` to:
-  - set `run-install: false` on `voidzero-dev/setup-vp`
-  - keep the explicit authenticated `vp install --frozen-lockfile`
+  - move the temporary GitHub Packages `.npmrc` setup before `voidzero-dev/setup-vp`
+  - expose `NODE_AUTH_TOKEN` at the job level so `setup-vp` can run its built-in install
   - deploy from `packages/website` via `vp exec void deploy`
 - Verified locally:
   - `.github/workflows/deploy.yml` parses as YAML

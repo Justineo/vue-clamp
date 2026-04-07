@@ -15,15 +15,12 @@ jobs:
     runs-on: ubuntu-latest
     environment: npm-publish
     timeout-minutes: 20
+    env:
+      NODE_AUTH_TOKEN: ${{ secrets.PACKAGES_READ_TOKEN }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Setup Vite+
-        uses: voidzero-dev/setup-vp@v1
-        with:
-          cache: true
 
       - name: Configure GitHub Packages auth
         run: |
@@ -33,10 +30,10 @@ jobs:
           always-auth=true
           EOF
 
-      - name: Install dependencies
-        run: vp install --frozen-lockfile
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.PACKAGES_READ_TOKEN }}
+      - name: Setup Vite+
+        uses: voidzero-dev/setup-vp@v1
+        with:
+          cache: true
 
       - name: Verify tag matches package version
         id: version

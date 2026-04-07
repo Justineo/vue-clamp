@@ -19,13 +19,11 @@ jobs:
   validate:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      NODE_AUTH_TOKEN: ${{ secrets.PACKAGES_READ_TOKEN }}
 
     steps:
       - uses: actions/checkout@v4
-
-      - uses: voidzero-dev/setup-vp@v1
-        with:
-          cache: true
 
       - name: Configure GitHub Packages auth
         run: |
@@ -35,9 +33,10 @@ jobs:
           always-auth=true
           EOF
 
-      - run: vp install --frozen-lockfile
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.PACKAGES_READ_TOKEN }}
+      - uses: voidzero-dev/setup-vp@v1
+        with:
+          cache: true
+
       - run: vp check
       - run: vp test
       - run: vp exec playwright install --with-deps chromium
