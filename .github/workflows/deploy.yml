@@ -35,6 +35,7 @@ jobs:
         uses: voidzero-dev/setup-vp@v1
         with:
           cache: true
+          run-install: false
 
       - name: Configure GitHub Packages auth
         run: |
@@ -50,6 +51,7 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.PACKAGES_READ_TOKEN }}
 
       - name: Deploy website to Void
-        run: vp exec --filter website -- void deploy
+        working-directory: packages/website
+        run: ./node_modules/.bin/void deploy
         env:
           VOID_TOKEN: ${{ secrets.VOID_TOKEN }}
