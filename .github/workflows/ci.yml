@@ -2,6 +2,7 @@ name: CI
 
 permissions:
   contents: read
+  packages: read
 
 on:
   push:
@@ -26,7 +27,17 @@ jobs:
         with:
           cache: true
 
+      - name: Configure GitHub Packages auth
+        run: |
+          cat > "$HOME/.npmrc" <<'EOF'
+          @void-sdk:registry=https://npm.pkg.github.com
+          //npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}
+          always-auth=true
+          EOF
+
       - run: vp install --frozen-lockfile
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.PACKAGES_READ_TOKEN }}
       - run: vp check
       - run: vp test
       - run: vp exec playwright install --with-deps chromium

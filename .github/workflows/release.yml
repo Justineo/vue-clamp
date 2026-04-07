@@ -8,6 +8,7 @@ on:
 permissions:
   id-token: write
   contents: write
+  packages: read
 
 jobs:
   release:
@@ -24,8 +25,18 @@ jobs:
         with:
           cache: true
 
+      - name: Configure GitHub Packages auth
+        run: |
+          cat > "$HOME/.npmrc" <<'EOF'
+          @void-sdk:registry=https://npm.pkg.github.com
+          //npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}
+          always-auth=true
+          EOF
+
       - name: Install dependencies
         run: vp install --frozen-lockfile
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.PACKAGES_READ_TOKEN }}
 
       - name: Verify tag matches package version
         id: version
