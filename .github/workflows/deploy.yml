@@ -50,7 +50,6 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.PACKAGES_READ_TOKEN }}
 
       - name: Deploy website to Void
-        working-directory: packages/website
-        run: vp exec void deploy
+        run: vp exec --filter website -- void deploy
         env:
           VOID_TOKEN: ${{ secrets.VOID_TOKEN }}
