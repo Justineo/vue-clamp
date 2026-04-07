@@ -21,6 +21,7 @@ jobs:
     timeout-minutes: 15
     env:
       NODE_AUTH_TOKEN: ${{ secrets.PACKAGES_READ_TOKEN }}
+      VOID_PROJECT: vue-clamp
 
     steps:
       - uses: actions/checkout@v4
@@ -45,3 +46,13 @@ jobs:
       - name: Publish preview package
         if: ${{ github.event_name != 'workflow_dispatch' }}
         run: vp dlx pkg-pr-new publish --compact ./packages/vue-clamp
+      - name: Disable Void staging mode
+        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+        working-directory: packages/website
+        run: vp exec void staging off
+      - name: Deploy website to Void
+        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+        working-directory: packages/website
+        run: vp exec void deploy --skip-build
+        env:
+          VOID_TOKEN: ${{ secrets.VOID_TOKEN }}

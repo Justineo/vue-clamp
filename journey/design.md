@@ -201,14 +201,15 @@
   - `.wrangler/` is ignored and should not be committed
   - Git-tracked deployment behavior should come from authored Vite/Void config instead
 - GitHub automation now follows a three-lane automation model:
-  - `.github/workflows/ci.yml` remains the validation workflow and also publishes preview builds for
-    `packages/vue-clamp` with `pkg-pr-new`.
-  - `.github/workflows/deploy.yml` deploys `packages/website` to the Void project after a successful
-    `CI` run on `main`, prepares GitHub Packages auth before `voidzero-dev/setup-vp` so the action's
-    built-in install can resolve `@void-sdk/*`, explicitly runs `vp exec void staging off` on the
-    runner because `void@0.2.2` defaults to staging mode in a fresh environment, then deploys from
-    `packages/website` via `vp exec void deploy` with `VOID_TOKEN` plus the explicit
-    `VOID_PROJECT=vue-clamp` override so CI does not depend on a checked-in `.void/project.json`.
+  - `.github/workflows/ci.yml` is the validation workflow, publishes preview builds for
+    `packages/vue-clamp` with `pkg-pr-new`, and on `push` to `main` also deploys
+    `packages/website` to the Void project from the same validated workspace.
+  - That main-branch deploy path prepares GitHub Packages auth before `voidzero-dev/setup-vp` so
+    the action's built-in install can resolve `@void-sdk/*`, explicitly runs
+    `vp exec void staging off` on the runner because `void@0.2.2` defaults to staging mode in a
+    fresh environment, and deploys from `packages/website` via `vp exec void deploy --skip-build`
+    with `VOID_TOKEN` plus the explicit `VOID_PROJECT=vue-clamp` override so CI does not depend on
+    a checked-in `.void/project.json`.
   - `.github/workflows/release.yml` publishes tagged releases from `v*` tags after running the full
     validation/build pipeline, uses the matching `CHANGELOG.md` section as the GitHub release body,
     and uses npm trusted publishing plus prerelease dist-tags derived from the tag name.
