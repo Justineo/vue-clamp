@@ -1,35 +1,53 @@
 import { createApp, defineComponent, h, nextTick, ref } from "vue";
-import { LineClamp } from "../src/index.ts";
-import { displayTextForKeptCount, prepareText } from "../src/text.ts";
+import { LineClamp, RichLineClamp } from "../src/index.ts";
+import { displayTextForKeptCount, normalizeLocationRatio, prepareText } from "../src/text.ts";
 
-import type { App, Component, Ref, VNodeChild } from "vue";
+import type { App, Ref, VNodeChild } from "vue";
 import type {
   LineClampExposed,
   LineClampLocation,
   LineClampProps,
   LineClampSlotProps,
+  RichLineClampExposed,
+  RichLineClampProps,
+  RichLineClampSlotProps,
 } from "../src/index.ts";
 
-type MountOptions = {
-  text?: string;
+type SharedMountOptions<SlotProps> = {
   width?: number;
   applyWidthToComponent?: boolean;
   containerStyle?: string;
-  props?: Partial<LineClampProps> & Record<string, unknown>;
   style?: string;
-  before?: (props: LineClampSlotProps) => VNodeChild;
-  after?: (props: LineClampSlotProps) => VNodeChild;
+  before?: (props: SlotProps) => VNodeChild;
+  after?: (props: SlotProps) => VNodeChild;
 };
 
-export type MountedClamp = {
+type LineMountOptions = SharedMountOptions<LineClampSlotProps> & {
+  text?: string;
+  props?: Partial<LineClampProps> & Record<string, unknown>;
+};
+
+type RichMountOptions = SharedMountOptions<RichLineClampSlotProps> & {
+  html: string;
+  props?: Partial<RichLineClampProps> & Record<string, unknown>;
+};
+
+type MountedBase<TExposed> = {
   app: App;
   container: HTMLElement;
-  text: Ref<string>;
   width: Ref<number>;
-  exposed: Ref<LineClampExposed | null>;
+  exposed: Ref<TExposed | null>;
 };
 
-const mounted = new Set<MountedClamp>();
+export type MountedClamp = MountedBase<LineClampExposed> & {
+  text: Ref<string>;
+};
+
+export type MountedRichClamp = MountedBase<RichLineClampExposed> & {
+  html: Ref<string>;
+};
+
+const mounted = new Set<Pick<MountedBase<unknown>, "app" | "container">>();
 
 function hostStyle(width: number, extra: string | undefined, includeWidth = true): string {
   return [
@@ -76,7 +94,7 @@ function contentElement(root: HTMLElement): HTMLElement {
   return content;
 }
 
-function textContainerElement(root: HTMLElement): HTMLElement {
+export function bodyElement(root: HTMLElement): HTMLElement {
   const textContainer = root.querySelector('[data-part="body"]');
   if (!(textContainer instanceof HTMLElement)) {
     throw new Error("Expected clamp text container element.");
@@ -86,7 +104,7 @@ function textContainerElement(root: HTMLElement): HTMLElement {
 }
 
 function textContainerChildren(root: HTMLElement): HTMLElement[] {
-  return Array.from(textContainerElement(root).children).filter(
+  return Array.from(bodyElement(root).children).filter(
     (child): child is HTMLElement => child instanceof HTMLElement,
   );
 }
@@ -108,6 +126,15 @@ export function accessibleTextElement(root: HTMLElement): HTMLElement | null {
   const [accessibleText, visibleText] = children;
 
   return visibleText?.getAttribute("aria-hidden") === "true" ? (accessibleText ?? null) : null;
+}
+
+export function richContentElement(root: HTMLElement): HTMLElement {
+  const content = textContainerChildren(root).at(-1);
+  if (!(content instanceof HTMLElement)) {
+    throw new Error("Expected rich clamp content element.");
+  }
+
+  return content;
 }
 
 export function beforeElement(root: HTMLElement): HTMLElement | null {
@@ -189,22 +216,6 @@ export async function waitUntilVisible(root: HTMLElement, frames = 12): Promise<
   throw new Error("Clamp never became visible.");
 }
 
-function normalizeLocationRatio(location: LineClampLocation): number {
-  if (location === "start") {
-    return 0;
-  }
-
-  if (location === "middle") {
-    return 0.5;
-  }
-
-  if (location === "end") {
-    return 1;
-  }
-
-  return Math.max(0, Math.min(1, location));
-}
-
 export function bestBrowserFitText(
   root: HTMLElement,
   sourceText: string,
@@ -252,7 +263,7 @@ export function bestBrowserFitText(
   }
 }
 
-export function mountClampWithComponent(component: Component, options: MountOptions): MountedClamp {
+export function mountClamp(options: LineMountOptions): MountedClamp {
   const text = ref(options.text ?? "");
   const width = ref(options.width ?? 160);
   const exposed = ref<LineClampExposed | null>(null);
@@ -266,7 +277,7 @@ export function mountClampWithComponent(component: Component, options: MountOpti
     setup() {
       return () =>
         h(
-          component,
+          LineClamp,
           {
             ref: exposed,
             ...options.props,
@@ -295,8 +306,47 @@ export function mountClampWithComponent(component: Component, options: MountOpti
   return mountedClamp;
 }
 
-export function mountClamp(options: MountOptions): MountedClamp {
-  return mountClampWithComponent(LineClamp, options);
+export function mountRichClamp(options: RichMountOptions): MountedRichClamp {
+  const html = ref(options.html);
+  const width = ref(options.width ?? 160);
+  const exposed = ref<RichLineClampExposed | null>(null);
+  const container = document.createElement("div");
+  if (options.containerStyle) {
+    container.setAttribute("style", options.containerStyle);
+  }
+  document.body.append(container);
+
+  const Host = defineComponent({
+    setup() {
+      return () =>
+        h(
+          RichLineClamp,
+          {
+            ref: exposed,
+            ...options.props,
+            html: html.value,
+            style: hostStyle(width.value, options.style, options.applyWidthToComponent ?? true),
+          },
+          {
+            before: options.before,
+            after: options.after,
+          },
+        );
+    },
+  });
+
+  const app = createApp(Host);
+  app.mount(container);
+
+  const mountedClamp = {
+    app,
+    container,
+    html,
+    width,
+    exposed,
+  };
+  mounted.add(mountedClamp);
+  return mountedClamp;
 }
 
 export function cleanupMounted(): void {

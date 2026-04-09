@@ -26,6 +26,19 @@ export interface LineClampProps {
   expanded?: boolean;
 }
 
+export interface RichLineClampProps {
+  as?: string;
+  html: string;
+  maxLines?: number;
+  maxHeight?: number | string;
+  ellipsis?: string;
+  expanded?: boolean;
+}
+
+export type RichLineClampSlotProps = LineClampSlotProps;
+
+export type RichLineClampExposed = LineClampExposed;
+
 export interface InlineClampParts {
   start?: string;
   body: string;

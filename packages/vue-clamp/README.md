@@ -15,7 +15,8 @@ pnpm add vue-clamp vue
 
 ## Components
 
-- `LineClamp` for multiline text
+- `LineClamp` for multiline plain text
+- `RichLineClamp` for trusted inline rich text
 - `InlineClamp` for one-line strings such as filenames, paths, and emails
 - `WrapClamp` for wrapped items such as tags, filters, and chips
 
@@ -30,6 +31,25 @@ import { LineClamp } from "vue-clamp";
   <LineClamp :text="text" :max-lines="2" />
 </template>
 ```
+
+## Rich text
+
+Use `RichLineClamp` for trusted or already-sanitized inline markup:
+
+```vue
+<RichLineClamp :html="html" :max-lines="2" />
+```
+
+RichLineClamp is intentionally scoped:
+
+- Rich content clamps from the end only.
+- Rich clamping is best-effort and behavior-based: elements can participate as long as the runtime
+  can clone them back into the DOM and their rendered layout stays in inline flow.
+- Leaf elements without light DOM content are treated as atomic inline units, including custom
+  elements.
+- `br`, `wbr`, `img`, and outer `svg` still keep explicit handling.
+- Markup that renders outside inline flow still falls back to the original HTML unchanged.
+- Sanitization is the caller's responsibility.
 
 ## Docs
 

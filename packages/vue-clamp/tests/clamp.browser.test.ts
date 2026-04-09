@@ -1,5 +1,5 @@
-import { afterEach, describe, expect, it } from "vite-plus/test";
-import { Comment, createApp, defineComponent, h, ref } from "vue";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
+import { Comment, createApp, defineComponent, h, nextTick, ref } from "vue";
 import { LineClamp } from "../src/index.ts";
 import {
   accessibleTextElement,
@@ -8,17 +8,28 @@ import {
   beforeElement,
   cleanupMounted,
   mountClamp,
+  mountRichClamp,
+  richContentElement,
   rootElement,
   sampleVisibleLineCounts,
   settle,
   textElement,
+  visibleLineCount,
   waitUntilVisible,
 } from "./browser.ts";
 
-import type { LineClampExposed } from "../src/index.ts";
+import type { LineClampExposed, RichLineClampExposed } from "../src/index.ts";
 
 const DEMO_TEXT =
   "Vue (pronounced /vjuː/, like view) is a progressive framework for building user interfaces. Unlike other monolithic frameworks, Vue is designed from the ground up to be incrementally adoptable. The core library is focused on the view layer only, and is easy to pick up and integrate with other libraries or existing projects. On the other hand, Vue is also perfectly capable of powering sophisticated Single-Page Applications when used in combination with modern tooling and supporting libraries.";
+const RICH_TEXT_HTML =
+  '<strong>Vue</strong> ships <img alt="" src="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%2224%22 height=%2212%22 viewBox=%220 0 24 12%22%3E%3Crect width=%2224%22 height=%2212%22 rx=%226%22 fill=%22%23005BD2%22/%3E%3C/svg%3E" style="width:24px;height:12px;vertical-align:baseline" /> <a href="/docs">layout-aware rich text clamping</a> for <em>inline content</em> and trailing markup.';
+const BEHAVIORAL_RICH_TEXT_HTML =
+  '<inline-note>Custom inline content</inline-note> stays valid beside <div style="display:inline">behavior-driven wrappers</div> when they render as inline text.';
+const ATOMIC_LEAF_RICH_TEXT_HTML =
+  '<inline-badge style="display:inline-block;width:24px;height:12px;vertical-align:baseline"></inline-badge> trailing copy that still needs clamping.';
+const INLINE_BLOCK_RICH_TEXT_HTML =
+  'Lead <span class="inline-box" style="display:inline-block">AtomicBox</span> trailing copy that should not split inside the inline box.';
 
 afterEach(() => {
   cleanupMounted();
@@ -464,5 +475,188 @@ describe("LineClamp browser contract", () => {
     expect(textNode.textContent).not.toBe(sourceText);
     expect(textNode.getAttribute("aria-hidden")).toBe("true");
     expect(accessibleTextElement(root)?.textContent).toBe(sourceText);
+  });
+
+  it("clamps supported inline html while preserving rich markup", async () => {
+    const mounted = mountRichClamp({
+      html: RICH_TEXT_HTML,
+      width: 170,
+      props: {
+        maxLines: 2,
+      },
+    });
+
+    const root = rootElement(mounted.container);
+    await waitUntilVisible(root);
+    await settle(4);
+
+    const rich = richContentElement(root);
+    expect(rich.innerHTML).toContain("<strong>Vue</strong>");
+    expect(rich.innerHTML).toContain('<a href="/docs">');
+    expect(rich.querySelector("img")).toBeInstanceOf(HTMLImageElement);
+    expect(rich.textContent).toContain("…");
+    expect(rich.getAttribute("aria-hidden")).toBeNull();
+    expect(accessibleTextElement(root)).toBeNull();
+    expect((mounted.exposed.value as RichLineClampExposed).clamped).toBe(true);
+    expect(await sampleVisibleLineCounts(root)).toEqual([2, 2, 2]);
+  });
+
+  it("clamps behavior-supported inline wrappers regardless of tag name", async () => {
+    const mounted = mountRichClamp({
+      html: BEHAVIORAL_RICH_TEXT_HTML,
+      width: 170,
+      props: {
+        maxLines: 2,
+      },
+    });
+
+    const root = rootElement(mounted.container);
+    await waitUntilVisible(root);
+    await settle(4);
+
+    const rich = richContentElement(root);
+    expect(rich.querySelector("div")).toBeInstanceOf(HTMLDivElement);
+    expect(rich.querySelector("inline-note")).toBeInstanceOf(HTMLElement);
+    expect(rich.textContent).toContain("…");
+    expect((mounted.exposed.value as RichLineClampExposed).clamped).toBe(true);
+    expect(await sampleVisibleLineCounts(root)).toEqual([2, 2, 2]);
+  });
+
+  it("clamps leaf custom elements as atomic inline content", async () => {
+    const mounted = mountRichClamp({
+      html: ATOMIC_LEAF_RICH_TEXT_HTML,
+      width: 120,
+      props: {
+        maxLines: 1,
+      },
+    });
+
+    const root = rootElement(mounted.container);
+    await waitUntilVisible(root);
+    await settle(4);
+
+    const rich = richContentElement(root);
+    expect(rich.querySelector("inline-badge")).toBeInstanceOf(HTMLElement);
+    expect(rich.textContent).toContain("…");
+    expect((mounted.exposed.value as RichLineClampExposed).clamped).toBe(true);
+    expect(await sampleVisibleLineCounts(root)).toEqual([1, 1, 1]);
+  });
+
+  it("treats inline-block descendants as atomic runs", async () => {
+    const mounted = mountRichClamp({
+      html: INLINE_BLOCK_RICH_TEXT_HTML,
+      width: 90,
+      props: {
+        maxLines: 1,
+      },
+    });
+
+    const root = rootElement(mounted.container);
+    await waitUntilVisible(root);
+    await settle(4);
+
+    const rich = richContentElement(root);
+    expect(rich.querySelector(".inline-box")).toBeNull();
+    expect(rich.textContent).toContain("Lead");
+    expect(rich.textContent).toContain("…");
+    expect((mounted.exposed.value as RichLineClampExposed).clamped).toBe(true);
+    expect(await sampleVisibleLineCounts(root)).toEqual([1, 1, 1]);
+  });
+
+  it("falls back to raw html when wrappers render with unsupported layout", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const sourceHtml = "<div>This wrapper stays block layout and should not be clamped.</div>";
+    try {
+      const mounted = mountRichClamp({
+        html: sourceHtml,
+        width: 120,
+        props: {
+          maxLines: 1,
+        },
+      });
+
+      const root = rootElement(mounted.container);
+      await waitUntilVisible(root);
+      await settle(4);
+
+      expect(richContentElement(root).innerHTML).toBe(sourceHtml);
+      expect((mounted.exposed.value as RichLineClampExposed).clamped).toBe(false);
+      expect(warnSpy).toHaveBeenCalledWith(
+        "[vue-clamp] Rich text wrapper <div> must stay in inline flow.",
+      );
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  it("does not clip raw html fallback when maxHeight is used", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const sourceHtml =
+      "<div>This wrapper stays block layout and should remain fully visible when rich clamping gives up.</div>";
+    try {
+      const mounted = mountRichClamp({
+        html: sourceHtml,
+        width: 120,
+        props: {
+          maxHeight: 20,
+        },
+      });
+
+      const root = rootElement(mounted.container);
+      await waitUntilVisible(root);
+      await settle(4);
+
+      expect(richContentElement(root).innerHTML).toBe(sourceHtml);
+      expect((mounted.exposed.value as RichLineClampExposed).clamped).toBe(false);
+      expect(root.style.maxHeight).toBe("");
+      expect(root.style.overflow).toBe("");
+      expect(warnSpy).toHaveBeenCalledWith(
+        "[vue-clamp] Rich text wrapper <div> must stay in inline flow.",
+      );
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  it("does not show over-limit rich html lines in the first frame after a width shrink", async () => {
+    const mounted = mountRichClamp({
+      html: RICH_TEXT_HTML,
+      width: 260,
+      props: {
+        maxLines: 2,
+      },
+    });
+
+    const root = rootElement(mounted.container);
+    await waitUntilVisible(root);
+    await settle(4);
+
+    mounted.width.value = 140;
+    await nextTick();
+
+    expect(visibleLineCount(root)).toBeLessThanOrEqual(2);
+
+    await settle(4);
+    expect(await sampleVisibleLineCounts(root)).toEqual([2, 2, 2]);
+  });
+
+  it("settles back within the requested rich html line limit after an external container width shrink", async () => {
+    const mounted = mountRichClamp({
+      html: RICH_TEXT_HTML,
+      applyWidthToComponent: false,
+      containerStyle: "width:260px",
+      props: {
+        maxLines: 2,
+      },
+    });
+
+    const root = rootElement(mounted.container);
+    await waitUntilVisible(root);
+    await settle(4);
+
+    mounted.container.style.width = "140px";
+    await settle(4);
+
+    expect(await sampleVisibleLineCounts(root)).toEqual([2, 2, 2]);
   });
 });
