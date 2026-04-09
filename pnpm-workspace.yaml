@@ -8,6 +8,7 @@ catalog:
   "@types/node": ^24
   "@vitejs/plugin-vue": ^6.0.5
   bumpp: ^11.0.1
+  overlayscrollbars: ^2.15.1
   playwright: ^1.58.2
   releaselog: ^7.0.2
   semver: ^7.7.4

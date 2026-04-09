@@ -16,6 +16,14 @@ Package docs:
 
 ## Development
 
+## Rich text
+
+`LineClamp` is the plain-text multiline surface. Use `RichLineClamp` for trusted inline `html`.
+RichLineClamp preserves inline markup, clamps from the end, and expects the caller to sanitize HTML
+before rendering it. Rich clamping is best-effort and behavior-based: if the runtime can clone the
+markup back into the DOM and the rendered element stays in inline flow, it can participate in
+clamping, including leaf custom elements and other inline atomic nodes.
+
 - Check everything is ready:
 
 ```bash
