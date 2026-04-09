@@ -4,8 +4,9 @@
 
 - The `main` branch started from a fresh Vite+ workspace scaffold and does not contain the old library implementation.
 - The migration baseline is the Vue 2 `0.4.1` implementation on `master`.
-- The package now ships three Vue 3 clamp surfaces:
+- The package now ships four Vue 3 clamp surfaces:
   - `LineClamp` for multiline DOM-driven clamping
+  - `RichLineClamp` for multiline trusted-inline-html clamping
   - `InlineClamp` for native one-line affix-friendly truncation
   - `WrapClamp` for wrapped atomic-item clamping
 
@@ -32,16 +33,22 @@
 
 - The root package exports:
   - `LineClamp` as the canonical multiline component name
+  - `RichLineClamp` as the canonical multiline rich-html component name
   - `InlineClamp` as the canonical single-line native component name
   - `WrapClamp` as the canonical wrapped-item component name
 - There is no default export.
 - Public declaration types live in `packages/vue-clamp/src/types.ts`.
-- `LineClamp` keeps the existing `text`-based multiline clamp API.
+- `LineClamp` is the text-only multiline component.
+- `RichLineClamp` is the rich-html multiline component.
 - `LineClamp` `location` accepts the keyword aliases `start`, `middle`, and `end`, plus numeric ratios from `0` to `1`.
+- `RichLineClamp` is end-truncation-only and does not carry `location`.
 - `LineClamp` `before` and `after` remain rich Vue slots.
+- `RichLineClamp` keeps the same `before` / `after` slot contract and exposed expand/collapse
+  controls.
 - Empty `before` / `after` slot output is filtered at the VNode level so empty arrays, comment-only results, and whitespace-only text do not leave wrapper elements behind.
 - Stable internal styling hooks use `data-part` only:
   - `LineClamp`: `root`, `content`, `before`, `body`, `after`
+  - `RichLineClamp`: `root`, `content`, `before`, `body`, `after`
   - `InlineClamp`: `root`, `start`, `body`, `end`
   - `WrapClamp`: `root`, `content`, `before`, `item`, `after`
 - DOM nesting is intentionally not part of the styling contract.
@@ -67,19 +74,26 @@
 ### Runtime model
 
 - `LineClamp` is DOM-driven and browser-aligned.
-- `packages/vue-clamp/src/LineClamp.ts` is now the real center of gravity for the multiline component:
-  - prop and emit definitions
-  - DOM measurement
-  - line/height fit checks
-  - resize and font listeners
-  - render tree
-  - exposed methods
-- The only remaining nontrivial helper module for multiline clamping is `packages/vue-clamp/src/text.ts`, which owns grapheme splitting and kept-count text generation. It stays separate because the component and browser tests both use it.
-- Small single-use helper modules that only fragmented the runtime were removed.
-- `LineClamp` now keeps only the minimum moving pieces:
+- The multiline architecture is now:
+  - `LineClamp` for text
+  - `RichLineClamp` for trusted inline rich text
+- The remaining nontrivial helper modules for multiline clamping are:
+  - `packages/vue-clamp/src/text.ts` for grapheme splitting, kept-count text generation, text
+    clamp search, location normalization, and native one-line eligibility helpers
+  - `packages/vue-clamp/src/rich.ts` for rich-text parsing, runtime inline-flow classification,
+    logical-run preprocessing, boundary slicing, and rich clamp search
+  - `packages/vue-clamp/src/layout.ts` for the tiny shared primitives that are still worth
+    centralizing: line-limit normalization, size signatures, fit checks, and the queued async
+    recompute helper
+- `packages/vue-clamp/src/LineClamp.ts` now owns only text behavior:
   - reactive `visibleText`, `expanded`, and `isClamped`
-  - DOM refs for root/content/text and optional `before`/`after` slot wrappers
-  - a per-instance prepared-text cache keyed by `text`
+  - text preparation and native one-line fast path dispatch
+  - text accessibility handling for rewritten visible output
+- `packages/vue-clamp/src/RichLineClamp.ts` now owns only rich-html behavior:
+  - reactive `renderedHtml`, `expanded`, and `isClamped`
+  - rendered-layout validation and rich fallback handling
+  - image-driven reclamping for inline rich content
+- Shared code stays in small helpers instead of a large base shell.
 - `InlineClamp` is much narrower:
   - one root inline-flex container
   - optional fixed `start` and `end` segments
@@ -104,10 +118,13 @@
   - marks the rewritten visible text node as `aria-hidden`
   - renders a visually hidden full-text sibling in the same text position for assistive tech
 - This keeps the accessible text aligned with the unclamped source without hiding `before` and `after` slot content.
+- `RichLineClamp` does not create a hidden duplicate rich-text tree:
+  - only the visible clamped HTML is rendered
+  - expanded mode is the path to the full rich content
 
 ### Clamp strategy
 
-- The actual clamp pass:
+- The text clamp pass in `LineClamp`:
   - starts from the `text` prop
   - normalizes `location` to an internal ratio before clamp rendering
   - prepares grapheme boundary offsets once per source text and reuses them across width/slot/font reclamps
@@ -117,7 +134,31 @@
   - uses a native CSS overflow fast path for the collapsed single-line end case when the default `…` ellipsis is used and the normalized location ratio is `1`
   - in that native path, `before` and `after` stay as fixed inline-flex items while the text cell becomes the only flexible width consumer
   - otherwise binary-searches the kept grapheme count directly against the live DOM
-  - uses the browser as the source of truth for wrapping and overflow in both paths
+- The rich clamp pass in `RichLineClamp`:
+  - only end truncation is supported
+  - support is behavior-based rather than tag-name-based:
+    - any node can participate if the runtime can clone it back into the DOM and its rendered
+      layout stays in inline flow
+    - leaf elements without light DOM content are treated as atomic inline units, including custom
+      elements
+    - descendants that render as inline formatting contexts such as `inline-block` or `inline-flex`
+      are treated as atomic runs rather than searchable wrapper text
+  - explicit special handling remains for `br`, `wbr`, atomic `img`, and outer `svg`
+  - rendered layout that leaves inline flow, or structural/computed-layout violations such as
+    positioned or floated descendants, fall back to the original HTML unchanged
+  - search is now boundary-oriented:
+    - first binary-search the ends of logical runs
+    - then refine inside only the next text run using grapheme-safe cuts
+    - candidate output is generated by slicing the original tree prefix and inserting the ellipsis
+      before fit testing, instead of rebuilding from a mixed global unit list
+    - parsed rich preprocessing now caches text boundary metadata once per `html` source and reuses
+      it across width, slot, image, and font reclamps
+    - unchanged content still validates the rendered rich layout, but now exits before logical-run
+      construction when the full source already fits
+    - fit probes now apply cloned prefix fragments directly into the live rich body instead of
+      serializing candidate HTML and reparsing it through `innerHTML` on every probe
+  - sanitization stays the caller's responsibility
+  - the runtime measures against the visible DOM instead of using a hidden probe
 - `before` and `after` slots render directly into the same inline flow and are observed for size changes via `ResizeObserver`.
 - `WrapClamp` treats each item as an atomic box and uses a single visible-DOM clamp engine:
   - collapsed states are measured from the real rendered `before` / items / `after` sequence
@@ -127,19 +168,31 @@
 
 ### Reactivity and trade-offs
 
-- The component recalculates on:
+- `LineClamp` recalculates on:
   - root width changes
   - slot size changes
   - text changes
   - relevant prop changes
   - font readiness events when available
+- `RichLineClamp` follows the same invalidation model, but tracks `html` source changes and
+  image-driven relayout instead of text-location changes.
+- `LineClamp` and `RichLineClamp` both re-run their clamp pass in `onUpdated` when their own
+  rendered layout signature
+  changes, so reactive width/slot changes in the same Vue flush do not wait on a later
+  `ResizeObserver` delivery.
+- Browser coverage now distinguishes the two important width-shrink timing cases for rich mode:
+  - same-flush reactive width shrink through Vue update timing
+  - external async container width shrink through `ResizeObserver`
 - `WrapClamp` follows the same philosophy:
   - root/content/slot size changes
   - item source changes
   - relevant prop changes
   - font readiness events when available
-- `WrapClamp` keeps only one queued recompute loop per instance and deduplicates observer-driven work against the last settled observed-geometry signature.
-- `LineClamp` and `WrapClamp` now treat `ResizeObserver` as part of the required browser baseline instead of carrying runtime existence fallbacks.
+- `LineClamp`, `RichLineClamp`, and `WrapClamp` now all use the same tiny queued-task helper for
+  recompute coalescing instead of each carrying a private loop implementation.
+- `WrapClamp` still deduplicates observer-driven work against the last settled observed-geometry
+  signature.
+- `LineClamp`, `RichLineClamp`, and `WrapClamp` now treat `ResizeObserver` as part of the required browser baseline instead of carrying runtime existence fallbacks.
 - Removing that settled-signature guard was measured and rejected:
   - single-line benchmark:
     - `176` -> `212` `getBoundingClientRect()` calls
@@ -153,7 +206,9 @@
   - no hidden-first-paint gate
   - no probe element
   - no synthetic line-height-derived clipping guardrail
-- The deliberate trade-off is that async resize/font transitions may briefly show stale or unclamped text before the next DOM-driven recompute settles.
+- The remaining trade-off for the multiline components is narrower now:
+  - external async resize/font transitions outside the component's own Vue update cycle may still
+    briefly show stale content before the observer-driven recompute settles
 - In exchange, correctness does not depend on line-height modeling and the runtime is much easier to follow.
 - The dedicated browser benchmark now measures the shipped runtime directly:
   - single-line width sweep median:
@@ -167,12 +222,30 @@
 
 ## Constraints and Trade-offs
 
-- The component now requires a `text` prop for the clamped source content.
+- `LineClamp` source content comes from `text`, not from the default slot.
+- `RichLineClamp` accepts trusted or already-sanitized inline HTML through `html`.
 - The implementation favors browser truth over a mathematically modeled layout engine.
+- File layout now follows the domain boundaries directly:
+  - text behavior lives in `text.ts`
+  - rich behavior lives in `rich.ts`
+  - only a tiny set of shared primitives remain in `layout.ts`
+- Internal clamp helpers now return the next rendered text/html directly where possible, and the
+  components derive `clamped` state themselves instead of routing that through extra wrapper
+  objects.
 - In the native single-line fast path, the collapsed DOM text remains the full source text and the visual ellipsis comes from CSS overflow rather than a rewritten text node.
 - Custom ellipsis strings still fall back to the JS trimming path.
 - The JS trimming path still rewrites the visible text node, but accessibility now comes from the hidden full-text sibling rather than a generic-element label.
+- Rich HTML does not support source slots, start truncation, middle truncation, or arbitrary
+  layout-altering descendants.
+- Rich support now follows a best-effort inline-flow model:
+  - the runtime no longer rejects broad element classes up front during preparation
+  - leaf elements without light DOM content are treated as atomic boxes
+  - inline formatting contexts such as `inline-block` are also treated atomically during search
+  - fallback is reserved for rendered layout that exits inline flow or otherwise breaks the clamp
+    model
 - A small amount of duplicated logic inside the component is preferred over splitting one runtime path across many files.
+- For multiline rich support specifically, small duplication across `LineClamp` and
+  `RichLineClamp` is preferred over keeping one large polymorphic shared shell.
 - `WrapClamp` stays data-driven with `items`; arbitrary child-vnode introspection is intentionally out of scope for v1.
 - `WrapClamp` follows live DOM measurement for every clamp mode.
 - `maxLines="1"` is still the lightest case, but there is no separate predictive one-line engine.
@@ -188,8 +261,62 @@
 - Use Vite+ commands only.
 - The website hero should lead with real use cases instead of component taxonomy. The animated line
   now rotates through a randomized but category-balanced set of concrete nouns from the multiline,
-  inline, and wrapped-item surfaces, while the API names remain `LineClamp`, `InlineClamp`, and
-  `WrapClamp`.
+  rich, inline, and wrapped-item surfaces, while the API names remain `LineClamp`,
+  `RichLineClamp`, `InlineClamp`, and `WrapClamp`.
+- The website `RichLineClamp` demo is intentionally more realistic than the API snippet:
+  - editable trusted inline HTML
+  - preset content covering release notes, styled article excerpts with nested emphasis inside
+    links, `code`, `mark`, `br`, `wbr`, inline `svg`, and an inline custom wrapper example
+  - the interactive demo surface now mirrors the three generic `LineClamp` examples:
+    `max-lines` + `after`, `max-height` + `before` + external expanded control, and
+    `clampchange`
+  - the location/ratio example intentionally remains text-only because `RichLineClamp` is
+    end-truncation-only
+  - the rich preview starts at `420px` wide by default so the article-style clamp is easier to read
+    without immediately expanding to the wider text demo baseline
+  - the live preview also exposes a `CSS Hyphens` toggle so article-like copy can be compared with
+    and without browser hyphenation
+  - the preview keeps the example focused on article copy itself and uses the expand toggle as the
+    only chrome around the clamp
+- The website component tabs now have stable direct-link hashes:
+  - `#line-clamp`
+  - `#rich-line-clamp`
+  - `#inline-clamp`
+  - `#wrap-clamp`
+  - the active surface is initialized from recognized hashes and follows later `hashchange`
+    navigation without interfering with unrelated section hashes such as `#installation` or
+    `#components`
+- The website "Choose a surface" section is now a simplified surface guide:
+  - no dedicated heading; the section is introduced by one short sentence describing the four
+    exported components directly
+  - four linked tiles in a simple responsive grid
+  - each tile keeps only the component name plus one concise chooser sentence
+  - the grid stays sharp and structural rather than leaning on soft card styling
+  - the only decoration is one tiny solid triangle in the top-right corner of each tile, using the
+    normal border color at rest
+  - hover / focus highlight uses a dedicated overlay border so the whole cell outline lights up
+  - guide entries still link directly to the matching component-tab hashes
+- The website scroll surfaces now use `overlayscrollbars` instead of native scrollbars:
+  - the page body is initialized from the root app and bridged with `data-overlayscrollbars-initialize`
+    on `html` and `body`
+  - shared horizontal containers use one small directive-backed helper
+  - the current targets are the page body, demo preview frames, and code blocks
+  - `ComponentTabs` stays on its native horizontal scroller so its bespoke mobile overflow behavior
+    remains independent from the shared scrollbar layer
+- The website now splits generic and specialized tab controls more cleanly:
+  - `packages/website/src/PillControls.vue` is the reusable switcher for demo preset groups
+  - the installation block keeps its original dedicated tab-strip styling
+  - `packages/website/src/ComponentTabs.vue` remains a dedicated implementation with its own
+    scrollable layout, overflow cue, and tooltip behavior
+- The website component tabs now use horizontal overflow on narrow widths instead of shrinking until
+  labels become cramped:
+  - the tabs row remains a simple button strip
+  - touch swipe/manual horizontal scroll is the fallback when the row no longer fits
+  - native scrollbars stay hidden so the tab row does not gain an extra mobile separator
+  - tab labels ellipsize instead of feeling abruptly clipped
+  - a lightweight `More` cue and edge fades indicate hidden tabs until the user reaches the end
+  - hover/focus tooltips are hidden on coarse or narrow viewports where the scroll container would
+    otherwise clip them
 - Vercel deployment settings now live in the Vercel project dashboard instead of `vercel.json`:
   - production branch is `main`
   - install uses Corepack plus the pinned `pnpm@10.33.0`
