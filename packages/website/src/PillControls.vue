@@ -15,7 +15,6 @@ const props = withDefaults(
     options: ReadonlyArray<PillControlOption>;
   }>(),
   {
-    ariaLabel: undefined,
     buttonClass: "",
     compact: false,
     modelValue: null,

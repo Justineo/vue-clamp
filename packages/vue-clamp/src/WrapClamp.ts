@@ -9,7 +9,13 @@ import {
   watch,
   watchPostEffect,
 } from "vue";
-import { createQueuedTask, normalizeLineLimit, sizeSignature } from "./layout.ts";
+import {
+  combinedSizeSignature,
+  createQueuedTask,
+  cssLength,
+  listenForFontLoads,
+  normalizeLineLimit,
+} from "./layout.ts";
 import { hasSlotContent } from "./slot.ts";
 
 import type { CSSProperties, PropType, VNodeChild } from "vue";
@@ -206,7 +212,7 @@ export const WrapClamp = defineComponent({
 
     let resizeObserver: ResizeObserver | null = null;
     let stopFonts = () => {};
-    let settledLayoutSignature: string | null = null;
+    let lastLayoutSignature: string | null = null;
 
     function expand(): void {
       expanded.value = true;
@@ -237,12 +243,12 @@ export const WrapClamp = defineComponent({
     function layoutSignature(): string {
       const content = contentElement(rootRef.value);
 
-      return [
-        sizeSignature(rootRef.value),
-        sizeSignature(content),
-        sizeSignature(slotElement(content, "before")),
-        sizeSignature(slotElement(content, "after")),
-      ].join("|");
+      return combinedSizeSignature(
+        rootRef.value,
+        content,
+        slotElement(content, "before"),
+        slotElement(content, "after"),
+      );
     }
 
     function slotPropsForCount(nextVisibleCount: number): WrapClampSlotProps {
@@ -289,7 +295,7 @@ export const WrapClamp = defineComponent({
       }
     }
 
-    async function recomputeOnce(): Promise<void> {
+    async function recompute(): Promise<void> {
       const totalItems = props.items.length;
       const lineLimit = normalizeLineLimit(props.maxLines);
       const clipToRootHeight = props.maxHeight !== undefined;
@@ -310,9 +316,9 @@ export const WrapClamp = defineComponent({
       await settleVisibleCount(rootElement, lineLimit, clipToRootHeight);
     }
 
-    const requestRecompute = createQueuedTask(async () => {
-      await recomputeOnce();
-      settledLayoutSignature = layoutSignature();
+    const queueRecompute = createQueuedTask(async () => {
+      await recompute();
+      lastLayoutSignature = layoutSignature();
     });
 
     watch(
@@ -329,7 +335,7 @@ export const WrapClamp = defineComponent({
           emit("update:expanded", value);
         }
 
-        requestRecompute();
+        queueRecompute();
       },
       { flush: "post" },
     );
@@ -337,7 +343,7 @@ export const WrapClamp = defineComponent({
     watch(
       [() => props.maxLines, () => props.maxHeight, () => props.itemKey, () => props.items],
       () => {
-        requestRecompute();
+        queueRecompute();
       },
       { deep: true, flush: "post" },
     );
@@ -352,8 +358,8 @@ export const WrapClamp = defineComponent({
 
     watchPostEffect((onCleanup) => {
       resizeObserver ??= new ResizeObserver(() => {
-        if (layoutSignature() !== settledLayoutSignature) {
-          requestRecompute();
+        if (layoutSignature() !== lastLayoutSignature) {
+          queueRecompute();
         }
       });
 
@@ -377,22 +383,8 @@ export const WrapClamp = defineComponent({
     });
 
     onMounted(() => {
-      requestRecompute();
-
-      const fontFaceSet = document.fonts;
-      if (!fontFaceSet) {
-        return;
-      }
-
-      function handleFontLoad(): void {
-        requestRecompute();
-      }
-
-      void fontFaceSet.ready.then(handleFontLoad);
-      fontFaceSet.addEventListener("loadingdone", handleFontLoad);
-      stopFonts = () => {
-        fontFaceSet.removeEventListener("loadingdone", handleFontLoad);
-      };
+      queueRecompute();
+      stopFonts = listenForFontLoads(queueRecompute);
     });
 
     onBeforeUnmount(() => {
@@ -413,12 +405,7 @@ export const WrapClamp = defineComponent({
     } satisfies WrapClampExposed);
 
     return () => {
-      const collapsedMaxHeight =
-        !expanded.value && props.maxHeight !== undefined
-          ? typeof props.maxHeight === "number"
-            ? `${props.maxHeight}px`
-            : props.maxHeight
-          : undefined;
+      const collapsedMaxHeight = !expanded.value ? cssLength(props.maxHeight) : undefined;
 
       const renderedVisibleCount = Math.min(visibleCount.value, props.items.length);
       const slotProps = slotPropsForCount(renderedVisibleCount);

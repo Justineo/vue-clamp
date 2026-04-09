@@ -11,14 +11,18 @@ import {
   watch,
   watchPostEffect,
 } from "vue";
-import { createQueuedTask, normalizeLineLimit, sizeSignature } from "./layout.ts";
+import {
+  combinedSizeSignature,
+  createQueuedTask,
+  cssLength,
+  listenForFontLoads,
+  normalizeLineLimit,
+} from "./layout.ts";
 import { clampRichTextToLayout, prepareRichText } from "./rich.ts";
 import { hasSlotContent } from "./slot.ts";
 
 import type { CSSProperties, PropType } from "vue";
 import type { RichLineClampExposed, RichLineClampSlotProps } from "./types.ts";
-
-const isDev = typeof process === "undefined" ? true : process.env.NODE_ENV !== "production";
 
 const slotStyle: CSSProperties = {
   display: "inline-flex",
@@ -28,7 +32,7 @@ const slotStyle: CSSProperties = {
   verticalAlign: "baseline",
 };
 
-const clampProps = {
+const richClampProps = {
   as: {
     type: String,
     default: "div",
@@ -49,7 +53,7 @@ const clampProps = {
   },
 } as const;
 
-const clampEmits = {
+const richClampEmits = {
   "update:expanded": (value: boolean) => typeof value === "boolean",
   clampchange: (value: boolean) => typeof value === "boolean",
 };
@@ -57,37 +61,27 @@ const clampEmits = {
 export const RichLineClamp = defineComponent({
   name: "RichLineClamp",
   inheritAttrs: false,
-  props: clampProps,
-  emits: clampEmits,
+  props: richClampProps,
+  emits: richClampEmits,
   setup(props, { attrs, emit, expose, slots }) {
     const rootRef = ref<HTMLElement | null>(null);
     const contentRef = ref<HTMLElement | null>(null);
     const beforeRef = ref<HTMLElement | null>(null);
     const bodyRef = ref<HTMLElement | null>(null);
-    const contentBodyRef = ref<HTMLElement | null>(null);
+    const htmlRef = ref<HTMLElement | null>(null);
     const afterRef = ref<HTMLElement | null>(null);
-    const renderedHtml = ref(props.html);
+    const visibleHtml = ref(props.html);
     const expanded = ref(props.expanded);
     const isClamped = ref(false);
-    const canClipCollapsed = ref(true);
+    const isFallback = ref(false);
 
     const lineLimit = computed(() => normalizeLineLimit(props.maxLines));
     const hasLimit = computed(() => lineLimit.value !== undefined || props.maxHeight !== undefined);
-    const preparedRichText = computed(() => prepareRichText(props.html));
+    const preparedHtml = computed(() => prepareRichText(props.html));
 
     let resizeObserver: ResizeObserver | null = null;
     let stopFonts = () => {};
-    let settledLayoutSignature: string | null = null;
-    const warnedMessages = new Set<string>();
-
-    function warn(message: string): void {
-      if (!isDev || warnedMessages.has(message)) {
-        return;
-      }
-
-      warnedMessages.add(message);
-      console.warn(`[vue-clamp] ${message}`);
-    }
+    let lastLayoutSignature: string | null = null;
 
     function expand(): void {
       expanded.value = true;
@@ -104,37 +98,37 @@ export const RichLineClamp = defineComponent({
     async function applyHtmlState(
       nextHtml: string,
       nextClamped: boolean,
-      nextCanClipCollapsed: boolean,
+      nextFallback: boolean,
     ): Promise<void> {
       const changed =
-        renderedHtml.value !== nextHtml ||
+        visibleHtml.value !== nextHtml ||
         isClamped.value !== nextClamped ||
-        canClipCollapsed.value !== nextCanClipCollapsed;
+        isFallback.value !== nextFallback;
 
-      renderedHtml.value = nextHtml;
+      visibleHtml.value = nextHtml;
       isClamped.value = nextClamped;
-      canClipCollapsed.value = nextCanClipCollapsed;
+      isFallback.value = nextFallback;
 
       if (changed) {
         await nextTick();
       }
     }
 
-    async function resetClamp(): Promise<void> {
-      await applyHtmlState(props.html, false, true);
+    async function resetClamp(nextFallback = false): Promise<void> {
+      await applyHtmlState(props.html, false, nextFallback);
     }
 
     function layoutSignature(): string {
-      return [
-        sizeSignature(rootRef.value),
-        sizeSignature(contentRef.value),
-        sizeSignature(bodyRef.value),
-        sizeSignature(beforeRef.value),
-        sizeSignature(afterRef.value),
-      ].join("|");
+      return combinedSizeSignature(
+        rootRef.value,
+        contentRef.value,
+        bodyRef.value,
+        beforeRef.value,
+        afterRef.value,
+      );
     }
 
-    async function recomputeOnce(): Promise<void> {
+    async function recompute(): Promise<void> {
       if (expanded.value || props.html.length === 0 || !hasLimit.value) {
         await resetClamp();
         return;
@@ -142,10 +136,10 @@ export const RichLineClamp = defineComponent({
 
       const rootElement = rootRef.value;
       const contentElement = contentRef.value;
-      const contentBodyElement = contentBodyRef.value;
-      const prepared = preparedRichText.value;
+      const htmlElement = htmlRef.value;
+      const prepared = preparedHtml.value;
 
-      if (!rootElement || !contentElement || !contentBodyElement || !prepared) {
+      if (!rootElement || !contentElement || !htmlElement || !prepared) {
         await resetClamp();
         return;
       }
@@ -154,27 +148,23 @@ export const RichLineClamp = defineComponent({
         prepared,
         rootElement,
         contentElement,
-        contentBodyElement,
+        htmlElement,
         props.ellipsis,
         lineLimit.value,
         props.maxHeight,
       );
-
-      if (nextState.reason) {
-        warn(nextState.reason);
-      }
 
       if (nextState.html === null) {
         await resetClamp();
         return;
       }
 
-      await applyHtmlState(nextState.html, nextState.html !== prepared.html, !nextState.fallback);
+      await applyHtmlState(nextState.html, nextState.html !== prepared.html, nextState.fallback);
     }
 
-    const requestRecompute = createQueuedTask(async () => {
-      await recomputeOnce();
-      settledLayoutSignature = layoutSignature();
+    const queueRecompute = createQueuedTask(async () => {
+      await recompute();
+      lastLayoutSignature = layoutSignature();
     });
 
     watch(
@@ -191,7 +181,7 @@ export const RichLineClamp = defineComponent({
           emit("update:expanded", value);
         }
 
-        requestRecompute();
+        queueRecompute();
       },
       { flush: "post" },
     );
@@ -199,8 +189,9 @@ export const RichLineClamp = defineComponent({
     watch(
       [() => props.html, () => props.maxLines, () => props.maxHeight, () => props.ellipsis],
       () => {
-        renderedHtml.value = props.html;
-        requestRecompute();
+        visibleHtml.value = props.html;
+        isFallback.value = false;
+        queueRecompute();
       },
       { flush: "post" },
     );
@@ -215,8 +206,8 @@ export const RichLineClamp = defineComponent({
 
     watchPostEffect((onCleanup) => {
       resizeObserver ??= new ResizeObserver(() => {
-        if (layoutSignature() !== settledLayoutSignature) {
-          requestRecompute();
+        if (layoutSignature() !== lastLayoutSignature) {
+          queueRecompute();
         }
       });
 
@@ -240,17 +231,17 @@ export const RichLineClamp = defineComponent({
     });
 
     watchPostEffect((onCleanup) => {
-      const contentBodyElement = contentBodyRef.value;
-      if (!contentBodyElement) {
+      const htmlElement = htmlRef.value;
+      if (!htmlElement) {
         return;
       }
 
-      const images = Array.from(contentBodyElement.querySelectorAll("img")).filter(
+      const images = Array.from(htmlElement.querySelectorAll("img")).filter(
         (element): element is HTMLImageElement => element instanceof HTMLImageElement,
       );
 
       function handleImageChange(): void {
-        requestRecompute();
+        queueRecompute();
       }
 
       for (const image of images) {
@@ -271,27 +262,13 @@ export const RichLineClamp = defineComponent({
     });
 
     onMounted(() => {
-      requestRecompute();
-
-      const fontFaceSet = document.fonts;
-      if (!fontFaceSet) {
-        return;
-      }
-
-      function handleFontLoad(): void {
-        requestRecompute();
-      }
-
-      void fontFaceSet.ready.then(handleFontLoad);
-      fontFaceSet.addEventListener("loadingdone", handleFontLoad);
-      stopFonts = () => {
-        fontFaceSet.removeEventListener("loadingdone", handleFontLoad);
-      };
+      queueRecompute();
+      stopFonts = listenForFontLoads(queueRecompute);
     });
 
     onUpdated(() => {
-      if (layoutSignature() !== settledLayoutSignature) {
-        requestRecompute();
+      if (layoutSignature() !== lastLayoutSignature) {
+        queueRecompute();
       }
     });
 
@@ -313,12 +290,8 @@ export const RichLineClamp = defineComponent({
     } satisfies RichLineClampExposed);
 
     return () => {
-      let collapsedMaxHeight: string | number | undefined;
-
-      if (!expanded.value && canClipCollapsed.value && props.maxHeight !== undefined) {
-        collapsedMaxHeight =
-          typeof props.maxHeight === "number" ? `${props.maxHeight}px` : props.maxHeight;
-      }
+      const collapsedMaxHeight =
+        !expanded.value && !isFallback.value ? cssLength(props.maxHeight) : undefined;
 
       const slotProps: RichLineClampSlotProps = {
         expand,
@@ -369,8 +342,8 @@ export const RichLineClamp = defineComponent({
               [
                 h("span", {
                   key: "html",
-                  ref: contentBodyRef,
-                  innerHTML: expanded.value || !hasLimit.value ? props.html : renderedHtml.value,
+                  ref: htmlRef,
+                  innerHTML: expanded.value || !hasLimit.value ? props.html : visibleHtml.value,
                 }),
               ],
             ),

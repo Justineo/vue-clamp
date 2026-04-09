@@ -36,8 +36,30 @@ export function createQueuedTask(task: () => Promise<void>): () => void {
   return run;
 }
 
+export function cssLength(value: number | string | undefined): string | number | undefined {
+  return typeof value === "number" ? `${value}px` : value;
+}
+
 export function sizeSignature(element: HTMLElement | null): string {
   return element ? `${element.offsetWidth}x${element.offsetHeight}` : "0x0";
+}
+
+export function combinedSizeSignature(...elements: (HTMLElement | null)[]): string {
+  return elements.map(sizeSignature).join("|");
+}
+
+export function listenForFontLoads(onLoad: () => void): () => void {
+  const fontFaceSet = document.fonts;
+  if (!fontFaceSet) {
+    return () => {};
+  }
+
+  void fontFaceSet.ready.then(onLoad);
+  fontFaceSet.addEventListener("loadingdone", onLoad);
+
+  return () => {
+    fontFaceSet.removeEventListener("loadingdone", onLoad);
+  };
 }
 
 export function fitsContent(
