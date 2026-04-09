@@ -252,8 +252,12 @@
 - Browser tests are still the main confidence layer because the component’s behavior depends on real DOM layout.
 - The repo now also has a dedicated browser benchmark:
   - config: `vite.browser.benchmark.config.ts`
-  - script: `vp run benchmark:wrap`
-  - scope: measure current `WrapClamp` workloads
+  - scripts:
+    - `vp run benchmark:wrap`
+    - `vp run benchmark:rich`
+  - scope:
+    - current `WrapClamp` workloads
+    - current rich clamp workloads
   - method: repeated browser runs with stable-state timing
 
 ## Repo Standards
