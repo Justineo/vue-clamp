@@ -12,17 +12,13 @@ import {
   watchPostEffect,
 } from "vue";
 import { createQueuedTask, normalizeLineLimit, sizeSignature } from "./layout.ts";
+import { clampRichTextToLayout, prepareRichText } from "./rich.ts";
 import { hasSlotContent } from "./slot.ts";
-import {
-  canUseNativeClamp,
-  clampTextToLayout,
-  isNativeClamped,
-  normalizeLocationRatio,
-  prepareText,
-} from "./text.ts";
 
-import type { CSSProperties, PropType, VNodeChild } from "vue";
-import type { LineClampExposed, LineClampLocation, LineClampSlotProps } from "./types.ts";
+import type { CSSProperties, PropType } from "vue";
+import type { RichLineClampExposed, RichLineClampSlotProps } from "./types.ts";
+
+const isDev = typeof process === "undefined" ? true : process.env.NODE_ENV !== "production";
 
 const slotStyle: CSSProperties = {
   display: "inline-flex",
@@ -32,67 +28,20 @@ const slotStyle: CSSProperties = {
   verticalAlign: "baseline",
 };
 
-const nativeContentStyle: CSSProperties = {
-  alignItems: "baseline",
-  display: "inline-flex",
-  maxWidth: "100%",
-  verticalAlign: "baseline",
-  width: "100%",
-};
-
-const nativeTextStyle: CSSProperties = {
-  display: "block",
-  overflow: "hidden",
-  overflowWrap: "normal",
-  whiteSpace: "nowrap",
-};
-
-const nativeTextContainerStyle: CSSProperties = {
-  display: "block",
-  flex: "1 1 auto",
-  minWidth: "0",
-};
-
-const nativeSlotStyle: CSSProperties = {
-  ...slotStyle,
-  flex: "none",
-};
-
-const visuallyHiddenTextStyle: CSSProperties = {
-  position: "absolute",
-  width: "1px",
-  height: "1px",
-  overflow: "hidden",
-  whiteSpace: "nowrap",
-  clipPath: "inset(50%)",
-};
-
 const clampProps = {
   as: {
     type: String,
     default: "div",
   },
-  text: {
+  html: {
     type: String,
-    default: "",
+    required: true,
   },
   maxLines: Number,
   maxHeight: [Number, String] as PropType<number | string | undefined>,
   ellipsis: {
     type: String,
     default: "…",
-  },
-  location: {
-    type: [String, Number] as PropType<LineClampLocation>,
-    default: "end",
-    validator(value: unknown) {
-      return (
-        value === "start" ||
-        value === "middle" ||
-        value === "end" ||
-        (typeof value === "number" && Number.isFinite(value))
-      );
-    },
   },
   expanded: {
     type: Boolean,
@@ -105,8 +54,8 @@ const clampEmits = {
   clampchange: (value: boolean) => typeof value === "boolean",
 };
 
-export const LineClamp = defineComponent({
-  name: "LineClamp",
+export const RichLineClamp = defineComponent({
+  name: "RichLineClamp",
   inheritAttrs: false,
   props: clampProps,
   emits: clampEmits,
@@ -117,27 +66,28 @@ export const LineClamp = defineComponent({
     const bodyRef = ref<HTMLElement | null>(null);
     const contentBodyRef = ref<HTMLElement | null>(null);
     const afterRef = ref<HTMLElement | null>(null);
-    const visibleText = ref(props.text);
+    const renderedHtml = ref(props.html);
     const expanded = ref(props.expanded);
     const isClamped = ref(false);
+    const canClipCollapsed = ref(true);
 
     const lineLimit = computed(() => normalizeLineLimit(props.maxLines));
     const hasLimit = computed(() => lineLimit.value !== undefined || props.maxHeight !== undefined);
-    const locationRatio = computed(() => normalizeLocationRatio(props.location));
-    const preparedText = computed(() => prepareText(props.text));
-    const nativeTextOverflow = computed(() =>
-      canUseNativeClamp(
-        expanded.value,
-        lineLimit.value,
-        props.maxHeight,
-        locationRatio.value,
-        props.ellipsis,
-      ),
-    );
+    const preparedRichText = computed(() => prepareRichText(props.html));
 
     let resizeObserver: ResizeObserver | null = null;
     let stopFonts = () => {};
     let settledLayoutSignature: string | null = null;
+    const warnedMessages = new Set<string>();
+
+    function warn(message: string): void {
+      if (!isDev || warnedMessages.has(message)) {
+        return;
+      }
+
+      warnedMessages.add(message);
+      console.warn(`[vue-clamp] ${message}`);
+    }
 
     function expand(): void {
       expanded.value = true;
@@ -151,11 +101,19 @@ export const LineClamp = defineComponent({
       expanded.value = !expanded.value;
     }
 
-    async function applyTextState(nextText: string, nextClamped: boolean): Promise<void> {
-      const changed = visibleText.value !== nextText || isClamped.value !== nextClamped;
+    async function applyHtmlState(
+      nextHtml: string,
+      nextClamped: boolean,
+      nextCanClipCollapsed: boolean,
+    ): Promise<void> {
+      const changed =
+        renderedHtml.value !== nextHtml ||
+        isClamped.value !== nextClamped ||
+        canClipCollapsed.value !== nextCanClipCollapsed;
 
-      visibleText.value = nextText;
+      renderedHtml.value = nextHtml;
       isClamped.value = nextClamped;
+      canClipCollapsed.value = nextCanClipCollapsed;
 
       if (changed) {
         await nextTick();
@@ -163,7 +121,7 @@ export const LineClamp = defineComponent({
     }
 
     async function resetClamp(): Promise<void> {
-      await applyTextState(props.text, false);
+      await applyHtmlState(props.html, false, true);
     }
 
     function layoutSignature(): string {
@@ -177,7 +135,7 @@ export const LineClamp = defineComponent({
     }
 
     async function recomputeOnce(): Promise<void> {
-      if (expanded.value || props.text.length === 0 || !hasLimit.value) {
+      if (expanded.value || props.html.length === 0 || !hasLimit.value) {
         await resetClamp();
         return;
       }
@@ -185,35 +143,33 @@ export const LineClamp = defineComponent({
       const rootElement = rootRef.value;
       const contentElement = contentRef.value;
       const contentBodyElement = contentBodyRef.value;
+      const prepared = preparedRichText.value;
 
-      if (!rootElement || !contentElement || !contentBodyElement) {
+      if (!rootElement || !contentElement || !contentBodyElement || !prepared) {
         await resetClamp();
         return;
       }
 
-      if (nativeTextOverflow.value) {
-        const nextClamped = isNativeClamped(contentBodyElement);
-        await applyTextState(props.text, nextClamped ?? false);
-        return;
-      }
-
-      const nextText = clampTextToLayout(
-        preparedText.value,
+      const nextState = clampRichTextToLayout(
+        prepared,
         rootElement,
         contentElement,
         contentBodyElement,
-        locationRatio.value,
         props.ellipsis,
         lineLimit.value,
         props.maxHeight,
       );
 
-      if (nextText === null) {
+      if (nextState.reason) {
+        warn(nextState.reason);
+      }
+
+      if (nextState.html === null) {
         await resetClamp();
         return;
       }
 
-      await applyTextState(nextText, nextText !== preparedText.value.text);
+      await applyHtmlState(nextState.html, nextState.html !== prepared.html, !nextState.fallback);
     }
 
     const requestRecompute = createQueuedTask(async () => {
@@ -241,15 +197,9 @@ export const LineClamp = defineComponent({
     );
 
     watch(
-      [
-        () => props.text,
-        () => props.maxLines,
-        () => props.maxHeight,
-        () => props.ellipsis,
-        () => props.location,
-      ],
+      [() => props.html, () => props.maxLines, () => props.maxHeight, () => props.ellipsis],
       () => {
-        visibleText.value = props.text;
+        renderedHtml.value = props.html;
         requestRecompute();
       },
       { flush: "post" },
@@ -285,6 +235,37 @@ export const LineClamp = defineComponent({
       onCleanup(() => {
         for (const element of observed) {
           resizeObserver?.unobserve(element);
+        }
+      });
+    });
+
+    watchPostEffect((onCleanup) => {
+      const contentBodyElement = contentBodyRef.value;
+      if (!contentBodyElement) {
+        return;
+      }
+
+      const images = Array.from(contentBodyElement.querySelectorAll("img")).filter(
+        (element): element is HTMLImageElement => element instanceof HTMLImageElement,
+      );
+
+      function handleImageChange(): void {
+        requestRecompute();
+      }
+
+      for (const image of images) {
+        if (image.complete) {
+          continue;
+        }
+
+        image.addEventListener("load", handleImageChange);
+        image.addEventListener("error", handleImageChange);
+      }
+
+      onCleanup(() => {
+        for (const image of images) {
+          image.removeEventListener("load", handleImageChange);
+          image.removeEventListener("error", handleImageChange);
         }
       });
     });
@@ -329,17 +310,17 @@ export const LineClamp = defineComponent({
       get expanded() {
         return expanded.value;
       },
-    } satisfies LineClampExposed);
+    } satisfies RichLineClampExposed);
 
     return () => {
       let collapsedMaxHeight: string | number | undefined;
 
-      if (!expanded.value && props.maxHeight !== undefined) {
+      if (!expanded.value && canClipCollapsed.value && props.maxHeight !== undefined) {
         collapsedMaxHeight =
           typeof props.maxHeight === "number" ? `${props.maxHeight}px` : props.maxHeight;
       }
 
-      const slotProps: LineClampSlotProps = {
+      const slotProps: RichLineClampSlotProps = {
         expand,
         collapse,
         toggle,
@@ -350,39 +331,6 @@ export const LineClamp = defineComponent({
       const afterSlot = slots.after?.(slotProps);
       const hasBeforeSlot = hasSlotContent(beforeSlot);
       const hasAfterSlot = hasSlotContent(afterSlot);
-      const nativeOverflow = nativeTextOverflow.value;
-      const needsAccessibleSourceText =
-        !nativeOverflow && visibleText.value !== props.text && hasLimit.value && !expanded.value;
-      const bodyStyle = nativeOverflow ? nativeTextContainerStyle : { position: "relative" };
-      const shouldRenderFullText =
-        nativeOverflow || expanded.value || visibleText.value.length === 0 || !hasLimit.value;
-      const renderedText = shouldRenderFullText ? props.text : visibleText.value;
-      const bodyChildren: VNodeChild[] = [
-        needsAccessibleSourceText
-          ? h(
-              "span",
-              {
-                style: visuallyHiddenTextStyle,
-              },
-              props.text,
-            )
-          : null,
-        h(
-          "span",
-          {
-            key: "text",
-            ref: contentBodyRef,
-            "aria-hidden": needsAccessibleSourceText ? "true" : undefined,
-            style: nativeOverflow
-              ? {
-                  ...nativeTextStyle,
-                  textOverflow: nativeOverflow,
-                }
-              : undefined,
-          },
-          renderedText,
-        ),
-      ];
 
       return h(
         props.as,
@@ -391,7 +339,7 @@ export const LineClamp = defineComponent({
           ref: rootRef,
           style: {
             maxHeight: collapsedMaxHeight,
-            overflow: "hidden",
+            overflow: collapsedMaxHeight ? "hidden" : undefined,
           },
         }),
         h(
@@ -399,7 +347,6 @@ export const LineClamp = defineComponent({
           {
             "data-part": "content",
             ref: contentRef,
-            style: nativeOverflow ? nativeContentStyle : undefined,
           },
           [
             hasBeforeSlot
@@ -408,7 +355,7 @@ export const LineClamp = defineComponent({
                   {
                     "data-part": "before",
                     ref: beforeRef,
-                    style: nativeOverflow ? nativeSlotStyle : slotStyle,
+                    style: slotStyle,
                   },
                   beforeSlot,
                 )
@@ -418,9 +365,14 @@ export const LineClamp = defineComponent({
               {
                 "data-part": "body",
                 ref: bodyRef,
-                style: bodyStyle,
               },
-              bodyChildren,
+              [
+                h("span", {
+                  key: "html",
+                  ref: contentBodyRef,
+                  innerHTML: expanded.value || !hasLimit.value ? props.html : renderedHtml.value,
+                }),
+              ],
             ),
             hasAfterSlot
               ? h(
@@ -428,7 +380,7 @@ export const LineClamp = defineComponent({
                   {
                     "data-part": "after",
                     ref: afterRef,
-                    style: nativeOverflow ? nativeSlotStyle : slotStyle,
+                    style: slotStyle,
                   },
                   afterSlot,
                 )

@@ -1,4 +1,5 @@
 export { LineClamp } from "./LineClamp.ts";
+export { RichLineClamp } from "./RichLineClamp.ts";
 export { InlineClamp } from "./InlineClamp.ts";
 export { WrapClamp } from "./WrapClamp.ts";
 
@@ -10,6 +11,9 @@ export type {
   LineClampLocation,
   LineClampProps,
   LineClampSlotProps,
+  RichLineClampExposed,
+  RichLineClampProps,
+  RichLineClampSlotProps,
   WrapClampExposed,
   WrapClampItemKey,
   WrapClampItemSlotProps,

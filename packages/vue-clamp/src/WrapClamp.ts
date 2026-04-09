@@ -9,6 +9,7 @@ import {
   watch,
   watchPostEffect,
 } from "vue";
+import { createQueuedTask, normalizeLineLimit, sizeSignature } from "./layout.ts";
 import { hasSlotContent } from "./slot.ts";
 
 import type { CSSProperties, PropType, VNodeChild } from "vue";
@@ -61,12 +62,6 @@ const wrapClampEmits = {
   "update:expanded": (value: boolean) => typeof value === "boolean",
   clampchange: (value: boolean) => typeof value === "boolean",
 };
-
-function normalizeLineLimit(maxLines: number | undefined): number | undefined {
-  return maxLines === undefined || !Number.isFinite(maxLines) || maxLines <= 0
-    ? undefined
-    : Math.max(1, Math.floor(maxLines));
-}
 
 function resolveItemKey(
   itemKey: string | ItemKeyResolver | undefined,
@@ -125,10 +120,6 @@ function slotElement(
   }
 
   return null;
-}
-
-function sizeSignature(element: HTMLElement | null): string {
-  return element ? `${element.offsetWidth}x${element.offsetHeight}` : "0x0";
 }
 
 function measureSequence(
@@ -215,8 +206,6 @@ export const WrapClamp = defineComponent({
 
     let resizeObserver: ResizeObserver | null = null;
     let stopFonts = () => {};
-    let pendingRecompute = false;
-    let runningRecompute = false;
     let settledLayoutSignature: string | null = null;
 
     function expand(): void {
@@ -321,28 +310,10 @@ export const WrapClamp = defineComponent({
       await settleVisibleCount(rootElement, lineLimit, clipToRootHeight);
     }
 
-    function requestRecompute(): void {
-      pendingRecompute = true;
-      if (runningRecompute) {
-        return;
-      }
-
-      runningRecompute = true;
-      void (async () => {
-        try {
-          while (pendingRecompute) {
-            pendingRecompute = false;
-            await recomputeOnce();
-            settledLayoutSignature = layoutSignature();
-          }
-        } finally {
-          runningRecompute = false;
-          if (pendingRecompute) {
-            requestRecompute();
-          }
-        }
-      })();
-    }
+    const requestRecompute = createQueuedTask(async () => {
+      await recomputeOnce();
+      settledLayoutSignature = layoutSignature();
+    });
 
     watch(
       () => props.expanded,

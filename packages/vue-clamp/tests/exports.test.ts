@@ -4,6 +4,7 @@ import * as exports from "../src/index.ts";
 describe("Public exports", () => {
   it("exports the documented root components", () => {
     expect(exports.LineClamp.name).toBe("LineClamp");
+    expect(exports.RichLineClamp.name).toBe("RichLineClamp");
     expect(exports.InlineClamp.name).toBe("InlineClamp");
     expect(exports.WrapClamp.name).toBe("WrapClamp");
   });
