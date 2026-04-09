@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Added
+
+- Added `RichLineClamp` for trusted inline rich text, including end-only best-effort clamping for
+  inline-flow markup, leaf atomic elements, and explicit handling for `br`, `wbr`, `img`, and
+  outer `svg`.
+
+### Changed
+
+- `LineClamp` remains the plain-text multiline surface, while rich-html clamping now lives in
+  `RichLineClamp` with its own docs and demos.
+
 ## [1.0.1]
 
 Patch release focused on multiline clamp correctness.

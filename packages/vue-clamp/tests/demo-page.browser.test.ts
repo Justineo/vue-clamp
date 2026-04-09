@@ -4,6 +4,7 @@ import {
   accessibleTextElement,
   bestBrowserFitText,
   frame,
+  richContentElement,
   sampleVisibleLineCounts,
   settle,
   textElement,
@@ -100,6 +101,67 @@ function locationDemoBlock(container: HTMLElement): HTMLElement {
 
 function locationClamp(container: HTMLElement): HTMLElement {
   return clampInDemoBlock(locationDemoBlock(container));
+}
+
+function richHtmlDemoBlock(container: HTMLElement): HTMLElement {
+  const block = container.querySelector('[data-demo="rich-html"]');
+  if (!(block instanceof HTMLElement)) {
+    throw new Error("Expected the rich html demo block.");
+  }
+
+  return block;
+}
+
+function richHtmlClamp(container: HTMLElement): HTMLElement {
+  return clampInDemoBlock(richHtmlDemoBlock(container));
+}
+
+function richExampleBlocks(container: HTMLElement): HTMLElement[] {
+  return Array.from(container.querySelectorAll("[data-rich-example]")).filter(
+    (block): block is HTMLElement => block instanceof HTMLElement,
+  );
+}
+
+function richExampleBlock(container: HTMLElement, example: string): HTMLElement {
+  const block = container.querySelector(`[data-rich-example="${example}"]`);
+  if (!(block instanceof HTMLElement)) {
+    throw new Error(`Expected the ${example} rich demo block.`);
+  }
+
+  return block;
+}
+
+function richHtmlInput(container: HTMLElement): HTMLTextAreaElement {
+  const input = container.querySelector("[data-rich-html-input]");
+  if (!(input instanceof HTMLTextAreaElement)) {
+    throw new Error("Expected the rich html textarea.");
+  }
+
+  return input;
+}
+
+function richPresetButtons(container: HTMLElement): HTMLButtonElement[] {
+  return Array.from(container.querySelectorAll("[data-rich-preset]")).filter(
+    (button): button is HTMLButtonElement => button instanceof HTMLButtonElement,
+  );
+}
+
+function richPresetButton(container: HTMLElement, preset: string): HTMLButtonElement {
+  const button = container.querySelector(`[data-rich-preset="${preset}"]`);
+  if (!(button instanceof HTMLButtonElement)) {
+    throw new Error(`Expected the ${preset} rich preset button.`);
+  }
+
+  return button;
+}
+
+function richHyphensToggle(container: HTMLElement): HTMLInputElement {
+  const input = richHtmlDemoBlock(container).querySelector("[data-rich-hyphens-toggle]");
+  if (!(input instanceof HTMLInputElement)) {
+    throw new Error("Expected the rich html hyphens toggle.");
+  }
+
+  return input;
 }
 
 function locationRatioInput(container: HTMLElement): HTMLInputElement {
@@ -227,7 +289,7 @@ function copyButton(container: ParentNode, blockId: string): HTMLButtonElement {
 
 function surfaceTab(
   container: HTMLElement,
-  surface: "line" | "inline" | "wrap",
+  surface: "line" | "rich" | "inline" | "wrap",
 ): HTMLButtonElement {
   const button = container.querySelector(`[data-surface-tab="${surface}"]`);
   if (!(button instanceof HTMLButtonElement)) {
@@ -237,13 +299,62 @@ function surfaceTab(
   return button;
 }
 
-function surfaceTooltip(container: HTMLElement, surface: "line" | "inline" | "wrap"): HTMLElement {
+function surfaceGuideItem(
+  container: HTMLElement,
+  surface: "line" | "rich" | "inline" | "wrap",
+): HTMLElement {
+  const element = container.querySelector(`[data-surface-guide-item="${surface}"]`);
+  if (!(element instanceof HTMLElement)) {
+    throw new Error(`Expected the ${surface} surface guide item.`);
+  }
+
+  return element;
+}
+
+function surfaceGuideLink(
+  container: HTMLElement,
+  surface: "line" | "rich" | "inline" | "wrap",
+): HTMLAnchorElement {
+  const element = container.querySelector(`[data-surface-guide-link="${surface}"]`);
+  if (!(element instanceof HTMLAnchorElement)) {
+    throw new Error(`Expected the ${surface} surface guide link.`);
+  }
+
+  return element;
+}
+
+function replaceRouteHash(hash: string): void {
+  window.history.replaceState(
+    null,
+    "",
+    `${window.location.pathname}${window.location.search}${hash}`,
+  );
+}
+
+function surfaceTooltip(
+  container: HTMLElement,
+  surface: "line" | "rich" | "inline" | "wrap",
+): HTMLElement {
   const tooltip = container.querySelector(`[data-surface-tooltip="${surface}"]`);
   if (!(tooltip instanceof HTMLElement)) {
     throw new Error(`Expected the ${surface} surface tooltip.`);
   }
 
   return tooltip;
+}
+
+function componentTabsScroll(container: HTMLElement): HTMLElement {
+  const element = container.querySelector("[data-component-tabs-scroll]");
+  if (!(element instanceof HTMLElement)) {
+    throw new Error("Expected the component tabs scroller.");
+  }
+
+  return element;
+}
+
+function componentTabsMore(container: HTMLElement): HTMLElement | null {
+  const element = container.querySelector("[data-component-tabs-more]");
+  return element instanceof HTMLElement ? element : null;
 }
 
 function heroTagline(container: HTMLElement): HTMLElement {
@@ -386,6 +497,10 @@ async function setLineDemoText(container: HTMLElement, value: string): Promise<v
   await setTextareaValue(lineTextInput(container), value);
 }
 
+async function setRichDemoHtml(container: HTMLElement, value: string): Promise<void> {
+  await setTextareaValue(richHtmlInput(container), value);
+}
+
 async function setLocationWidth(container: HTMLElement, width: number): Promise<void> {
   await setRangeValue(locationWidthInput(container), width);
 }
@@ -405,7 +520,7 @@ async function clickLocationPreset(container: HTMLElement, preset: string): Prom
 
 async function selectSurface(
   container: HTMLElement,
-  surface: "line" | "inline" | "wrap",
+  surface: "line" | "rich" | "inline" | "wrap",
 ): Promise<void> {
   surfaceTab(container, surface).click();
   await settle(4);
@@ -418,6 +533,7 @@ afterEach(() => {
   }
 
   mounted.clear();
+  replaceRouteHash("");
 });
 
 describe("Website demo page", () => {
@@ -565,6 +681,110 @@ describe("Website demo page", () => {
     ).toBe(customText);
   });
 
+  it("shows the rich html demo with editable article-style presets and end-only guidance", async () => {
+    const { default: App } = await import("../../website/src/App.vue");
+    const mountedPage = mountPage(App);
+
+    await settle(4);
+    await mountedPage.container.ownerDocument.fonts?.ready;
+    await selectSurface(mountedPage.container, "rich");
+
+    expect(
+      richExampleBlocks(mountedPage.container).map((block) => block.dataset.richExample),
+    ).toEqual(["max-lines", "max-height", "clampchange"]);
+
+    const block = richHtmlDemoBlock(mountedPage.container);
+    const maxHeightBlock = richExampleBlock(mountedPage.container, "max-height");
+    const clampChangeBlock = richExampleBlock(mountedPage.container, "clampchange");
+    const clampRoot = richHtmlClamp(mountedPage.container);
+    const richRoots = richExampleBlocks(mountedPage.container).map(clampInDemoBlock);
+
+    await waitUntilVisible(clampRoot);
+    for (const root of richRoots) {
+      await waitUntilVisible(root);
+    }
+
+    const input = richHtmlInput(mountedPage.container);
+    expect(
+      richPresetButtons(mountedPage.container).map((button) => button.dataset.richPreset),
+    ).toEqual(["release", "editorial", "incident"]);
+    expect(input.value).toContain("<strong>Friday release 2.4.0</strong>");
+    expect(richContentElement(clampRoot).innerHTML).toContain("<mark>billing export</mark>");
+    expect(richContentElement(clampRoot).querySelector("mark")).toBeInstanceOf(HTMLElement);
+    expect(richHyphensToggle(mountedPage.container).checked).toBe(true);
+    expect(clampRoot.classList.contains("hyphens")).toBe(true);
+    expect(block.textContent).toContain("Trusted or sanitized inline HTML only");
+    expect(block.textContent).toContain("makes a best-effort pass");
+    expect(block.textContent).toContain("nested emphasis");
+    expect(block.textContent).toContain("always clamps from the end");
+    expect(maxHeightBlock.querySelector(".badge")).toBeInstanceOf(HTMLElement);
+    expect(clampChangeBlock.querySelector(".clamp-status")).toBeInstanceOf(HTMLElement);
+
+    richHyphensToggle(mountedPage.container).click();
+    await settle(2);
+
+    expect(richHyphensToggle(mountedPage.container).checked).toBe(false);
+    expect(clampRoot.classList.contains("hyphens")).toBe(false);
+
+    richHyphensToggle(mountedPage.container).click();
+    await settle(2);
+
+    expect(richHyphensToggle(mountedPage.container).checked).toBe(true);
+    expect(clampRoot.classList.contains("hyphens")).toBe(true);
+
+    richPresetButton(mountedPage.container, "editorial").click();
+    await settle(4);
+
+    expect(input.value).toContain("Feature essay");
+    expect(input.value).toContain('<small class="rich-meta">');
+    expect(input.value).toContain(
+      '<a href="#components">the refreshed <strong>component tabs</strong> should scroll on narrow screens</a>',
+    );
+    expect(input.value).toContain("<inline-note>");
+    expect(richPresetButton(mountedPage.container, "editorial").getAttribute("aria-pressed")).toBe(
+      "true",
+    );
+    expect(
+      richPresetButtons(mountedPage.container)
+        .filter((button) => button.dataset.richPreset !== "editorial")
+        .every((button) => button.getAttribute("aria-pressed") === "false"),
+    ).toBe(true);
+    for (const root of richRoots) {
+      expect(richContentElement(root).querySelector("small.rich-meta")).toBeInstanceOf(HTMLElement);
+    }
+    expect(richContentElement(clampRoot).querySelector("small.rich-meta a strong")).toBeInstanceOf(
+      HTMLElement,
+    );
+  });
+
+  it("updates every RichLineClamp example from the shared rich HTML editor", async () => {
+    const { default: App } = await import("../../website/src/App.vue");
+    const mountedPage = mountPage(App);
+
+    await settle(4);
+    await mountedPage.container.ownerDocument.fonts?.ready;
+    await selectSurface(mountedPage.container, "rich");
+
+    const customHtml =
+      'Short release note · <small class="rich-meta">Apr 9</small><br>Keep the <a href="#components">shared <strong>HTML editor</strong></a> in sync with a <mark>single source</mark>.';
+
+    await setRichDemoHtml(mountedPage.container, customHtml);
+
+    expect(richHtmlInput(mountedPage.container).value).toBe(customHtml);
+    expect(
+      richPresetButtons(mountedPage.container).every(
+        (button) => button.getAttribute("aria-pressed") === "false",
+      ),
+    ).toBe(true);
+
+    for (const root of richExampleBlocks(mountedPage.container).map(clampInDemoBlock)) {
+      await waitUntilVisible(root);
+      expect(richContentElement(root).querySelector("small.rich-meta")).toBeInstanceOf(HTMLElement);
+      expect(richContentElement(root).querySelector("a strong")).toBeInstanceOf(HTMLElement);
+      expect(richContentElement(root).querySelector("mark")).toBeInstanceOf(HTMLElement);
+    }
+  });
+
   it("applies numeric ratio locations in the location demo and stays aligned with browser fit", async () => {
     const { default: App } = await import("../../website/src/App.vue");
     const mountedPage = mountPage(App);
@@ -647,10 +867,14 @@ describe("Website demo page", () => {
       referenceShell(mountedPage.container).querySelector(".reference-description"),
     ).toBeNull();
     expect(surfaceTab(mountedPage.container, "line").getAttribute("aria-pressed")).toBe("true");
+    expect(surfaceTab(mountedPage.container, "rich").getAttribute("aria-pressed")).toBe("false");
     expect(surfaceTab(mountedPage.container, "inline").getAttribute("aria-pressed")).toBe("false");
     expect(surfaceTab(mountedPage.container, "wrap").getAttribute("aria-pressed")).toBe("false");
     expect(surfaceTooltip(mountedPage.container, "line").textContent).toBe(
-      "Multiline browser-fit clamp for previews, cards, and expandable copy.",
+      "Multiline browser-fit clamp for plain text, previews, cards, and expandable copy.",
+    );
+    expect(surfaceTooltip(mountedPage.container, "rich").textContent).toBe(
+      "Trusted inline rich-html clamp for styled excerpts, links, and mixed inline markup.",
     );
     expect(surfaceTooltip(mountedPage.container, "inline").textContent).toBe(
       "Native single-line clamp for filenames, paths, and email addresses.",
@@ -660,6 +884,9 @@ describe("Website demo page", () => {
     );
     expect(surfaceTab(mountedPage.container, "line").getAttribute("aria-describedby")).toBe(
       "component-tab-tooltip-line",
+    );
+    expect(surfaceTab(mountedPage.container, "rich").getAttribute("aria-describedby")).toBe(
+      "component-tab-tooltip-rich",
     );
     expect(surfaceTab(mountedPage.container, "inline").getAttribute("aria-describedby")).toBe(
       "component-tab-tooltip-inline",
@@ -672,6 +899,7 @@ describe("Website demo page", () => {
     await setInlineWidth(mountedPage.container, 220);
 
     expect(surfaceTab(mountedPage.container, "line").getAttribute("aria-pressed")).toBe("false");
+    expect(surfaceTab(mountedPage.container, "rich").getAttribute("aria-pressed")).toBe("false");
     expect(surfaceTab(mountedPage.container, "inline").getAttribute("aria-pressed")).toBe("true");
     expect(surfaceTab(mountedPage.container, "wrap").getAttribute("aria-pressed")).toBe("false");
     expect(mountedPage.container.querySelector('[data-demo="location"]')).toBeNull();
@@ -705,6 +933,7 @@ describe("Website demo page", () => {
     await selectSurface(mountedPage.container, "line");
 
     expect(surfaceTab(mountedPage.container, "line").getAttribute("aria-pressed")).toBe("true");
+    expect(surfaceTab(mountedPage.container, "rich").getAttribute("aria-pressed")).toBe("false");
     expect(surfaceTab(mountedPage.container, "inline").getAttribute("aria-pressed")).toBe("false");
     expect(surfaceTab(mountedPage.container, "wrap").getAttribute("aria-pressed")).toBe("false");
     expect(referencePanelNames(mountedPage.container)).toEqual(["demo", "example", "api"]);
@@ -716,6 +945,7 @@ describe("Website demo page", () => {
     await setRangeValue(rangeInput(wrapExampleBlock(mountedPage.container, "tabs")), 280);
 
     expect(surfaceTab(mountedPage.container, "line").getAttribute("aria-pressed")).toBe("false");
+    expect(surfaceTab(mountedPage.container, "rich").getAttribute("aria-pressed")).toBe("false");
     expect(surfaceTab(mountedPage.container, "inline").getAttribute("aria-pressed")).toBe("false");
     expect(surfaceTab(mountedPage.container, "wrap").getAttribute("aria-pressed")).toBe("true");
     expect(referencePanelNames(mountedPage.container)).toEqual(["demo", "example", "api"]);
@@ -850,6 +1080,120 @@ describe("Website demo page", () => {
     }
   });
 
+  it("makes the component tabs horizontally scrollable at mobile widths", async () => {
+    const { default: App } = await import("../../website/src/App.vue");
+    const mountedPage = mountPage(App);
+
+    mountedPage.container.style.width = "360px";
+
+    await settle(4);
+    await mountedPage.container.ownerDocument.fonts?.ready;
+    await settle(2);
+
+    const tabsScroll = componentTabsScroll(mountedPage.container);
+    const lineTab = surfaceTab(mountedPage.container, "line");
+
+    expect(tabsScroll.hasAttribute("data-overlayscrollbars")).toBe(false);
+    expect(getComputedStyle(tabsScroll).overflowX).toBe("auto");
+    expect(getComputedStyle(tabsScroll).overflowY).toBe("hidden");
+    expect(tabsScroll.scrollWidth).toBeGreaterThan(tabsScroll.clientWidth);
+    expect(getComputedStyle(lineTab).textOverflow).toBe("ellipsis");
+    expect(componentTabsMore(mountedPage.container)?.textContent).toContain("More");
+
+    tabsScroll.scrollLeft = 120;
+    tabsScroll.dispatchEvent(new Event("scroll"));
+    await settle(1);
+    expect(tabsScroll.scrollLeft).toBeGreaterThan(0);
+    expect(componentTabsMore(mountedPage.container)).not.toBeNull();
+
+    tabsScroll.scrollLeft = tabsScroll.scrollWidth;
+    tabsScroll.dispatchEvent(new Event("scroll"));
+    await settle(1);
+    expect(componentTabsMore(mountedPage.container)).toBeNull();
+
+    await selectSurface(mountedPage.container, "wrap");
+
+    expect(surfaceTab(mountedPage.container, "wrap").getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("introduces the four clamp components in a simple grid guide", async () => {
+    const { default: App } = await import("../../website/src/App.vue");
+    const mountedPage = mountPage(App);
+
+    await settle(4);
+
+    const guide = mountedPage.container.querySelector("[data-surface-guide]");
+    if (!(guide instanceof HTMLElement)) {
+      throw new Error("Expected the surface guide.");
+    }
+
+    const guideList = mountedPage.container.querySelector("[data-surface-guide-list]");
+    if (!(guideList instanceof HTMLUListElement)) {
+      throw new Error("Expected the surface guide list.");
+    }
+
+    expect(guide.textContent).toContain("vue-clamp");
+    expect(guide.textContent).toContain("four focused components");
+    expect(getComputedStyle(guideList).display).toBe("grid");
+    expect(surfaceGuideItem(mountedPage.container, "line").textContent).toContain("Plain-text");
+    expect(surfaceGuideItem(mountedPage.container, "rich").textContent).toContain(
+      "Trusted inline HTML clamp",
+    );
+    expect(surfaceGuideItem(mountedPage.container, "wrap").textContent).toContain(
+      "Wrapped item clamp",
+    );
+    expect(surfaceGuideLink(mountedPage.container, "line").getAttribute("href")).toBe(
+      "#line-clamp",
+    );
+    expect(surfaceGuideLink(mountedPage.container, "rich").getAttribute("href")).toBe(
+      "#rich-line-clamp",
+    );
+  });
+
+  it("syncs the active component surface with route hashes", async () => {
+    replaceRouteHash("#rich-line-clamp");
+
+    const { default: App } = await import("../../website/src/App.vue");
+    const mountedPage = mountPage(App);
+
+    await settle(4);
+
+    expect(surfaceTab(mountedPage.container, "rich").getAttribute("aria-pressed")).toBe("true");
+    expect(surfaceTab(mountedPage.container, "rich").id).toBe("rich-line-clamp");
+
+    await selectSurface(mountedPage.container, "wrap");
+
+    expect(window.location.hash).toBe("#wrap-clamp");
+    expect(surfaceTab(mountedPage.container, "wrap").getAttribute("aria-pressed")).toBe("true");
+
+    replaceRouteHash("#installation");
+    window.dispatchEvent(new HashChangeEvent("hashchange"));
+    await settle(2);
+
+    expect(surfaceTab(mountedPage.container, "wrap").getAttribute("aria-pressed")).toBe("true");
+
+    replaceRouteHash("#line-clamp");
+    window.dispatchEvent(new HashChangeEvent("hashchange"));
+    await settle(2);
+
+    expect(surfaceTab(mountedPage.container, "line").getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("initializes overlay scrollbars for shared horizontal containers", async () => {
+    const { default: App } = await import("../../website/src/App.vue");
+    const mountedPage = mountPage(App);
+
+    await settle(4);
+
+    const firstDemoPreview = mountedPage.container.querySelector(".demo-preview");
+    const codeScroll = mountedPage.container.querySelector("[data-code-scroll]");
+
+    expect(firstDemoPreview).toBeInstanceOf(HTMLElement);
+    expect(codeScroll).toBeInstanceOf(HTMLElement);
+    expect((firstDemoPreview as HTMLElement).hasAttribute("data-overlayscrollbars")).toBe(true);
+    expect((codeScroll as HTMLElement).hasAttribute("data-overlayscrollbars")).toBe(true);
+  });
+
   it("surfaces concise API summaries for all components", async () => {
     const { default: App } = await import("../../website/src/App.vue");
     const mountedPage = mountPage(App);
@@ -864,6 +1208,20 @@ describe("Website demo page", () => {
     }
     expect(lineSummary.textContent).toContain("max-lines");
     expect(lineSummary.textContent).toContain("max-height");
+    expect(lineSummary.textContent).toContain("plain text");
+
+    await selectSurface(mountedPage.container, "rich");
+
+    const richSummary = referenceShell(mountedPage.container).querySelector(
+      '[data-api-summary="rich"]',
+    );
+    if (!(richSummary instanceof HTMLElement)) {
+      throw new Error("Expected the RichLineClamp API summary.");
+    }
+    expect(richSummary.textContent).toContain("trusted inline HTML");
+    expect(richSummary.textContent).toContain("nested inline emphasis");
+    expect(richSummary.textContent).toContain("best-effort inline-flow runtime");
+    expect(richSummary.textContent).toContain("raw HTML");
 
     await selectSurface(mountedPage.container, "inline");
 
@@ -953,6 +1311,17 @@ describe("Website demo page", () => {
     await settle(2);
 
     expect(clipboardWrites[2]).toContain("import { LineClamp } from 'vue-clamp'");
+    expect(clipboardWrites[2]).toContain(':text="text"');
+
+    await selectSurface(mountedPage.container, "rich");
+
+    const richExampleButton = copyButton(mountedPage.container, "rich-example");
+    richExampleButton.click();
+    await settle(2);
+
+    expect(clipboardWrites[3]).toContain("import { RichLineClamp } from 'vue-clamp'");
+    expect(clipboardWrites[3]).toContain(':html="html"');
+    expect(richExampleButton.getAttribute("data-copy-state")).toBe("copied");
 
     await selectSurface(mountedPage.container, "inline");
 
@@ -960,8 +1329,8 @@ describe("Website demo page", () => {
     inlineExampleButton.click();
     await settle(2);
 
-    expect(clipboardWrites[3]).toContain("import { InlineClamp } from 'vue-clamp'");
-    expect(clipboardWrites[3]).toContain("splitImageFile");
+    expect(clipboardWrites[4]).toContain("import { InlineClamp } from 'vue-clamp'");
+    expect(clipboardWrites[4]).toContain("splitImageFile");
     expect(inlineExampleButton.getAttribute("data-copy-state")).toBe("copied");
 
     await selectSurface(mountedPage.container, "wrap");
@@ -970,8 +1339,8 @@ describe("Website demo page", () => {
     wrapExampleButton.click();
     await settle(2);
 
-    expect(clipboardWrites[4]).toContain("import { WrapClamp } from 'vue-clamp'");
-    expect(clipboardWrites[4]).toContain("hiddenItems");
+    expect(clipboardWrites[5]).toContain("import { WrapClamp } from 'vue-clamp'");
+    expect(clipboardWrites[5]).toContain("hiddenItems");
     expect(wrapExampleButton.getAttribute("data-copy-state")).toBe("copied");
   });
 });

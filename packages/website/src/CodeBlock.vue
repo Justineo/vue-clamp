@@ -1,6 +1,10 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref } from "vue";
 import { Check, Copy, X } from "@lucide/vue";
+import {
+  horizontalOverlayScrollbarsOptions,
+  overlayScrollbarsDirective,
+} from "./overlayScrollbars";
 
 const props = withDefaults(
   defineProps<{
@@ -17,6 +21,9 @@ const props = withDefaults(
 );
 
 type CopyState = "idle" | "copied" | "failed";
+
+const vOverlayScrollbars = overlayScrollbarsDirective;
+const horizontalOverlayScrollbars = horizontalOverlayScrollbarsOptions;
 
 const copyState = ref<CopyState>("idle");
 let resetTimer: number | undefined;
@@ -111,14 +118,22 @@ onBeforeUnmount(() => {
       <X v-else class="copy-icon" :size="14" aria-hidden="true" />
       <span class="sr-only">{{ buttonLabel }}</span>
     </button>
-    <div v-if="html" class="shiki-wrap" v-html="html" />
-    <pre v-else class="code-block"><code>{{ code }}</code></pre>
+    <div v-overlay-scrollbars="horizontalOverlayScrollbars" class="code-scroll" data-code-scroll>
+      <div v-if="html" class="shiki-wrap" v-html="html" />
+      <pre v-else class="code-block"><code>{{ code }}</code></pre>
+    </div>
   </div>
 </template>
 
 <style scoped>
 .code-wrap {
   position: relative;
+}
+
+.code-scroll {
+  background: var(--c-bg-soft);
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius);
 }
 
 .copy-button {
@@ -193,10 +208,8 @@ onBeforeUnmount(() => {
   font-size: 0.84rem;
   font-family: var(--font-mono);
   line-height: 1.65;
-  background: var(--c-bg-soft);
-  border: 1px solid var(--c-border);
-  border-radius: var(--radius);
-  overflow-x: auto;
+  background: transparent;
+  border: none;
   color: var(--c-text);
 }
 
@@ -215,10 +228,9 @@ onBeforeUnmount(() => {
   font-size: 0.84rem;
   font-family: var(--font-mono);
   line-height: 1.65;
-  background: var(--c-bg-soft) !important;
-  border: 1px solid var(--c-border);
-  border-radius: var(--radius);
-  overflow-x: auto;
+  background: transparent !important;
+  border: none;
+  border-radius: 0;
 }
 
 .shiki-wrap :deep(pre.shiki code) {
@@ -229,8 +241,7 @@ onBeforeUnmount(() => {
   color: inherit;
 }
 
-.embedded .code-block,
-.embedded .shiki-wrap :deep(pre.shiki) {
+.embedded .code-scroll {
   border: none;
   border-radius: 0;
 }

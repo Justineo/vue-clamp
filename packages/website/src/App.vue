@@ -2,9 +2,15 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from "vue";
 import { ArrowUpRight, Ellipsis } from "@lucide/vue";
 import { siGithub } from "simple-icons";
-import { InlineClamp, LineClamp, WrapClamp } from "vue-clamp";
+import { InlineClamp, LineClamp, RichLineClamp, WrapClamp } from "vue-clamp";
 import ComponentTabs from "./ComponentTabs.vue";
 import CodeBlock from "./CodeBlock.vue";
+import PillControls from "./PillControls.vue";
+import {
+  horizontalOverlayScrollbarsOptions,
+  initBodyOverlayScrollbars,
+  overlayScrollbarsDirective,
+} from "./overlayScrollbars";
 import { createHighlighterCoreSync } from "shiki/core";
 import { createJavaScriptRegexEngine } from "shiki/engine/javascript";
 import vue from "shiki/langs/vue.mjs";
@@ -23,6 +29,9 @@ const shiki = createHighlighterCoreSync({
   engine: createJavaScriptRegexEngine(),
 });
 
+const vOverlayScrollbars = overlayScrollbarsDirective;
+const horizontalOverlayScrollbars = horizontalOverlayScrollbarsOptions;
+
 const englishText =
   "Vue (pronounced /vju\u02D0/, like view) is a progressive framework for building user interfaces. Unlike other monolithic frameworks, Vue is designed from the ground up to be incrementally adoptable. The core library is focused on the view layer only, and is easy to pick up and integrate with other libraries or existing projects. On the other hand, Vue is also perfectly capable of powering sophisticated Single-Page Applications when used in combination with modern tooling and supporting libraries.";
 const chineseText =
@@ -33,6 +42,26 @@ const mixedLanguageText =
   "Design systems move fast: ship once, then verify the same preview with English, 中文标签, العربية, and locale-aware tokens like /docs/getting-started before you freeze the layout.";
 const emojiText =
   "Status update ✨ Ship notes are ready, screenshots are approved, and the launch checklist is almost done 🚀 Add a few longer phrases with emoji reactions 😄📦🧪 to see how the clamp behaves.";
+const richHtmlPresets = [
+  {
+    id: "release",
+    label: "Release note",
+    value:
+      'Heads up: <strong>Friday release 2.4.0</strong> moves to <time datetime="2026-04-11T09:30">09:30</time>. Review the <a href="#components">migration note</a>, keep the <code>RichLineClamp</code> fallback banner, and confirm the <mark>billing export</mark> patch before the preview freeze. <span class="rich-chip rich-chip--accent">Blocking</span> <span class="rich-chip">Docs</span> <svg aria-hidden="true" width="12" height="12" viewBox="0 0 12 12" fill="none" style="vertical-align:-1px"><circle cx="6" cy="6" r="5" fill="#2656b9"></circle><path d="M3.5 6h5" stroke="white" stroke-linecap="round"></path></svg>',
+  },
+  {
+    id: "editorial",
+    label: "Article excerpt",
+    value:
+      'Feature essay · <small class="rich-meta"><time datetime="2026-04-08">Apr 8, 2026</time> · By <a href="#components">Interface <strong>Systems</strong> Desk</a></small><br>The latest review argues that <a href="#components">the refreshed <strong>component tabs</strong> should scroll on narrow screens</a> instead of squeezing every label into one row. It keeps <em>editorial emphasis</em>, the inline badge <span class="rich-chip rich-chip--quiet">analysis</span>, and an <inline-note>editor&rsquo;s note on the <a href="#components">same <strong>read-more</strong> affordance</a></inline-note> so the excerpt still feels like a styled article.',
+  },
+  {
+    id: "incident",
+    label: "Incident brief",
+    value:
+      'Incident brief <strong>#4721</strong>: API latency spiked after <code>release/2.4.0</code>. Triage owners are <span class="rich-chip">Platform</span>, <span class="rich-chip rich-chip--warm">Billing</span>, and <span class="rich-chip rich-chip--success">Support</span>. Watch <span class="rich-link-run">status-page<wbr>.acme<wbr>.dev</span> and keep the inline <svg aria-hidden="true" width="12" height="12" viewBox="0 0 12 12" fill="none" style="vertical-align:-1px"><circle cx="6" cy="6" r="5" fill="#0f7b46"></circle><path d="M3.5 6l1.35 1.35L8.5 4.1" stroke="white" stroke-linecap="round" stroke-linejoin="round"></path></svg> health glyph attached to the summary.',
+  },
+] as const;
 
 const lineTextPresets = [
   {
@@ -61,6 +90,12 @@ const lineTextPresets = [
     value: emojiText,
   },
 ] as const;
+
+const lineTextPresetOptions = lineTextPresets.map((preset) => ({
+  buttonAttrs: { "data-line-text-preset": preset.id },
+  label: preset.label,
+  value: preset.id,
+}));
 
 const lineTextInput = ref(englishText);
 const selectedLineTextPreset = computed(() => {
@@ -116,6 +151,12 @@ const locationPresets4 = [
   { label: "End", ratio: 1, value: "end" as const },
 ] as const;
 
+const locationPresetOptions = locationPresets4.map((preset) => ({
+  buttonAttrs: { "data-location-preset": preset.value },
+  label: preset.label,
+  value: preset.value,
+}));
+
 const selectedLocationPreset4 = computed(() => {
   const preset = locationPresets4.find(
     (candidate) => Math.abs(locationRatio4.value - candidate.ratio) < 0.001,
@@ -132,7 +173,36 @@ function selectLocationPreset4(ratio: number): void {
   locationRatio4.value = ratio;
 }
 
-type SurfaceKey = "line" | "inline" | "wrap";
+// Demo 5: rich html
+const richLines5 = ref(3);
+const richWidth5 = ref(420);
+const richHyphens5 = ref(true);
+const richHeight6 = ref("calc(36px + 6em)");
+const richWidth6 = ref(420);
+const richHyphens6 = ref(true);
+const richExpanded6 = ref(false);
+const richLines7 = ref(3);
+const richWidth7 = ref(420);
+const richHyphens7 = ref(true);
+const richClamped7 = ref(false);
+const richHtmlInput = ref(richHtmlPresets[0].value);
+
+const selectedRichHtmlPreset = computed(() => {
+  return richHtmlPresets.find((preset) => preset.value === richHtmlInput.value)?.id ?? null;
+});
+
+const richHtmlPresetOptions = richHtmlPresets.map((preset) => ({
+  buttonAttrs: { "data-rich-preset": preset.id },
+  label: preset.label,
+  value: preset.id,
+}));
+
+function selectRichHtmlPreset(value: string): void {
+  richHtmlInput.value = value;
+  richExpanded6.value = false;
+}
+
+type SurfaceKey = "line" | "rich" | "inline" | "wrap";
 type WrapDemoItem = {
   id: string;
   label: string;
@@ -140,28 +210,113 @@ type WrapDemoItem = {
   avatar?: string;
 };
 
-const activeSurface = ref<SurfaceKey>("line");
+const surfaceHashes = {
+  line: "line-clamp",
+  rich: "rich-line-clamp",
+  inline: "inline-clamp",
+  wrap: "wrap-clamp",
+} as const satisfies Record<SurfaceKey, string>;
+
+function surfaceHash(surface: SurfaceKey): string {
+  return `#${surfaceHashes[surface]}`;
+}
+
+function surfaceFromHash(hash: string): SurfaceKey | null {
+  const normalizedHash = hash.startsWith("#") ? hash.slice(1) : hash;
+
+  if (!normalizedHash) {
+    return null;
+  }
+
+  if (normalizedHash === surfaceHashes.line) {
+    return "line";
+  }
+
+  if (normalizedHash === surfaceHashes.rich) {
+    return "rich";
+  }
+
+  if (normalizedHash === surfaceHashes.inline) {
+    return "inline";
+  }
+
+  if (normalizedHash === surfaceHashes.wrap) {
+    return "wrap";
+  }
+
+  return null;
+}
+
+function currentSurfaceFromLocation(): SurfaceKey | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  return surfaceFromHash(window.location.hash);
+}
+
+function setSurfaceRouteHash(surface: SurfaceKey): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  const nextHash = surfaceHash(surface);
+  if (window.location.hash === nextHash) {
+    return;
+  }
+
+  window.history.pushState(
+    null,
+    "",
+    `${window.location.pathname}${window.location.search}${nextHash}`,
+  );
+}
+
+const activeSurface = ref<SurfaceKey>(currentSurfaceFromLocation() ?? "line");
 const referenceTabsAnchorRef = ref<HTMLElement | null>(null);
-const surfaceOptions = [
+const surfaceGuideItems = [
   {
-    description: "Multiline browser-fit clamp for previews, cards, and expandable copy.",
+    description:
+      "Multiline browser-fit clamp for plain text, previews, cards, and expandable copy.",
+    guide: "Plain-text multiline clamp for previews, cards, lists, and expandable copy.",
+    id: surfaceHashes.line,
     label: "LineClamp",
     value: "line",
   },
   {
+    description:
+      "Trusted inline rich-html clamp for styled excerpts, links, and mixed inline markup.",
+    guide: "Trusted inline HTML clamp for styled excerpts, links, and mixed inline markup.",
+    id: surfaceHashes.rich,
+    label: "RichLineClamp",
+    value: "rich",
+  },
+  {
     description: "Native single-line clamp for filenames, paths, and email addresses.",
+    guide: "Single-line clamp for filenames, paths, and emails when one edge must stay visible.",
+    id: surfaceHashes.inline,
     label: "InlineClamp",
     value: "inline",
   },
   {
     description: "Wrapped atomic-item clamp for labels, filters, and selected-value lists.",
+    guide: "Wrapped item clamp for tags, filters, invitees, and selected-value lists.",
+    id: surfaceHashes.wrap,
     label: "WrapClamp",
     value: "wrap",
   },
 ] as const;
 
+const surfaceOptions = surfaceGuideItems.map(({ description, id, label, value }) => ({
+  description,
+  id,
+  label,
+  value,
+}));
+
 const heroTaglineWordCatalog = {
   line: ["messages", "excerpts", "summaries"],
+  rich: ["notes", "links", "snippets"],
   inline: ["filenames", "emails", "paths"],
   wrap: ["tags", "filters", "chips"],
 } as const;
@@ -232,7 +387,17 @@ function scrollReferenceTabsToTop(): void {
 }
 
 function isSurfaceKey(value: string): value is SurfaceKey {
-  return value === "line" || value === "inline" || value === "wrap";
+  return value === "line" || value === "rich" || value === "inline" || value === "wrap";
+}
+
+function syncActiveSurfaceFromRoute(): boolean {
+  const routedSurface = currentSurfaceFromLocation();
+  if (!routedSurface) {
+    return false;
+  }
+
+  activeSurface.value = routedSurface;
+  return true;
 }
 
 function updateActiveSurface(surface: string): void {
@@ -241,6 +406,17 @@ function updateActiveSurface(surface: string): void {
   }
 
   activeSurface.value = surface;
+  setSurfaceRouteHash(surface);
+
+  void nextTick(() => {
+    scrollReferenceTabsToTop();
+  });
+}
+
+function handleSurfaceHashChange(): void {
+  if (!syncActiveSurfaceFromRoute()) {
+    return;
+  }
 
   void nextTick(() => {
     scrollReferenceTabsToTop();
@@ -275,6 +451,7 @@ let heroTaglineMotionQuery: MediaQueryList | null = null;
 let heroTaglineResizeObserver: ResizeObserver | null = null;
 let heroTaglineFontsReady = false;
 let heroTaglineMounted = false;
+let stopBodyOverlayScrollbars = () => {};
 
 const inlineWidth5 = ref(280);
 const commonImageExtensions = [".png", ".jpg", ".jpeg", ".webp", ".gif", ".avif"] as const;
@@ -671,8 +848,10 @@ function handleWrapTabsKeydown(event: KeyboardEvent): void {
 
 onMounted(() => {
   heroTaglineMounted = true;
+  stopBodyOverlayScrollbars = initBodyOverlayScrollbars();
   document.addEventListener("pointerdown", handleWrapTabsPointerDown);
   document.addEventListener("keydown", handleWrapTabsKeydown);
+  window.addEventListener("hashchange", handleSurfaceHashChange);
 
   heroTaglineMotionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
   heroTaglineResizeObserver = new ResizeObserver(() => {
@@ -703,13 +882,21 @@ onMounted(() => {
     syncHeroTaglineWidth();
     applyHeroTaglineMotionPreference(heroTaglineMotionQuery?.matches ?? false);
   })();
+
+  if (currentSurfaceFromLocation()) {
+    void nextTick(() => {
+      scrollReferenceTabsToTop();
+    });
+  }
 });
 
 onBeforeUnmount(() => {
   heroTaglineFontsReady = false;
   heroTaglineMounted = false;
+  stopBodyOverlayScrollbars();
   document.removeEventListener("pointerdown", handleWrapTabsPointerDown);
   document.removeEventListener("keydown", handleWrapTabsKeydown);
+  window.removeEventListener("hashchange", handleSurfaceHashChange);
 
   clearHeroTaglineTimer();
   heroTaglineMotionQuery?.removeEventListener("change", handleHeroTaglineMotionChange);
@@ -728,6 +915,27 @@ const pkgManagers: { id: PkgManager; label: string }[] = [
   { id: "bun", label: "bun" },
   { id: "agent", label: "agent" },
 ];
+
+function updateLineTextPreset(value: string): void {
+  const preset = lineTextPresets.find((candidate) => candidate.id === value);
+  if (preset) {
+    selectLineTextPreset(preset.value);
+  }
+}
+
+function updateLocationPreset(value: string): void {
+  const preset = locationPresets4.find((candidate) => candidate.value === value);
+  if (preset) {
+    selectLocationPreset4(preset.ratio);
+  }
+}
+
+function updateRichHtmlPreset(value: string): void {
+  const preset = richHtmlPresets.find((candidate) => candidate.id === value);
+  if (preset) {
+    selectRichHtmlPreset(preset.value);
+  }
+}
 
 const installCommand = computed(() => {
   switch (pkgManager.value) {
@@ -752,17 +960,39 @@ const lineCodeExample = [
   "import { LineClamp } from 'vue-clamp'",
   "",
   "const expanded = ref(false)",
-  "const text = 'A long line of text that should be clamped after three lines.'",
+  "const text =",
+  "  'Ship review-ready notes with browser-fit text truncation and keep the toggle inline.'",
   "<" + "/script>",
   "",
   "<template>",
-  '  <LineClamp v-model:expanded="expanded" :text="text" :max-lines="3">',
+  '  <LineClamp v-model:expanded="expanded" :text="text" :max-lines="2">',
   '    <template #after="{ clamped, toggle }">',
   '      <button v-if="clamped" type="button" @click="toggle">',
   `        {{ expanded ? 'Less' : 'More' }}`,
   "      </button>",
   "    </template>",
   "  </LineClamp>",
+  "</template>",
+].join("\n");
+
+const richCodeExample = [
+  '<script setup lang="ts">',
+  "import { ref } from 'vue'",
+  "import { RichLineClamp } from 'vue-clamp'",
+  "",
+  "const expanded = ref(false)",
+  "const html =",
+  `  '<small class="rich-meta">Feature essay · Apr 8</small><br>Read <a href="/docs">how the <strong>component tabs</strong> now stay scrollable on small screens</a> while the <mark>article excerpt</mark> keeps its inline emphasis.'`,
+  "<" + "/script>",
+  "",
+  "<template>",
+  '  <RichLineClamp v-model:expanded="expanded" :html="html" :max-lines="2">',
+  '    <template #after="{ clamped, toggle }">',
+  '      <button v-if="clamped" type="button" @click="toggle">',
+  `        {{ expanded ? 'Less' : 'More' }}`,
+  "      </button>",
+  "    </template>",
+  "  </RichLineClamp>",
   "</template>",
 ].join("\n");
 
@@ -838,6 +1068,13 @@ const highlightedLineCode = computed(() => {
   });
 });
 
+const highlightedRichCode = computed(() => {
+  return shiki.codeToHtml(richCodeExample, {
+    lang: "vue",
+    theme: websiteShikiTheme.name,
+  });
+});
+
 const highlightedInlineCode = computed(() => {
   return shiki.codeToHtml(inlineCodeExample, {
     lang: "vue",
@@ -860,8 +1097,8 @@ const highlightedWrapCode = computed(() => {
       <div class="hero-copy">
         <h1 class="hero-title">&lt;vue-clamp&gt;</h1>
         <p class="sr-only">
-          Clamping messages, excerpts, summaries, filenames, emails, paths, tags, filters, and chips
-          in Vue.
+          Clamping messages, excerpts, summaries, notes, links, snippets, filenames, emails, paths,
+          tags, filters, and chips in Vue.
         </p>
         <div
           ref="heroTaglineShellRef"
@@ -949,23 +1186,34 @@ const highlightedWrapCode = computed(() => {
       </div>
     </header>
 
-    <!-- Features -->
-    <section class="section">
-      <h2 class="section-title" id="features"><a href="#features">#</a> Choose a surface</h2>
-      <ul class="features-list">
-        <li>
-          <code>LineClamp</code> for previews, cards, lists, and expandable copy that should follow
-          real browser wrapping.
-        </li>
-        <li>
-          <code>InlineClamp</code> for one-line labels where the start or end should stay visible,
-          such as filenames, paths, and email addresses.
-        </li>
-        <li>
-          <code>WrapClamp</code> for wrapped chips, filters, invitees, and token rails where each
-          item must stay whole.
-        </li>
-      </ul>
+    <!-- Surface guide -->
+    <section class="section surface-guide-section" id="features" aria-label="Components overview">
+      <div class="surface-guide" data-surface-guide>
+        <p class="surface-guide-lead">
+          <code>vue-clamp</code> ships four focused components for plain text, trusted inline HTML,
+          single-line labels, and wrapped item lists.
+        </p>
+
+        <ul class="surface-guide-list" data-surface-guide-list>
+          <li
+            v-for="surface in surfaceGuideItems"
+            :key="surface.value"
+            class="surface-guide-item"
+            :data-surface-guide-item="surface.value"
+          >
+            <a
+              class="surface-guide-card"
+              :href="surfaceHash(surface.value)"
+              :data-surface-guide-link="surface.value"
+            >
+              <span class="surface-guide-link">
+                <code>{{ surface.label }}</code>
+              </span>
+              <p class="surface-guide-summary">{{ surface.guide }}</p>
+            </a>
+          </li>
+        </ul>
+      </div>
     </section>
 
     <section class="section">
@@ -1017,24 +1265,14 @@ const highlightedWrapCode = computed(() => {
                   <div class="demo-controls">
                     <div class="control stacked-control line-text-settings">
                       <span class="control-stack">
-                        <span
+                        <PillControls
                           class="control-pills"
-                          role="group"
                           aria-label="Line demo text presets"
-                        >
-                          <button
-                            v-for="preset in lineTextPresets"
-                            :key="preset.id"
-                            class="control-pill"
-                            :class="{ active: selectedLineTextPreset === preset.id }"
-                            :data-line-text-preset="preset.id"
-                            type="button"
-                            :aria-pressed="selectedLineTextPreset === preset.id"
-                            @click="selectLineTextPreset(preset.value)"
-                          >
-                            {{ preset.label }}
-                          </button>
-                        </span>
+                          button-class="control-pill"
+                          :model-value="selectedLineTextPreset"
+                          :options="lineTextPresetOptions"
+                          @update:modelValue="updateLineTextPreset"
+                        />
                         <textarea
                           v-model="lineTextInput"
                           class="control-textarea"
@@ -1043,7 +1281,6 @@ const highlightedWrapCode = computed(() => {
                           aria-label="LineClamp demo text"
                           placeholder="Paste or type text to try in every LineClamp example."
                         ></textarea>
-                        <span class="control-help">Paste text to try it across these demos.</span>
                       </span>
                     </div>
                   </div>
@@ -1089,7 +1326,7 @@ const highlightedWrapCode = computed(() => {
                         </label>
                       </div>
                     </div>
-                    <div class="demo-preview">
+                    <div v-overlay-scrollbars="horizontalOverlayScrollbars" class="demo-preview">
                       <div class="demo-output width-guide" :style="{ width: `${width1}px` }">
                         <LineClamp
                           class="demo-clamp"
@@ -1146,7 +1383,7 @@ const highlightedWrapCode = computed(() => {
                         </label>
                       </div>
                     </div>
-                    <div class="demo-preview">
+                    <div v-overlay-scrollbars="horizontalOverlayScrollbars" class="demo-preview">
                       <div
                         class="demo-output width-guide height-guide"
                         :style="{ width: `${width2}px` }"
@@ -1206,7 +1443,7 @@ const highlightedWrapCode = computed(() => {
                         </label>
                       </div>
                     </div>
-                    <div class="demo-preview">
+                    <div v-overlay-scrollbars="horizontalOverlayScrollbars" class="demo-preview">
                       <div class="demo-output width-guide" :style="{ width: `${width3}px` }">
                         <LineClamp
                           class="demo-clamp"
@@ -1233,20 +1470,14 @@ const highlightedWrapCode = computed(() => {
                       <div class="control stacked-control">
                         <span class="control-label">Location</span>
                         <span class="control-stack">
-                          <span class="control-pills" role="group" aria-label="Location presets">
-                            <button
-                              v-for="preset in locationPresets4"
-                              :key="preset.value"
-                              class="control-pill"
-                              :class="{ active: selectedLocationPreset4 === preset.value }"
-                              :data-location-preset="preset.value"
-                              type="button"
-                              :aria-pressed="selectedLocationPreset4 === preset.value"
-                              @click="selectLocationPreset4(preset.ratio)"
-                            >
-                              {{ preset.label }}
-                            </button>
-                          </span>
+                          <PillControls
+                            class="control-pills"
+                            aria-label="Location presets"
+                            button-class="control-pill"
+                            :model-value="selectedLocationPreset4"
+                            :options="locationPresetOptions"
+                            @update:modelValue="updateLocationPreset"
+                          />
                         </span>
                       </div>
                       <div class="control stacked-control">
@@ -1306,7 +1537,7 @@ const highlightedWrapCode = computed(() => {
                         </label>
                       </div>
                     </div>
-                    <div class="demo-preview">
+                    <div v-overlay-scrollbars="horizontalOverlayScrollbars" class="demo-preview">
                       <div class="demo-output width-guide" :style="{ width: `${width4}px` }">
                         <LineClamp
                           class="demo-clamp"
@@ -1329,6 +1560,201 @@ const highlightedWrapCode = computed(() => {
                 </div>
               </div>
             </template>
+
+            <div v-else-if="activeSurface === 'rich'" class="demo-surface" data-demo="rich">
+              <div class="demo-shared-controls">
+                <div class="demo-controls">
+                  <div class="control stacked-control rich-html-settings">
+                    <span class="control-stack">
+                      <PillControls
+                        class="control-pills"
+                        aria-label="Rich HTML presets"
+                        button-class="control-pill"
+                        :model-value="selectedRichHtmlPreset"
+                        :options="richHtmlPresetOptions"
+                        @update:modelValue="updateRichHtmlPreset"
+                      />
+                      <textarea
+                        v-model="richHtmlInput"
+                        class="control-textarea control-textarea-rich"
+                        data-rich-html-input
+                        rows="8"
+                        aria-label="RichLineClamp demo HTML"
+                        placeholder="Paste or type trusted inline HTML to try RichLineClamp."
+                      ></textarea>
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="demo-example-list">
+                <div class="demo-block" data-demo="rich-html" data-rich-example="max-lines">
+                  <div class="demo-label">max-lines / slot <code>after</code> / toggle</div>
+                  <div class="demo-controls">
+                    <label class="control">
+                      <span class="control-label">Max lines</span>
+                      <input
+                        v-model.number="richLines5"
+                        class="control-input"
+                        type="number"
+                        min="1"
+                        max="6"
+                        step="1"
+                      />
+                    </label>
+                    <label class="control">
+                      <span class="control-label">Width</span>
+                      <span class="control-row">
+                        <input
+                          v-model.number="richWidth5"
+                          class="control-range"
+                          type="range"
+                          min="240"
+                          max="600"
+                        />
+                        <span class="control-value">{{ richWidth5 }}px</span>
+                      </span>
+                    </label>
+                    <div class="control-row">
+                      <label class="control-check">
+                        <input v-model="richHyphens5" data-rich-hyphens-toggle type="checkbox" />
+                        <span>CSS Hyphens</span>
+                      </label>
+                    </div>
+                  </div>
+                  <div v-overlay-scrollbars="horizontalOverlayScrollbars" class="demo-preview">
+                    <div class="demo-output width-guide" :style="{ width: `${richWidth5}px` }">
+                      <RichLineClamp
+                        class="demo-clamp demo-rich-card"
+                        :class="{ hyphens: richHyphens5 }"
+                        :html="richHtmlInput"
+                        :max-lines="richLines5"
+                        :style="{ width: `${richWidth5}px`, maxWidth: '100%' }"
+                      >
+                        <template #after="{ toggle, expanded, clamped }">
+                          <button v-if="expanded || clamped" class="toggle-btn" @click="toggle">
+                            {{ expanded ? "Less" : "More" }}
+                          </button>
+                        </template>
+                      </RichLineClamp>
+                    </div>
+                    <p class="clamp-status">
+                      Trusted or sanitized inline HTML only. RichLineClamp makes a best-effort pass
+                      across inline-flow markup, including nested emphasis, links, custom elements,
+                      and inline graphics, and always clamps from the end.
+                    </p>
+                  </div>
+                </div>
+
+                <div class="demo-block" data-rich-example="max-height">
+                  <div class="demo-label">
+                    max-height / slot <code>before</code> / external control
+                  </div>
+                  <div class="demo-controls">
+                    <label class="control">
+                      <span class="control-label">Max height</span>
+                      <input v-model="richHeight6" class="control-input" />
+                    </label>
+                    <label class="control">
+                      <span class="control-label">Width</span>
+                      <span class="control-row">
+                        <input
+                          v-model.number="richWidth6"
+                          class="control-range"
+                          type="range"
+                          min="240"
+                          max="600"
+                        />
+                        <span class="control-value">{{ richWidth6 }}px</span>
+                      </span>
+                    </label>
+                    <div class="control-row">
+                      <label class="control-check">
+                        <input v-model="richHyphens6" type="checkbox" />
+                        <span>CSS Hyphens</span>
+                      </label>
+                      <label class="control-check">
+                        <input v-model="richExpanded6" type="checkbox" />
+                        <span>Expanded</span>
+                      </label>
+                    </div>
+                  </div>
+                  <div v-overlay-scrollbars="horizontalOverlayScrollbars" class="demo-preview">
+                    <div
+                      class="demo-output width-guide height-guide"
+                      :style="{ width: `${richWidth6}px` }"
+                    >
+                      <RichLineClamp
+                        class="demo-clamp demo-rich-card"
+                        :class="{ hyphens: richHyphens6 }"
+                        :html="richHtmlInput"
+                        :max-height="richHeight6"
+                        v-model:expanded="richExpanded6"
+                        :style="{ width: `${richWidth6}px`, maxWidth: '100%' }"
+                      >
+                        <template #before>
+                          <span class="badge">Featured</span>
+                        </template>
+                      </RichLineClamp>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="demo-block" data-rich-example="clampchange">
+                  <div class="demo-label"><code>clampchange</code> event</div>
+                  <div class="demo-controls">
+                    <label class="control">
+                      <span class="control-label">Max lines</span>
+                      <input
+                        v-model.number="richLines7"
+                        class="control-input"
+                        type="number"
+                        min="1"
+                        max="6"
+                        step="1"
+                      />
+                    </label>
+                    <label class="control">
+                      <span class="control-label">Width</span>
+                      <span class="control-row">
+                        <input
+                          v-model.number="richWidth7"
+                          class="control-range"
+                          type="range"
+                          min="240"
+                          max="600"
+                        />
+                        <span class="control-value">{{ richWidth7 }}px</span>
+                      </span>
+                    </label>
+                    <div class="control-row">
+                      <label class="control-check">
+                        <input v-model="richHyphens7" type="checkbox" />
+                        <span>CSS Hyphens</span>
+                      </label>
+                    </div>
+                  </div>
+                  <div v-overlay-scrollbars="horizontalOverlayScrollbars" class="demo-preview">
+                    <div class="demo-output width-guide" :style="{ width: `${richWidth7}px` }">
+                      <RichLineClamp
+                        class="demo-clamp demo-rich-card"
+                        :class="{ hyphens: richHyphens7 }"
+                        :html="richHtmlInput"
+                        :max-lines="richLines7"
+                        :style="{ width: `${richWidth7}px`, maxWidth: '100%' }"
+                        @clampchange="richClamped7 = $event"
+                      />
+                    </div>
+                    <p class="clamp-status">
+                      Clamped:
+                      <strong :class="richClamped7 ? 'status-yes' : 'status-no'">{{
+                        richClamped7 ? "Yes" : "No"
+                      }}</strong>
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
 
             <div v-else-if="activeSurface === 'inline'" class="demo-surface" data-demo="inline">
               <div class="demo-shared-controls">
@@ -1358,7 +1784,7 @@ const highlightedWrapCode = computed(() => {
                   :data-inline-example="example.id"
                 >
                   <div class="demo-label">{{ example.label }}</div>
-                  <div class="demo-preview">
+                  <div v-overlay-scrollbars="horizontalOverlayScrollbars" class="demo-preview">
                     <div class="comparison-grid">
                       <div class="comparison-panel" data-inline-mode="plain">
                         <div class="comparison-label">Plain</div>
@@ -1415,7 +1841,7 @@ const highlightedWrapCode = computed(() => {
                       </label>
                     </div>
                   </div>
-                  <div class="demo-preview">
+                  <div v-overlay-scrollbars="horizontalOverlayScrollbars" class="demo-preview">
                     <div class="demo-output width-guide" :style="{ width: `${wrapWidth6}px` }">
                       <WrapClamp
                         class="demo-wrap wrap-tabs"
@@ -1513,7 +1939,7 @@ const highlightedWrapCode = computed(() => {
                       </label>
                     </div>
                   </div>
-                  <div class="demo-preview">
+                  <div v-overlay-scrollbars="horizontalOverlayScrollbars" class="demo-preview">
                     <div
                       class="demo-output width-guide height-guide"
                       :style="{ width: `${wrapWidth7}px` }"
@@ -1567,6 +1993,13 @@ const highlightedWrapCode = computed(() => {
               block-id="line-example"
             />
             <CodeBlock
+              v-else-if="activeSurface === 'rich'"
+              :code="richCodeExample"
+              :html="highlightedRichCode"
+              label="RichLineClamp example"
+              block-id="rich-example"
+            />
+            <CodeBlock
               v-else-if="activeSurface === 'inline'"
               :code="inlineCodeExample"
               :html="highlightedInlineCode"
@@ -1585,7 +2018,7 @@ const highlightedWrapCode = computed(() => {
           <section class="reference-section" data-reference-panel="api">
             <template v-if="activeSurface === 'line'">
               <p class="api-summary" data-api-summary="line">
-                Use for real multiline text where the browser decides wrapping. Pick
+                Use for real multiline plain text where the browser decides wrapping. Pick
                 <code>max-lines</code> for text-driven limits or <code>max-height</code> for
                 layout-driven limits.
               </p>
@@ -1623,7 +2056,7 @@ const highlightedWrapCode = computed(() => {
                         </span>
                       </div>
                     </div>
-                    <p class="api-entry-copy">Source string to clamp.</p>
+                    <p class="api-entry-copy">Plain source string to clamp.</p>
                   </div>
                   <div class="api-entry">
                     <div class="api-entry-header">
@@ -1754,6 +2187,185 @@ const highlightedWrapCode = computed(() => {
                                 </dd>
                               </div>
                             </dl>
+                          </dd>
+                        </div>
+                      </dl>
+                    </div>
+                  </div>
+                  <div class="api-entry">
+                    <div class="api-entry-header">
+                      <div class="api-entry-name"><code>after</code></div>
+                    </div>
+                    <div class="api-entry-copy">
+                      <p>Trailing inline content, usually toggle UI.</p>
+                      <dl class="api-detail-list">
+                        <div class="api-detail-item">
+                          <dt class="api-detail-term">Slot props</dt>
+                          <dd class="api-detail-desc">Same as <code>before</code>.</dd>
+                        </div>
+                      </dl>
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              <section class="api-group">
+                <h3 class="subsection-title">Events</h3>
+                <div class="api-list">
+                  <div class="api-entry">
+                    <div class="api-entry-header">
+                      <div class="api-entry-name"><code>clampchange</code></div>
+                      <div class="api-entry-meta">
+                        <span class="api-meta-pair">
+                          <span class="api-meta-label">Payload</span>
+                          <code>(clamped: boolean)</code>
+                        </span>
+                      </div>
+                    </div>
+                    <p class="api-entry-copy">Emitted when truncation turns on or off.</p>
+                  </div>
+                  <div class="api-entry">
+                    <div class="api-entry-header">
+                      <div class="api-entry-name"><code>update:expanded</code></div>
+                      <div class="api-entry-meta">
+                        <span class="api-meta-pair">
+                          <span class="api-meta-label">Payload</span>
+                          <code>(expanded: boolean)</code>
+                        </span>
+                      </div>
+                    </div>
+                    <p class="api-entry-copy">Emitted when expansion changes.</p>
+                  </div>
+                </div>
+              </section>
+            </template>
+
+            <template v-else-if="activeSurface === 'rich'">
+              <p class="api-summary" data-api-summary="rich">
+                Use for trusted inline HTML where formatting, nested inline emphasis, links, and
+                inline graphics should remain intact. RichLineClamp clamps from the end only, uses a
+                best-effort inline-flow runtime, and falls back to raw HTML only when rendered
+                layout leaves inline flow.
+              </p>
+
+              <section class="api-group">
+                <h3 class="subsection-title">Props</h3>
+                <div class="api-list">
+                  <div class="api-entry">
+                    <div class="api-entry-header">
+                      <div class="api-entry-name"><code>as</code></div>
+                      <div class="api-entry-meta">
+                        <span class="api-meta-pair">
+                          <span class="api-meta-label">Type</span>
+                          <code>string</code>
+                        </span>
+                        <span class="api-meta-pair">
+                          <span class="api-meta-label">Default</span>
+                          <code>'div'</code>
+                        </span>
+                      </div>
+                    </div>
+                    <p class="api-entry-copy">Root tag name.</p>
+                  </div>
+                  <div class="api-entry">
+                    <div class="api-entry-header">
+                      <div class="api-entry-name"><code>html</code></div>
+                      <div class="api-entry-meta">
+                        <span class="api-meta-pair">
+                          <span class="api-meta-flag">required</span>
+                        </span>
+                        <span class="api-meta-pair">
+                          <span class="api-meta-label">Type</span>
+                          <code>string</code>
+                        </span>
+                      </div>
+                    </div>
+                    <p class="api-entry-copy">
+                      Trusted or sanitized inline HTML source. Rich clamping is best-effort and
+                      behavior-based: if the runtime can clone the markup back into the DOM and the
+                      rendered element stays in inline flow, it can participate in clamping. Leaf
+                      elements without light DOM content are treated as atomic units, and
+                      <code>br</code>, <code>wbr</code>, <code>img</code>, and outer
+                      <code>svg</code> keep explicit handling.
+                    </p>
+                  </div>
+                  <div class="api-entry">
+                    <div class="api-entry-header">
+                      <div class="api-entry-name"><code>max-lines</code></div>
+                      <div class="api-entry-meta">
+                        <span class="api-meta-pair">
+                          <span class="api-meta-label">Type</span>
+                          <code>number</code>
+                        </span>
+                      </div>
+                    </div>
+                    <p class="api-entry-copy">Maximum number of visible lines.</p>
+                  </div>
+                  <div class="api-entry">
+                    <div class="api-entry-header">
+                      <div class="api-entry-name"><code>max-height</code></div>
+                      <div class="api-entry-meta">
+                        <span class="api-meta-pair">
+                          <span class="api-meta-label">Type</span>
+                          <code>number | string</code>
+                        </span>
+                      </div>
+                    </div>
+                    <p class="api-entry-copy">
+                      Maximum visible height. Numbers use <code>px</code>.
+                    </p>
+                  </div>
+                  <div class="api-entry">
+                    <div class="api-entry-header">
+                      <div class="api-entry-name"><code>ellipsis</code></div>
+                      <div class="api-entry-meta">
+                        <span class="api-meta-pair">
+                          <span class="api-meta-label">Type</span>
+                          <code>string</code>
+                        </span>
+                        <span class="api-meta-pair">
+                          <span class="api-meta-label">Default</span>
+                          <code>'…'</code>
+                        </span>
+                      </div>
+                    </div>
+                    <p class="api-entry-copy">Ellipsis inserted into clamped content.</p>
+                  </div>
+                  <div class="api-entry">
+                    <div class="api-entry-header">
+                      <div class="api-entry-name"><code>expanded</code></div>
+                      <div class="api-entry-meta">
+                        <span class="api-meta-pair">
+                          <span class="api-meta-label">Type</span>
+                          <code>boolean</code>
+                        </span>
+                        <span class="api-meta-pair">
+                          <span class="api-meta-label">Default</span>
+                          <code>false</code>
+                        </span>
+                      </div>
+                    </div>
+                    <p class="api-entry-copy">
+                      Shows the full rich content. Supports <code>v-model</code>.
+                    </p>
+                  </div>
+                </div>
+              </section>
+
+              <section class="api-group">
+                <h3 class="subsection-title">Slots</h3>
+                <div class="api-list">
+                  <div class="api-entry">
+                    <div class="api-entry-header">
+                      <div class="api-entry-name"><code>before</code></div>
+                    </div>
+                    <div class="api-entry-copy">
+                      <p>Leading inline content measured with the rich text flow.</p>
+                      <dl class="api-detail-list">
+                        <div class="api-detail-item">
+                          <dt class="api-detail-term">Slot props</dt>
+                          <dd class="api-detail-desc">
+                            Same control props as <code>LineClamp</code>.
                           </dd>
                         </div>
                       </dl>
@@ -2198,10 +2810,6 @@ const highlightedWrapCode = computed(() => {
   margin: 0;
 }
 
-* {
-  scrollbar-width: thin;
-}
-
 :root {
   --c-bg: #ffffff;
   --c-bg-soft: #f9f9fb;
@@ -2248,6 +2856,17 @@ html {
 body {
   margin: 0;
   scroll-behavior: smooth;
+}
+
+.os-theme-light.os-scrollbar {
+  --os-size: 11px;
+  --os-padding-axis: 2px;
+  --os-padding-perpendicular: 2px;
+  --os-track-border-radius: 999px;
+  --os-handle-border-radius: 999px;
+  --os-handle-bg: color-mix(in srgb, var(--c-text-3) 34%, transparent);
+  --os-handle-bg-hover: color-mix(in srgb, var(--c-accent) 34%, var(--c-text-3));
+  --os-handle-bg-active: color-mix(in srgb, var(--c-accent) 54%, var(--c-text-2));
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -2482,32 +3101,136 @@ pre code {
   letter-spacing: 0.04em;
 }
 
-/* Features */
+/* Surface guide */
 
-.features-list {
+.surface-guide {
+  display: grid;
+  gap: 12px;
+}
+
+.surface-guide-lead {
+  margin: 0;
+  font-size: 0.92rem;
+  line-height: 1.7;
+  color: var(--c-text-2);
+}
+
+.surface-guide-list {
   list-style: none;
+  margin: 0;
   padding: 0;
   display: grid;
-  gap: 10px;
+  gap: 0;
+  border-top: 1px solid var(--c-border);
+  border-left: 1px solid var(--c-border);
 }
 
-.features-list li {
+.surface-guide-item {
+  min-width: 0;
+}
+
+.surface-guide-card {
   position: relative;
-  padding-left: 16px;
-  font-size: 0.9rem;
-  color: var(--c-text-2);
-  line-height: 1.7;
+  z-index: 0;
+  display: grid;
+  gap: 6px;
+  min-height: 100%;
+  padding: 14px 16px;
+  color: inherit;
+  text-decoration: none;
+  background: transparent;
+  border-right: 1px solid var(--c-border);
+  border-bottom: 1px solid var(--c-border);
+  transition:
+    background 0.15s,
+    color 0.15s;
 }
 
-.features-list li::before {
+.surface-guide-card::before {
   content: "";
   position: absolute;
-  left: 0;
-  top: 0.65em;
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: var(--c-border-dark);
+  inset: -1px;
+  pointer-events: none;
+  border: 1px solid transparent;
+  transition: border-color 0.15s;
+}
+
+.surface-guide-card::after {
+  content: "";
+  position: absolute;
+  top: -1px;
+  right: -1px;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+  opacity: 0.8;
+  border-top: 11px solid var(--c-border);
+  border-left: 11px solid transparent;
+  transition:
+    border-top-color 0.15s,
+    opacity 0.15s;
+}
+
+.surface-guide-card:hover {
+  z-index: 1;
+  background: color-mix(in srgb, var(--c-accent-soft) 10%, transparent);
+}
+
+.surface-guide-card:hover::before {
+  border-color: color-mix(in srgb, var(--c-accent) 44%, var(--c-border));
+}
+
+.surface-guide-card:focus-visible::before {
+  border-color: var(--c-accent);
+}
+
+.surface-guide-card:hover::after {
+  border-top-color: color-mix(in srgb, var(--c-accent) 36%, var(--c-border));
+  opacity: 1;
+}
+
+.surface-guide-card:focus-visible::after {
+  border-top-color: var(--c-accent);
+  opacity: 1;
+}
+
+.surface-guide-card:focus-visible {
+  z-index: 1;
+  outline: none;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.surface-guide-link {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  color: var(--c-text);
+  text-decoration: none;
+}
+
+.surface-guide-link code {
+  font-size: 0.86rem;
+  color: inherit;
+  background: transparent;
+  padding: 0;
+}
+
+.surface-guide-card:hover .surface-guide-link,
+.surface-guide-card:focus-visible .surface-guide-link {
+  color: var(--c-accent-text);
+}
+
+.surface-guide-card:hover .surface-guide-link code,
+.surface-guide-card:focus-visible .surface-guide-link code {
+  color: inherit;
+}
+
+.surface-guide-summary {
+  margin: 0;
+  font-size: 0.88rem;
+  line-height: 1.6;
+  color: var(--c-text-2);
 }
 
 /* Reference layout */
@@ -2564,6 +3287,10 @@ pre code {
 }
 
 .line-text-settings {
+  padding: 6px 0;
+}
+
+.rich-html-settings {
   padding: 6px 0;
 }
 
@@ -2655,7 +3382,7 @@ pre code {
 
 .control-textarea {
   inline-size: min(100%, 720px);
-  min-block-size: 120px;
+  min-height: 120px;
   padding: 10px 12px;
   font-family: inherit;
   font-weight: inherit;
@@ -2664,7 +3391,9 @@ pre code {
   background: var(--c-bg);
   border: 1px solid var(--c-border);
   border-radius: 10px;
+  field-sizing: content;
   resize: vertical;
+  scrollbar-width: thin;
   outline: none;
   transition:
     border-color 0.15s,
@@ -2676,16 +3405,15 @@ pre code {
   box-shadow: var(--focus-ring);
 }
 
+.control-textarea-rich {
+  min-height: 180px;
+}
+
 .control-row {
   display: flex;
   align-items: center;
   gap: 10px;
   flex: 1;
-}
-
-.control-help {
-  color: var(--c-text-3);
-  line-height: 1.4;
 }
 
 .control-range {
@@ -2745,53 +3473,16 @@ pre code {
   box-shadow: var(--focus-ring);
 }
 
-.control-pills {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.control-pill {
-  min-width: 60px;
-  padding: 4px 10px;
-  font-size: 0.75rem;
-  font-weight: 500;
-  font-family: var(--font-body);
-  color: var(--c-text-2);
-  background: var(--c-bg-soft);
-  border: 1px solid var(--c-border);
-  border-radius: 999px;
-  cursor: pointer;
-  transition:
-    border-color 0.15s,
-    background 0.15s,
-    color 0.15s;
-}
-
-.control-pill:hover {
-  border-color: var(--c-border-dark);
-  color: var(--c-text);
-}
-
-.control-pill.active {
-  color: var(--c-accent-text);
-  background: var(--c-accent-soft);
-  border-color: var(--c-accent);
-}
-
-.control-pill:focus-visible {
-  outline: none;
-  color: var(--c-accent-text);
-  border-color: var(--c-accent);
-  box-shadow: var(--focus-ring);
-}
-
 .demo-preview {
   padding: 14px;
   background: var(--c-bg-soft);
   border: 1px solid var(--c-border);
   border-radius: var(--radius);
   font-size: 0.9rem;
+}
+
+.demo-preview :deep([data-overlayscrollbars-viewport]) {
+  overscroll-behavior-x: contain;
 }
 
 .comparison-grid {
@@ -2833,6 +3524,82 @@ pre code {
   width: 100%;
   max-width: 100%;
   line-height: 1.8;
+}
+
+:deep(.demo-rich-card) {
+  color: var(--c-text);
+}
+
+:deep(.demo-rich-card a) {
+  color: var(--c-accent-text);
+  font-weight: 600;
+  text-decoration-thickness: 1.5px;
+}
+
+:deep(.demo-rich-card mark) {
+  padding: 0 0.2em;
+  color: #6e3d00;
+  background: #fff1c7;
+  border-radius: 0.2em;
+}
+
+:deep(.demo-rich-card code) {
+  padding: 0.12em 0.38em;
+  font-size: 0.82em;
+  font-family: var(--font-mono);
+  color: var(--c-accent-text);
+  background: var(--c-accent-soft);
+  border-radius: 999px;
+}
+
+:deep(.demo-rich-card .rich-chip) {
+  display: inline;
+  padding: 0.08rem 0.42rem 0.12rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  line-height: 1.45;
+  color: var(--c-text-2);
+  background: var(--c-bg-soft);
+  border: 1px solid var(--c-border);
+  border-radius: 999px;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+
+:deep(.demo-rich-card .rich-chip--accent) {
+  color: var(--c-accent-text);
+  background: var(--c-accent-soft);
+  border-color: color-mix(in srgb, var(--c-accent) 28%, white);
+}
+
+:deep(.demo-rich-card .rich-chip--quiet) {
+  color: var(--c-text-3);
+  background: rgba(215, 220, 232, 0.32);
+}
+
+:deep(.demo-rich-card .rich-chip--warm) {
+  color: #995214;
+  background: #fff4e4;
+  border-color: #f0d0aa;
+}
+
+:deep(.demo-rich-card .rich-chip--success) {
+  color: #0f7b46;
+  background: #edf9f1;
+  border-color: #cbe7d4;
+}
+
+:deep(.demo-rich-card .rich-link-run) {
+  font-family: var(--font-mono);
+  color: var(--c-text-2);
+}
+
+:deep(.demo-rich-card .rich-meta) {
+  color: var(--c-text-3);
+}
+
+:deep(.demo-rich-card inline-note) {
+  color: var(--c-accent-text);
 }
 
 :deep(.width-guide) {
@@ -3070,8 +3837,7 @@ pre code {
 }
 
 .wrap-summary-button:focus-visible,
-.toggle-btn:focus-visible,
-.install-tab:focus-visible {
+.toggle-btn:focus-visible {
   outline: none;
   border-color: var(--c-accent);
   color: var(--c-accent-text);
@@ -3097,6 +3863,10 @@ pre code {
 }
 
 @media (min-width: 640px) {
+  .surface-guide-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .comparison-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     align-items: start;
@@ -3416,12 +4186,6 @@ pre code {
 @media (max-width: 639px) {
   .hero-tagline-shell {
     max-width: 100%;
-  }
-
-  .demo-preview {
-    overflow-x: auto;
-    overflow-y: hidden;
-    -webkit-overflow-scrolling: touch;
   }
 }
 

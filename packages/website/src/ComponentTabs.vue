@@ -1,8 +1,11 @@
 <script setup lang="ts">
-defineProps<{
+import { nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
+
+const props = defineProps<{
   modelValue: string;
   options: ReadonlyArray<{
     description?: string;
+    id?: string;
     label: string;
     value: string;
   }>;
@@ -16,51 +19,165 @@ const emit = defineEmits<{
 function select(value: string): void {
   emit("update:modelValue", value);
 }
+
+const scrollRef = ref<HTMLElement | null>(null);
+const canScrollStart = ref(false);
+const canScrollEnd = ref(false);
+
+let resizeObserver: ResizeObserver | null = null;
+let stopFonts = () => {};
+
+function syncOverflowState(): void {
+  const element = scrollRef.value;
+  if (!element) {
+    canScrollStart.value = false;
+    canScrollEnd.value = false;
+    return;
+  }
+
+  const hasOverflow = element.scrollWidth > element.clientWidth + 1;
+  canScrollStart.value = hasOverflow && element.scrollLeft > 1;
+  canScrollEnd.value =
+    hasOverflow && element.scrollLeft + element.clientWidth < element.scrollWidth - 1;
+}
+
+watch(
+  () => props.modelValue,
+  () => {
+    void nextTick().then(syncOverflowState);
+  },
+  { flush: "post" },
+);
+
+watch(
+  () => props.options,
+  () => {
+    void nextTick().then(syncOverflowState);
+  },
+  { deep: true, flush: "post" },
+);
+
+onMounted(() => {
+  const element = scrollRef.value;
+  if (element) {
+    resizeObserver = new ResizeObserver(syncOverflowState);
+    resizeObserver.observe(element);
+  }
+
+  syncOverflowState();
+
+  const fontFaceSet = document.fonts;
+  if (!fontFaceSet) {
+    return;
+  }
+
+  function handleFontLoad(): void {
+    syncOverflowState();
+  }
+
+  void fontFaceSet.ready.then(handleFontLoad);
+  fontFaceSet.addEventListener("loadingdone", handleFontLoad);
+  stopFonts = () => {
+    fontFaceSet.removeEventListener("loadingdone", handleFontLoad);
+  };
+});
+
+onBeforeUnmount(() => {
+  resizeObserver?.disconnect();
+  stopFonts();
+});
 </script>
 
 <template>
-  <div class="component-tabs" :aria-label="ariaLabel ?? 'Components'" role="group">
-    <div v-for="option in options" :key="option.value" class="component-tab-slot">
-      <button
-        class="component-tab"
-        :class="{ active: modelValue === option.value }"
-        :data-surface-tab="option.value"
-        type="button"
-        :aria-pressed="modelValue === option.value"
-        :aria-describedby="option.description ? `component-tab-tooltip-${option.value}` : undefined"
-        @click="select(option.value)"
-      >
-        {{ option.label }}
-      </button>
-      <span
-        v-if="option.description"
-        :id="`component-tab-tooltip-${option.value}`"
-        :data-surface-tooltip="option.value"
-        class="component-tooltip"
-        role="tooltip"
-      >
-        {{ option.description }}
-      </span>
+  <div
+    class="component-tabs"
+    :class="{
+      'has-overflow-start': canScrollStart,
+      'has-overflow-end': canScrollEnd,
+    }"
+    :aria-label="ariaLabel ?? 'Components'"
+    role="group"
+  >
+    <div
+      ref="scrollRef"
+      class="component-tabs-scroll"
+      data-component-tabs-scroll
+      @scroll="syncOverflowState"
+    >
+      <div v-for="option in options" :key="option.value" class="component-tab-slot">
+        <button
+          :id="option.id"
+          class="component-tab"
+          :class="{ active: modelValue === option.value }"
+          :data-surface-tab="option.value"
+          type="button"
+          :aria-pressed="modelValue === option.value"
+          :aria-describedby="
+            option.description ? `component-tab-tooltip-${option.value}` : undefined
+          "
+          @click="select(option.value)"
+        >
+          {{ option.label }}
+        </button>
+        <span
+          v-if="option.description"
+          :id="`component-tab-tooltip-${option.value}`"
+          :data-surface-tooltip="option.value"
+          class="component-tooltip"
+          role="tooltip"
+        >
+          {{ option.description }}
+        </span>
+      </div>
+    </div>
+    <div
+      v-if="canScrollEnd"
+      class="component-tabs-more"
+      data-component-tabs-more
+      aria-hidden="true"
+    >
+      <span class="component-tabs-more-label">More</span>
+      <span class="component-tabs-more-arrow">→</span>
     </div>
   </div>
 </template>
 
 <style scoped>
 .component-tabs {
-  display: flex;
+  position: relative;
+  overflow: hidden;
   width: 100%;
   border-bottom: 1px solid var(--c-border);
   background: var(--c-bg);
 }
 
+.component-tabs-scroll {
+  display: flex;
+  width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  scroll-snap-type: x proximity;
+  touch-action: pan-x pinch-zoom;
+}
+
+.component-tabs-scroll::-webkit-scrollbar {
+  display: none;
+}
+
 .component-tab-slot {
   position: relative;
-  flex: 1 1 0;
-  min-width: 0;
+  flex: 1 0 9rem;
+  min-width: 9rem;
+  scroll-snap-align: start;
 }
 
 .component-tab {
+  display: block;
   width: 100%;
+  max-width: 100%;
   padding: 13px 18px 12px;
   font-size: 0.82rem;
   font-weight: 600;
@@ -72,6 +189,9 @@ function select(value: string): void {
   transition:
     background 0.15s,
     color 0.15s;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .component-tab:hover {
@@ -155,6 +275,68 @@ function select(value: string): void {
   .component-tab-slot:hover .component-tooltip,
   .component-tab:focus-visible + .component-tooltip {
     transform: none;
+  }
+}
+
+.component-tabs::before,
+.component-tabs::after {
+  content: "";
+  position: absolute;
+  inset-block: 0;
+  width: 26px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s;
+  z-index: 1;
+}
+
+.component-tabs::before {
+  inset-inline-start: 0;
+  background: linear-gradient(to right, var(--c-bg), transparent);
+}
+
+.component-tabs::after {
+  inset-inline-end: 0;
+  background: linear-gradient(to left, var(--c-bg), transparent);
+}
+
+.component-tabs.has-overflow-start::before,
+.component-tabs.has-overflow-end::after {
+  opacity: 1;
+}
+
+.component-tabs-more {
+  position: absolute;
+  inset-inline-end: 8px;
+  inset-block-start: 50%;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  font-size: 0.68rem;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--c-text-3);
+  background: color-mix(in srgb, var(--c-bg) 92%, transparent);
+  border: 1px solid color-mix(in srgb, var(--c-border) 82%, transparent);
+  border-radius: 999px;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--c-bg) 92%, transparent);
+  transform: translateY(-50%);
+  pointer-events: none;
+  z-index: 2;
+}
+
+.component-tabs-more-arrow {
+  font-family: var(--font-mono);
+}
+
+@media (max-width: 760px), (hover: none), (pointer: coarse) {
+  .component-tooltip {
+    display: none;
+  }
+
+  .component-tabs-more {
+    inset-inline-end: 6px;
   }
 }
 </style>
