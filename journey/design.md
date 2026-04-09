@@ -83,17 +83,21 @@
   - `packages/vue-clamp/src/rich.ts` for rich-text parsing, runtime inline-flow classification,
     logical-run preprocessing, boundary slicing, and rich clamp search
   - `packages/vue-clamp/src/layout.ts` for the tiny shared primitives that are still worth
-    centralizing: line-limit normalization, size signatures, fit checks, and the queued async
-    recompute helper
+    centralizing: line-limit normalization, CSS length normalization, combined size signatures,
+    font-load invalidation hooks, fit checks, and the queued async recompute helper
 - `packages/vue-clamp/src/LineClamp.ts` now owns only text behavior:
   - reactive `visibleText`, `expanded`, and `isClamped`
   - text preparation and native one-line fast path dispatch
   - text accessibility handling for rewritten visible output
 - `packages/vue-clamp/src/RichLineClamp.ts` now owns only rich-html behavior:
-  - reactive `renderedHtml`, `expanded`, and `isClamped`
-  - rendered-layout validation and rich fallback handling
+  - reactive `visibleHtml`, `expanded`, and `isClamped`
+  - minimal runtime layout classification for rich descendants
   - image-driven reclamping for inline rich content
 - Shared code stays in small helpers instead of a large base shell.
+- The multiline text and rich components intentionally still do not use a shared internal shell:
+  - their invalidation and exposed-state structure is similar
+  - but a shared shell would introduce a larger coordination API than this repo currently wants
+  - this rebuild prefers tiny shared helpers over one more abstract internal runtime layer
 - `InlineClamp` is much narrower:
   - one root inline-flex container
   - optional fixed `start` and `end` segments
@@ -141,11 +145,13 @@
       layout stays in inline flow
     - leaf elements without light DOM content are treated as atomic inline units, including custom
       elements
-    - descendants that render as inline formatting contexts such as `inline-block` or `inline-flex`
-      are treated as atomic runs rather than searchable wrapper text
+    - descendants with child content are searched only when they render as transparent inline
+      wrappers (`display: inline` or `display: contents`)
+    - inline formatting contexts such as `inline-block` or `inline-flex` are treated as atomic runs
+      rather than searchable wrapper text
   - explicit special handling remains for `br`, `wbr`, atomic `img`, and outer `svg`
   - rendered layout that leaves inline flow, or structural/computed-layout violations such as
-    positioned or floated descendants, fall back to the original HTML unchanged
+    positioned or floated descendants, falls back to the original HTML unchanged
   - search is now boundary-oriented:
     - first binary-search the ends of logical runs
     - then refine inside only the next text run using grapheme-safe cuts
@@ -153,6 +159,8 @@
       before fit testing, instead of rebuilding from a mixed global unit list
     - parsed rich preprocessing now caches text boundary metadata once per `html` source and reuses
       it across width, slot, image, and font reclamps
+    - rich preparation no longer carries its own support flag; support is decided only from the
+      rendered layout at clamp time
     - unchanged content still validates the rendered rich layout, but now exits before logical-run
       construction when the full source already fits
     - fit probes now apply cloned prefix fragments directly into the live rich body instead of
@@ -240,7 +248,9 @@
 - Rich support now follows a best-effort inline-flow model:
   - the runtime no longer rejects broad element classes up front during preparation
   - leaf elements without light DOM content are treated as atomic boxes
-  - inline formatting contexts such as `inline-block` are also treated atomically during search
+  - only transparent inline wrappers (`display: inline` / `display: contents`) are searched
+    recursively at clamp time
+  - inline formatting contexts such as `inline-block` are treated atomically during search
   - fallback is reserved for rendered layout that exits inline flow or otherwise breaks the clamp
     model
 - A small amount of duplicated logic inside the component is preferred over splitting one runtime path across many files.

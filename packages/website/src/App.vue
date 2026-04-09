@@ -185,7 +185,7 @@ const richLines7 = ref(3);
 const richWidth7 = ref(420);
 const richHyphens7 = ref(true);
 const richClamped7 = ref(false);
-const richHtmlInput = ref(richHtmlPresets[0].value);
+const richHtmlInput = ref<string>(richHtmlPresets[0].value);
 
 const selectedRichHtmlPreset = computed(() => {
   return richHtmlPresets.find((preset) => preset.value === richHtmlInput.value)?.id ?? null;

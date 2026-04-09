@@ -1,20 +1,26 @@
 export type LineClampLocation = "start" | "middle" | "end" | number;
 
-export interface LineClampSlotProps {
+type ClampControls = {
   expand: () => void;
   collapse: () => void;
   toggle: () => void;
+};
+
+type ClampState = {
   clamped: boolean;
   expanded: boolean;
-}
+};
 
-export interface LineClampExposed {
-  expand: () => void;
-  collapse: () => void;
-  toggle: () => void;
+type ClampSlotProps = ClampControls & ClampState;
+
+type ClampExposed = ClampControls & {
   readonly clamped: boolean;
   readonly expanded: boolean;
-}
+};
+
+export type LineClampSlotProps = ClampSlotProps;
+
+export type LineClampExposed = ClampExposed;
 
 export interface LineClampProps {
   as?: string;
@@ -35,9 +41,9 @@ export interface RichLineClampProps {
   expanded?: boolean;
 }
 
-export type RichLineClampSlotProps = LineClampSlotProps;
+export type RichLineClampSlotProps = ClampSlotProps;
 
-export type RichLineClampExposed = LineClampExposed;
+export type RichLineClampExposed = ClampExposed;
 
 export interface InlineClampParts {
   start?: string;
@@ -60,22 +66,11 @@ export interface WrapClampItemSlotProps<T = unknown> {
   index: number;
 }
 
-export interface WrapClampSlotProps<T = unknown> {
-  expand: () => void;
-  collapse: () => void;
-  toggle: () => void;
-  clamped: boolean;
-  expanded: boolean;
+export interface WrapClampSlotProps<T = unknown> extends ClampSlotProps {
   hiddenItems: readonly T[];
 }
 
-export interface WrapClampExposed {
-  expand: () => void;
-  collapse: () => void;
-  toggle: () => void;
-  readonly clamped: boolean;
-  readonly expanded: boolean;
-}
+export type WrapClampExposed = ClampExposed;
 
 export interface WrapClampProps<T = unknown> {
   as?: string;

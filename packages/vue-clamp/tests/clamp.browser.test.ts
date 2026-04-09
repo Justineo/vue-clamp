@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vite-plus/test";
+import { afterEach, describe, expect, it } from "vite-plus/test";
 import { Comment, createApp, defineComponent, h, nextTick, ref } from "vue";
 import { LineClamp } from "../src/index.ts";
 import {
@@ -563,59 +563,43 @@ describe("LineClamp browser contract", () => {
     expect(await sampleVisibleLineCounts(root)).toEqual([1, 1, 1]);
   });
 
-  it("falls back to raw html when wrappers render with unsupported layout", async () => {
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+  it("falls back to raw html when descendants leave inline flow", async () => {
     const sourceHtml = "<div>This wrapper stays block layout and should not be clamped.</div>";
-    try {
-      const mounted = mountRichClamp({
-        html: sourceHtml,
-        width: 120,
-        props: {
-          maxLines: 1,
-        },
-      });
+    const mounted = mountRichClamp({
+      html: sourceHtml,
+      width: 120,
+      props: {
+        maxLines: 1,
+      },
+    });
 
-      const root = rootElement(mounted.container);
-      await waitUntilVisible(root);
-      await settle(4);
+    const root = rootElement(mounted.container);
+    await waitUntilVisible(root);
+    await settle(4);
 
-      expect(richContentElement(root).innerHTML).toBe(sourceHtml);
-      expect((mounted.exposed.value as RichLineClampExposed).clamped).toBe(false);
-      expect(warnSpy).toHaveBeenCalledWith(
-        "[vue-clamp] Rich text wrapper <div> must stay in inline flow.",
-      );
-    } finally {
-      warnSpy.mockRestore();
-    }
+    expect(richContentElement(root).innerHTML).toBe(sourceHtml);
+    expect((mounted.exposed.value as RichLineClampExposed).clamped).toBe(false);
   });
 
   it("does not clip raw html fallback when maxHeight is used", async () => {
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     const sourceHtml =
       "<div>This wrapper stays block layout and should remain fully visible when rich clamping gives up.</div>";
-    try {
-      const mounted = mountRichClamp({
-        html: sourceHtml,
-        width: 120,
-        props: {
-          maxHeight: 20,
-        },
-      });
+    const mounted = mountRichClamp({
+      html: sourceHtml,
+      width: 120,
+      props: {
+        maxHeight: 20,
+      },
+    });
 
-      const root = rootElement(mounted.container);
-      await waitUntilVisible(root);
-      await settle(4);
+    const root = rootElement(mounted.container);
+    await waitUntilVisible(root);
+    await settle(4);
 
-      expect(richContentElement(root).innerHTML).toBe(sourceHtml);
-      expect((mounted.exposed.value as RichLineClampExposed).clamped).toBe(false);
-      expect(root.style.maxHeight).toBe("");
-      expect(root.style.overflow).toBe("");
-      expect(warnSpy).toHaveBeenCalledWith(
-        "[vue-clamp] Rich text wrapper <div> must stay in inline flow.",
-      );
-    } finally {
-      warnSpy.mockRestore();
-    }
+    expect(richContentElement(root).innerHTML).toBe(sourceHtml);
+    expect((mounted.exposed.value as RichLineClampExposed).clamped).toBe(false);
+    expect(root.style.maxHeight).toBe("");
+    expect(root.style.overflow).toBe("");
   });
 
   it("does not show over-limit rich html lines in the first frame after a width shrink", async () => {
