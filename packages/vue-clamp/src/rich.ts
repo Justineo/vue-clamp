@@ -44,14 +44,10 @@ type ClonePrefixResult = {
   appendTarget: Node;
 };
 
-type RichClampResult =
-  | {
-      html: null;
-    }
-  | {
-      html: string;
-      fallback: boolean;
-    };
+type RichClampResult = {
+  html: string | null;
+  fallback: boolean;
+};
 
 const ROOT_PATH: readonly number[] = [];
 const ROOT_START_POINT: BoundaryPoint = {
@@ -79,11 +75,11 @@ function isInlineWrapperDisplay(display: string): boolean {
   return display === "inline" || display === "contents";
 }
 
-function collectAtomicPaths(root: HTMLElement): Set<string> | null {
+function inspectLayout(root: HTMLElement): Set<string> | null {
   const atomicPaths = new Set<string>();
 
   function walkChildren(container: Node, parentKey: string): boolean {
-    const children = container.childNodes;
+    const { childNodes: children } = container;
 
     for (let index = 0; index < children.length; index += 1) {
       const child = children[index];
@@ -98,18 +94,18 @@ function collectAtomicPaths(root: HTMLElement): Set<string> | null {
         continue;
       }
 
-      const style = getComputedStyle(child);
+      const { display, float: floatValue, position } = getComputedStyle(child);
 
-      if (style.display === "none") {
+      if (display === "none") {
         atomicPaths.add(childKey);
         continue;
       }
 
       if (
-        style.position === "absolute" ||
-        style.position === "fixed" ||
-        style.position === "sticky" ||
-        style.float !== "none"
+        position === "absolute" ||
+        position === "fixed" ||
+        position === "sticky" ||
+        floatValue !== "none"
       ) {
         return false;
       }
@@ -118,9 +114,9 @@ function collectAtomicPaths(root: HTMLElement): Set<string> | null {
         tagName === "img" ||
         tagName === "svg" ||
         child.childNodes.length === 0 ||
-        isAtomicInlineDisplay(style.display)
+        isAtomicInlineDisplay(display)
       ) {
-        if (style.display !== "inline" && !isAtomicInlineDisplay(style.display)) {
+        if (display !== "inline" && !isAtomicInlineDisplay(display)) {
           return false;
         }
 
@@ -128,7 +124,7 @@ function collectAtomicPaths(root: HTMLElement): Set<string> | null {
         continue;
       }
 
-      if (!isInlineWrapperDisplay(style.display)) {
+      if (!isInlineWrapperDisplay(display)) {
         return false;
       }
 
@@ -170,18 +166,15 @@ function buildPreparedRichNodes(
 
     if (child.nodeType === Node.TEXT_NODE) {
       const preparedText = prepareText(child.textContent ?? "");
+      const { boundaryOffsets, text } = preparedText;
 
-      if (preparedText.boundaryOffsets.length <= 1) {
+      if (boundaryOffsets.length <= 1) {
         continue;
       }
 
       const graphemeCuts: BoundaryPoint[] = [];
-      for (
-        let boundaryIndex = 1;
-        boundaryIndex < preparedText.boundaryOffsets.length;
-        boundaryIndex += 1
-      ) {
-        const offset = preparedText.boundaryOffsets[boundaryIndex];
+      for (let boundaryIndex = 1; boundaryIndex < boundaryOffsets.length; boundaryIndex += 1) {
+        const offset = boundaryOffsets[boundaryIndex];
         if (offset === undefined) {
           continue;
         }
@@ -196,7 +189,7 @@ function buildPreparedRichNodes(
         kind: "text",
         endPoint: {
           path: childPath,
-          offset: preparedText.text.length,
+          offset: text.length,
         },
         graphemeCuts,
       });
@@ -234,28 +227,29 @@ function buildLogicalRuns(
     }
 
     if (currentTextNodes.length === 1) {
-      const onlyNode = currentTextNodes[0]!;
+      const { endPoint, graphemeCuts } = currentTextNodes[0]!;
       runs.push({
         kind: "text",
-        endPoint: onlyNode.endPoint,
-        graphemeCuts: onlyNode.graphemeCuts,
+        endPoint,
+        graphemeCuts,
       });
       currentTextNodes = [];
       return;
     }
 
-    const lastNode = currentTextNodes[currentTextNodes.length - 1]!;
+    const { endPoint } = currentTextNodes[currentTextNodes.length - 1]!;
     const graphemeCuts: BoundaryPoint[] = [];
 
     for (const textNode of currentTextNodes) {
-      for (const cut of textNode.graphemeCuts) {
+      const { graphemeCuts: textCuts } = textNode;
+      for (const cut of textCuts) {
         graphemeCuts.push(cut);
       }
     }
 
     runs.push({
       kind: "text",
-      endPoint: lastNode.endPoint,
+      endPoint,
       graphemeCuts,
     });
 
@@ -269,16 +263,18 @@ function buildLogicalRuns(
         continue;
       }
 
-      if (node.isBreak || atomicPaths.has(node.pathKey)) {
+      const { children, endPoint, isBreak, pathKey } = node;
+
+      if (isBreak || atomicPaths.has(pathKey)) {
         flushTextRun();
         runs.push({
           kind: "atomic",
-          endPoint: node.endPoint,
+          endPoint,
         });
         continue;
       }
 
-      walkNodes(node.children);
+      walkNodes(children);
     }
   }
 
@@ -295,10 +291,11 @@ function clonePrefixFromContainer(
   isRoot: boolean,
 ): { clone: Node; insertionContainer: Node } {
   const clone = isRoot ? document.createDocumentFragment() : container.cloneNode(false);
-  const children = container.childNodes;
+  const { childNodes: children } = container;
+  const { offset, path } = endPoint;
 
-  if (depth === endPoint.path.length) {
-    const limit = Math.min(endPoint.offset, children.length);
+  if (depth === path.length) {
+    const limit = Math.min(offset, children.length);
 
     for (let index = 0; index < limit; index += 1) {
       const child = children[index];
@@ -313,7 +310,7 @@ function clonePrefixFromContainer(
     };
   }
 
-  const targetIndex = endPoint.path[depth] ?? 0;
+  const targetIndex = path[depth] ?? 0;
   const limit = Math.min(targetIndex, children.length);
 
   for (let index = 0; index < limit; index += 1) {
@@ -427,11 +424,11 @@ function applyCandidateFragment(
   endPoint: BoundaryPoint,
   ellipsis: string,
 ): void {
-  const result = clonePrefix(sourceRoot, endPoint);
-  trimTrailingWhitespace(result.clone);
-  appendEllipsis(result.appendTarget, ellipsis);
+  const { appendTarget, clone } = clonePrefix(sourceRoot, endPoint);
+  trimTrailingWhitespace(clone);
+  appendEllipsis(appendTarget, ellipsis);
 
-  targetElement.replaceChildren(result.clone);
+  targetElement.replaceChildren(clone);
 }
 
 function findLastFittingIndex<T>(
@@ -480,8 +477,13 @@ export function clampRichTextToLayout(
   lineLimit: number | undefined,
   maxHeight: number | string | undefined,
 ): RichClampResult {
+  const { html, nodes, root } = prepared;
+
   if (rootElement.getBoundingClientRect().width <= 0) {
-    return { html: null };
+    return {
+      html: null,
+      fallback: false,
+    };
   }
 
   let currentHtml: string | null = richElement.innerHTML;
@@ -508,7 +510,7 @@ export function clampRichTextToLayout(
       return;
     }
 
-    applyCandidateFragment(prepared.root, richElement, endPoint, ellipsis);
+    applyCandidateFragment(root, richElement, endPoint, ellipsis);
     currentHtml = null;
     currentCutPoint = endPoint;
   }
@@ -518,27 +520,27 @@ export function clampRichTextToLayout(
     return fitsContent(rootElement, contentElement, lineLimit, maxHeight);
   }
 
-  applySourceHtml(prepared.html);
+  applySourceHtml(html);
 
   if (fitsContent(rootElement, contentElement, lineLimit, maxHeight)) {
     return {
-      html: prepared.html,
+      html,
       fallback: false,
     };
   }
 
-  const atomicPaths = collectAtomicPaths(richElement);
-  if (atomicPaths === null) {
+  const atomicPaths = inspectLayout(richElement);
+  if (!atomicPaths) {
     return {
-      html: prepared.html,
+      html,
       fallback: true,
     };
   }
 
-  const runs = buildLogicalRuns(prepared.nodes, atomicPaths);
+  const runs = buildLogicalRuns(nodes, atomicPaths);
   if (runs.length === 0) {
     return {
-      html: prepared.html,
+      html,
       fallback: false,
     };
   }

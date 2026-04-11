@@ -1,23 +1,6 @@
-import {
-  computed,
-  defineComponent,
-  h,
-  mergeProps,
-  nextTick,
-  onBeforeUnmount,
-  onMounted,
-  onUpdated,
-  ref,
-  watch,
-  watchPostEffect,
-} from "vue";
-import {
-  combinedSizeSignature,
-  createQueuedTask,
-  cssLength,
-  listenForFontLoads,
-  normalizeLineLimit,
-} from "./layout.ts";
+import { computed, defineComponent, h, mergeProps, nextTick, ref, watch } from "vue";
+import { cssLength, normalizeLineLimit } from "./layout.ts";
+import { useMultilineClamp } from "./multiline.ts";
 import { hasSlotContent } from "./slot.ts";
 import {
   canUseNativeClamp,
@@ -73,7 +56,7 @@ const visuallyHiddenTextStyle: CSSProperties = {
   clipPath: "inset(50%)",
 };
 
-const lineClampProps = {
+const propsDef = {
   as: {
     type: String,
     default: "div",
@@ -106,7 +89,7 @@ const lineClampProps = {
   },
 } as const;
 
-const lineClampEmits = {
+const emitsDef = {
   "update:expanded": (value: boolean) => typeof value === "boolean",
   clampchange: (value: boolean) => typeof value === "boolean",
 };
@@ -114,18 +97,11 @@ const lineClampEmits = {
 export const LineClamp = defineComponent({
   name: "LineClamp",
   inheritAttrs: false,
-  props: lineClampProps,
-  emits: lineClampEmits,
+  props: propsDef,
+  emits: emitsDef,
   setup(props, { attrs, emit, expose, slots }) {
-    const rootRef = ref<HTMLElement | null>(null);
-    const contentRef = ref<HTMLElement | null>(null);
-    const beforeRef = ref<HTMLElement | null>(null);
-    const bodyRef = ref<HTMLElement | null>(null);
     const textRef = ref<HTMLElement | null>(null);
-    const afterRef = ref<HTMLElement | null>(null);
     const visibleText = ref(props.text);
-    const expanded = ref(props.expanded);
-    const isClamped = ref(false);
 
     const lineLimit = computed(() => normalizeLineLimit(props.maxLines));
     const hasLimit = computed(() => lineLimit.value !== undefined || props.maxHeight !== undefined);
@@ -140,22 +116,6 @@ export const LineClamp = defineComponent({
         props.ellipsis,
       ),
     );
-
-    let resizeObserver: ResizeObserver | null = null;
-    let stopFonts = () => {};
-    let lastLayoutSignature: string | null = null;
-
-    function expand(): void {
-      expanded.value = true;
-    }
-
-    function collapse(): void {
-      expanded.value = false;
-    }
-
-    function toggle(): void {
-      expanded.value = !expanded.value;
-    }
 
     async function applyTextState(nextText: string, nextClamped: boolean): Promise<void> {
       const changed = visibleText.value !== nextText || isClamped.value !== nextClamped;
@@ -172,79 +132,67 @@ export const LineClamp = defineComponent({
       await applyTextState(props.text, false);
     }
 
-    function layoutSignature(): string {
-      return combinedSizeSignature(
-        rootRef.value,
-        contentRef.value,
-        bodyRef.value,
-        beforeRef.value,
-        afterRef.value,
-      );
-    }
-
-    async function recompute(): Promise<void> {
-      if (expanded.value || props.text.length === 0 || !hasLimit.value) {
-        await resetClamp();
-        return;
-      }
-
-      const rootElement = rootRef.value;
-      const contentElement = contentRef.value;
-      const textElement = textRef.value;
-
-      if (!rootElement || !contentElement || !textElement) {
-        await resetClamp();
-        return;
-      }
-
-      if (nativeOverflowMode.value) {
-        const nextClamped = isNativeClamped(textElement);
-        await applyTextState(props.text, nextClamped ?? false);
-        return;
-      }
-
-      const nextText = clampTextToLayout(
-        preparedText.value,
-        rootElement,
-        contentElement,
-        textElement,
-        locationRatio.value,
-        props.ellipsis,
-        lineLimit.value,
-        props.maxHeight,
-      );
-
-      if (nextText === null) {
-        await resetClamp();
-        return;
-      }
-
-      await applyTextState(nextText, nextText !== preparedText.value.text);
-    }
-
-    const queueRecompute = createQueuedTask(async () => {
-      await recompute();
-      lastLayoutSignature = layoutSignature();
-    });
-
-    watch(
-      () => props.expanded,
-      (value) => {
-        expanded.value = value;
-      },
-    );
-
-    watch(
+    const {
+      rootRef,
+      contentRef,
+      beforeRef,
+      bodyRef,
+      afterRef,
       expanded,
-      (value) => {
-        if (props.expanded !== value) {
-          emit("update:expanded", value);
+      isClamped,
+      expand,
+      collapse,
+      toggle,
+      queueRecompute,
+    } = useMultilineClamp({
+      getExpanded: () => props.expanded,
+      onExpandedChange: (value) => {
+        emit("update:expanded", value);
+      },
+      onClampedChange: (value) => {
+        emit("clampchange", value);
+      },
+      recompute: async ({ expanded }): Promise<void> => {
+        const { ellipsis, maxHeight, text: sourceText } = props;
+        if (expanded.value || sourceText.length === 0 || !hasLimit.value) {
+          await resetClamp();
+          return;
         }
 
-        queueRecompute();
+        const rootElement = rootRef.value;
+        const contentElement = contentRef.value;
+        const textElement = textRef.value;
+
+        if (!rootElement || !contentElement || !textElement) {
+          await resetClamp();
+          return;
+        }
+
+        if (nativeOverflowMode.value) {
+          const nextClamped = isNativeClamped(textElement);
+          await applyTextState(sourceText, nextClamped ?? false);
+          return;
+        }
+
+        const nextText = clampTextToLayout(
+          preparedText.value,
+          rootElement,
+          contentElement,
+          textElement,
+          locationRatio.value,
+          ellipsis,
+          lineLimit.value,
+          maxHeight,
+        );
+
+        if (nextText === null) {
+          await resetClamp();
+          return;
+        }
+
+        await applyTextState(nextText, nextText !== preparedText.value.text);
       },
-      { flush: "post" },
-    );
+    });
 
     watch(
       [
@@ -261,56 +209,6 @@ export const LineClamp = defineComponent({
       { flush: "post" },
     );
 
-    watch(
-      isClamped,
-      (value) => {
-        emit("clampchange", value);
-      },
-      { flush: "post", immediate: true },
-    );
-
-    watchPostEffect((onCleanup) => {
-      resizeObserver ??= new ResizeObserver(() => {
-        if (layoutSignature() !== lastLayoutSignature) {
-          queueRecompute();
-        }
-      });
-
-      const observed = [
-        rootRef.value,
-        contentRef.value,
-        bodyRef.value,
-        beforeRef.value,
-        afterRef.value,
-      ].filter((element): element is HTMLElement => element instanceof HTMLElement);
-
-      for (const element of observed) {
-        resizeObserver.observe(element);
-      }
-
-      onCleanup(() => {
-        for (const element of observed) {
-          resizeObserver?.unobserve(element);
-        }
-      });
-    });
-
-    onMounted(() => {
-      queueRecompute();
-      stopFonts = listenForFontLoads(queueRecompute);
-    });
-
-    onUpdated(() => {
-      if (layoutSignature() !== lastLayoutSignature) {
-        queueRecompute();
-      }
-    });
-
-    onBeforeUnmount(() => {
-      resizeObserver?.disconnect();
-      stopFonts();
-    });
-
     expose({
       expand,
       collapse,
@@ -324,7 +222,8 @@ export const LineClamp = defineComponent({
     } satisfies LineClampExposed);
 
     return () => {
-      const collapsedMaxHeight = !expanded.value ? cssLength(props.maxHeight) : undefined;
+      const { as: rootTag, maxHeight, text: sourceText } = props;
+      const collapsedMaxHeight = !expanded.value ? cssLength(maxHeight) : undefined;
 
       const slotProps: LineClampSlotProps = {
         expand,
@@ -339,11 +238,11 @@ export const LineClamp = defineComponent({
       const hasAfterSlot = hasSlotContent(afterSlot);
       const nativeOverflow = nativeOverflowMode.value;
       const needsAccessibleSourceText =
-        !nativeOverflow && visibleText.value !== props.text && hasLimit.value && !expanded.value;
+        !nativeOverflow && visibleText.value !== sourceText && hasLimit.value && !expanded.value;
       const bodyStyle = nativeOverflow ? nativeTextContainerStyle : { position: "relative" };
       const shouldRenderFullText =
         nativeOverflow || expanded.value || visibleText.value.length === 0 || !hasLimit.value;
-      const renderedText = shouldRenderFullText ? props.text : visibleText.value;
+      const renderedText = shouldRenderFullText ? sourceText : visibleText.value;
       const bodyChildren: VNodeChild[] = [
         needsAccessibleSourceText
           ? h(
@@ -351,7 +250,7 @@ export const LineClamp = defineComponent({
               {
                 style: visuallyHiddenTextStyle,
               },
-              props.text,
+              sourceText,
             )
           : null,
         h(
@@ -372,7 +271,7 @@ export const LineClamp = defineComponent({
       ];
 
       return h(
-        props.as,
+        rootTag,
         mergeProps(attrs, {
           "data-part": "root",
           ref: rootRef,

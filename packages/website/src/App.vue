@@ -106,7 +106,7 @@ function selectLineTextPreset(value: string): void {
   lineTextInput.value = value;
 }
 
-function lineToggleLabel(expanded: boolean, rtl: boolean): string {
+function toggleLabel(expanded: boolean, rtl = false): string {
   if (rtl) {
     return expanded ? "أقل" : "المزيد";
   }
@@ -600,14 +600,6 @@ const wrapInviteeItems7 = computed(() => {
   return wrapRtl7.value ? wrapInviteeItemsAr : wrapInviteeItems;
 });
 
-function wrapToggleLabel(expanded: boolean, rtl = false): string {
-  if (rtl) {
-    return expanded ? "أقل" : "المزيد";
-  }
-
-  return expanded ? "Less" : "More";
-}
-
 function wrapInviteePrefixLabel(rtl: boolean): string {
   return rtl ? "المراجعون" : "Reviewers";
 }
@@ -1061,33 +1053,17 @@ const highlightedInstall = computed(() => {
   });
 });
 
-const highlightedLineCode = computed(() => {
-  return shiki.codeToHtml(lineCodeExample, {
-    lang: "vue",
+function highlightCode(code: string, lang: "shellscript" | "vue"): string {
+  return shiki.codeToHtml(code, {
+    lang,
     theme: websiteShikiTheme.name,
   });
-});
+}
 
-const highlightedRichCode = computed(() => {
-  return shiki.codeToHtml(richCodeExample, {
-    lang: "vue",
-    theme: websiteShikiTheme.name,
-  });
-});
-
-const highlightedInlineCode = computed(() => {
-  return shiki.codeToHtml(inlineCodeExample, {
-    lang: "vue",
-    theme: websiteShikiTheme.name,
-  });
-});
-
-const highlightedWrapCode = computed(() => {
-  return shiki.codeToHtml(wrapCodeExample, {
-    lang: "vue",
-    theme: websiteShikiTheme.name,
-  });
-});
+const highlightedLineCode = computed(() => highlightCode(lineCodeExample, "vue"));
+const highlightedRichCode = computed(() => highlightCode(richCodeExample, "vue"));
+const highlightedInlineCode = computed(() => highlightCode(inlineCodeExample, "vue"));
+const highlightedWrapCode = computed(() => highlightCode(wrapCodeExample, "vue"));
 </script>
 
 <template>
@@ -1337,7 +1313,7 @@ const highlightedWrapCode = computed(() => {
                         >
                           <template #after="{ toggle, expanded, clamped }">
                             <button v-if="expanded || clamped" class="toggle-btn" @click="toggle">
-                              {{ lineToggleLabel(expanded, rtl1) }}
+                              {{ toggleLabel(expanded, rtl1) }}
                             </button>
                           </template>
                         </LineClamp>
@@ -1550,7 +1526,7 @@ const highlightedWrapCode = computed(() => {
                         >
                           <template #after="{ toggle, expanded, clamped }">
                             <button v-if="expanded || clamped" class="toggle-btn" @click="toggle">
-                              {{ lineToggleLabel(expanded, rtl4) }}
+                              {{ toggleLabel(expanded, rtl4) }}
                             </button>
                           </template>
                         </LineClamp>
@@ -1972,7 +1948,7 @@ const highlightedWrapCode = computed(() => {
                             type="button"
                             @click="toggle"
                           >
-                            {{ wrapToggleLabel(expanded, wrapRtl7) }}
+                            {{ toggleLabel(expanded, wrapRtl7) }}
                           </button>
                         </template>
                       </WrapClamp>

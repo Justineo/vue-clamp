@@ -78,26 +78,32 @@
   - `LineClamp` for text
   - `RichLineClamp` for trusted inline rich text
 - The remaining nontrivial helper modules for multiline clamping are:
+  - `packages/vue-clamp/src/multiline.ts` for the small shared multiline shell:
+    expanded/clamped state, exposed actions, queued recomputes, `ResizeObserver`, font-load
+    invalidation, and same-flush `onUpdated` invalidation
   - `packages/vue-clamp/src/text.ts` for grapheme splitting, kept-count text generation, text
     clamp search, location normalization, and native one-line eligibility helpers
   - `packages/vue-clamp/src/rich.ts` for rich-text parsing, runtime inline-flow classification,
     logical-run preprocessing, boundary slicing, and rich clamp search
-  - `packages/vue-clamp/src/layout.ts` for the tiny shared primitives that are still worth
-    centralizing: line-limit normalization, CSS length normalization, combined size signatures,
-    font-load invalidation hooks, fit checks, and the queued async recompute helper
+  - `packages/vue-clamp/src/layout.ts` for the remaining shared primitives worth centralizing:
+    line-limit normalization, CSS length normalization, combined size signatures, and fit checks
 - `packages/vue-clamp/src/LineClamp.ts` now owns only text behavior:
-  - reactive `visibleText`, `expanded`, and `isClamped`
+  - reactive `visibleText`
   - text preparation and native one-line fast path dispatch
   - text accessibility handling for rewritten visible output
 - `packages/vue-clamp/src/RichLineClamp.ts` now owns only rich-html behavior:
-  - reactive `visibleHtml`, `expanded`, and `isClamped`
+  - reactive `visibleHtml` and rich fallback state
   - minimal runtime layout classification for rich descendants
   - image-driven reclamping for inline rich content
 - Shared code stays in small helpers instead of a large base shell.
-- The multiline text and rich components intentionally still do not use a shared internal shell:
-  - their invalidation and exposed-state structure is similar
-  - but a shared shell would introduce a larger coordination API than this repo currently wants
-  - this rebuild prefers tiny shared helpers over one more abstract internal runtime layer
+- `LineClamp` and `RichLineClamp` now share one narrow internal shell helper rather than
+  duplicating the same lifecycle shell:
+  - root/content/body/before/after refs
+  - controlled `expanded` syncing and `clamped` emission
+  - queued recomputes
+  - resize/font invalidation
+  - same-flush `onUpdated` invalidation
+  - the actual clamp logic still stays local to each component
 - `InlineClamp` is much narrower:
   - one root inline-flex container
   - optional fixed `start` and `end` segments
@@ -196,8 +202,8 @@
   - item source changes
   - relevant prop changes
   - font readiness events when available
-- `LineClamp`, `RichLineClamp`, and `WrapClamp` now all use the same tiny queued-task helper for
-  recompute coalescing instead of each carrying a private loop implementation.
+- `LineClamp` and `RichLineClamp` share recompute coalescing through `multiline.ts`; `WrapClamp`
+  still uses the same queued-task helper directly.
 - `WrapClamp` still deduplicates observer-driven work against the last settled observed-geometry
   signature.
 - `LineClamp`, `RichLineClamp`, and `WrapClamp` now treat `ResizeObserver` as part of the required browser baseline instead of carrying runtime existence fallbacks.
@@ -234,9 +240,10 @@
 - `RichLineClamp` accepts trusted or already-sanitized inline HTML through `html`.
 - The implementation favors browser truth over a mathematically modeled layout engine.
 - File layout now follows the domain boundaries directly:
+  - shared multiline shell behavior lives in `multiline.ts`
   - text behavior lives in `text.ts`
   - rich behavior lives in `rich.ts`
-  - only a tiny set of shared primitives remain in `layout.ts`
+  - shared low-level layout primitives remain in `layout.ts`
 - Internal clamp helpers now return the next rendered text/html directly where possible, and the
   components derive `clamped` state themselves instead of routing that through extra wrapper
   objects.
@@ -253,9 +260,9 @@
   - inline formatting contexts such as `inline-block` are treated atomically during search
   - fallback is reserved for rendered layout that exits inline flow or otherwise breaks the clamp
     model
-- A small amount of duplicated logic inside the component is preferred over splitting one runtime path across many files.
-- For multiline rich support specifically, small duplication across `LineClamp` and
-  `RichLineClamp` is preferred over keeping one large polymorphic shared shell.
+- A small amount of duplicated logic inside the component is still preferred over a large internal
+  base runtime, but the repeated multiline shell is now shared because that abstraction
+  stayed narrow and direct.
 - `WrapClamp` stays data-driven with `items`; arbitrary child-vnode introspection is intentionally out of scope for v1.
 - `WrapClamp` follows live DOM measurement for every clamp mode.
 - `maxLines="1"` is still the lightest case, but there is no separate predictive one-line engine.

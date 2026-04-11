@@ -28,28 +28,27 @@ const horizontalOverlayScrollbars = horizontalOverlayScrollbarsOptions;
 const copyState = ref<CopyState>("idle");
 let resetTimer: number | undefined;
 
-const buttonLabel = computed(() => {
-  if (copyState.value === "copied") {
-    return "Copied";
+const buttonText = computed(() => {
+  const { label } = props;
+  const normalizedLabel = label.toLowerCase();
+
+  switch (copyState.value) {
+    case "copied":
+      return {
+        label: "Copied",
+        title: `${label} copied`,
+      };
+    case "failed":
+      return {
+        label: "Failed",
+        title: `Unable to copy ${normalizedLabel}`,
+      };
+    default:
+      return {
+        label: "Copy",
+        title: `Copy ${normalizedLabel}`,
+      };
   }
-
-  if (copyState.value === "failed") {
-    return "Failed";
-  }
-
-  return "Copy";
-});
-
-const buttonTitle = computed(() => {
-  if (copyState.value === "copied") {
-    return `${props.label} copied`;
-  }
-
-  if (copyState.value === "failed") {
-    return `Unable to copy ${props.label.toLowerCase()}`;
-  }
-
-  return `Copy ${props.label.toLowerCase()}`;
 });
 
 function scheduleReset(): void {
@@ -80,10 +79,12 @@ function copyWithFallback(text: string): boolean {
 }
 
 async function copyCode(): Promise<void> {
+  const { code } = props;
+
   try {
     if (navigator.clipboard?.writeText) {
-      await navigator.clipboard.writeText(props.code);
-    } else if (!copyWithFallback(props.code)) {
+      await navigator.clipboard.writeText(code);
+    } else if (!copyWithFallback(code)) {
       throw new Error("copy failed");
     }
 
@@ -109,14 +110,14 @@ onBeforeUnmount(() => {
       type="button"
       :data-copy-button="blockId ?? 'code'"
       :data-copy-state="copyState"
-      :aria-label="buttonTitle"
-      :title="buttonTitle"
+      :aria-label="buttonText.title"
+      :title="buttonText.title"
       @click="copyCode"
     >
       <Copy v-if="copyState === 'idle'" class="copy-icon" :size="14" aria-hidden="true" />
       <Check v-else-if="copyState === 'copied'" class="copy-icon" :size="14" aria-hidden="true" />
       <X v-else class="copy-icon" :size="14" aria-hidden="true" />
-      <span class="sr-only">{{ buttonLabel }}</span>
+      <span class="sr-only">{{ buttonText.label }}</span>
     </button>
     <div v-overlay-scrollbars="horizontalOverlayScrollbars" class="code-scroll" data-code-scroll>
       <div v-if="html" class="shiki-wrap" v-html="html" />
