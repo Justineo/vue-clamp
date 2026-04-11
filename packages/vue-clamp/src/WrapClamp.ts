@@ -32,21 +32,21 @@ type SequenceMeasurement = {
   visibleItems: number;
 };
 
-const wrapItemStyle: CSSProperties = {
+const itemStyle: CSSProperties = {
   display: "inline-flex",
   maxWidth: "100%",
   verticalAlign: "baseline",
   whiteSpace: "nowrap",
 };
 
-const wrapContentStyle: CSSProperties = {
+const contentStyle: CSSProperties = {
   display: "inline-flex",
   flexWrap: "wrap",
   maxWidth: "100%",
   width: "100%",
 };
 
-const wrapClampProps = {
+const propsDef = {
   as: {
     type: String,
     default: "div",
@@ -64,7 +64,7 @@ const wrapClampProps = {
   },
 } as const;
 
-const wrapClampEmits = {
+const emitsDef = {
   "update:expanded": (value: boolean) => typeof value === "boolean",
   clampchange: (value: boolean) => typeof value === "boolean",
 };
@@ -106,34 +106,12 @@ function defaultItemText(item: unknown): string {
   return typeof serialized === "string" ? serialized : "";
 }
 
-function contentElement(rootElement: HTMLElement | null): HTMLElement | null {
-  const content = rootElement?.firstElementChild;
-  return content instanceof HTMLElement ? content : null;
-}
-
-function slotElement(
-  contentElement: HTMLElement | null,
-  part: "before" | "after",
-): HTMLElement | null {
-  if (!contentElement) {
-    return null;
-  }
-
-  for (const child of contentElement.children) {
-    if (child instanceof HTMLElement && child.dataset.part === part) {
-      return child;
-    }
-  }
-
-  return null;
-}
-
 function measureSequence(
   rootElement: HTMLElement,
+  contentElement: HTMLElement | null,
   lineLimit: number | undefined,
   clipToRootHeight: boolean,
 ): SequenceMeasurement {
-  const content = contentElement(rootElement);
   let visibleTop = 0;
   let visibleBottom = 0;
 
@@ -147,14 +125,14 @@ function measureSequence(
   let previousTop: number | null = null;
   let visibleItems = 0;
 
-  if (!content) {
+  if (!contentElement) {
     return {
       allFit: true,
       visibleItems: 0,
     };
   }
 
-  for (const child of content.children) {
+  for (const child of contentElement.children) {
     if (!(child instanceof HTMLElement)) {
       continue;
     }
@@ -164,14 +142,14 @@ function measureSequence(
       continue;
     }
 
-    const rect = child.getBoundingClientRect();
-    if (rect.width <= 0 || rect.height <= 0) {
+    const { bottom, height, top, width } = child.getBoundingClientRect();
+    if (width <= 0 || height <= 0) {
       continue;
     }
 
-    if (previousTop === null || Math.abs(rect.top - previousTop) > 0.5) {
+    if (previousTop === null || Math.abs(top - previousTop) > 0.5) {
       lineCount += 1;
-      previousTop = rect.top;
+      previousTop = top;
     }
 
     if (lineLimit !== undefined && lineCount > lineLimit) {
@@ -181,7 +159,7 @@ function measureSequence(
       };
     }
 
-    if (clipToRootHeight && (rect.top < visibleTop - 0.5 || rect.bottom > visibleBottom + 0.5)) {
+    if (clipToRootHeight && (top < visibleTop - 0.5 || bottom > visibleBottom + 0.5)) {
       return {
         allFit: false,
         visibleItems,
@@ -202,12 +180,16 @@ function measureSequence(
 export const WrapClamp = defineComponent({
   name: "WrapClamp",
   inheritAttrs: false,
-  props: wrapClampProps,
-  emits: wrapClampEmits,
+  props: propsDef,
+  emits: emitsDef,
   setup(props, { attrs, emit, expose, slots }) {
+    const { expanded: expandedProp, items: initialItems } = props;
     const rootRef = ref<HTMLElement | null>(null);
-    const expanded = ref(props.expanded);
-    const visibleCount = ref(props.items.length);
+    const contentRef = ref<HTMLElement | null>(null);
+    const beforeRef = ref<HTMLElement | null>(null);
+    const afterRef = ref<HTMLElement | null>(null);
+    const expanded = ref(expandedProp);
+    const visibleCount = ref(initialItems.length);
     const isClamped = ref(false);
 
     let resizeObserver: ResizeObserver | null = null;
@@ -227,8 +209,10 @@ export const WrapClamp = defineComponent({
     }
 
     async function applyVisibleCount(nextVisibleCount: number): Promise<void> {
-      const normalizedVisibleCount = Math.max(0, Math.min(props.items.length, nextVisibleCount));
-      const nextClamped = normalizedVisibleCount < props.items.length;
+      const { items } = props;
+      const totalItems = items.length;
+      const normalizedVisibleCount = Math.max(0, Math.min(totalItems, nextVisibleCount));
+      const nextClamped = normalizedVisibleCount < totalItems;
       const changed =
         visibleCount.value !== normalizedVisibleCount || isClamped.value !== nextClamped;
 
@@ -241,24 +225,23 @@ export const WrapClamp = defineComponent({
     }
 
     function layoutSignature(): string {
-      const content = contentElement(rootRef.value);
-
       return combinedSizeSignature(
         rootRef.value,
-        content,
-        slotElement(content, "before"),
-        slotElement(content, "after"),
+        contentRef.value,
+        beforeRef.value,
+        afterRef.value,
       );
     }
 
     function slotPropsForCount(nextVisibleCount: number): WrapClampSlotProps {
-      const hiddenItems = props.items.slice(nextVisibleCount);
+      const items = props.items;
+      const hiddenItems = items.slice(nextVisibleCount);
 
       return {
         expand,
         collapse,
         toggle,
-        clamped: nextVisibleCount < props.items.length,
+        clamped: nextVisibleCount < items.length,
         expanded: expanded.value,
         hiddenItems,
       };
@@ -269,24 +252,26 @@ export const WrapClamp = defineComponent({
       lineLimit: number | undefined,
       clipToRootHeight: boolean,
     ): Promise<void> {
-      let measurement = measureSequence(rootElement, lineLimit, clipToRootHeight);
+      const { items } = props;
+      const totalItems = items.length;
+      let measurement = measureSequence(rootElement, contentRef.value, lineLimit, clipToRootHeight);
 
       while (
         visibleCount.value > 0 &&
         (!measurement.allFit || measurement.visibleItems < visibleCount.value)
       ) {
         await applyVisibleCount(Math.min(measurement.visibleItems, visibleCount.value - 1));
-        measurement = measureSequence(rootElement, lineLimit, clipToRootHeight);
+        measurement = measureSequence(rootElement, contentRef.value, lineLimit, clipToRootHeight);
       }
 
       while (
         measurement.allFit &&
         measurement.visibleItems === visibleCount.value &&
-        visibleCount.value < props.items.length
+        visibleCount.value < totalItems
       ) {
         const currentVisibleCount = visibleCount.value;
         await applyVisibleCount(currentVisibleCount + 1);
-        measurement = measureSequence(rootElement, lineLimit, clipToRootHeight);
+        measurement = measureSequence(rootElement, contentRef.value, lineLimit, clipToRootHeight);
 
         if (!measurement.allFit || measurement.visibleItems < currentVisibleCount + 1) {
           await applyVisibleCount(currentVisibleCount);
@@ -296,9 +281,10 @@ export const WrapClamp = defineComponent({
     }
 
     async function recompute(): Promise<void> {
-      const totalItems = props.items.length;
-      const lineLimit = normalizeLineLimit(props.maxLines);
-      const clipToRootHeight = props.maxHeight !== undefined;
+      const { items, maxHeight, maxLines } = props;
+      const totalItems = items.length;
+      const lineLimit = normalizeLineLimit(maxLines);
+      const clipToRootHeight = maxHeight !== undefined;
       const hasLimit = lineLimit !== undefined || clipToRootHeight;
 
       if (expanded.value || totalItems === 0 || !hasLimit) {
@@ -363,13 +349,9 @@ export const WrapClamp = defineComponent({
         }
       });
 
-      const content = contentElement(rootRef.value);
-      const observed = [
-        rootRef.value,
-        content,
-        slotElement(content, "before"),
-        slotElement(content, "after"),
-      ].filter((element): element is HTMLElement => element instanceof HTMLElement);
+      const observed = [rootRef.value, contentRef.value, beforeRef.value, afterRef.value].filter(
+        (element): element is HTMLElement => element instanceof HTMLElement,
+      );
 
       for (const element of observed) {
         resizeObserver.observe(element);
@@ -405,20 +387,30 @@ export const WrapClamp = defineComponent({
     } satisfies WrapClampExposed);
 
     return () => {
-      const collapsedMaxHeight = !expanded.value ? cssLength(props.maxHeight) : undefined;
-
-      const renderedVisibleCount = Math.min(visibleCount.value, props.items.length);
+      const { as, itemKey, items, maxHeight } = props;
+      const collapsedMaxHeight = !expanded.value ? cssLength(maxHeight) : undefined;
+      const renderedVisibleCount = Math.min(visibleCount.value, items.length);
       const slotProps = slotPropsForCount(renderedVisibleCount);
       const beforeSlot = slots.before?.(slotProps);
       const afterSlot = slots.after?.(slotProps);
       const children: VNodeChild[] = [];
 
       if (hasSlotContent(beforeSlot)) {
-        children.push(h("span", { "data-part": "before", style: wrapItemStyle }, beforeSlot));
+        children.push(
+          h(
+            "span",
+            {
+              "data-part": "before",
+              ref: beforeRef,
+              style: itemStyle,
+            },
+            beforeSlot,
+          ),
+        );
       }
 
       for (let index = 0; index < renderedVisibleCount; index += 1) {
-        const item = props.items[index];
+        const item = items[index];
         const itemSlotProps: WrapClampItemSlotProps = {
           item,
           index,
@@ -429,8 +421,8 @@ export const WrapClamp = defineComponent({
             "span",
             {
               "data-part": "item",
-              key: resolveItemKey(props.itemKey, item, index),
-              style: wrapItemStyle,
+              key: resolveItemKey(itemKey, item, index),
+              style: itemStyle,
             },
             slots.item?.(itemSlotProps) ?? defaultItemText(item),
           ),
@@ -438,11 +430,21 @@ export const WrapClamp = defineComponent({
       }
 
       if (hasSlotContent(afterSlot)) {
-        children.push(h("span", { "data-part": "after", style: wrapItemStyle }, afterSlot));
+        children.push(
+          h(
+            "span",
+            {
+              "data-part": "after",
+              ref: afterRef,
+              style: itemStyle,
+            },
+            afterSlot,
+          ),
+        );
       }
 
       return h(
-        props.as,
+        as,
         mergeProps(attrs, {
           "data-part": "root",
           ref: rootRef,
@@ -455,7 +457,8 @@ export const WrapClamp = defineComponent({
           "span",
           {
             "data-part": "content",
-            style: wrapContentStyle,
+            ref: contentRef,
+            style: contentStyle,
           },
           children,
         ),

@@ -35,27 +35,20 @@ function syncOverflowState(): void {
     return;
   }
 
-  const hasOverflow = element.scrollWidth > element.clientWidth + 1;
-  canScrollStart.value = hasOverflow && element.scrollLeft > 1;
-  canScrollEnd.value =
-    hasOverflow && element.scrollLeft + element.clientWidth < element.scrollWidth - 1;
+  const { clientWidth, scrollLeft, scrollWidth } = element;
+  const hasOverflow = scrollWidth > clientWidth + 1;
+  canScrollStart.value = hasOverflow && scrollLeft > 1;
+  canScrollEnd.value = hasOverflow && scrollLeft + clientWidth < scrollWidth - 1;
 }
 
-watch(
-  () => props.modelValue,
-  () => {
-    void nextTick().then(syncOverflowState);
-  },
-  { flush: "post" },
-);
+function queueOverflowSync(): void {
+  void nextTick().then(syncOverflowState);
+}
 
-watch(
-  () => props.options,
-  () => {
-    void nextTick().then(syncOverflowState);
-  },
-  { deep: true, flush: "post" },
-);
+watch([() => props.modelValue, () => props.options], queueOverflowSync, {
+  deep: true,
+  flush: "post",
+});
 
 onMounted(() => {
   const element = scrollRef.value;

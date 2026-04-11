@@ -32,7 +32,7 @@ const preservedSpaceStyle: CSSProperties = {
 
 const boundarySpacePattern = /^( *)([\s\S]*?)( *)$/;
 
-const inlineClampProps = {
+const propsDef = {
   as: {
     type: String,
     default: "span",
@@ -111,13 +111,14 @@ function renderSegment(name: "start" | "body" | "end", text: string, style: CSSP
 export const InlineClamp = defineComponent({
   name: "InlineClamp",
   inheritAttrs: false,
-  props: inlineClampProps,
+  props: propsDef,
   setup(props, { attrs }) {
     return () => {
-      const parts = resolveParts(props.text, props.split);
+      const { as, split, text } = props;
+      const parts = resolveParts(text, split);
 
       return h(
-        props.as,
+        as,
         mergeProps(attrs, {
           "data-part": "root",
           style: inlineRootStyle,

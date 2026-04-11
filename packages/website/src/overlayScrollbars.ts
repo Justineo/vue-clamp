@@ -73,8 +73,7 @@ export function destroyOverlayScrollbars(element: HTMLElement): void {
 }
 
 export function initBodyOverlayScrollbars(): () => void {
-  const html = document.documentElement;
-  const body = document.body;
+  const { body, documentElement: html } = document;
 
   html.setAttribute("data-overlayscrollbars-initialize", "");
   body.setAttribute("data-overlayscrollbars-initialize", "");
@@ -103,8 +102,9 @@ export const overlayScrollbarsDirective: ObjectDirective<HTMLElement, PartialOpt
       initOverlayScrollbars(element, binding.value);
     },
     updated(element, binding) {
-      if (binding.value !== binding.oldValue) {
-        initOverlayScrollbars(element, binding.value);
+      const { oldValue, value } = binding;
+      if (value !== oldValue) {
+        initOverlayScrollbars(element, value);
       }
     },
     unmounted(element) {

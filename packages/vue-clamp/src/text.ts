@@ -46,12 +46,11 @@ export function prepareText(text: string): PreparedText {
 
 export function splitGraphemes(text: string): string[] {
   const prepared = prepareText(text);
+  const { boundaryOffsets } = prepared;
   const graphemes: string[] = [];
 
-  for (let index = 1; index < prepared.boundaryOffsets.length; index += 1) {
-    graphemes.push(
-      text.slice(prepared.boundaryOffsets[index - 1], prepared.boundaryOffsets[index]),
-    );
+  for (let index = 1; index < boundaryOffsets.length; index += 1) {
+    graphemes.push(text.slice(boundaryOffsets[index - 1], boundaryOffsets[index]));
   }
 
   return graphemes;
@@ -63,25 +62,26 @@ export function displayTextForKeptCount(
   ellipsis: string,
   kept: number,
 ): string {
-  const graphemeCount = prepared.boundaryOffsets.length - 1;
+  const { boundaryOffsets, text } = prepared;
+  const graphemeCount = boundaryOffsets.length - 1;
 
   if (kept >= graphemeCount) {
-    return prepared.text;
+    return text;
   }
 
   const prefix = Math.floor(kept * ratio);
   const suffix = kept - prefix;
 
   if (prefix <= 0) {
-    return `${ellipsis}${prepared.text.slice(prepared.boundaryOffsets[graphemeCount - suffix]).trim()}`;
+    return `${ellipsis}${text.slice(boundaryOffsets[graphemeCount - suffix]).trim()}`;
   }
 
   if (suffix <= 0) {
-    return `${prepared.text.slice(0, prepared.boundaryOffsets[prefix]).trim()}${ellipsis}`;
+    return `${text.slice(0, boundaryOffsets[prefix]).trim()}${ellipsis}`;
   }
 
-  return `${prepared.text.slice(0, prepared.boundaryOffsets[prefix]).trim()}${ellipsis}${prepared.text
-    .slice(prepared.boundaryOffsets[graphemeCount - suffix])
+  return `${text.slice(0, boundaryOffsets[prefix]).trim()}${ellipsis}${text
+    .slice(boundaryOffsets[graphemeCount - suffix])
     .trim()}`;
 }
 
@@ -137,7 +137,8 @@ export function clampTextToLayout(
     return null;
   }
 
-  const graphemeCount = preparedText.boundaryOffsets.length - 1;
+  const { boundaryOffsets, text } = preparedText;
+  const graphemeCount = boundaryOffsets.length - 1;
   let currentText = textElement.textContent ?? "";
 
   function applyKept(kept: number): string {
@@ -169,10 +170,10 @@ export function clampTextToLayout(
   }
 
   if (
-    applyKept(graphemeCount) === preparedText.text &&
+    applyKept(graphemeCount) === text &&
     fitsContent(rootElement, contentElement, lineLimit, maxHeight)
   ) {
-    return preparedText.text;
+    return text;
   }
 
   const best = search(0, graphemeCount - 1, 0);
