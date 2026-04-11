@@ -6,34 +6,34 @@ export function normalizeLineLimit(maxLines: number | undefined): number | undef
   return Math.max(1, Math.floor(maxLines));
 }
 
-export function createQueuedTask(task: () => Promise<void>): () => void {
-  let pending = false;
+export function createCoalescingRunner(task: () => Promise<void>): () => void {
+  let scheduled = false;
   let running = false;
 
-  function run(): void {
-    pending = true;
-    if (running) {
-      return;
-    }
-
+  async function flush(): Promise<void> {
     running = true;
-    void (async () => {
-      try {
-        while (pending) {
-          pending = false;
-          await task();
-        }
-      } finally {
-        running = false;
 
-        if (pending) {
-          run();
-        }
+    try {
+      while (scheduled) {
+        scheduled = false;
+        await task();
       }
-    })();
+    } finally {
+      running = false;
+
+      if (scheduled) {
+        void flush();
+      }
+    }
   }
 
-  return run;
+  return () => {
+    scheduled = true;
+
+    if (!running) {
+      void flush();
+    }
+  };
 }
 
 export function cssLength(value: number | string | undefined): string | number | undefined {

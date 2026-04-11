@@ -11,7 +11,7 @@ import {
 } from "vue";
 import {
   combinedSizeSignature,
-  createQueuedTask,
+  createCoalescingRunner,
   cssLength,
   listenForFontLoads,
   normalizeLineLimit,
@@ -302,10 +302,12 @@ export const WrapClamp = defineComponent({
       await settleVisibleCount(rootElement, lineLimit, clipToRootHeight);
     }
 
-    const queueRecompute = createQueuedTask(async () => {
+    async function syncLatestState(): Promise<void> {
       await recompute();
       lastLayoutSignature = layoutSignature();
-    });
+    }
+
+    const requestRecompute = createCoalescingRunner(syncLatestState);
 
     watch(
       () => props.expanded,
@@ -321,7 +323,7 @@ export const WrapClamp = defineComponent({
           emit("update:expanded", value);
         }
 
-        queueRecompute();
+        requestRecompute();
       },
       { flush: "post" },
     );
@@ -329,7 +331,7 @@ export const WrapClamp = defineComponent({
     watch(
       [() => props.maxLines, () => props.maxHeight, () => props.itemKey, () => props.items],
       () => {
-        queueRecompute();
+        requestRecompute();
       },
       { deep: true, flush: "post" },
     );
@@ -345,7 +347,7 @@ export const WrapClamp = defineComponent({
     watchPostEffect((onCleanup) => {
       resizeObserver ??= new ResizeObserver(() => {
         if (layoutSignature() !== lastLayoutSignature) {
-          queueRecompute();
+          requestRecompute();
         }
       });
 
@@ -365,8 +367,8 @@ export const WrapClamp = defineComponent({
     });
 
     onMounted(() => {
-      queueRecompute();
-      stopFonts = listenForFontLoads(queueRecompute);
+      requestRecompute();
+      stopFonts = listenForFontLoads(requestRecompute);
     });
 
     onBeforeUnmount(() => {
