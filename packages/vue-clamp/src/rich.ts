@@ -522,18 +522,18 @@ export function clampRichTextToLayout(
 
   applySourceHtml(html);
 
-  if (fitsContent(rootElement, contentElement, lineLimit, maxHeight)) {
-    return {
-      html,
-      fallback: false,
-    };
-  }
-
   const atomicPaths = inspectLayout(richElement);
   if (!atomicPaths) {
     return {
       html,
       fallback: true,
+    };
+  }
+
+  if (fitsContent(rootElement, contentElement, lineLimit, maxHeight)) {
+    return {
+      html,
+      fallback: false,
     };
   }
 
