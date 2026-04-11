@@ -143,7 +143,7 @@ export const LineClamp = defineComponent({
       expand,
       collapse,
       toggle,
-      queueRecompute,
+      requestRecompute,
     } = useMultilineClamp({
       getExpanded: () => props.expanded,
       onExpandedChange: (value) => {
@@ -204,7 +204,7 @@ export const LineClamp = defineComponent({
       ],
       () => {
         visibleText.value = props.text;
-        queueRecompute();
+        requestRecompute();
       },
       { flush: "post" },
     );

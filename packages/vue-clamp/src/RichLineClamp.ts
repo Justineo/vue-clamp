@@ -98,7 +98,7 @@ export const RichLineClamp = defineComponent({
       expand,
       collapse,
       toggle,
-      queueRecompute,
+      requestRecompute,
     } = useMultilineClamp({
       getExpanded: () => props.expanded,
       onExpandedChange: (value) => {
@@ -148,7 +148,7 @@ export const RichLineClamp = defineComponent({
       () => {
         visibleHtml.value = props.html;
         isFallback.value = false;
-        queueRecompute();
+        requestRecompute();
       },
       { flush: "post" },
     );
@@ -164,7 +164,7 @@ export const RichLineClamp = defineComponent({
       );
 
       function handleImageChange(): void {
-        queueRecompute();
+        requestRecompute();
       }
 
       for (const image of images) {

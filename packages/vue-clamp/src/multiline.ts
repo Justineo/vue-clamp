@@ -1,5 +1,5 @@
 import { onBeforeUnmount, onMounted, onUpdated, ref, watch, watchPostEffect } from "vue";
-import { combinedSizeSignature, createQueuedTask, listenForFontLoads } from "./layout.ts";
+import { combinedSizeSignature, createCoalescingRunner, listenForFontLoads } from "./layout.ts";
 
 import type { Ref } from "vue";
 
@@ -71,10 +71,12 @@ export function useMultilineClamp(options: ClampShellOptions) {
     );
   }
 
-  const queueRecompute = createQueuedTask(async () => {
+  async function syncLatestState(): Promise<void> {
     await recompute(state);
     lastLayoutSignature = layoutSignature();
-  });
+  }
+
+  const requestRecompute = createCoalescingRunner(syncLatestState);
 
   watch(
     () => getExpanded(),
@@ -90,7 +92,7 @@ export function useMultilineClamp(options: ClampShellOptions) {
         onExpandedChange(value);
       }
 
-      queueRecompute();
+      requestRecompute();
     },
     { flush: "post" },
   );
@@ -106,7 +108,7 @@ export function useMultilineClamp(options: ClampShellOptions) {
   watchPostEffect((onCleanup) => {
     resizeObserver ??= new ResizeObserver(() => {
       if (layoutSignature() !== lastLayoutSignature) {
-        queueRecompute();
+        requestRecompute();
       }
     });
 
@@ -124,13 +126,13 @@ export function useMultilineClamp(options: ClampShellOptions) {
   });
 
   onMounted(() => {
-    queueRecompute();
-    stopFonts = listenForFontLoads(queueRecompute);
+    requestRecompute();
+    stopFonts = listenForFontLoads(requestRecompute);
   });
 
   onUpdated(() => {
     if (layoutSignature() !== lastLayoutSignature) {
-      queueRecompute();
+      requestRecompute();
     }
   });
 
@@ -144,6 +146,6 @@ export function useMultilineClamp(options: ClampShellOptions) {
     expand,
     collapse,
     toggle,
-    queueRecompute,
+    requestRecompute,
   };
 }
