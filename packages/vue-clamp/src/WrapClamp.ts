@@ -233,20 +233,6 @@ export const WrapClamp = defineComponent({
       );
     }
 
-    function slotPropsForCount(nextVisibleCount: number): WrapClampSlotProps {
-      const items = props.items;
-      const hiddenItems = items.slice(nextVisibleCount);
-
-      return {
-        expand,
-        collapse,
-        toggle,
-        clamped: nextVisibleCount < items.length,
-        expanded: expanded.value,
-        hiddenItems,
-      };
-    }
-
     async function settleVisibleCount(
       rootElement: HTMLElement,
       lineLimit: number | undefined,
@@ -302,12 +288,10 @@ export const WrapClamp = defineComponent({
       await settleVisibleCount(rootElement, lineLimit, clipToRootHeight);
     }
 
-    async function syncLatestState(): Promise<void> {
+    const requestRecompute = createCoalescingRunner(async () => {
       await recompute();
       lastLayoutSignature = layoutSignature();
-    }
-
-    const requestRecompute = createCoalescingRunner(syncLatestState);
+    });
 
     watch(
       () => props.expanded,
@@ -392,7 +376,14 @@ export const WrapClamp = defineComponent({
       const { as, itemKey, items, maxHeight } = props;
       const collapsedMaxHeight = !expanded.value ? cssLength(maxHeight) : undefined;
       const renderedVisibleCount = Math.min(visibleCount.value, items.length);
-      const slotProps = slotPropsForCount(renderedVisibleCount);
+      const slotProps: WrapClampSlotProps = {
+        expand,
+        collapse,
+        toggle,
+        clamped: renderedVisibleCount < items.length,
+        expanded: expanded.value,
+        hiddenItems: items.slice(renderedVisibleCount),
+      };
       const beforeSlot = slots.before?.(slotProps);
       const afterSlot = slots.after?.(slotProps);
       const children: VNodeChild[] = [];

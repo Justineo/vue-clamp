@@ -68,7 +68,7 @@ export function fitsContent(
   lineLimit: number | undefined,
   maxHeight: number | string | undefined,
 ): boolean {
-  const rects = Array.from(contentElement.getClientRects()).filter((rect) => rect.height > 0);
+  const rects = [...contentElement.getClientRects()].filter((rect) => rect.height > 0);
 
   if (maxHeight !== undefined && rects.length > 0) {
     const currentRootRect = rootElement.getBoundingClientRect();

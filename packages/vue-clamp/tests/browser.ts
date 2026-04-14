@@ -104,7 +104,7 @@ export function bodyElement(root: HTMLElement): HTMLElement {
 }
 
 function textContainerChildren(root: HTMLElement): HTMLElement[] {
-  return Array.from(bodyElement(root).children).filter(
+  return [...bodyElement(root).children].filter(
     (child): child is HTMLElement => child instanceof HTMLElement,
   );
 }
@@ -151,12 +151,12 @@ function countLines(root: HTMLElement, clipToRoot: boolean): number {
   const rootRect = root.getBoundingClientRect();
   const lines: Array<{ top: number; bottom: number }> = [];
 
-  for (const child of Array.from(contentElement(root).children)) {
+  for (const child of contentElement(root).children) {
     if (!(child instanceof HTMLElement)) {
       continue;
     }
 
-    for (const rect of Array.from(child.getClientRects())) {
+    for (const rect of child.getClientRects()) {
       if (rect.width <= 0 || rect.height <= 0) {
         continue;
       }

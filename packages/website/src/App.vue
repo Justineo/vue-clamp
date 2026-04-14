@@ -42,24 +42,27 @@ const mixedLanguageText =
   "Design systems move fast: ship once, then verify the same preview with English, 中文标签, العربية, and locale-aware tokens like /docs/getting-started before you freeze the layout.";
 const emojiText =
   "Status update ✨ Ship notes are ready, screenshots are approved, and the launch checklist is almost done 🚀 Add a few longer phrases with emoji reactions 😄📦🧪 to see how the clamp behaves.";
+const richDemoIconSrc = "/rich-demo-icon.svg";
+
+function richIconImage(src: string): string {
+  return `<img alt="" src="${src}" style="width:14px;height:14px;vertical-align:-2px" />`;
+}
+
 const richHtmlPresets = [
   {
     id: "release",
     label: "Release note",
-    value:
-      'Heads up: <strong>Friday release 2.4.0</strong> moves to <time datetime="2026-04-11T09:30">09:30</time>. Review the <a href="#components">migration note</a>, keep the <code>RichLineClamp</code> fallback banner, and confirm the <mark>billing export</mark> patch before the preview freeze. <span class="rich-chip rich-chip--accent">Blocking</span> <span class="rich-chip">Docs</span> <svg aria-hidden="true" width="12" height="12" viewBox="0 0 12 12" fill="none" style="vertical-align:-1px"><circle cx="6" cy="6" r="5" fill="#2656b9"></circle><path d="M3.5 6h5" stroke="white" stroke-linecap="round"></path></svg>',
+    value: `Heads up: ${richIconImage(richDemoIconSrc)} <strong>Friday release 2.4.0</strong> moves to <time datetime="2026-04-11T09:30">09:30</time>. Review the <a href="#components">migration note</a>, keep the <code>RichLineClamp</code> fallback banner, and confirm the <mark>billing export</mark> patch before the preview freeze. <span class="rich-chip rich-chip--accent">Blocking</span> <span class="rich-chip">Docs</span> ${richIconImage(richDemoIconSrc)}`,
   },
   {
     id: "editorial",
     label: "Article excerpt",
-    value:
-      'Feature essay · <small class="rich-meta"><time datetime="2026-04-08">Apr 8, 2026</time> · By <a href="#components">Interface <strong>Systems</strong> Desk</a></small><br>The latest review argues that <a href="#components">the refreshed <strong>component tabs</strong> should scroll on narrow screens</a> instead of squeezing every label into one row. It keeps <em>editorial emphasis</em>, the inline badge <span class="rich-chip rich-chip--quiet">analysis</span>, and an <inline-note>editor&rsquo;s note on the <a href="#components">same <strong>read-more</strong> affordance</a></inline-note> so the excerpt still feels like a styled article.',
+    value: `Feature essay ${richIconImage(richDemoIconSrc)} · <small class="rich-meta"><time datetime="2026-04-08">Apr 8, 2026</time> · By <a href="#components">Interface <strong>Systems</strong> Desk</a></small><br>The latest review argues that <a href="#components">the refreshed <strong>component tabs</strong> should scroll on narrow screens</a> instead of squeezing every label into one row. It keeps <em>editorial emphasis</em>, the inline badge <span class="rich-chip rich-chip--quiet">analysis</span>, and an <inline-note>editor&rsquo;s note ${richIconImage(richDemoIconSrc)} on the <a href="#components">same <strong>read-more</strong> affordance</a></inline-note> so the excerpt still feels like a styled article.`,
   },
   {
     id: "incident",
     label: "Incident brief",
-    value:
-      'Incident brief <strong>#4721</strong>: API latency spiked after <code>release/2.4.0</code>. Triage owners are <span class="rich-chip">Platform</span>, <span class="rich-chip rich-chip--warm">Billing</span>, and <span class="rich-chip rich-chip--success">Support</span>. Watch <span class="rich-link-run">status-page<wbr>.acme<wbr>.dev</span> and keep the inline <svg aria-hidden="true" width="12" height="12" viewBox="0 0 12 12" fill="none" style="vertical-align:-1px"><circle cx="6" cy="6" r="5" fill="#0f7b46"></circle><path d="M3.5 6l1.35 1.35L8.5 4.1" stroke="white" stroke-linecap="round" stroke-linejoin="round"></path></svg> health glyph attached to the summary.',
+    value: `Incident brief ${richIconImage(richDemoIconSrc)} <strong>#4721</strong>: API latency spiked after <code>release/2.4.0</code>. Triage owners are <span class="rich-chip">Platform</span>, <span class="rich-chip rich-chip--warm">Billing</span>, and <span class="rich-chip rich-chip--success">Support</span>. Watch <span class="rich-link-run">status-page<wbr>.acme<wbr>.dev</span> and keep the inline ${richIconImage(richDemoIconSrc)} health glyph attached to the summary.`,
   },
 ] as const;
 
