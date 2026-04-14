@@ -4,9 +4,9 @@ import {
   h,
   mergeProps,
   nextTick,
+  onBeforeUnmount,
   ref,
   watch,
-  watchPostEffect,
 } from "vue";
 import { cssLength, normalizeLineLimit } from "./layout.ts";
 import { useMultilineClamp } from "./multiline.ts";
@@ -50,6 +50,11 @@ const emitsDef = {
   clampchange: (value: boolean) => typeof value === "boolean",
 };
 
+function hasStableImageBox(image: HTMLImageElement): boolean {
+  const { height, width } = getComputedStyle(image);
+  return Number.parseFloat(width) > 0 && Number.parseFloat(height) > 0;
+}
+
 export const RichLineClamp = defineComponent({
   name: "RichLineClamp",
   inheritAttrs: false,
@@ -63,6 +68,68 @@ export const RichLineClamp = defineComponent({
     const lineLimit = computed(() => normalizeLineLimit(props.maxLines));
     const hasLimit = computed(() => lineLimit.value !== undefined || props.maxHeight !== undefined);
     const preparedHtml = computed(() => prepareRichText(props.html));
+    let imageAbortController: AbortController | null = null;
+    let pendingImages = new Set<HTMLImageElement>();
+
+    function stopTrackingImages(): void {
+      imageAbortController?.abort();
+      imageAbortController = null;
+      pendingImages.clear();
+    }
+
+    function settleTrackedImage(image: HTMLImageElement): void {
+      if (!pendingImages.delete(image) || pendingImages.size > 0) {
+        return;
+      }
+
+      stopTrackingImages();
+      requestRecompute();
+    }
+
+    function trackCurrentImages(): void {
+      stopTrackingImages();
+
+      const htmlElement = htmlRef.value;
+      if (!htmlElement) {
+        return;
+      }
+
+      const images = [...htmlElement.querySelectorAll("img")].filter(
+        (element): element is HTMLImageElement =>
+          element instanceof HTMLImageElement && !element.complete && !hasStableImageBox(element),
+      );
+      if (images.length === 0) {
+        return;
+      }
+
+      const controller = new AbortController();
+      const { signal } = controller;
+
+      imageAbortController = controller;
+      pendingImages = new Set(images);
+
+      for (const image of images) {
+        const handleImageSettle = (): void => {
+          if (signal.aborted) {
+            return;
+          }
+
+          settleTrackedImage(image);
+        };
+
+        image.addEventListener("load", handleImageSettle, { once: true, signal });
+        image.addEventListener("error", handleImageSettle, { once: true, signal });
+
+        if (image.complete) {
+          settleTrackedImage(image);
+        }
+      }
+    }
+
+    function resetRichState(): Promise<void> {
+      stopTrackingImages();
+      return resetClamp();
+    }
 
     async function applyHtmlState(
       nextHtml: string,
@@ -83,8 +150,8 @@ export const RichLineClamp = defineComponent({
       }
     }
 
-    async function resetClamp(nextFallback = false): Promise<void> {
-      await applyHtmlState(props.html, false, nextFallback);
+    async function resetClamp(): Promise<void> {
+      return applyHtmlState(props.html, false, false);
     }
 
     const {
@@ -110,7 +177,7 @@ export const RichLineClamp = defineComponent({
       recompute: async ({ expanded }): Promise<void> => {
         const { ellipsis, html: sourceHtml, maxHeight } = props;
         if (expanded.value || sourceHtml.length === 0 || !hasLimit.value) {
-          await resetClamp();
+          await resetRichState();
           return;
         }
 
@@ -120,7 +187,7 @@ export const RichLineClamp = defineComponent({
         const prepared = preparedHtml.value;
 
         if (!rootElement || !contentElement || !htmlElement || !prepared) {
-          await resetClamp();
+          await resetRichState();
           return;
         }
 
@@ -135,11 +202,17 @@ export const RichLineClamp = defineComponent({
         );
 
         if (nextState.html === null) {
-          await resetClamp();
+          await resetRichState();
           return;
         }
 
         await applyHtmlState(nextState.html, nextState.html !== prepared.html, nextState.fallback);
+
+        if (nextState.fallback) {
+          stopTrackingImages();
+        } else {
+          trackCurrentImages();
+        }
       },
     });
 
@@ -153,35 +226,8 @@ export const RichLineClamp = defineComponent({
       { flush: "post" },
     );
 
-    watchPostEffect((onCleanup) => {
-      const htmlElement = htmlRef.value;
-      if (!htmlElement) {
-        return;
-      }
-
-      const images = Array.from(htmlElement.querySelectorAll("img")).filter(
-        (element): element is HTMLImageElement => element instanceof HTMLImageElement,
-      );
-
-      function handleImageChange(): void {
-        requestRecompute();
-      }
-
-      for (const image of images) {
-        if (image.complete) {
-          continue;
-        }
-
-        image.addEventListener("load", handleImageChange);
-        image.addEventListener("error", handleImageChange);
-      }
-
-      onCleanup(() => {
-        for (const image of images) {
-          image.removeEventListener("load", handleImageChange);
-          image.removeEventListener("error", handleImageChange);
-        }
-      });
+    onBeforeUnmount(() => {
+      stopTrackingImages();
     });
 
     expose({

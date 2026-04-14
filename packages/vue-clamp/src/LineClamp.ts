@@ -129,7 +129,7 @@ export const LineClamp = defineComponent({
     }
 
     async function resetClamp(): Promise<void> {
-      await applyTextState(props.text, false);
+      return applyTextState(props.text, false);
     }
 
     const {

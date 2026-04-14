@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vite-plus/test";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import { Comment, createApp, defineComponent, h, nextTick, ref } from "vue";
 import { LineClamp } from "../src/index.ts";
 import {
@@ -24,6 +24,10 @@ const DEMO_TEXT =
   "Vue (pronounced /vjuː/, like view) is a progressive framework for building user interfaces. Unlike other monolithic frameworks, Vue is designed from the ground up to be incrementally adoptable. The core library is focused on the view layer only, and is easy to pick up and integrate with other libraries or existing projects. On the other hand, Vue is also perfectly capable of powering sophisticated Single-Page Applications when used in combination with modern tooling and supporting libraries.";
 const RICH_TEXT_HTML =
   '<strong>Vue</strong> ships <img alt="" src="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%2224%22 height=%2212%22 viewBox=%220 0 24 12%22%3E%3Crect width=%2224%22 height=%2212%22 rx=%226%22 fill=%22%23005BD2%22/%3E%3C/svg%3E" style="width:24px;height:12px;vertical-align:baseline" /> <a href="/docs">layout-aware rich text clamping</a> for <em>inline content</em> and trailing markup.';
+const PENDING_RICH_TEXT_HTML =
+  '<strong>Vue</strong> ships <img alt="" style="height:0;vertical-align:baseline" /> <a href="/docs">layout-aware rich text clamping</a> for <em>inline content</em> and trailing markup.';
+const STABLE_PENDING_RICH_TEXT_HTML =
+  '<strong>Vue</strong> ships <img alt="" style="width:24px;height:12px;vertical-align:baseline" /> <a href="/docs">layout-aware rich text clamping</a> for <em>inline content</em> and trailing markup.';
 const BEHAVIORAL_RICH_TEXT_HTML =
   '<inline-note>Custom inline content</inline-note> stays valid beside <div style="display:inline">behavior-driven wrappers</div> when they render as inline text.';
 const ATOMIC_LEAF_RICH_TEXT_HTML =
@@ -33,7 +37,34 @@ const INLINE_BLOCK_RICH_TEXT_HTML =
 
 afterEach(() => {
   cleanupMounted();
+  vi.restoreAllMocks();
 });
+
+function mockImageCompletion() {
+  const settledImages = new WeakSet<HTMLImageElement>();
+
+  vi.spyOn(HTMLImageElement.prototype, "complete", "get").mockImplementation(
+    function (this: HTMLImageElement) {
+      return settledImages.has(this);
+    },
+  );
+
+  return {
+    settle(image: HTMLImageElement, type: "load" | "error" = "load"): void {
+      settledImages.add(image);
+      image.dispatchEvent(new Event(type));
+    },
+  };
+}
+
+function richImage(root: HTMLElement, message: string): HTMLImageElement {
+  const image = richContentElement(root).querySelector("img");
+  if (!(image instanceof HTMLImageElement)) {
+    throw new Error(message);
+  }
+
+  return image;
+}
 
 describe("LineClamp browser contract", () => {
   it("renders plain text without role or aria-label when no truncation support is needed", async () => {
@@ -498,6 +529,82 @@ describe("LineClamp browser contract", () => {
     expect(rich.getAttribute("aria-hidden")).toBeNull();
     expect(accessibleTextElement(root)).toBeNull();
     expect((mounted.exposed.value as RichLineClampExposed).clamped).toBe(true);
+    expect(await sampleVisibleLineCounts(root)).toEqual([2, 2, 2]);
+  });
+
+  it("ignores stale rich image events after same-html DOM replacement", async () => {
+    const imageTracker = mockImageCompletion();
+    const mounted = mountRichClamp({
+      html: PENDING_RICH_TEXT_HTML,
+      width: 170,
+      props: {
+        maxLines: 2,
+      },
+    });
+
+    const root = rootElement(mounted.container);
+    await settle(4);
+
+    const firstImage = richImage(root, "Expected the initial pending rich image.");
+
+    mounted.width.value = 171;
+    await settle(4);
+
+    const secondImage = richImage(root, "Expected the replacement pending rich image.");
+    expect(secondImage).not.toBe(firstImage);
+
+    imageTracker.settle(firstImage);
+    await settle(4);
+    expect(richContentElement(root).querySelector("img")).toBe(secondImage);
+
+    imageTracker.settle(secondImage);
+    await settle(4);
+
+    expect((mounted.exposed.value as RichLineClampExposed).clamped).toBe(true);
+    expect(await sampleVisibleLineCounts(root)).toEqual([2, 2, 2]);
+  });
+
+  it("skips generation tracking for deterministic-size rich images", async () => {
+    const imageTracker = mockImageCompletion();
+    const mounted = mountRichClamp({
+      html: STABLE_PENDING_RICH_TEXT_HTML,
+      width: 170,
+      props: {
+        maxLines: 2,
+      },
+    });
+
+    const root = rootElement(mounted.container);
+    await waitUntilVisible(root);
+    await settle(4);
+
+    const image = richImage(root, "Expected the deterministic-size rich image.");
+    imageTracker.settle(image);
+    await settle(4);
+
+    expect(richContentElement(root).querySelector("img")).toBe(image);
+    expect((mounted.exposed.value as RichLineClampExposed).clamped).toBe(true);
+    expect(await sampleVisibleLineCounts(root)).toEqual([2, 2, 2]);
+  });
+
+  it("keeps rich content visible when the current generation image settles with an error", async () => {
+    const imageTracker = mockImageCompletion();
+    const mounted = mountRichClamp({
+      html: PENDING_RICH_TEXT_HTML,
+      width: 170,
+      props: {
+        maxLines: 2,
+      },
+    });
+
+    const root = rootElement(mounted.container);
+    await settle(4);
+
+    const image = richImage(root, "Expected the pending rich image.");
+
+    imageTracker.settle(image, "error");
+    await settle(4);
+
     expect(await sampleVisibleLineCounts(root)).toEqual([2, 2, 2]);
   });
 

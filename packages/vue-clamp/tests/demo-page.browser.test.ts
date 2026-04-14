@@ -67,7 +67,7 @@ function lineTextInput(container: HTMLElement): HTMLTextAreaElement {
 }
 
 function lineTextPresetButtons(container: HTMLElement): HTMLButtonElement[] {
-  return Array.from(container.querySelectorAll("[data-line-text-preset]")).map((button) => {
+  return [...container.querySelectorAll("[data-line-text-preset]")].map((button) => {
     if (!(button instanceof HTMLButtonElement)) {
       throw new Error("Expected the shared line text preset button.");
     }
@@ -117,7 +117,7 @@ function richHtmlClamp(container: HTMLElement): HTMLElement {
 }
 
 function richExampleBlocks(container: HTMLElement): HTMLElement[] {
-  return Array.from(container.querySelectorAll("[data-rich-example]")).filter(
+  return [...container.querySelectorAll("[data-rich-example]")].filter(
     (block): block is HTMLElement => block instanceof HTMLElement,
   );
 }
@@ -141,7 +141,7 @@ function richHtmlInput(container: HTMLElement): HTMLTextAreaElement {
 }
 
 function richPresetButtons(container: HTMLElement): HTMLButtonElement[] {
-  return Array.from(container.querySelectorAll("[data-rich-preset]")).filter(
+  return [...container.querySelectorAll("[data-rich-preset]")].filter(
     (button): button is HTMLButtonElement => button instanceof HTMLButtonElement,
   );
 }
@@ -183,7 +183,7 @@ function locationWidthInput(container: HTMLElement): HTMLInputElement {
 }
 
 function locationPresetButtons(container: HTMLElement): HTMLButtonElement[] {
-  return Array.from(locationDemoBlock(container).querySelectorAll("[data-location-preset]")).filter(
+  return [...locationDemoBlock(container).querySelectorAll("[data-location-preset]")].filter(
     (button): button is HTMLButtonElement => button instanceof HTMLButtonElement,
   );
 }
@@ -216,7 +216,7 @@ function inlineWidthInput(container: HTMLElement): HTMLInputElement {
 }
 
 function inlineExampleBlocks(container: HTMLElement): HTMLElement[] {
-  return Array.from(inlineDemoBlock(container).querySelectorAll("[data-inline-example]")).filter(
+  return [...inlineDemoBlock(container).querySelectorAll("[data-inline-example]")].filter(
     (block): block is HTMLElement => block instanceof HTMLElement,
   );
 }
@@ -709,8 +709,13 @@ describe("Website demo page", () => {
       richPresetButtons(mountedPage.container).map((button) => button.dataset.richPreset),
     ).toEqual(["release", "editorial", "incident"]);
     expect(input.value).toContain("<strong>Friday release 2.4.0</strong>");
+    expect(input.value).toContain('src="/rich-demo-icon.svg"');
     expect(richContentElement(clampRoot).innerHTML).toContain("<mark>billing export</mark>");
     expect(richContentElement(clampRoot).querySelector("mark")).toBeInstanceOf(HTMLElement);
+    expect(richContentElement(clampRoot).querySelector("img")).toBeInstanceOf(HTMLImageElement);
+    expect(richContentElement(clampRoot).querySelector("img")?.getAttribute("src")).toBe(
+      "/rich-demo-icon.svg",
+    );
     expect(richHyphensToggle(mountedPage.container).checked).toBe(true);
     expect(clampRoot.classList.contains("hyphens")).toBe(true);
     expect(block.textContent).toContain("Trusted or sanitized inline HTML only");
@@ -741,6 +746,7 @@ describe("Website demo page", () => {
       '<a href="#components">the refreshed <strong>component tabs</strong> should scroll on narrow screens</a>',
     );
     expect(input.value).toContain("<inline-note>");
+    expect(input.value).toContain('src="/rich-demo-icon.svg"');
     expect(richPresetButton(mountedPage.container, "editorial").getAttribute("aria-pressed")).toBe(
       "true",
     );
@@ -751,6 +757,10 @@ describe("Website demo page", () => {
     ).toBe(true);
     for (const root of richRoots) {
       expect(richContentElement(root).querySelector("small.rich-meta")).toBeInstanceOf(HTMLElement);
+      expect(richContentElement(root).querySelector("img")).toBeInstanceOf(HTMLImageElement);
+      expect(richContentElement(root).querySelector("img")?.getAttribute("src")).toBe(
+        "/rich-demo-icon.svg",
+      );
     }
     expect(richContentElement(clampRoot).querySelector("small.rich-meta a strong")).toBeInstanceOf(
       HTMLElement,

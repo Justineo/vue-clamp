@@ -23,16 +23,6 @@ type ClampShellOptions = {
   recompute: (state: ClampState) => Promise<void>;
 };
 
-function frameElements(refs: FrameRefs): HTMLElement[] {
-  return [
-    refs.rootRef.value,
-    refs.contentRef.value,
-    refs.bodyRef.value,
-    refs.beforeRef.value,
-    refs.afterRef.value,
-  ].filter((element): element is HTMLElement => element instanceof HTMLElement);
-}
-
 export function useMultilineClamp(options: ClampShellOptions) {
   const { getExpanded, onExpandedChange, onClampedChange, recompute } = options;
   const state: ClampState = {
@@ -71,12 +61,10 @@ export function useMultilineClamp(options: ClampShellOptions) {
     );
   }
 
-  async function syncLatestState(): Promise<void> {
+  const requestRecompute = createCoalescingRunner(async () => {
     await recompute(state);
     lastLayoutSignature = layoutSignature();
-  }
-
-  const requestRecompute = createCoalescingRunner(syncLatestState);
+  });
 
   watch(
     () => getExpanded(),
@@ -112,7 +100,13 @@ export function useMultilineClamp(options: ClampShellOptions) {
       }
     });
 
-    const observed = frameElements(state);
+    const observed = [
+      state.rootRef.value,
+      state.contentRef.value,
+      state.bodyRef.value,
+      state.beforeRef.value,
+      state.afterRef.value,
+    ].filter((element): element is HTMLElement => element instanceof HTMLElement);
 
     for (const element of observed) {
       resizeObserver.observe(element);

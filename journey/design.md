@@ -94,7 +94,7 @@
 - `packages/vue-clamp/src/RichLineClamp.ts` now owns only rich-html behavior:
   - reactive `visibleHtml` and rich fallback state
   - minimal runtime layout classification for rich descendants
-  - image-driven reclamping for inline rich content
+  - generation-scoped image settlement for inline rich content
 - Shared code stays in small helpers instead of a large base shell.
 - `LineClamp` and `RichLineClamp` now share one narrow internal shell helper rather than
   duplicating the same lifecycle shell:
@@ -173,6 +173,10 @@
       serializing candidate HTML and reparsing it through `innerHTML` on every probe
   - sanitization stays the caller's responsibility
   - the runtime measures against the visible DOM instead of using a hidden probe
+  - descendant image settlement is generation-scoped:
+    - each recompute abandons old listeners and rescans the current connected rich images
+    - only unresolved images without an already stable box participate in the settlement barrier
+    - when the current blocking set settles, the component schedules one bounded follow-up recompute
 - `before` and `after` slots render directly into the same inline flow and are observed for size changes via `ResizeObserver`.
 - `WrapClamp` treats each item as an atomic box and uses a single visible-DOM clamp engine:
   - collapsed states are measured from the real rendered `before` / items / `after` sequence
@@ -189,7 +193,9 @@
   - relevant prop changes
   - font readiness events when available
 - `RichLineClamp` follows the same invalidation model, but tracks `html` source changes and
-  image-driven relayout instead of text-location changes.
+  generation-scoped image settlement instead of text-location changes:
+  - detached stale image events are ignored once a newer recompute generation owns the DOM
+  - deterministic-size unresolved images do not participate in the settlement barrier
 - `LineClamp` and `RichLineClamp` both re-run their clamp pass in `onUpdated` when their own
   rendered layout signature
   changes, so reactive width/slot changes in the same Vue flush do not wait on a later
