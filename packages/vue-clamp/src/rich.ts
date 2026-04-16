@@ -34,7 +34,6 @@ type LogicalRun =
     };
 
 export type PreparedRichText = {
-  html: string;
   root: HTMLElement;
   nodes: PreparedRichNode[];
 };
@@ -44,8 +43,27 @@ type ClonePrefixResult = {
   appendTarget: Node;
 };
 
+export type RichClampDecision =
+  | {
+      kind: "full";
+    }
+  | {
+      kind: "clamped";
+      point: BoundaryPoint;
+    };
+
+type BoundaryPosition = {
+  containerPath: readonly number[];
+  childIndex: number;
+};
+
+type PatchAnchor = {
+  path: readonly number[];
+  startIndex: number;
+};
+
 type RichClampResult = {
-  html: string | null;
+  decision: RichClampDecision | null;
   fallback: boolean;
 };
 
@@ -95,6 +113,7 @@ function inspectLayout(root: HTMLElement): Set<string> | null {
       }
 
       const { display, float: floatValue, position } = getComputedStyle(child);
+      const isAtomicInline = isAtomicInlineDisplay(display);
 
       if (display === "none") {
         atomicPaths.add(childKey);
@@ -114,9 +133,9 @@ function inspectLayout(root: HTMLElement): Set<string> | null {
         tagName === "img" ||
         tagName === "svg" ||
         child.childNodes.length === 0 ||
-        isAtomicInlineDisplay(display)
+        isAtomicInline
       ) {
-        if (display !== "inline" && !isAtomicInlineDisplay(display)) {
+        if (display !== "inline" && !isAtomicInline) {
           return false;
         }
 
@@ -223,17 +242,6 @@ function buildLogicalRuns(
 
   function flushTextRun(): void {
     if (currentTextNodes.length === 0) {
-      return;
-    }
-
-    if (currentTextNodes.length === 1) {
-      const { endPoint, graphemeCuts } = currentTextNodes[0]!;
-      runs.push({
-        kind: "text",
-        endPoint,
-        graphemeCuts,
-      });
-      currentTextNodes = [];
       return;
     }
 
@@ -418,17 +426,151 @@ function appendEllipsis(target: Node, ellipsis: string): void {
   target.appendChild(document.createTextNode(ellipsis));
 }
 
-function applyCandidateFragment(
-  sourceRoot: HTMLElement,
-  targetElement: HTMLElement,
-  endPoint: BoundaryPoint,
-  ellipsis: string,
-): void {
-  const { appendTarget, clone } = clonePrefix(sourceRoot, endPoint);
-  trimTrailingWhitespace(clone);
-  appendEllipsis(appendTarget, ellipsis);
+function fullEndPoint(root: HTMLElement): BoundaryPoint {
+  return {
+    path: ROOT_PATH,
+    offset: root.childNodes.length,
+  };
+}
 
-  targetElement.replaceChildren(clone);
+function endPointForDecision(root: HTMLElement, decision: RichClampDecision): BoundaryPoint {
+  return decision.kind === "full" ? fullEndPoint(root) : decision.point;
+}
+
+function resolvePath(root: Node, path: readonly number[]): Node | null {
+  let current: Node | null = root;
+
+  for (const index of path) {
+    current = current?.childNodes[index] ?? null;
+  }
+
+  return current;
+}
+
+function resolvePatchAnchor(root: Node, path: readonly number[]): Node {
+  const node = resolvePath(root, path);
+  if (!node) {
+    throw new Error("Expected rich patch anchor.");
+  }
+
+  return node;
+}
+
+function boundaryPosition(root: HTMLElement, point: BoundaryPoint): BoundaryPosition {
+  const node = resolvePath(root, point.path);
+
+  if (node?.nodeType === Node.TEXT_NODE) {
+    return {
+      containerPath: point.path.slice(0, -1),
+      childIndex: point.path.at(-1) ?? 0,
+    };
+  }
+
+  return {
+    containerPath: point.path,
+    childIndex: point.offset,
+  };
+}
+
+function sharedPath(left: readonly number[], right: readonly number[]): readonly number[] {
+  const length = Math.min(left.length, right.length);
+  const path: number[] = [];
+
+  for (let index = 0; index < length; index += 1) {
+    if (left[index] !== right[index]) {
+      break;
+    }
+
+    path.push(left[index]!);
+  }
+
+  return path;
+}
+
+function childIndexInAncestor(position: BoundaryPosition, ancestorPath: readonly number[]): number {
+  return position.containerPath.length === ancestorPath.length
+    ? position.childIndex
+    : (position.containerPath[ancestorPath.length] ?? 0);
+}
+
+function patchAnchorFor(
+  root: HTMLElement,
+  currentPoint: BoundaryPoint,
+  nextPoint: BoundaryPoint,
+): PatchAnchor {
+  const current = boundaryPosition(root, currentPoint);
+  const next = boundaryPosition(root, nextPoint);
+  const path = sharedPath(current.containerPath, next.containerPath);
+
+  return {
+    path,
+    startIndex: Math.min(childIndexInAncestor(current, path), childIndexInAncestor(next, path)),
+  };
+}
+
+function sameBoundaryPoint(left: BoundaryPoint, right: BoundaryPoint): boolean {
+  return left.offset === right.offset && pathKey(left.path) === pathKey(right.path);
+}
+
+function sameDecision(left: RichClampDecision | null, right: RichClampDecision): boolean {
+  if (!left || left.kind !== right.kind) {
+    return false;
+  }
+
+  if (left.kind === "full") {
+    return true;
+  }
+
+  return right.kind === "clamped" && sameBoundaryPoint(left.point, right.point);
+}
+
+function removeChildrenFrom(container: Node, startIndex: number): void {
+  while (container.childNodes.length > startIndex) {
+    container.lastChild?.remove();
+  }
+}
+
+function appendChildrenFrom(container: Node, startIndex: number, target: Node): void {
+  const fragment = document.createDocumentFragment();
+
+  while (container.childNodes[startIndex]) {
+    fragment.appendChild(container.childNodes[startIndex]!);
+  }
+
+  target.appendChild(fragment);
+}
+
+export function patchRichTextToDecision(
+  prepared: PreparedRichText,
+  targetElement: HTMLElement,
+  currentDecision: RichClampDecision | null,
+  nextDecision: RichClampDecision,
+  ellipsis: string,
+): RichClampDecision {
+  if (sameDecision(currentDecision, nextDecision)) {
+    return nextDecision;
+  }
+
+  const { root } = prepared;
+  const currentPoint = currentDecision
+    ? endPointForDecision(root, currentDecision)
+    : ROOT_START_POINT;
+  const nextPoint = endPointForDecision(root, nextDecision);
+  const anchor = patchAnchorFor(root, currentPoint, nextPoint);
+  const { appendTarget, clone } = clonePrefix(root, nextPoint);
+
+  if (nextDecision.kind === "clamped") {
+    trimTrailingWhitespace(clone);
+    appendEllipsis(appendTarget, ellipsis);
+  }
+
+  const liveAnchor = resolvePatchAnchor(targetElement, anchor.path);
+  const cloneAnchor = resolvePatchAnchor(clone, anchor.path);
+
+  removeChildrenFrom(liveAnchor, anchor.startIndex);
+  appendChildrenFrom(cloneAnchor, anchor.startIndex, liveAnchor);
+
+  return nextDecision;
 }
 
 function findLastFittingIndex<T>(
@@ -462,7 +604,6 @@ export function prepareRichText(html: string): PreparedRichText | null {
   const documentNode = parser.parseFromString(html, "text/html");
 
   return {
-    html,
     root: documentNode.body,
     nodes: buildPreparedRichNodes(documentNode.body, ROOT_PATH),
   };
@@ -473,46 +614,39 @@ export function clampRichTextToLayout(
   rootElement: HTMLElement,
   contentElement: HTMLElement,
   richElement: HTMLElement,
+  currentDecision: RichClampDecision | null,
   ellipsis: string,
   lineLimit: number | undefined,
   maxHeight: number | string | undefined,
 ): RichClampResult {
-  const { html, nodes, root } = prepared;
+  const { nodes } = prepared;
 
   if (rootElement.getBoundingClientRect().width <= 0) {
     return {
-      html: null,
+      decision: null,
       fallback: false,
     };
   }
 
-  let currentHtml: string | null = richElement.innerHTML;
-  let currentCutPoint: BoundaryPoint | null = null;
+  let decision = patchRichTextToDecision(
+    prepared,
+    richElement,
+    currentDecision,
+    { kind: "full" },
+    ellipsis,
+  );
 
-  function readCurrentHtml(): string {
-    if (currentHtml === null) {
-      currentHtml = richElement.innerHTML;
-    }
-
-    return currentHtml;
-  }
-
-  function applySourceHtml(nextHtml: string): void {
-    if (nextHtml !== currentHtml) {
-      richElement.innerHTML = nextHtml;
-      currentHtml = nextHtml;
-      currentCutPoint = null;
-    }
-  }
-
-  function applyCandidate(endPoint: BoundaryPoint): void {
-    if (currentCutPoint === endPoint) {
-      return;
-    }
-
-    applyCandidateFragment(root, richElement, endPoint, ellipsis);
-    currentHtml = null;
-    currentCutPoint = endPoint;
+  function applyCandidate(point: BoundaryPoint): void {
+    decision = patchRichTextToDecision(
+      prepared,
+      richElement,
+      decision,
+      {
+        kind: "clamped",
+        point,
+      },
+      ellipsis,
+    );
   }
 
   function fitsCandidate(endPoint: BoundaryPoint): boolean {
@@ -520,19 +654,17 @@ export function clampRichTextToLayout(
     return fitsContent(rootElement, contentElement, lineLimit, maxHeight);
   }
 
-  applySourceHtml(html);
-
   const atomicPaths = inspectLayout(richElement);
   if (!atomicPaths) {
     return {
-      html,
+      decision,
       fallback: true,
     };
   }
 
   if (fitsContent(rootElement, contentElement, lineLimit, maxHeight)) {
     return {
-      html,
+      decision,
       fallback: false,
     };
   }
@@ -540,7 +672,7 @@ export function clampRichTextToLayout(
   const runs = buildLogicalRuns(nodes, atomicPaths);
   if (runs.length === 0) {
     return {
-      html,
+      decision,
       fallback: false,
     };
   }
@@ -552,7 +684,7 @@ export function clampRichTextToLayout(
   if (!nextRun || nextRun.kind === "atomic") {
     applyCandidate(coarsePoint);
     return {
-      html: readCurrentHtml(),
+      decision,
       fallback: false,
     };
   }
@@ -562,7 +694,7 @@ export function clampRichTextToLayout(
 
   applyCandidate(finePoint);
   return {
-    html: readCurrentHtml(),
+    decision,
     fallback: false,
   };
 }

@@ -10,10 +10,11 @@ import {
 } from "vue";
 import { cssLength, normalizeLineLimit } from "./layout.ts";
 import { useMultilineClamp } from "./multiline.ts";
-import { clampRichTextToLayout, prepareRichText } from "./rich.ts";
+import { clampRichTextToLayout, patchRichTextToDecision, prepareRichText } from "./rich.ts";
 import { hasSlotContent } from "./slot.ts";
 
 import type { CSSProperties, PropType } from "vue";
+import type { PreparedRichText, RichClampDecision } from "./rich.ts";
 import type { RichLineClampExposed, RichLineClampSlotProps } from "./types.ts";
 
 const slotStyle: CSSProperties = {
@@ -22,6 +23,20 @@ const slotStyle: CSSProperties = {
   maxWidth: "100%",
   whiteSpace: "nowrap",
   verticalAlign: "baseline",
+};
+const probeStyle: CSSProperties = {
+  display: "block",
+  left: "-99999px",
+  pointerEvents: "none",
+  position: "absolute",
+  top: "0",
+  visibility: "hidden",
+};
+
+type ProbeElements = {
+  body: HTMLElement;
+  content: HTMLElement;
+  rich: HTMLElement;
 };
 
 const propsDef = {
@@ -55,6 +70,20 @@ function hasStableImageBox(image: HTMLImageElement): boolean {
   return Number.parseFloat(width) > 0 && Number.parseFloat(height) > 0;
 }
 
+function createProbeElements(): ProbeElements {
+  const content = document.createElement("span");
+  const body = document.createElement("span");
+  const rich = document.createElement("span");
+
+  body.appendChild(rich);
+
+  return {
+    body,
+    content,
+    rich,
+  };
+}
+
 export const RichLineClamp = defineComponent({
   name: "RichLineClamp",
   inheritAttrs: false,
@@ -62,7 +91,7 @@ export const RichLineClamp = defineComponent({
   emits: emitsDef,
   setup(props, { attrs, emit, expose, slots }) {
     const htmlRef = ref<HTMLElement | null>(null);
-    const visibleHtml = ref(props.html);
+    const probeRef = ref<HTMLElement | null>(null);
     const isFallback = ref(false);
 
     const lineLimit = computed(() => normalizeLineLimit(props.maxLines));
@@ -70,6 +99,9 @@ export const RichLineClamp = defineComponent({
     const preparedHtml = computed(() => prepareRichText(props.html));
     let imageAbortController: AbortController | null = null;
     let pendingImages = new Set<HTMLImageElement>();
+    let visibleDecision: RichClampDecision | null = null;
+    let probeDecision: RichClampDecision | null = null;
+    let probeElements: ProbeElements | null = null;
 
     function stopTrackingImages(): void {
       imageAbortController?.abort();
@@ -126,22 +158,29 @@ export const RichLineClamp = defineComponent({
       }
     }
 
-    function resetRichState(): Promise<void> {
-      stopTrackingImages();
-      return resetClamp();
+    function resetDecisionState(): void {
+      visibleDecision = null;
+      probeDecision = null;
     }
 
-    async function applyHtmlState(
-      nextHtml: string,
-      nextClamped: boolean,
-      nextFallback: boolean,
-    ): Promise<void> {
-      const changed =
-        visibleHtml.value !== nextHtml ||
-        isClamped.value !== nextClamped ||
-        isFallback.value !== nextFallback;
+    function patchVisibleDecision(prepared: PreparedRichText, decision: RichClampDecision): void {
+      const htmlElement = htmlRef.value;
+      if (!htmlElement) {
+        return;
+      }
 
-      visibleHtml.value = nextHtml;
+      visibleDecision = patchRichTextToDecision(
+        prepared,
+        htmlElement,
+        visibleDecision,
+        decision,
+        props.ellipsis,
+      );
+    }
+
+    async function applyClampState(nextClamped: boolean, nextFallback: boolean): Promise<void> {
+      const changed = isClamped.value !== nextClamped || isFallback.value !== nextFallback;
+
       isClamped.value = nextClamped;
       isFallback.value = nextFallback;
 
@@ -150,8 +189,60 @@ export const RichLineClamp = defineComponent({
       }
     }
 
-    async function resetClamp(): Promise<void> {
-      return applyHtmlState(props.html, false, false);
+    async function resetRichState(): Promise<void> {
+      stopTrackingImages();
+
+      const prepared = preparedHtml.value;
+      if (prepared) {
+        patchVisibleDecision(prepared, { kind: "full" });
+      } else {
+        resetDecisionState();
+      }
+
+      await applyClampState(false, false);
+    }
+
+    function ensureProbeElements(
+      rootElement: HTMLElement,
+      maxHeight: number | string | undefined,
+    ): {
+      content: HTMLElement;
+      rich: HTMLElement;
+      root: HTMLElement;
+    } | null {
+      const root = probeRef.value;
+      if (!root) {
+        return null;
+      }
+
+      const elements = (probeElements ??= createProbeElements());
+
+      const maxHeightValue = cssLength(maxHeight);
+      root.style.width = `${rootElement.getBoundingClientRect().width}px`;
+      root.style.maxHeight = maxHeightValue === undefined ? "" : String(maxHeightValue);
+      root.style.overflow = maxHeightValue === undefined ? "visible" : "hidden";
+
+      elements.content.replaceChildren();
+
+      const beforeElement = beforeRef.value;
+      if (beforeElement) {
+        elements.content.appendChild(beforeElement.cloneNode(true));
+      }
+
+      elements.content.appendChild(elements.body);
+
+      const afterElement = afterRef.value;
+      if (afterElement) {
+        elements.content.appendChild(afterElement.cloneNode(true));
+      }
+
+      root.replaceChildren(elements.content);
+
+      return {
+        content: elements.content,
+        rich: elements.rich,
+        root,
+      };
     }
 
     const {
@@ -182,31 +273,39 @@ export const RichLineClamp = defineComponent({
         }
 
         const rootElement = rootRef.value;
-        const contentElement = contentRef.value;
         const htmlElement = htmlRef.value;
         const prepared = preparedHtml.value;
 
-        if (!rootElement || !contentElement || !htmlElement || !prepared) {
+        if (!rootElement || !htmlElement || !prepared) {
+          await resetRichState();
+          return;
+        }
+
+        const probe = ensureProbeElements(rootElement, maxHeight);
+        if (!probe) {
           await resetRichState();
           return;
         }
 
         const nextState = clampRichTextToLayout(
           prepared,
-          rootElement,
-          contentElement,
-          htmlElement,
+          probe.root,
+          probe.content,
+          probe.rich,
+          probeDecision,
           ellipsis,
           lineLimit.value,
           maxHeight,
         );
+        probeDecision = nextState.decision;
 
-        if (nextState.html === null) {
+        if (!nextState.decision) {
           await resetRichState();
           return;
         }
 
-        await applyHtmlState(nextState.html, nextState.html !== prepared.html, nextState.fallback);
+        patchVisibleDecision(prepared, nextState.decision);
+        await applyClampState(nextState.decision.kind === "clamped", nextState.fallback);
 
         if (nextState.fallback) {
           stopTrackingImages();
@@ -219,7 +318,7 @@ export const RichLineClamp = defineComponent({
     watch(
       [() => props.html, () => props.maxLines, () => props.maxHeight, () => props.ellipsis],
       () => {
-        visibleHtml.value = props.html;
+        resetDecisionState();
         isFallback.value = false;
         requestRecompute();
       },
@@ -269,51 +368,58 @@ export const RichLineClamp = defineComponent({
             overflow: collapsedMaxHeight ? "hidden" : undefined,
           },
         }),
-        h(
-          "span",
-          {
-            "data-part": "content",
-            ref: contentRef,
-          },
-          [
-            hasBeforeSlot
-              ? h(
-                  "span",
-                  {
-                    "data-part": "before",
-                    ref: beforeRef,
-                    style: slotStyle,
-                  },
-                  beforeSlot,
-                )
-              : null,
-            h(
-              "span",
-              {
-                "data-part": "body",
-                ref: bodyRef,
-              },
-              [
-                h("span", {
-                  key: "html",
-                  ref: htmlRef,
-                  innerHTML: expanded.value || !hasLimit.value ? sourceHtml : visibleHtml.value,
-                }),
-              ],
-            ),
-            hasAfterSlot
-              ? h(
-                  "span",
-                  {
-                    "data-part": "after",
-                    ref: afterRef,
-                    style: slotStyle,
-                  },
-                  afterSlot,
-                )
-              : null,
-          ],
-        ),
+        [
+          h(
+            "span",
+            {
+              "data-part": "content",
+              ref: contentRef,
+            },
+            [
+              hasBeforeSlot
+                ? h(
+                    "span",
+                    {
+                      "data-part": "before",
+                      ref: beforeRef,
+                      style: slotStyle,
+                    },
+                    beforeSlot,
+                  )
+                : null,
+              h(
+                "span",
+                {
+                  "data-part": "body",
+                  ref: bodyRef,
+                },
+                [
+                  h("span", {
+                    key: "html",
+                    ref: htmlRef,
+                    innerHTML: sourceHtml,
+                  }),
+                ],
+              ),
+              hasAfterSlot
+                ? h(
+                    "span",
+                    {
+                      "data-part": "after",
+                      ref: afterRef,
+                      style: slotStyle,
+                    },
+                    afterSlot,
+                  )
+                : null,
+            ],
+          ),
+          h("span", {
+            "aria-hidden": "true",
+            ref: probeRef,
+            style: probeStyle,
+          }),
+        ],
       );
     };
   },
