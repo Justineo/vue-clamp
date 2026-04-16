@@ -38,8 +38,8 @@ export type PreparedRichText = {
   nodes: PreparedRichNode[];
 };
 
-type ClonePrefixResult = {
-  clone: DocumentFragment;
+type ClonePatchResult = {
+  fragment: DocumentFragment;
   appendTarget: Node;
 };
 
@@ -72,6 +72,7 @@ const ROOT_START_POINT: BoundaryPoint = {
   path: ROOT_PATH,
   offset: 0,
 };
+const PROBE_IMAGE_SRC = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==";
 
 function tagNameFor(element: Element): string {
   return element.tagName.toLowerCase();
@@ -292,89 +293,127 @@ function buildLogicalRuns(
   return runs;
 }
 
-function clonePrefixFromContainer(
-  container: ParentNode & Node,
+function cloneElementForPatch(element: Element, imageSource?: string): Element {
+  if (imageSource !== undefined && element instanceof HTMLImageElement) {
+    const clone = document.createElement("img");
+
+    for (const attr of element.attributes) {
+      if (attr.name === "src" || attr.name === "srcset" || attr.name === "sizes") {
+        continue;
+      }
+
+      clone.setAttribute(attr.name, attr.value);
+    }
+
+    clone.setAttribute("src", imageSource);
+    return clone;
+  }
+
+  return element.cloneNode(false) as Element;
+}
+
+function cloneNodeForPatch(node: Node, imageSource?: string): Node {
+  if (!(node instanceof Element)) {
+    return node.cloneNode(true);
+  }
+
+  const clone = cloneElementForPatch(node, imageSource);
+
+  for (const child of node.childNodes) {
+    clone.appendChild(cloneNodeForPatch(child, imageSource));
+  }
+
+  return clone;
+}
+
+function clonePatchFromContainer(
+  container: Node,
+  startIndex: number,
   endPoint: BoundaryPoint,
   depth: number,
-  isRoot: boolean,
-): { clone: Node; insertionContainer: Node } {
-  const clone = isRoot ? document.createDocumentFragment() : container.cloneNode(false);
+  imageSource?: string,
+): ClonePatchResult {
+  const fragment = document.createDocumentFragment();
+  const result: ClonePatchResult = {
+    appendTarget: fragment,
+    fragment,
+  };
   const { childNodes: children } = container;
   const { offset, path } = endPoint;
 
   if (depth === path.length) {
     const limit = Math.min(offset, children.length);
 
-    for (let index = 0; index < limit; index += 1) {
+    for (let index = startIndex; index < limit; index += 1) {
       const child = children[index];
       if (child) {
-        clone.appendChild(child.cloneNode(true));
+        fragment.appendChild(cloneNodeForPatch(child, imageSource));
       }
     }
 
-    return {
-      clone,
-      insertionContainer: clone,
-    };
+    return result;
   }
 
   const targetIndex = path[depth] ?? 0;
   const limit = Math.min(targetIndex, children.length);
 
-  for (let index = 0; index < limit; index += 1) {
+  for (let index = startIndex; index < limit; index += 1) {
     const child = children[index];
     if (child) {
-      clone.appendChild(child.cloneNode(true));
+      fragment.appendChild(cloneNodeForPatch(child, imageSource));
     }
+  }
+
+  if (targetIndex < startIndex) {
+    return result;
   }
 
   const targetChild = children[targetIndex];
   if (!targetChild) {
-    return {
-      clone,
-      insertionContainer: clone,
-    };
+    return result;
   }
 
   if (targetChild.nodeType === Node.TEXT_NODE) {
     const nextText = (targetChild.textContent ?? "").slice(0, endPoint.offset);
     if (nextText) {
-      clone.appendChild(document.createTextNode(nextText));
+      fragment.appendChild(document.createTextNode(nextText));
     }
 
-    return {
-      clone,
-      insertionContainer: clone,
-    };
+    return result;
   }
 
   if (!(targetChild instanceof Element)) {
-    return {
-      clone,
-      insertionContainer: clone,
-    };
+    return result;
   }
 
-  const result = clonePrefixFromContainer(targetChild, endPoint, depth + 1, false);
-  clone.appendChild(result.clone);
+  const childClone = cloneElementForPatch(targetChild, imageSource);
+  const childPatch = clonePatchFromContainer(targetChild, 0, endPoint, depth + 1, imageSource);
+
+  childClone.appendChild(childPatch.fragment);
+  fragment.appendChild(childClone);
 
   return {
-    clone,
-    insertionContainer: result.insertionContainer,
+    appendTarget:
+      childPatch.appendTarget === childPatch.fragment ? childClone : childPatch.appendTarget,
+    fragment,
   };
 }
 
-function clonePrefix(root: HTMLElement, endPoint: BoundaryPoint): ClonePrefixResult {
-  const result = clonePrefixFromContainer(root, endPoint, 0, true);
+function clonePatchFromAnchor(
+  root: HTMLElement,
+  anchor: PatchAnchor,
+  endPoint: BoundaryPoint,
+  imageSource?: string,
+): ClonePatchResult {
+  const sourceAnchor = resolvePatchAnchor(root, anchor.path);
 
-  if (!(result.clone instanceof DocumentFragment)) {
-    throw new Error("Expected root rich prefix clone to be a document fragment.");
-  }
-
-  return {
-    clone: result.clone,
-    appendTarget: result.insertionContainer,
-  };
+  return clonePatchFromContainer(
+    sourceAnchor,
+    anchor.startIndex,
+    endPoint,
+    anchor.path.length,
+    imageSource,
+  );
 }
 
 function trailingLeaf(root: Node): Node | null {
@@ -530,22 +569,13 @@ function removeChildrenFrom(container: Node, startIndex: number): void {
   }
 }
 
-function appendChildrenFrom(container: Node, startIndex: number, target: Node): void {
-  const fragment = document.createDocumentFragment();
-
-  while (container.childNodes[startIndex]) {
-    fragment.appendChild(container.childNodes[startIndex]!);
-  }
-
-  target.appendChild(fragment);
-}
-
 export function patchRichTextToDecision(
   prepared: PreparedRichText,
   targetElement: HTMLElement,
   currentDecision: RichClampDecision | null,
   nextDecision: RichClampDecision,
   ellipsis: string,
+  imageSource?: string,
 ): RichClampDecision {
   if (sameDecision(currentDecision, nextDecision)) {
     return nextDecision;
@@ -557,18 +587,18 @@ export function patchRichTextToDecision(
     : ROOT_START_POINT;
   const nextPoint = endPointForDecision(root, nextDecision);
   const anchor = patchAnchorFor(root, currentPoint, nextPoint);
-  const { appendTarget, clone } = clonePrefix(root, nextPoint);
+  const { appendTarget, fragment } = clonePatchFromAnchor(root, anchor, nextPoint, imageSource);
+
+  const liveAnchor = resolvePatchAnchor(targetElement, anchor.path);
+
+  removeChildrenFrom(liveAnchor, anchor.startIndex);
 
   if (nextDecision.kind === "clamped") {
-    trimTrailingWhitespace(clone);
+    trimTrailingWhitespace(fragment);
     appendEllipsis(appendTarget, ellipsis);
   }
 
-  const liveAnchor = resolvePatchAnchor(targetElement, anchor.path);
-  const cloneAnchor = resolvePatchAnchor(clone, anchor.path);
-
-  removeChildrenFrom(liveAnchor, anchor.startIndex);
-  appendChildrenFrom(cloneAnchor, anchor.startIndex, liveAnchor);
+  liveAnchor.appendChild(fragment);
 
   return nextDecision;
 }
@@ -634,6 +664,7 @@ export function clampRichTextToLayout(
     currentDecision,
     { kind: "full" },
     ellipsis,
+    PROBE_IMAGE_SRC,
   );
 
   function applyCandidate(point: BoundaryPoint): void {
@@ -646,6 +677,7 @@ export function clampRichTextToLayout(
         point,
       },
       ellipsis,
+      PROBE_IMAGE_SRC,
     );
   }
 

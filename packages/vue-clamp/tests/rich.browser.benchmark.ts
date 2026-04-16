@@ -4,17 +4,24 @@ import { frame } from "./browser.ts";
 
 import type { RichClampDecision } from "../src/rich.ts";
 
-type BenchmarkRun = {
+type BenchmarkMetrics = {
   boundingRectReads: number;
   clientRectReads: number;
-  meanStepMs: number;
+  cloneNodeCalls: number;
+  imageCloneCalls: number;
   replaceChildrenCalls: number;
+};
+
+type BenchmarkRun = BenchmarkMetrics & {
+  meanStepMs: number;
   totalMs: number;
 };
 
 type BenchmarkSummary = {
   medianBoundingRectReads: number;
   medianClientRectReads: number;
+  medianCloneNodeCalls: number;
+  medianImageCloneCalls: number;
   medianMeanStepMs: number;
   medianReplaceChildrenCalls: number;
   medianTotalMs: number;
@@ -43,7 +50,7 @@ type MountedHost = {
   setWidth: (width: number) => void;
 };
 
-type TrackingMetrics = Omit<BenchmarkRun, "meanStepMs" | "totalMs">;
+type TrackingMetrics = BenchmarkMetrics;
 
 const RICH_TEXT_HTML =
   '<strong>Vue</strong> ships <img alt="" src="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%2224%22 height=%2212%22 viewBox=%220 0 24 12%22%3E%3Crect width=%2224%22 height=%2212%22 rx=%226%22 fill=%22%23005BD2%22/%3E%3C/svg%3E" style="width:24px;height:12px;vertical-align:baseline" /> <a href="/docs">layout-aware rich text clamping</a> for <em>inline content</em> and trailing markup.';
@@ -75,6 +82,10 @@ const originalReplaceChildrenDescriptor = Object.getOwnPropertyDescriptor(
 const originalReplaceChildren = originalReplaceChildrenDescriptor?.value as
   | ((this: Element, ...nodes: (Node | string)[]) => void)
   | undefined;
+const originalCloneNodeDescriptor = Object.getOwnPropertyDescriptor(Node.prototype, "cloneNode");
+const originalCloneNode = originalCloneNodeDescriptor?.value as
+  | ((this: Node, deep?: boolean) => Node)
+  | undefined;
 
 function hostStyle(width: number): string {
   return [
@@ -100,6 +111,8 @@ function summarize(runs: BenchmarkRun[]): BenchmarkSummary {
   return {
     medianBoundingRectReads: median(runs.map((run) => run.boundingRectReads)),
     medianClientRectReads: median(runs.map((run) => run.clientRectReads)),
+    medianCloneNodeCalls: median(runs.map((run) => run.cloneNodeCalls)),
+    medianImageCloneCalls: median(runs.map((run) => run.imageCloneCalls)),
     medianMeanStepMs: median(runs.map((run) => run.meanStepMs)),
     medianReplaceChildrenCalls: median(runs.map((run) => run.replaceChildrenCalls)),
     medianTotalMs: median(runs.map((run) => run.totalMs)),
@@ -111,22 +124,24 @@ function isTrackedElement(element: Element): boolean {
   return trackedRoots.some((root) => element === root || root.contains(element));
 }
 
-function beginTracking(roots: readonly HTMLElement[]): void {
-  trackedRoots.length = 0;
-  trackedRoots.push(...roots);
-  trackedMetrics = {
+function emptyTrackingMetrics(): TrackingMetrics {
+  return {
     boundingRectReads: 0,
     clientRectReads: 0,
+    cloneNodeCalls: 0,
+    imageCloneCalls: 0,
     replaceChildrenCalls: 0,
   };
 }
 
+function beginTracking(roots: readonly HTMLElement[]): void {
+  trackedRoots.length = 0;
+  trackedRoots.push(...roots);
+  trackedMetrics = emptyTrackingMetrics();
+}
+
 function endTracking(): TrackingMetrics {
-  const metrics = trackedMetrics ?? {
-    boundingRectReads: 0,
-    clientRectReads: 0,
-    replaceChildrenCalls: 0,
-  };
+  const metrics = trackedMetrics ?? emptyTrackingMetrics();
   trackedMetrics = null;
   trackedRoots.length = 0;
   return metrics;
@@ -222,7 +237,7 @@ async function runScenario(spec: ScenarioSpec): Promise<BenchmarkRun> {
       runClamp(prepared[index]!, hosts[index]!, spec.maxLines);
     }
 
-    beginTracking(hosts.map((host) => host.root));
+    beginTracking([...hosts.map((host) => host.root), ...prepared.map((source) => source.root)]);
 
     let totalMs = 0;
     const measuredWidths = spec.widths.slice(1);
@@ -246,6 +261,8 @@ async function runScenario(spec: ScenarioSpec): Promise<BenchmarkRun> {
     return {
       boundingRectReads: tracked.boundingRectReads,
       clientRectReads: tracked.clientRectReads,
+      cloneNodeCalls: tracked.cloneNodeCalls,
+      imageCloneCalls: tracked.imageCloneCalls,
       meanStepMs: totalMs / Math.max(1, measuredWidths.length),
       replaceChildrenCalls: tracked.replaceChildrenCalls,
       totalMs,
@@ -301,7 +318,12 @@ afterEach(() => {
 });
 
 beforeAll(() => {
-  if (!originalGetBoundingClientRect || !originalGetClientRects || !originalReplaceChildren) {
+  if (
+    !originalGetBoundingClientRect ||
+    !originalGetClientRects ||
+    !originalReplaceChildren ||
+    !originalCloneNode
+  ) {
     throw new Error("Missing element rect methods for benchmark setup.");
   }
 
@@ -333,6 +355,18 @@ beforeAll(() => {
 
     originalReplaceChildren.apply(this, nodes);
   };
+
+  Node.prototype.cloneNode = function patchedCloneNode(this: Node, deep?: boolean): Node {
+    if (trackedMetrics && this instanceof Element && isTrackedElement(this)) {
+      trackedMetrics.cloneNodeCalls += 1;
+
+      if (this instanceof HTMLImageElement) {
+        trackedMetrics.imageCloneCalls += 1;
+      }
+    }
+
+    return originalCloneNode.call(this, deep);
+  };
 });
 
 afterAll(() => {
@@ -350,6 +384,10 @@ afterAll(() => {
 
   if (originalReplaceChildrenDescriptor) {
     Object.defineProperty(Element.prototype, "replaceChildren", originalReplaceChildrenDescriptor);
+  }
+
+  if (originalCloneNodeDescriptor) {
+    Object.defineProperty(Node.prototype, "cloneNode", originalCloneNodeDescriptor);
   }
 });
 

@@ -24,6 +24,8 @@ const DEMO_TEXT =
   "Vue (pronounced /vjuː/, like view) is a progressive framework for building user interfaces. Unlike other monolithic frameworks, Vue is designed from the ground up to be incrementally adoptable. The core library is focused on the view layer only, and is easy to pick up and integrate with other libraries or existing projects. On the other hand, Vue is also perfectly capable of powering sophisticated Single-Page Applications when used in combination with modern tooling and supporting libraries.";
 const RICH_TEXT_HTML =
   '<strong>Vue</strong> ships <img alt="" src="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%2224%22 height=%2212%22 viewBox=%220 0 24 12%22%3E%3Crect width=%2224%22 height=%2212%22 rx=%226%22 fill=%22%23005BD2%22/%3E%3C/svg%3E" style="width:24px;height:12px;vertical-align:baseline" /> <a href="/docs">layout-aware rich text clamping</a> for <em>inline content</em> and trailing markup.';
+const REMOTE_IMAGE_RICH_TEXT_HTML =
+  '<strong>Vue</strong> ships <img alt="" src="/rich-demo-icon.svg" style="width:14px;height:14px;vertical-align:-2px" /> <a href="/docs">layout-aware rich text clamping</a> for <em>inline content</em> and trailing markup.';
 const PENDING_RICH_TEXT_HTML =
   '<strong>Vue</strong> ships <img alt="" style="height:0;vertical-align:baseline" /> <a href="/docs">layout-aware rich text clamping</a> for <em>inline content</em> and trailing markup.';
 const STABLE_PENDING_RICH_TEXT_HTML =
@@ -559,6 +561,30 @@ describe("LineClamp browser contract", () => {
 
     expect((mounted.exposed.value as RichLineClampExposed).clamped).toBe(true);
     expect(await sampleVisibleLineCounts(root)).toEqual([2, 2, 2]);
+  });
+
+  it("uses inert image sources in the hidden rich probe", async () => {
+    const mounted = mountRichClamp({
+      html: REMOTE_IMAGE_RICH_TEXT_HTML,
+      width: 170,
+      props: {
+        maxLines: 2,
+      },
+    });
+
+    const root = rootElement(mounted.container);
+    await settle(4);
+
+    expect(richImage(root, "Expected the visible rich image.").getAttribute("src")).toBe(
+      "/rich-demo-icon.svg",
+    );
+
+    const probeImage = root.querySelector('[aria-hidden="true"] img');
+    if (!(probeImage instanceof HTMLImageElement)) {
+      throw new Error("Expected the hidden rich probe image.");
+    }
+
+    expect(probeImage.getAttribute("src")).toMatch(/^data:image\//u);
   });
 
   it("skips generation tracking for deterministic-size rich images", async () => {
