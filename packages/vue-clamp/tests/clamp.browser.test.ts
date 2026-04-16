@@ -532,7 +532,7 @@ describe("LineClamp browser contract", () => {
     expect(await sampleVisibleLineCounts(root)).toEqual([2, 2, 2]);
   });
 
-  it("ignores stale rich image events after same-html DOM replacement", async () => {
+  it("preserves visible rich images across same-html width reclamps", async () => {
     const imageTracker = mockImageCompletion();
     const mounted = mountRichClamp({
       html: PENDING_RICH_TEXT_HTML,
@@ -550,15 +550,12 @@ describe("LineClamp browser contract", () => {
     mounted.width.value = 171;
     await settle(4);
 
-    const secondImage = richImage(root, "Expected the replacement pending rich image.");
-    expect(secondImage).not.toBe(firstImage);
+    const secondImage = richImage(root, "Expected the current pending rich image.");
+    expect(secondImage).toBe(firstImage);
 
     imageTracker.settle(firstImage);
     await settle(4);
     expect(richContentElement(root).querySelector("img")).toBe(secondImage);
-
-    imageTracker.settle(secondImage);
-    await settle(4);
 
     expect((mounted.exposed.value as RichLineClampExposed).clamped).toBe(true);
     expect(await sampleVisibleLineCounts(root)).toEqual([2, 2, 2]);

@@ -2,6 +2,8 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vite-plus/
 import { clampRichTextToLayout, prepareRichText } from "../src/rich.ts";
 import { frame } from "./browser.ts";
 
+import type { RichClampDecision } from "../src/rich.ts";
+
 type BenchmarkRun = {
   boundingRectReads: number;
   clientRectReads: number;
@@ -34,6 +36,7 @@ type ScenarioResult = {
 type MountedHost = {
   container: HTMLElement;
   content: HTMLElement;
+  decision: RichClampDecision | null;
   destroy: () => void;
   rich: HTMLElement;
   root: HTMLElement;
@@ -162,6 +165,7 @@ function mountHost(html: string, width: number): MountedHost {
   return {
     container,
     content,
+    decision: null,
     destroy: () => {
       container.remove();
     },
@@ -183,13 +187,15 @@ function runClamp(
     host.root,
     host.content,
     host.rich,
+    host.decision,
     "…",
     maxLines,
     undefined,
   );
+  host.decision = result.decision;
 
-  if (result.html === null) {
-    throw new Error("Rich benchmark returned null html.");
+  if (!result.decision) {
+    throw new Error("Rich benchmark returned null decision.");
   }
 }
 

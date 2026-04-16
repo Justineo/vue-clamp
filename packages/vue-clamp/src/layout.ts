@@ -40,7 +40,7 @@ export function cssLength(value: number | string | undefined): string | number |
   return typeof value === "number" ? `${value}px` : value;
 }
 
-export function sizeSignature(element: HTMLElement | null): string {
+function sizeSignature(element: HTMLElement | null): string {
   return element ? `${element.offsetWidth}x${element.offsetHeight}` : "0x0";
 }
 
