@@ -171,6 +171,10 @@
     - fit probes now patch a persistent hidden probe tree instead of mutating the visible rich body
     - width-only visible commits patch a prefix-preserving suffix from the prepared source instead
       of using `innerHTML`
+    - structural patches clone only the changed suffix under the shared patch anchor, so unchanged
+      prefix descendants such as images are not recreated during width-only reclamps
+    - hidden-probe images use an inert data URI source while preserving sizing attributes/styles, so
+      probe-only candidate churn does not repeatedly fetch remote image URLs
   - sanitization stays the caller's responsibility
   - the runtime measures rich candidates in a connected hidden probe so the visible rich subtree is
     not mutated during binary search
