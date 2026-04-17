@@ -50,7 +50,7 @@ jobs:
         run: vp run test:browser
 
       - name: Build
-        run: vp run build -r
+        run: vp run build
 
       - name: Extract release notes
         run: vp exec releaselog --format notes "${{ steps.version.outputs.version }}" > RELEASE_NOTES.md

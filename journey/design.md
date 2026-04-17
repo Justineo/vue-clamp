@@ -437,7 +437,15 @@
   - `vp check`
   - `vp test`
   - `vp run test:browser`
-  - `vp run build -r`
+  - `vp run build`
+- The root `build` script intentionally uses a Vite+ filter instead of a raw recursive run:
+  - it runs `vp run -F website... build`
+  - the `website...` filter selects the website package plus its workspace dependencies, so
+    `vue-clamp#build` runs before `website#build`
+  - do not restore `vp run build -r`; with the current Vite+ runner syntax that command exits
+    successfully with `0 tasks`, which skips both the package build and the website build
+  - do not use `vp run -r build` while the root package has its own `build` script, because it
+    selects the root and duplicates the workspace build tasks
 - Browser coverage focuses on:
   - component contract tests
   - demo-page regressions

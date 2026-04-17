@@ -49,7 +49,7 @@ vp run test:browser
 - Build the workspace:
 
 ```bash
-vp run build -r
+vp run build
 ```
 
 - Run the demo site:
