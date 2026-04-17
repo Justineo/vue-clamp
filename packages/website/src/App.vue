@@ -432,13 +432,13 @@ const defaultHeroTaglineWord = heroTaglineWords[0] ?? heroTaglineWordCatalog.lin
 
 const heroTaglineTextStart = "Clamping";
 const heroTaglineTextEnd = "in Vue.";
-const heroTaglineExpandedPadding = 8;
 const heroTaglineTiming = {
   collapsedHold: 380,
   expandedHold: 2240,
   swapSettle: 220,
   transition: 1320,
 } as const;
+const heroTaglineExpandedWidthReserve = 80;
 const heroTaglineWord = ref<HeroTaglineWord>(defaultHeroTaglineWord);
 const heroTaglineWidth = ref<number | null>(null);
 const heroTaglineCollapsed = ref(false);
@@ -507,9 +507,9 @@ const splitHeroTagline: InlineClampSplit = (text) => {
   for (const word of heroTaglineWords) {
     if (text === `${heroTaglineTextStart} ${word} ${heroTaglineTextEnd}`) {
       return {
-        start: heroTaglineTextStart,
-        body: ` ${word} `,
-        end: heroTaglineTextEnd,
+        start: `${heroTaglineTextStart} `,
+        body: word,
+        end: ` ${heroTaglineTextEnd}`,
       };
     }
   }
@@ -620,10 +620,6 @@ function heroTaglineText(): string {
   return `${heroTaglineTextStart} ${heroTaglineWord.value} ${heroTaglineTextEnd}`;
 }
 
-function heroTaglineMeasuredText(word: HeroTaglineWord): string {
-  return `${heroTaglineTextStart} ${word} ${heroTaglineTextEnd}`;
-}
-
 function clearHeroTaglineTimer(): void {
   if (heroTaglineTimer !== null) {
     clearTimeout(heroTaglineTimer);
@@ -646,33 +642,17 @@ function measureWidth(selector: string): number | null {
   return element instanceof HTMLElement ? element.getBoundingClientRect().width : null;
 }
 
-function measureMinWidth(selector: string): number | null {
-  const element = heroTaglineMeasureRef.value?.querySelector(selector);
-
-  if (!(element instanceof HTMLElement)) {
-    return null;
-  }
-
-  const minWidth = Number.parseFloat(getComputedStyle(element).minWidth);
-  return Number.isFinite(minWidth) ? minWidth : null;
-}
-
 function measureHeroTaglineWidths(): void {
   const measuredExpandedWidths = createHeroTaglineWidthMap();
 
   for (const word of heroTaglineWords) {
+    const measuredWidth = measureWidth(`[data-measure-word="${word}"]`);
     measuredExpandedWidths[word] =
-      Math.ceil(measureWidth(`[data-measure-word="${word}"]`) ?? 0) + heroTaglineExpandedPadding;
+      measuredWidth === null ? 0 : measuredWidth + heroTaglineExpandedWidthReserve;
   }
 
-  const startWidth = measureWidth('[data-measure-part="start"]') ?? 0;
-  const endWidth = measureWidth('[data-measure-part="end"]') ?? 0;
-  const ellipsisWidth = measureWidth('[data-measure-part="ellipsis"]') ?? 0;
-  const bodyMinWidth = measureMinWidth('.hero-tagline-measure-item [data-part="body"]') ?? 0;
-  const collapsedBodyWidth = Math.max(ellipsisWidth, bodyMinWidth);
-
   heroTaglineExpandedWidths.value = measuredExpandedWidths;
-  heroTaglineCollapsedWidth.value = Math.ceil(startWidth + endWidth + collapsedBodyWidth);
+  heroTaglineCollapsedWidth.value = measureWidth('[data-measure-state="collapsed"]') ?? 0;
   heroTaglineMeasured.value = true;
 }
 
@@ -1108,23 +1088,22 @@ const highlightedWrapCode = computed(() => highlightCode(wrapCodeExample, "vue")
           </span>
         </div>
         <div ref="heroTaglineMeasureRef" class="hero-tagline-measure" aria-hidden="true">
-          <InlineClamp
-            v-for="word in heroTaglineWords"
-            :key="word"
-            :data-measure-word="word"
-            :text="heroTaglineMeasuredText(word)"
-            :split="splitHeroTagline"
-            as="span"
-            class="hero-tagline hero-tagline-measure-item"
-          />
           <div class="hero-tagline-measure-parts">
-            <span class="hero-tagline-measure-text" data-measure-part="start">
-              {{ heroTaglineTextStart }}
+            <span
+              v-for="word in heroTaglineWords"
+              :key="`measure-${word}`"
+              class="hero-tagline hero-tagline-measure-line"
+              :data-measure-word="word"
+            >
+              <span class="hero-tagline-measure-segment" v-text="`${heroTaglineTextStart} `" />
+              <span class="hero-tagline-measure-segment">{{ word }}</span>
+              <span class="hero-tagline-measure-segment" v-text="` ${heroTaglineTextEnd}`" />
             </span>
-            <span class="hero-tagline-measure-text" data-measure-part="end">
-              {{ heroTaglineTextEnd }}
+            <span class="hero-tagline hero-tagline-measure-line" data-measure-state="collapsed">
+              <span class="hero-tagline-measure-segment" v-text="`${heroTaglineTextStart} `" />
+              <span class="hero-tagline-measure-segment">…</span>
+              <span class="hero-tagline-measure-segment" v-text="` ${heroTaglineTextEnd}`" />
             </span>
-            <span class="hero-tagline-measure-text" data-measure-part="ellipsis">…</span>
           </div>
         </div>
         <nav class="hero-links" aria-label="Project links">
@@ -2475,6 +2454,24 @@ const highlightedWrapCode = computed(() => highlightCode(wrapCodeExample, "vue")
                   </div>
                   <div class="api-entry">
                     <div class="api-entry-header">
+                      <div class="api-entry-name"><code>ellipsis</code></div>
+                      <div class="api-entry-meta">
+                        <span class="api-meta-pair">
+                          <span class="api-meta-label">Type</span>
+                          <code>string</code>
+                        </span>
+                        <span class="api-meta-pair">
+                          <span class="api-meta-label">Default</span>
+                          <code>'…'</code>
+                        </span>
+                      </div>
+                    </div>
+                    <p class="api-entry-copy">
+                      Text inserted when the shrinkable body is shortened.
+                    </p>
+                  </div>
+                  <div class="api-entry">
+                    <div class="api-entry-header">
                       <div class="api-entry-name"><code>split</code></div>
                       <div class="api-entry-meta">
                         <span class="api-meta-pair">
@@ -2485,7 +2482,8 @@ const highlightedWrapCode = computed(() => highlightCode(wrapCodeExample, "vue")
                     </div>
                     <div class="api-entry-copy">
                       <p>
-                        Optional splitter for dividing one line into fixed and shrinkable parts.
+                        Optional splitter for dividing one line into fixed parts and a rewritten
+                        body.
                       </p>
                       <dl class="api-detail-list">
                         <div class="api-detail-item">
@@ -2501,7 +2499,7 @@ const highlightedWrapCode = computed(() => highlightCode(wrapCodeExample, "vue")
                                   <code>body: string</code>
                                   <span class="api-meta-flag">required</span>
                                 </dt>
-                                <dd class="api-subdetail-desc">Required shrinkable segment.</dd>
+                                <dd class="api-subdetail-desc">Required rewritten segment.</dd>
                               </div>
                               <div class="api-subdetail-item">
                                 <dt class="api-subdetail-term"><code>end?: string</code></dt>
@@ -2991,24 +2989,22 @@ pre code {
   gap: 4px;
 }
 
-.hero-tagline-measure-item {
+.hero-tagline-measure-parts {
+  display: grid;
+  justify-items: start;
+  gap: 4px;
+}
+
+.hero-tagline-measure-line {
+  display: inline-block;
   width: auto;
   max-width: none;
   transition: none;
-}
-
-.hero-tagline-measure-parts {
-  display: flex;
-  align-items: baseline;
-  gap: 0;
-}
-
-.hero-tagline-measure-text {
-  font-size: clamp(0.98rem, 2.2vw, 1.26rem);
-  font-weight: 700;
-  letter-spacing: -0.035em;
-  line-height: 1.24;
   white-space: nowrap;
+}
+
+.hero-tagline-measure-segment {
+  white-space: pre;
 }
 
 .hero-tagline :deep([data-part="start"]),
@@ -3537,6 +3533,8 @@ pre code {
 }
 
 .demo-output {
+  display: flex;
+  align-items: center;
   min-width: 0;
   padding: 8px 10px;
   background: var(--c-bg);

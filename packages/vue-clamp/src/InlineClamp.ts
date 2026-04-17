@@ -1,36 +1,41 @@
-import { defineComponent, h, mergeProps } from "vue";
+import {
+  computed,
+  defineComponent,
+  h,
+  mergeProps,
+  onBeforeUnmount,
+  onMounted,
+  onUpdated,
+  ref,
+  watch,
+  watchPostEffect,
+} from "vue";
+import { combinedSizeSignature, createCoalescingRunner, listenForFontLoads } from "./layout.ts";
+import { prepareText, searchKeptCount } from "./text.ts";
 
 import type { CSSProperties, PropType } from "vue";
-import type { InlineClampParts, InlineClampSplit } from "./types.ts";
+import type { InlineClampSplit } from "./types.ts";
 
-const inlineRootStyle: CSSProperties = {
-  alignItems: "baseline",
-  display: "inline-flex",
+const rootStyle: CSSProperties = {
+  display: "inline-block",
   maxWidth: "100%",
   minWidth: "0",
+  overflow: "hidden",
+  position: "relative",
+  whiteSpace: "nowrap",
   verticalAlign: "baseline",
 };
 
-const fixedSegmentStyle: CSSProperties = {
-  flex: "none",
-  maxWidth: "100%",
-  whiteSpace: "nowrap",
-};
-
-const bodySegmentStyle: CSSProperties = {
-  display: "block",
-  flex: "0 1 auto",
-  minWidth: "1em",
+const visuallyHiddenTextStyle: CSSProperties = {
+  clipPath: "inset(50%)",
+  height: "1px",
   overflow: "hidden",
-  textOverflow: "ellipsis",
+  position: "absolute",
   whiteSpace: "nowrap",
+  width: "1px",
 };
 
-const preservedSpaceStyle: CSSProperties = {
-  whiteSpace: "pre",
-};
-
-const boundarySpacePattern = /^( *)([\s\S]*?)( *)$/;
+const fitTolerance = 0.5;
 
 const propsDef = {
   as: {
@@ -41,71 +46,29 @@ const propsDef = {
     type: String,
     required: true,
   },
+  ellipsis: {
+    type: String,
+    default: "…",
+  },
   split: Function as PropType<InlineClampSplit | undefined>,
 } as const;
 
-function resolveParts(text: string, split: InlineClampSplit | undefined): InlineClampParts {
-  if (!split) {
-    return { body: text };
+function bodyText(
+  prepared: ReturnType<typeof prepareText>,
+  kept: number,
+  ellipsis: string,
+): string {
+  const graphemeCount = prepared.boundaryOffsets.length - 1;
+
+  if (prepared.text.length === 0 || kept >= graphemeCount) {
+    return prepared.text;
   }
 
-  const parts = split(text);
-
-  if (typeof parts?.body !== "string") {
-    return { body: text };
+  if (kept <= 0) {
+    return ellipsis;
   }
 
-  const normalizedParts: InlineClampParts = {
-    body: parts.body,
-  };
-
-  if (typeof parts.start === "string") {
-    normalizedParts.start = parts.start;
-  }
-
-  if (typeof parts.end === "string") {
-    normalizedParts.end = parts.end;
-  }
-
-  return normalizedParts;
-}
-
-function renderPreservedSpaces(text: string) {
-  return text
-    ? h(
-        "span",
-        {
-          style: preservedSpaceStyle,
-        },
-        text,
-      )
-    : null;
-}
-
-function renderSegmentContent(text: string) {
-  const [, leadingSpaces = "", content = "", trailingSpaces = ""] =
-    boundarySpacePattern.exec(text) ?? [];
-
-  if (!leadingSpaces && !trailingSpaces) {
-    return text;
-  }
-
-  return [
-    renderPreservedSpaces(leadingSpaces),
-    content || null,
-    renderPreservedSpaces(trailingSpaces),
-  ];
-}
-
-function renderSegment(name: "start" | "body" | "end", text: string, style: CSSProperties) {
-  return h(
-    "span",
-    {
-      "data-part": name,
-      style,
-    },
-    renderSegmentContent(text),
-  );
+  return `${prepared.text.slice(0, prepared.boundaryOffsets[kept]).trimEnd()}${ellipsis}`;
 }
 
 export const InlineClamp = defineComponent({
@@ -113,20 +76,169 @@ export const InlineClamp = defineComponent({
   inheritAttrs: false,
   props: propsDef,
   setup(props, { attrs }) {
+    const rootRef = ref<HTMLElement | null>(null);
+    const bodyRef = ref<HTMLElement | null>(null);
+    const parts = computed(() => props.split?.(props.text) ?? { body: props.text });
+    const visibleBody = ref(parts.value.body);
+    let resizeObserver: ResizeObserver | null = null;
+    let stopFonts = () => {};
+    let lastLayoutSignature: string | null = null;
+
+    function layoutSignature(): string {
+      return combinedSizeSignature(rootRef.value?.parentElement ?? null, rootRef.value);
+    }
+
+    function clampBody(): string | null {
+      const rootElement = rootRef.value;
+      const bodyElement = bodyRef.value;
+      const body = parts.value.body;
+
+      if (!rootElement || !bodyElement) {
+        return body;
+      }
+
+      bodyElement.textContent = body;
+
+      const limit = rootElement.getBoundingClientRect().width;
+
+      if (limit <= 0) {
+        return null;
+      }
+
+      const fits = () => rootElement.scrollWidth <= limit + fitTolerance;
+
+      if (fits()) {
+        return body;
+      }
+
+      const prepared = prepareText(body);
+      const graphemeCount = prepared.boundaryOffsets.length - 1;
+      const best = searchKeptCount(graphemeCount, (kept) => {
+        const candidate = bodyText(prepared, kept, props.ellipsis);
+        bodyElement.textContent = candidate;
+        return fits();
+      });
+      const nextBody = bodyText(prepared, best, props.ellipsis);
+      bodyElement.textContent = nextBody;
+
+      return nextBody;
+    }
+
+    const requestRecompute = createCoalescingRunner(async () => {
+      const nextBody = clampBody();
+
+      if (nextBody !== null && visibleBody.value !== nextBody) {
+        visibleBody.value = nextBody;
+      }
+
+      lastLayoutSignature = layoutSignature();
+    });
+
+    watch(
+      [parts, () => props.ellipsis],
+      () => {
+        visibleBody.value = parts.value.body;
+        requestRecompute();
+      },
+      { flush: "post" },
+    );
+
+    watchPostEffect((onCleanup) => {
+      const rootElement = rootRef.value;
+
+      if (!rootElement) {
+        return;
+      }
+
+      const observed = [rootElement.parentElement, rootElement].filter(
+        (element): element is HTMLElement => element instanceof HTMLElement,
+      );
+
+      resizeObserver ??= new ResizeObserver(() => {
+        if (layoutSignature() !== lastLayoutSignature) {
+          requestRecompute();
+        }
+      });
+
+      for (const element of observed) {
+        resizeObserver.observe(element);
+      }
+
+      onCleanup(() => {
+        for (const element of observed) {
+          resizeObserver?.unobserve(element);
+        }
+      });
+    });
+
+    onMounted(() => {
+      requestRecompute();
+      stopFonts = listenForFontLoads(requestRecompute);
+    });
+
+    onUpdated(() => {
+      if (layoutSignature() !== lastLayoutSignature) {
+        requestRecompute();
+      }
+    });
+
+    onBeforeUnmount(() => {
+      resizeObserver?.disconnect();
+      stopFonts();
+    });
+
     return () => {
-      const { as, split, text } = props;
-      const parts = resolveParts(text, split);
+      const { as } = props;
+      const currentParts = parts.value;
+      const isRewritten = visibleBody.value !== currentParts.body;
+      const ariaHidden = isRewritten ? "true" : undefined;
 
       return h(
         as,
         mergeProps(attrs, {
           "data-part": "root",
-          style: inlineRootStyle,
+          ref: rootRef,
+          style: rootStyle,
         }),
         [
-          parts.start ? renderSegment("start", parts.start, fixedSegmentStyle) : null,
-          renderSegment("body", parts.body, bodySegmentStyle),
-          parts.end ? renderSegment("end", parts.end, fixedSegmentStyle) : null,
+          isRewritten
+            ? h(
+                "span",
+                {
+                  style: visuallyHiddenTextStyle,
+                },
+                props.text,
+              )
+            : null,
+          currentParts.start
+            ? h(
+                "span",
+                {
+                  "aria-hidden": ariaHidden,
+                  "data-part": "start",
+                },
+                currentParts.start,
+              )
+            : null,
+          h(
+            "span",
+            {
+              "aria-hidden": ariaHidden,
+              "data-part": "body",
+              ref: bodyRef,
+            },
+            visibleBody.value,
+          ),
+          currentParts.end
+            ? h(
+                "span",
+                {
+                  "aria-hidden": ariaHidden,
+                  "data-part": "end",
+                },
+                currentParts.end,
+              )
+            : null,
         ],
       );
     };

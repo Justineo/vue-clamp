@@ -56,6 +56,7 @@ export type InlineClampSplit = (text: string) => InlineClampParts;
 export interface InlineClampProps {
   as?: string;
   text: string;
+  ellipsis?: string;
   split?: InlineClampSplit;
 }
 

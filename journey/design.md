@@ -7,7 +7,7 @@
 - The package now ships four Vue 3 clamp surfaces:
   - `LineClamp` for multiline DOM-driven clamping
   - `RichLineClamp` for multiline trusted-inline-html clamping
-  - `InlineClamp` for native one-line affix-friendly truncation
+  - `InlineClamp` for measured one-line affix-friendly truncation
   - `WrapClamp` for wrapped atomic-item clamping
 
 ## Product Goals
@@ -34,7 +34,7 @@
 - The root package exports:
   - `LineClamp` as the canonical multiline component name
   - `RichLineClamp` as the canonical multiline rich-html component name
-  - `InlineClamp` as the canonical single-line native component name
+  - `InlineClamp` as the canonical single-line affix-friendly component name
   - `WrapClamp` as the canonical wrapped-item component name
 - There is no default export.
 - Public declaration types live in `packages/vue-clamp/src/types.ts`.
@@ -52,9 +52,11 @@
   - `InlineClamp`: `root`, `start`, `body`, `end`
   - `WrapClamp`: `root`, `content`, `before`, `item`, `after`
 - DOM nesting is intentionally not part of the styling contract.
-- `InlineClamp` is native-only and single-line-only.
+- `InlineClamp` is single-line-only and uses live DOM measurement instead of native
+  `text-overflow`.
 - `InlineClamp` accepts:
   - `text`
+  - `ellipsis`
   - optional `split(text) => { start?, body, end? }`
   - `as`
 - `WrapClamp` accepts:
@@ -105,14 +107,18 @@
   - resize/font invalidation
   - same-flush `onUpdated` invalidation
   - the actual clamp logic still stays local to each component
-- `InlineClamp` is much narrower:
-  - one root inline-flex container
-  - optional fixed `start` and `end` segments
-  - one shrinking `body` segment with native `text-overflow: ellipsis`
-  - the `body` keeps at least an ellipsis-width minimum so native truncation still has room to render
-  - leading and trailing plain-space runs inside split segments are rendered through preserved-space
-    inline children so boundary spaces do not disappear across segment boxes
-  - no JS text rewriting, slots, or exposed instance API
+- `InlineClamp` is a small measured single-line component:
+  - one `inline-block` root that clips to its available width
+  - optional fixed `start` and `end` segments in normal inline flow
+  - one rewritten `body` segment found by grapheme-safe binary search against the live inline
+    content
+  - each clamp pass restores the full body text before reading the root width, so a previously
+    shortened inline-block root does not become the stale width limit when the parent grows
+  - custom `ellipsis` is inserted by JS, so the rewritten body can shrink to only the ellipsis
+  - segment text stays in normal inline flow, so spaces follow standard browser whitespace
+    collapsing instead of a component-specific preservation path
+  - `ResizeObserver` and font-load invalidation keep the measured result current
+  - no slots or exposed instance API
 - `WrapClamp` is item-driven and browser-aligned:
   - one root clamp container with live DOM measurement
   - one inline-flex wrapping flow of atomic item shells
@@ -255,7 +261,7 @@
   - shared low-level layout primitives remain in `layout.ts`
 - Internal clamp helpers return direct rendered text where possible, while rich clamp returns a
   structural boundary decision so width-only reclamps do not serialize or reparse HTML.
-- In the native single-line fast path, the collapsed DOM text remains the full source text and the visual ellipsis comes from CSS overflow rather than a rewritten text node.
+- In the `LineClamp` native single-line fast path, the collapsed DOM text remains the full source text and the visual ellipsis comes from CSS overflow rather than a rewritten text node.
 - Custom ellipsis strings still fall back to the JS trimming path.
 - The JS trimming path still rewrites the visible text node, but accessibility now comes from the hidden full-text sibling rather than a generic-element label.
 - Rich HTML does not support source slots, start truncation, middle truncation, or arbitrary
@@ -292,6 +298,11 @@
   now rotates through a randomized but category-balanced set of concrete nouns from the multiline,
   rich, inline, and wrapped-item surfaces, while the API names remain `LineClamp`,
   `RichLineClamp`, `InlineClamp`, and `WrapClamp`.
+- The website hero tagline measures exact hidden inline text states for its animated width:
+  expanded widths are measured as `start + word + end` with an 80px reserve so the ease-out does
+  not visually catch on the final glyph, and the collapsed width is measured exactly as
+  `start + ellipsis + end`. Do not estimate the collapsed width from individual pieces; the
+  animated collapsed frame should match the rendered text width closely.
 - The website `RichLineClamp` demo is intentionally more realistic than the API snippet:
   - editable trusted inline HTML
   - preset content covering release notes, styled article excerpts with nested emphasis inside

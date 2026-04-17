@@ -366,7 +366,7 @@ function heroTagline(container: HTMLElement): HTMLElement {
   return element;
 }
 
-function heroTaglinePart(container: HTMLElement, part: "body" | "end"): HTMLElement {
+function heroTaglinePart(container: HTMLElement, part: "start" | "body" | "end"): HTMLElement {
   const element = container.querySelector(`.hero-tagline [data-part="${part}"]`);
   if (!(element instanceof HTMLElement)) {
     throw new Error(`Expected the hero tagline ${part} segment.`);
@@ -409,34 +409,68 @@ async function waitForHeroTaglineShrink(
   return maxDelta;
 }
 
-async function maxHeroTaglineSuffixOverflow(container: HTMLElement): Promise<{
-  maxOverflow: number;
-  sawCollapsed: boolean;
-}> {
-  let maxOverflow = Number.NEGATIVE_INFINITY;
-  let sawCollapsed = false;
+function heroTaglineWidthDelta(container: HTMLElement): {
+  suffixOverflow: number;
+  widthDelta: number;
+} {
+  const tagline = heroTagline(container);
+  const start = heroTaglinePart(container, "start");
+  const end = heroTaglinePart(container, "end");
+  const taglineRect = tagline.getBoundingClientRect();
+  const startRect = start.getBoundingClientRect();
+  const endRect = end.getBoundingClientRect();
 
-  for (let attempt = 0; attempt < 20; attempt += 1) {
-    await waitTime(250);
-    await waitFrames(2);
+  return {
+    suffixOverflow: endRect.right - taglineRect.right,
+    widthDelta: taglineRect.width - (endRect.right - startRect.left),
+  };
+}
+
+async function waitForStableCollapsedHeroTagline(container: HTMLElement): Promise<{
+  sawCollapsed: boolean;
+  suffixOverflow: number;
+  widthDelta: number;
+}> {
+  let previousWidth: number | null = null;
+  let sawCollapsed = false;
+  let stableSamples = 0;
+  let suffixOverflow = Number.NEGATIVE_INFINITY;
+  let widthDelta = Number.POSITIVE_INFINITY;
+
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    await waitTime(100);
+    await waitFrames(1);
 
     const tagline = heroTagline(container);
     const body = heroTaglinePart(container, "body");
-    const end = heroTaglinePart(container, "end");
 
-    if (body.scrollWidth <= body.clientWidth) {
+    if (body.textContent !== "…") {
+      previousWidth = null;
+      stableSamples = 0;
       continue;
     }
 
     sawCollapsed = true;
-    const taglineRect = tagline.getBoundingClientRect();
-    const endRect = end.getBoundingClientRect();
-    maxOverflow = Math.max(maxOverflow, endRect.right - taglineRect.right);
+    const currentWidth = tagline.getBoundingClientRect().width;
+    stableSamples =
+      previousWidth !== null && Math.abs(currentWidth - previousWidth) <= 0.5
+        ? stableSamples + 1
+        : 0;
+    previousWidth = currentWidth;
+
+    const delta = heroTaglineWidthDelta(container);
+    suffixOverflow = delta.suffixOverflow;
+    widthDelta = delta.widthDelta;
+
+    if (stableSamples >= 2) {
+      break;
+    }
   }
 
   return {
-    maxOverflow,
     sawCollapsed,
+    suffixOverflow,
+    widthDelta,
   };
 }
 
@@ -932,11 +966,11 @@ describe("Website demo page", () => {
 
     expect(plainFileListRow.querySelector('[data-part="end"]')).toBeNull();
     expect(splitFileListEnd?.textContent).toBe(".jpeg");
-    expect(splitFileListClamp?.textContent).toBe("summer-campaign-panorama-final.jpeg");
+    expect(splitFileListClamp?.getBoundingClientRect().width).toBeLessThanOrEqual(221);
     if (!(splitFileListBody instanceof HTMLElement)) {
       throw new Error("Expected the split file-list body element.");
     }
-    expect(splitFileListBody.scrollWidth).toBeGreaterThan(splitFileListBody.clientWidth);
+    expect(splitFileListBody.textContent?.endsWith("…")).toBe(true);
 
     const splitEmailRow = inlineRow(inlineExampleBlock(mountedPage.container, "email"), "split");
     expect(splitEmailRow.querySelector('[data-part="end"]')?.textContent).toBe("@acme.dev");
@@ -1298,12 +1332,18 @@ describe("Website demo page", () => {
     await settle(2);
 
     const tagline = heroTagline(mountedPage.container);
+    const expanded = heroTaglineWidthDelta(mountedPage.container);
+    expect(expanded.suffixOverflow).toBeLessThanOrEqual(-72);
+    expect(expanded.widthDelta).toBeGreaterThanOrEqual(72);
+    expect(expanded.widthDelta).toBeLessThanOrEqual(88);
+
     const delta = await waitForHeroTaglineShrink(tagline, 8);
     expect(delta).toBeGreaterThan(8);
 
-    const suffixOverflow = await maxHeroTaglineSuffixOverflow(mountedPage.container);
-    expect(suffixOverflow.sawCollapsed).toBe(true);
-    expect(suffixOverflow.maxOverflow).toBeLessThanOrEqual(0.5);
+    const collapsed = await waitForStableCollapsedHeroTagline(mountedPage.container);
+    expect(collapsed.sawCollapsed).toBe(true);
+    expect(collapsed.suffixOverflow).toBeLessThanOrEqual(0.5);
+    expect(Math.abs(collapsed.widthDelta)).toBeLessThanOrEqual(0.75);
   });
 
   it("copies installation and example code from the website code blocks", async () => {

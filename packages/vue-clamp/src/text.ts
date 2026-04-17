@@ -85,6 +85,25 @@ export function displayTextForKeptCount(
     .trim()}`;
 }
 
+export function searchKeptCount(graphemeCount: number, fits: (kept: number) => boolean): number {
+  let low = 0;
+  let high = graphemeCount - 1;
+  let best = 0;
+
+  while (low <= high) {
+    const kept = Math.floor((low + high) / 2);
+
+    if (fits(kept)) {
+      best = kept;
+      low = kept + 1;
+    } else {
+      high = kept - 1;
+    }
+  }
+
+  return best;
+}
+
 export function normalizeLocationRatio(location: LineClampLocation): number {
   if (location === "start") {
     return 0;
@@ -152,23 +171,6 @@ export function clampTextToLayout(
     return nextText;
   }
 
-  function search(low: number, high: number, best: number): number {
-    while (low <= high) {
-      const kept = Math.floor((low + high) / 2);
-
-      applyKept(kept);
-
-      if (fitsContent(rootElement, contentElement, lineLimit, maxHeight)) {
-        best = kept;
-        low = kept + 1;
-      } else {
-        high = kept - 1;
-      }
-    }
-
-    return best;
-  }
-
   if (
     applyKept(graphemeCount) === text &&
     fitsContent(rootElement, contentElement, lineLimit, maxHeight)
@@ -176,7 +178,10 @@ export function clampTextToLayout(
     return text;
   }
 
-  const best = search(0, graphemeCount - 1, 0);
+  const best = searchKeptCount(graphemeCount, (kept) => {
+    applyKept(kept);
+    return fitsContent(rootElement, contentElement, lineLimit, maxHeight);
+  });
 
   return applyKept(best);
 }

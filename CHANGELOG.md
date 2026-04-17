@@ -9,9 +9,19 @@ Minor release focused on richer multiline content.
 ### Added
 
 - Added `<RichLineClamp>` for trusted inline HTML. It clamps from the end and preserves inline
-  formatting, links, line breaks, inline media, and atomic inline content.
-- `<RichLineClamp>` requires inline-flow markup; unsupported layouts render the original HTML
-  unchanged, and inline images need a deterministic rendered size before loading.
+  formatting, links, line breaks, inline media, and atomic inline content in rich text snippets.
+- `<InlineClamp>` now supports the `ellipsis` prop, so one-line split text can use the same custom
+  omission marker style as the multiline components.
+
+### Changed
+
+- `<InlineClamp>` now measures and rewrites only the body segment instead of relying on native
+  `text-overflow`. The visible result is still single-line, but split `start` and `end` segments
+  stay readable while the body can shrink all the way to the ellipsis.
+
+### Fixed
+
+- Fixed `<InlineClamp>` not restoring trimmed body text after its container grows wider.
 
 ## [1.0.1]
 

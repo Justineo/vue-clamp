@@ -12,10 +12,15 @@ type MountedInlineClamp = {
   text: Ref<string>;
 };
 
+type MountedResizableInlineClamp = MountedInlineClamp & {
+  width: Ref<number>;
+};
+
 type MountInlineOptions = {
   text: string;
   width?: number;
   as?: string;
+  ellipsis?: string;
   split?: InlineClampSplit;
   style?: string;
 };
@@ -53,6 +58,7 @@ function mountInlineClamp(options: MountInlineOptions): MountedInlineClamp {
           text: string;
           style: string;
           as?: string;
+          ellipsis?: string;
           split?: InlineClampSplit;
         } = {
           style: hostStyle(options.width ?? 180, options.style),
@@ -61,6 +67,10 @@ function mountInlineClamp(options: MountInlineOptions): MountedInlineClamp {
 
         if (typeof options.as === "string") {
           props.as = options.as;
+        }
+
+        if (typeof options.ellipsis === "string") {
+          props.ellipsis = options.ellipsis;
         }
 
         if (typeof options.split === "function") {
@@ -79,6 +89,55 @@ function mountInlineClamp(options: MountInlineOptions): MountedInlineClamp {
     app,
     container,
     text,
+  };
+  mounted.add(mountedClamp);
+  return mountedClamp;
+}
+
+function mountResizableInlineClamp(options: MountInlineOptions): MountedResizableInlineClamp {
+  const text = ref(options.text);
+  const width = ref(options.width ?? 180);
+  const container = document.createElement("div");
+  document.body.append(container);
+
+  const Host = defineComponent({
+    setup() {
+      return () => {
+        const props: {
+          text: string;
+          ellipsis?: string;
+          split?: InlineClampSplit;
+        } = {
+          text: text.value,
+        };
+
+        if (typeof options.ellipsis === "string") {
+          props.ellipsis = options.ellipsis;
+        }
+
+        if (typeof options.split === "function") {
+          props.split = options.split;
+        }
+
+        return h(
+          "div",
+          {
+            style: hostStyle(width.value, options.style),
+          },
+          h(InlineClamp, props),
+        );
+      };
+    },
+  });
+
+  const app = createApp(Host);
+  app.mount(container);
+
+  const mountedClamp = {
+    app,
+    container,
+    text,
+    width,
   };
   mounted.add(mountedClamp);
   return mountedClamp;
@@ -136,7 +195,7 @@ describe("InlineClamp browser contract", () => {
     expect(segment(root, "end")).toBeNull();
   });
 
-  it("keeps the end segment visible while the body uses native ellipsis", async () => {
+  it("keeps the end segment visible while the body is measured into inline text", async () => {
     const mountedClamp = mountInlineClamp({
       text: "very-long-generated-types.d.ts",
       width: 120,
@@ -158,19 +217,108 @@ describe("InlineClamp browser contract", () => {
       throw new Error("Expected inline clamp body and end segments.");
     }
 
-    expect(body.textContent).toBe("very-long-generated-types");
+    expect(getComputedStyle(root).display).toBe("inline-block");
+    expect(getComputedStyle(body).display).toBe("inline");
+    expect(getComputedStyle(body).textOverflow).toBe("clip");
+    expect(body.textContent).not.toBe("very-long-generated-types");
+    expect(body.textContent?.endsWith("…")).toBe(true);
     expect(end.textContent).toBe(".d.ts");
-    expect(root.textContent).toBe("very-long-generated-types.d.ts");
-    expect(getComputedStyle(body).flexGrow).toBe("0");
-    expect(parseFloat(getComputedStyle(body).minWidth)).toBeGreaterThan(0);
-    expect(getComputedStyle(body).textOverflow).toBe("ellipsis");
-    expect(body.scrollWidth).toBeGreaterThan(body.clientWidth);
+    expect(root.textContent).toContain(".d.ts");
+    expect(root.getBoundingClientRect().width).toBeLessThanOrEqual(121);
+  });
+
+  it("supports a custom ellipsis without native text-overflow", async () => {
+    const mountedClamp = mountInlineClamp({
+      text: "very-long-generated-types.d.ts",
+      width: 150,
+      ellipsis: " [...] ",
+      split(text) {
+        return {
+          body: text.slice(0, -5),
+          end: ".d.ts",
+        };
+      },
+    });
+
+    await settle();
+
+    const root = rootElement(mountedClamp.container);
+    const body = segment(root, "body");
+
+    if (!body) {
+      throw new Error("Expected inline clamp body segment.");
+    }
+
+    expect(body.textContent).toContain(" [...] ");
+    expect(getComputedStyle(body).textOverflow).toBe("clip");
+    expect(root.textContent).toContain(".d.ts");
+    expect(root.getBoundingClientRect().width).toBeLessThanOrEqual(151);
+  });
+
+  it("can reduce the shrinkable body to only the ellipsis", async () => {
+    const start = "/Users/justineo/";
+    const end = ".pdf";
+    const collapsedWidth = measureReferenceWidth(`${start}…${end}`);
+    const oneCharacterWidth = measureReferenceWidth(`${start}r…${end}`);
+    const mountedClamp = mountInlineClamp({
+      text: `${start}really-long-report${end}`,
+      width: Math.floor((collapsedWidth + oneCharacterWidth) / 2),
+      split() {
+        return {
+          start,
+          body: "really-long-report",
+          end,
+        };
+      },
+    });
+
+    await settle();
+
+    const root = rootElement(mountedClamp.container);
+
+    expect(segment(root, "start")?.textContent).toBe(start);
+    expect(segment(root, "body")?.textContent).toBe("…");
+    expect(segment(root, "end")?.textContent).toBe(end);
+  });
+
+  it("restores body text when the parent width grows", async () => {
+    const mountedClamp = mountResizableInlineClamp({
+      text: "very-long-generated-types.d.ts",
+      width: 120,
+      split(text) {
+        return {
+          body: text.slice(0, -5),
+          end: ".d.ts",
+        };
+      },
+    });
+
+    await settle();
+
+    const host = mountedClamp.container.firstElementChild;
+    if (!(host instanceof HTMLElement)) {
+      throw new Error("Expected inline clamp host element.");
+    }
+
+    const root = rootElement(host);
+    const body = segment(root, "body");
+
+    if (!body) {
+      throw new Error("Expected inline clamp body segment.");
+    }
+
+    expect(body.textContent).not.toBe("very-long-generated-types");
+
+    mountedClamp.width.value = 360;
+    await settle();
+
+    expect(body.textContent).toBe("very-long-generated-types");
   });
 
   it("recomputes start, body, and end segments when the source text changes", async () => {
     const mountedClamp = mountInlineClamp({
       text: "/Users/justineo/really-long-report.pdf",
-      width: 180,
+      width: 640,
       split(text) {
         const slashIndex = text.lastIndexOf("/") + 1;
         const dotIndex = text.lastIndexOf(".");
@@ -193,7 +341,7 @@ describe("InlineClamp browser contract", () => {
     expect(segment(root, "end")?.textContent).toBe(".png");
   });
 
-  it("preserves visible boundary spaces across split segments", async () => {
+  it("keeps normal inline spacing across split segments", async () => {
     const mountedClamp = mountInlineClamp({
       text: "The only line clamp you need for Vue.",
       width: 640,
