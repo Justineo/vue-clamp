@@ -1234,9 +1234,7 @@ describe("Website demo page", () => {
     expect(lineSummary.textContent).toContain("max-lines");
     expect(lineSummary.textContent).toContain("max-height");
     expect(lineSummary.textContent).toContain("plain text");
-    expect(
-      referenceShell(mountedPage.container).querySelector('[data-reference-notice="line"]'),
-    ).toBeNull();
+    expect(referenceShell(mountedPage.container).querySelector('[data-alert="line"]')).toBeNull();
 
     await selectSurface(mountedPage.container, "rich");
 
@@ -1249,9 +1247,7 @@ describe("Website demo page", () => {
     expect(richSummary.textContent).toContain("trusted inline HTML");
     expect(richSummary.textContent).toContain("line breaks");
     expect(richSummary.textContent).toContain("clamps from the end");
-    const richNotice = referenceShell(mountedPage.container).querySelector(
-      '[data-reference-notice="rich"]',
-    );
+    const richNotice = referenceShell(mountedPage.container).querySelector('[data-alert="rich"]');
     expect(richNotice?.textContent).toContain("HTML input contract");
     expect(richNotice?.textContent).toContain("Sanitize untrusted input");
     expect(richNotice?.textContent).toContain("HTML Sanitizer API");
@@ -1274,9 +1270,7 @@ describe("Website demo page", () => {
     expect(inlineSummary.textContent).toContain("no slots or events");
     expect(inlineSummary.textContent).toContain("split(text)");
     expect(inlineSummary.textContent).toContain("body");
-    expect(
-      referenceShell(mountedPage.container).querySelector('[data-reference-notice="inline"]'),
-    ).toBeNull();
+    expect(referenceShell(mountedPage.container).querySelector('[data-alert="inline"]')).toBeNull();
 
     await selectSurface(mountedPage.container, "wrap");
 
@@ -1289,9 +1283,7 @@ describe("Website demo page", () => {
     expect(wrapSummary.textContent).toContain("wrapped items");
     expect(wrapSummary.textContent).toContain("after");
     expect(wrapSummary.textContent).toContain("Less");
-    expect(
-      referenceShell(mountedPage.container).querySelector('[data-reference-notice="wrap"]'),
-    ).toBeNull();
+    expect(referenceShell(mountedPage.container).querySelector('[data-alert="wrap"]')).toBeNull();
   });
 
   it("animates the hero tagline width at mobile content widths", async () => {
