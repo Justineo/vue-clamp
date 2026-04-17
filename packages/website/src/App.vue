@@ -3317,6 +3317,7 @@ pre code {
 }
 
 .demo-block {
+  position: relative;
   margin-bottom: 0;
   padding: 18px 0 20px;
 }
@@ -3325,8 +3326,15 @@ pre code {
   padding-top: 0;
 }
 
-.demo-block + .demo-block {
-  border-top: 1px solid var(--c-border);
+.demo-block + .demo-block::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 50%;
+  width: 56px;
+  height: 1px;
+  background: color-mix(in srgb, var(--c-border) 60%, var(--c-bg));
+  transform: translateX(-50%);
 }
 
 .demo-label {
