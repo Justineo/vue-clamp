@@ -3269,9 +3269,20 @@ pre code {
 }
 
 .reference-section + .reference-section {
-  margin-top: 22px;
-  padding-top: 22px;
-  border-top: 1px solid var(--c-border);
+  position: relative;
+  margin-top: 26px;
+  padding-top: 26px;
+}
+
+.reference-section + .reference-section::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 50%;
+  width: 72px;
+  height: 1px;
+  background: color-mix(in srgb, var(--c-border) 72%, var(--c-bg));
+  transform: translateX(-50%);
 }
 
 .reference-section > .subsection-title {
