@@ -15,10 +15,10 @@ pnpm add vue-clamp vue
 
 ## Components
 
-- `LineClamp` for multiline plain text
-- `RichLineClamp` for trusted inline rich text
-- `InlineClamp` for one-line strings such as filenames, paths, and emails
-- `WrapClamp` for wrapped items such as tags, filters, and chips
+- `<LineClamp>` for multiline plain text
+- `<RichLineClamp>` for trusted inline rich text
+- `<InlineClamp>` for one-line strings such as filenames, paths, and emails
+- `<WrapClamp>` for wrapped items such as tags, filters, and chips
 
 ## Usage
 
@@ -34,15 +34,18 @@ import { LineClamp } from "vue-clamp";
 
 ## Rich text
 
-Use `RichLineClamp` for trusted or already-sanitized inline markup:
+Use `<RichLineClamp>` for trusted or already-sanitized inline markup:
 
 ```vue
 <RichLineClamp :html="html" :max-lines="2" />
 ```
 
-RichLineClamp is intentionally scoped:
+`<RichLineClamp>` is intentionally scoped:
 
 - Rich content clamps from the end only.
+- Pass only trusted HTML, or sanitize untrusted input with the
+  [HTML Sanitizer API](https://developer.mozilla.org/en-US/docs/Web/API/HTML_Sanitizer_API) where
+  available, or [DOMPurify](https://github.com/cure53/DOMPurify), before binding `html`.
 - Rich clamping is best-effort and behavior-based: elements can participate as long as the runtime
   can clone them back into the DOM and their rendered layout stays in inline flow.
 - Leaf elements without light DOM content are treated as atomic inline units, including custom
@@ -51,7 +54,6 @@ RichLineClamp is intentionally scoped:
 - Inline rich images must provide deterministic layout dimensions before loading, such as
   explicit `width` / `height` attributes or CSS dimensions.
 - Markup that renders outside inline flow still falls back to the original HTML unchanged.
-- Sanitization is the caller's responsibility.
 
 ## Docs
 
@@ -64,4 +66,4 @@ See the website for installation, examples, API, and live demos:
 `1.x` is the Vue 3 line and includes breaking changes from `0.x`.
 
 - Migration guide: [MIGRATION.md](https://github.com/Justineo/vue-clamp/blob/main/MIGRATION.md)
-- Release notes: [CHANGELOG.md](https://github.com/Justineo/vue-clamp/blob/main/CHANGELOG.md#100)
+- Release notes: [CHANGELOG.md](https://github.com/Justineo/vue-clamp/blob/main/CHANGELOG.md)
