@@ -720,7 +720,7 @@ describe("Website demo page", () => {
     expect(clampRoot.classList.contains("hyphens")).toBe(true);
     expect(block.textContent).toContain("Trusted or sanitized inline HTML only");
     expect(block.textContent).toContain("makes a best-effort pass");
-    expect(block.textContent).toContain("nested emphasis");
+    expect(block.textContent).toContain("inline-flow markup");
     expect(block.textContent).toContain("always clamps from the end");
     expect(maxHeightBlock.querySelector(".badge")).toBeInstanceOf(HTMLElement);
     expect(clampChangeBlock.querySelector(".clamp-status")).toBeInstanceOf(HTMLElement);
@@ -872,7 +872,12 @@ describe("Website demo page", () => {
 
     await settle(4);
     await mountedPage.container.ownerDocument.fonts?.ready;
-    expect(referencePanelNames(mountedPage.container)).toEqual(["demo", "example", "api"]);
+    expect(referencePanelNames(mountedPage.container)).toEqual([
+      "overview",
+      "demo",
+      "example",
+      "api",
+    ]);
     expect(
       referenceShell(mountedPage.container).querySelector(".reference-description"),
     ).toBeNull();
@@ -946,7 +951,12 @@ describe("Website demo page", () => {
     expect(surfaceTab(mountedPage.container, "rich").getAttribute("aria-pressed")).toBe("false");
     expect(surfaceTab(mountedPage.container, "inline").getAttribute("aria-pressed")).toBe("false");
     expect(surfaceTab(mountedPage.container, "wrap").getAttribute("aria-pressed")).toBe("false");
-    expect(referencePanelNames(mountedPage.container)).toEqual(["demo", "example", "api"]);
+    expect(referencePanelNames(mountedPage.container)).toEqual([
+      "overview",
+      "demo",
+      "example",
+      "api",
+    ]);
     expect(mountedPage.container.querySelector('[data-demo="location"]')).toBeInstanceOf(
       HTMLElement,
     );
@@ -958,7 +968,12 @@ describe("Website demo page", () => {
     expect(surfaceTab(mountedPage.container, "rich").getAttribute("aria-pressed")).toBe("false");
     expect(surfaceTab(mountedPage.container, "inline").getAttribute("aria-pressed")).toBe("false");
     expect(surfaceTab(mountedPage.container, "wrap").getAttribute("aria-pressed")).toBe("true");
-    expect(referencePanelNames(mountedPage.container)).toEqual(["demo", "example", "api"]);
+    expect(referencePanelNames(mountedPage.container)).toEqual([
+      "overview",
+      "demo",
+      "example",
+      "api",
+    ]);
     expect(mountedPage.container.querySelector('[data-demo="inline"]')).toBeNull();
     expect(
       wrapExampleBlocks(mountedPage.container).map((block) => block.dataset.wrapExample),
@@ -1219,6 +1234,11 @@ describe("Website demo page", () => {
     expect(lineSummary.textContent).toContain("max-lines");
     expect(lineSummary.textContent).toContain("max-height");
     expect(lineSummary.textContent).toContain("plain text");
+    const lineNotice = referenceShell(mountedPage.container).querySelector(
+      '[data-reference-notice="line"]',
+    );
+    expect(lineNotice?.textContent).toContain("Plain text source");
+    expect(lineNotice?.textContent).toContain("<RichLineClamp>");
 
     await selectSurface(mountedPage.container, "rich");
 
@@ -1229,9 +1249,20 @@ describe("Website demo page", () => {
       throw new Error("Expected the RichLineClamp API summary.");
     }
     expect(richSummary.textContent).toContain("trusted inline HTML");
-    expect(richSummary.textContent).toContain("nested inline emphasis");
-    expect(richSummary.textContent).toContain("best-effort inline-flow runtime");
-    expect(richSummary.textContent).toContain("raw HTML");
+    expect(richSummary.textContent).toContain("line breaks");
+    expect(richSummary.textContent).toContain("clamps from the end");
+    const richNotice = referenceShell(mountedPage.container).querySelector(
+      '[data-reference-notice="rich"]',
+    );
+    expect(richNotice?.textContent).toContain("HTML input contract");
+    expect(richNotice?.textContent).toContain("sanitize untrusted input");
+    expect(richNotice?.textContent).toContain("HTML Sanitizer API");
+    expect(richNotice?.textContent).toContain("DOMPurify");
+    expect(richNotice?.textContent).toContain("inline flow");
+    expect(richNotice?.textContent).toContain("img");
+    expect(richNotice?.textContent).toContain("svg");
+    expect(richNotice?.textContent).toContain("explicit");
+    expect(richNotice?.textContent).toContain("CSS dimensions");
 
     await selectSurface(mountedPage.container, "inline");
 
@@ -1245,6 +1276,11 @@ describe("Website demo page", () => {
     expect(inlineSummary.textContent).toContain("no slots or events");
     expect(inlineSummary.textContent).toContain("split(text)");
     expect(inlineSummary.textContent).toContain("body");
+    const inlineNotice = referenceShell(mountedPage.container).querySelector(
+      '[data-reference-notice="inline"]',
+    );
+    expect(inlineNotice?.textContent).toContain("Single line only");
+    expect(inlineNotice?.textContent).toContain("<LineClamp>");
 
     await selectSurface(mountedPage.container, "wrap");
 
@@ -1257,6 +1293,11 @@ describe("Website demo page", () => {
     expect(wrapSummary.textContent).toContain("wrapped items");
     expect(wrapSummary.textContent).toContain("after");
     expect(wrapSummary.textContent).toContain("Less");
+    const wrapNotice = referenceShell(mountedPage.container).querySelector(
+      '[data-reference-notice="wrap"]',
+    );
+    expect(wrapNotice?.textContent).toContain("Atomic items");
+    expect(wrapNotice?.textContent).toContain("whole units");
   });
 
   it("animates the hero tagline width at mobile content widths", async () => {

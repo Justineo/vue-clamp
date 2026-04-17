@@ -2,21 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased]
-
 ## [1.1.0]
 
-Minor release focused on richer multiline content and clearer examples.
+Minor release focused on richer multiline content.
 
 ### Added
 
-- Added `RichLineClamp` for trusted inline rich text, with end truncation for inline content,
-  inline media, and line breaks.
-
-### Changed
-
-- Kept `LineClamp` focused on plain text while moving rich HTML clamping to `RichLineClamp`.
-- Refreshed the docs and examples so the clamp surfaces are easier to compare.
+- Added `<RichLineClamp>` for trusted inline HTML. It clamps from the end and preserves inline
+  formatting, links, line breaks, inline media, and atomic inline content.
+- `<RichLineClamp>` requires inline-flow markup; unsupported layouts render the original HTML
+  unchanged, and inline images need deterministic dimensions before loading.
 
 ## [1.0.1]
 
@@ -24,7 +19,7 @@ Patch release focused on multiline clamp correctness.
 
 ### Fixed
 
-- Fixed `LineClamp` edge cases where browser layout could undercount wrapped lines, so collapsed
+- Fixed `<LineClamp>` edge cases where browser layout could undercount wrapped lines, so collapsed
   text now respects `maxLines` and `maxHeight` more reliably.
 
 ## [1.0.0]
@@ -42,14 +37,14 @@ First stable release of `vue-clamp` for Vue 3.
 - `autoresize` was removed.
 - Expansion now uses Vue 3 `v-model:expanded` instead of the Vue 2 `.sync` pattern.
 - If you style component internals, switch to the documented `data-part` hooks.
-- The old `Clamp` alias was removed. Use `LineClamp`.
+- The old `Clamp` alias was removed. Use `<LineClamp>`.
 
 ### New in 1.0
 
-- `InlineClamp` for one-line clamping with optional `split(text)`.
-- `WrapClamp` for wrapped atomic items such as tags, chips, and selections.
+- `<InlineClamp>` for one-line clamping with optional `split(text)`.
+- `<WrapClamp>` for wrapped atomic items such as tags, chips, and selections.
 - Built-in TypeScript types for props, slots, emits, and exposed methods.
-- Numeric `location` ratios for `LineClamp`, in addition to `start`, `middle`, and `end`.
+- Numeric `location` ratios for `<LineClamp>`, in addition to `start`, `middle`, and `end`.
 
 ### Migration
 

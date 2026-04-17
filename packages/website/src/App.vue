@@ -6,6 +6,7 @@ import { InlineClamp, LineClamp, RichLineClamp, WrapClamp } from "vue-clamp";
 import ComponentTabs from "./ComponentTabs.vue";
 import CodeBlock from "./CodeBlock.vue";
 import PillControls from "./PillControls.vue";
+import ReferenceNotice from "./ReferenceNotice.vue";
 import {
   horizontalOverlayScrollbarsOptions,
   initBodyOverlayScrollbars,
@@ -52,7 +53,7 @@ const richHtmlPresets = [
   {
     id: "release",
     label: "Release note",
-    value: `Heads up: ${richIconImage(richDemoIconSrc)} <strong>Friday release 2.4.0</strong> moves to <time datetime="2026-04-11T09:30">09:30</time>. Review the <a href="#components">migration note</a>, keep the <code>RichLineClamp</code> fallback banner, and confirm the <mark>billing export</mark> patch before the preview freeze. <span class="rich-chip rich-chip--accent">Blocking</span> <span class="rich-chip">Docs</span> ${richIconImage(richDemoIconSrc)}`,
+    value: `Heads up: ${richIconImage(richDemoIconSrc)} <strong>Friday release 2.4.0</strong> moves to <time datetime="2026-04-11T09:30">09:30</time>. Review the <a href="#components">migration note</a>, keep the <code>&lt;RichLineClamp&gt;</code> fallback banner, and confirm the <mark>billing export</mark> patch before the preview freeze. <span class="rich-chip rich-chip--accent">Blocking</span> <span class="rich-chip">Docs</span> ${richIconImage(richDemoIconSrc)}`,
   },
   {
     id: "editorial",
@@ -283,7 +284,7 @@ const surfaceGuideItems = [
       "Multiline browser-fit clamp for plain text, previews, cards, and expandable copy.",
     guide: "Plain-text multiline clamp for previews, cards, lists, and expandable copy.",
     id: surfaceHashes.line,
-    label: "LineClamp",
+    label: "<LineClamp>",
     value: "line",
   },
   {
@@ -291,21 +292,21 @@ const surfaceGuideItems = [
       "Trusted inline rich-html clamp for styled excerpts, links, and mixed inline markup.",
     guide: "Trusted inline HTML clamp for styled excerpts, links, and mixed inline markup.",
     id: surfaceHashes.rich,
-    label: "RichLineClamp",
+    label: "<RichLineClamp>",
     value: "rich",
   },
   {
     description: "Native single-line clamp for filenames, paths, and email addresses.",
     guide: "Single-line clamp for filenames, paths, and emails when one edge must stay visible.",
     id: surfaceHashes.inline,
-    label: "InlineClamp",
+    label: "<InlineClamp>",
     value: "inline",
   },
   {
     description: "Wrapped atomic-item clamp for labels, filters, and selected-value lists.",
     guide: "Wrapped item clamp for tags, filters, invitees, and selected-value lists.",
     id: surfaceHashes.wrap,
-    label: "WrapClamp",
+    label: "<WrapClamp>",
     value: "wrap",
   },
 ] as const;
@@ -1235,8 +1236,78 @@ const highlightedWrapCode = computed(() => highlightCode(wrapCodeExample, "vue")
         </div>
 
         <div class="reference-body">
+          <section class="reference-section" data-reference-panel="overview">
+            <h3 class="subsection-title">When to use</h3>
+            <template v-if="activeSurface === 'line'">
+              <p class="api-summary" data-api-summary="line">
+                Use <code>&lt;LineClamp&gt;</code> for real multiline plain text where the browser
+                decides wrapping. Pick <code>max-lines</code> for text-driven limits or
+                <code>max-height</code> for layout-driven limits.
+              </p>
+              <ReferenceNotice surface="line" title="Plain text source">
+                <code>&lt;LineClamp&gt;</code> accepts plain strings. Use
+                <code>&lt;RichLineClamp&gt;</code> when inline HTML needs to remain visible.
+              </ReferenceNotice>
+            </template>
+            <template v-else-if="activeSurface === 'rich'">
+              <p class="api-summary" data-api-summary="rich">
+                Use <code>&lt;RichLineClamp&gt;</code> for trusted inline HTML where formatting,
+                links, line breaks, and inline media should remain visible. It clamps from the end
+                only.
+              </p>
+              <ReferenceNotice surface="rich" title="HTML input contract">
+                <p>
+                  Pass only trusted HTML, or sanitize untrusted input with the native
+                  <a
+                    href="https://developer.mozilla.org/en-US/docs/Web/API/HTML_Sanitizer_API"
+                    target="_blank"
+                    rel="noopener"
+                    >HTML Sanitizer API</a
+                  >
+                  where available, or
+                  <a href="https://github.com/cure53/DOMPurify" target="_blank" rel="noopener"
+                    >DOMPurify</a
+                  >
+                  before binding <code>html</code>.
+                </p>
+                <p>
+                  Supported content must stay in inline flow: text, inline formatting, links,
+                  <code>br</code>, <code>wbr</code>, <code>img</code>, outer <code>svg</code>, leaf
+                  custom elements, and atomic inline boxes such as <code>inline-block</code>.
+                </p>
+                <p>
+                  Markup that leaves inline flow falls back to the original HTML. Inline images need
+                  explicit <code>width</code> / <code>height</code> attributes or CSS dimensions
+                  before loading.
+                </p>
+              </ReferenceNotice>
+            </template>
+            <template v-else-if="activeSurface === 'inline'">
+              <p class="api-summary" data-api-summary="inline">
+                Use <code>&lt;InlineClamp&gt;</code> for single-line text where the start or end
+                should stay visible. It has no slots or events, and <code>split(text)</code> should
+                stay pure because only <code>body</code> shrinks.
+              </p>
+              <ReferenceNotice surface="inline" title="Single line only">
+                <code>&lt;InlineClamp&gt;</code> uses native one-line overflow. Use
+                <code>&lt;LineClamp&gt;</code> for multiline text.
+              </ReferenceNotice>
+            </template>
+            <template v-else>
+              <p class="api-summary" data-api-summary="wrap">
+                Use <code>&lt;WrapClamp&gt;</code> for wrapped items that must stay whole. Render
+                each visible item through <code>item</code>, and use <code>after</code> for
+                <code>+N</code>, <code>More</code>, or <code>Less</code> UI.
+              </p>
+              <ReferenceNotice surface="wrap" title="Atomic items">
+                <code>&lt;WrapClamp&gt;</code> hides overflowing items as whole units. It does not
+                split or clip inside one item.
+              </ReferenceNotice>
+            </template>
+          </section>
+
           <section class="reference-section" data-reference-panel="demo">
-            <h3 class="subsection-title">Demo</h3>
+            <h3 class="subsection-title">Examples</h3>
 
             <template v-if="activeSurface === 'line'">
               <div class="demo-surface">
@@ -1258,7 +1329,7 @@ const highlightedWrapCode = computed(() => highlightCode(wrapCodeExample, "vue")
                           data-line-text-input
                           rows="5"
                           aria-label="LineClamp demo text"
-                          placeholder="Paste or type text to try in every LineClamp example."
+                          placeholder="Paste or type text to try in every <LineClamp> example."
                         ></textarea>
                       </span>
                     </div>
@@ -1559,7 +1630,7 @@ const highlightedWrapCode = computed(() => highlightCode(wrapCodeExample, "vue")
                         data-rich-html-input
                         rows="8"
                         aria-label="RichLineClamp demo HTML"
-                        placeholder="Paste or type trusted inline HTML to try RichLineClamp."
+                        placeholder="Paste or type trusted inline HTML to try <RichLineClamp>."
                       ></textarea>
                     </span>
                   </div>
@@ -1618,9 +1689,9 @@ const highlightedWrapCode = computed(() => highlightCode(wrapCodeExample, "vue")
                       </RichLineClamp>
                     </div>
                     <p class="clamp-status">
-                      Trusted or sanitized inline HTML only. RichLineClamp makes a best-effort pass
-                      across inline-flow markup, including nested emphasis, links, custom elements,
-                      and inline graphics, and always clamps from the end.
+                      Trusted or sanitized inline HTML only. <code>&lt;RichLineClamp&gt;</code>
+                      makes a best-effort pass across inline-flow markup and always clamps from the
+                      end.
                     </p>
                   </div>
                 </div>
@@ -1963,45 +2034,40 @@ const highlightedWrapCode = computed(() => highlightCode(wrapCodeExample, "vue")
           </section>
 
           <section class="reference-section" data-reference-panel="example">
-            <h3 class="subsection-title">Example</h3>
+            <h3 class="subsection-title">Usage</h3>
             <CodeBlock
               v-if="activeSurface === 'line'"
               :code="lineCodeExample"
               :html="highlightedLineCode"
-              label="LineClamp example"
+              label="<LineClamp> example"
               block-id="line-example"
             />
             <CodeBlock
               v-else-if="activeSurface === 'rich'"
               :code="richCodeExample"
               :html="highlightedRichCode"
-              label="RichLineClamp example"
+              label="<RichLineClamp> example"
               block-id="rich-example"
             />
             <CodeBlock
               v-else-if="activeSurface === 'inline'"
               :code="inlineCodeExample"
               :html="highlightedInlineCode"
-              label="InlineClamp example"
+              label="<InlineClamp> example"
               block-id="inline-example"
             />
             <CodeBlock
               v-else
               :code="wrapCodeExample"
               :html="highlightedWrapCode"
-              label="WrapClamp example"
+              label="<WrapClamp> example"
               block-id="wrap-example"
             />
           </section>
 
           <section class="reference-section" data-reference-panel="api">
+            <h3 class="subsection-title">API</h3>
             <template v-if="activeSurface === 'line'">
-              <p class="api-summary" data-api-summary="line">
-                Use for real multiline plain text where the browser decides wrapping. Pick
-                <code>max-lines</code> for text-driven limits or <code>max-height</code> for
-                layout-driven limits.
-              </p>
-
               <section class="api-group">
                 <h3 class="subsection-title">Props</h3>
                 <div class="api-list">
@@ -2220,14 +2286,6 @@ const highlightedWrapCode = computed(() => highlightCode(wrapCodeExample, "vue")
             </template>
 
             <template v-else-if="activeSurface === 'rich'">
-              <p class="api-summary" data-api-summary="rich">
-                Use for trusted inline HTML where formatting, nested inline emphasis, links, and
-                inline graphics should remain intact. RichLineClamp clamps from the end only, uses a
-                best-effort inline-flow runtime, and falls back to raw HTML only when rendered
-                layout leaves inline flow. Inline images must provide deterministic dimensions
-                before loading.
-              </p>
-
               <section class="api-group">
                 <h3 class="subsection-title">Props</h3>
                 <div class="api-list">
@@ -2260,15 +2318,7 @@ const highlightedWrapCode = computed(() => highlightCode(wrapCodeExample, "vue")
                         </span>
                       </div>
                     </div>
-                    <p class="api-entry-copy">
-                      Trusted or sanitized inline HTML source. Rich clamping is best-effort and
-                      behavior-based: if the runtime can clone the markup back into the DOM and the
-                      rendered element stays in inline flow, it can participate in clamping. Leaf
-                      elements without light DOM content are treated as atomic units, and
-                      <code>br</code>, <code>wbr</code>, <code>img</code>, and outer
-                      <code>svg</code> keep explicit handling. Inline images must include explicit
-                      dimensions through attributes or CSS.
-                    </p>
+                    <p class="api-entry-copy">Trusted or sanitized inline HTML source.</p>
                   </div>
                   <div class="api-entry">
                     <div class="api-entry-header">
@@ -2346,7 +2396,7 @@ const highlightedWrapCode = computed(() => highlightCode(wrapCodeExample, "vue")
                         <div class="api-detail-item">
                           <dt class="api-detail-term">Slot props</dt>
                           <dd class="api-detail-desc">
-                            Same control props as <code>LineClamp</code>.
+                            Same control props as <code>&lt;LineClamp&gt;</code>.
                           </dd>
                         </div>
                       </dl>
@@ -2401,12 +2451,6 @@ const highlightedWrapCode = computed(() => highlightCode(wrapCodeExample, "vue")
             </template>
 
             <template v-else-if="activeSurface === 'inline'">
-              <p class="api-summary" data-api-summary="inline">
-                Use for single-line text where the start or end should stay visible. It has no slots
-                or events, and <code>split(text)</code> should stay pure because only
-                <code>body</code> shrinks.
-              </p>
-
               <section class="api-group">
                 <h3 class="subsection-title">Props</h3>
                 <div class="api-list">
@@ -2486,12 +2530,6 @@ const highlightedWrapCode = computed(() => highlightCode(wrapCodeExample, "vue")
             </template>
 
             <template v-else>
-              <p class="api-summary" data-api-summary="wrap">
-                Use for wrapped items that must stay whole. Render each visible item through
-                <code>item</code>, and use <code>after</code> for <code>+N</code>,
-                <code>More</code>, or <code>Less</code> UI.
-              </p>
-
               <section class="api-group">
                 <h3 class="subsection-title">Props</h3>
                 <div class="api-list">
