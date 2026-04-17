@@ -1267,9 +1267,10 @@ const highlightedWrapCode = computed(() => highlightCode(wrapCodeExample, "vue")
                     >, before binding <code>html</code>.
                   </li>
                   <li>
-                    Keep content in inline flow: text, inline formatting, links, <code>br</code>,
-                    <code>wbr</code>, <code>img</code>, inline <code>&lt;svg&gt;</code>, leaf custom
-                    elements, and atomic inline boxes such as <code>inline-block</code>.
+                    Keep the rendered layout in inline flow. Supported nodes include text, inline
+                    formatting, links, <code>br</code>, <code>wbr</code>, <code>img</code>,
+                    <code>&lt;svg&gt;</code>, leaf custom elements, and atomic inline boxes such as
+                    <code>inline-block</code>.
                   </li>
                   <li>
                     Layouts that leave inline flow render the original HTML unchanged. Images need a
@@ -1280,8 +1281,8 @@ const highlightedWrapCode = computed(() => highlightCode(wrapCodeExample, "vue")
             </template>
             <template v-else-if="activeSurface === 'inline'">
               <p class="api-summary" data-api-summary="inline">
-                Use <code>&lt;InlineClamp&gt;</code> for one-line values where a fixed prefix or
-                suffix needs to stay visible, such as filenames, paths, and email addresses.
+                Use <code>&lt;InlineClamp&gt;</code> for one-line strings such as filenames, paths,
+                and email addresses when the beginning, ending, or both must remain readable.
               </p>
             </template>
             <template v-else>
