@@ -168,11 +168,7 @@ function mountHost(html: string, width: number): MountedHost {
 
   const body = document.createElement("span");
   body.dataset.part = "body";
-
-  const rich = document.createElement("span");
-  rich.innerHTML = html;
-
-  body.append(rich);
+  body.innerHTML = html;
   content.append(body);
   root.append(content);
   container.append(root);
@@ -184,7 +180,7 @@ function mountHost(html: string, width: number): MountedHost {
     destroy: () => {
       container.remove();
     },
-    rich,
+    rich: body,
     root,
     setWidth: (nextWidth) => {
       root.style.width = `${nextWidth}px`;

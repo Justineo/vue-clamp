@@ -2224,7 +2224,8 @@ const highlightedWrapCode = computed(() => highlightCode(wrapCodeExample, "vue")
                 Use for trusted inline HTML where formatting, nested inline emphasis, links, and
                 inline graphics should remain intact. RichLineClamp clamps from the end only, uses a
                 best-effort inline-flow runtime, and falls back to raw HTML only when rendered
-                layout leaves inline flow.
+                layout leaves inline flow. Inline images must provide deterministic dimensions
+                before loading.
               </p>
 
               <section class="api-group">
@@ -2265,7 +2266,8 @@ const highlightedWrapCode = computed(() => highlightCode(wrapCodeExample, "vue")
                       rendered element stays in inline flow, it can participate in clamping. Leaf
                       elements without light DOM content are treated as atomic units, and
                       <code>br</code>, <code>wbr</code>, <code>img</code>, and outer
-                      <code>svg</code> keep explicit handling.
+                      <code>svg</code> keep explicit handling. Inline images must include explicit
+                      dimensions through attributes or CSS.
                     </p>
                   </div>
                   <div class="api-entry">

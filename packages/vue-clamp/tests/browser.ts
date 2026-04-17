@@ -129,12 +129,7 @@ export function accessibleTextElement(root: HTMLElement): HTMLElement | null {
 }
 
 export function richContentElement(root: HTMLElement): HTMLElement {
-  const content = textContainerChildren(root).at(-1);
-  if (!(content instanceof HTMLElement)) {
-    throw new Error("Expected rich clamp content element.");
-  }
-
-  return content;
+  return bodyElement(root);
 }
 
 export function beforeElement(root: HTMLElement): HTMLElement | null {

@@ -22,7 +22,9 @@ Package docs:
 RichLineClamp preserves inline markup, clamps from the end, and expects the caller to sanitize HTML
 before rendering it. Rich clamping is best-effort and behavior-based: if the runtime can clone the
 markup back into the DOM and the rendered element stays in inline flow, it can participate in
-clamping, including leaf custom elements and other inline atomic nodes.
+clamping, including leaf custom elements and other inline atomic nodes. Inline rich images must
+provide deterministic layout dimensions before loading, such as explicit `width` / `height`
+attributes or CSS dimensions.
 
 - Check everything is ready:
 
