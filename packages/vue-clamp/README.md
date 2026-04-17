@@ -50,9 +50,9 @@ Use `<RichLineClamp>` for trusted or already-sanitized inline markup:
   can clone them back into the DOM and their rendered layout stays in inline flow.
 - Leaf elements without light DOM content are treated as atomic inline units, including custom
   elements.
-- `br`, `wbr`, `img`, and outer `svg` still keep explicit handling.
-- Inline rich images must provide deterministic layout dimensions before loading, such as
-  explicit `width` / `height` attributes or CSS dimensions.
+- `br`, `wbr`, `img`, and inline `svg` elements still keep explicit handling.
+- Inline rich images must provide a deterministic rendered size before loading, set by attributes
+  or CSS.
 - Markup that renders outside inline flow still falls back to the original HTML unchanged.
 
 ## Docs

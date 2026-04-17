@@ -1234,11 +1234,9 @@ describe("Website demo page", () => {
     expect(lineSummary.textContent).toContain("max-lines");
     expect(lineSummary.textContent).toContain("max-height");
     expect(lineSummary.textContent).toContain("plain text");
-    const lineNotice = referenceShell(mountedPage.container).querySelector(
-      '[data-reference-notice="line"]',
-    );
-    expect(lineNotice?.textContent).toContain("Plain text source");
-    expect(lineNotice?.textContent).toContain("<RichLineClamp>");
+    expect(
+      referenceShell(mountedPage.container).querySelector('[data-reference-notice="line"]'),
+    ).toBeNull();
 
     await selectSurface(mountedPage.container, "rich");
 
@@ -1255,14 +1253,14 @@ describe("Website demo page", () => {
       '[data-reference-notice="rich"]',
     );
     expect(richNotice?.textContent).toContain("HTML input contract");
-    expect(richNotice?.textContent).toContain("sanitize untrusted input");
+    expect(richNotice?.textContent).toContain("Sanitize untrusted input");
     expect(richNotice?.textContent).toContain("HTML Sanitizer API");
     expect(richNotice?.textContent).toContain("DOMPurify");
     expect(richNotice?.textContent).toContain("inline flow");
     expect(richNotice?.textContent).toContain("img");
-    expect(richNotice?.textContent).toContain("svg");
-    expect(richNotice?.textContent).toContain("explicit");
-    expect(richNotice?.textContent).toContain("CSS dimensions");
+    expect(richNotice?.textContent).toContain("<svg>");
+    expect(richNotice?.textContent).toContain("deterministic rendered size");
+    expect(richNotice?.textContent).toContain("attributes or CSS");
 
     await selectSurface(mountedPage.container, "inline");
 
@@ -1276,11 +1274,9 @@ describe("Website demo page", () => {
     expect(inlineSummary.textContent).toContain("no slots or events");
     expect(inlineSummary.textContent).toContain("split(text)");
     expect(inlineSummary.textContent).toContain("body");
-    const inlineNotice = referenceShell(mountedPage.container).querySelector(
-      '[data-reference-notice="inline"]',
-    );
-    expect(inlineNotice?.textContent).toContain("Single line only");
-    expect(inlineNotice?.textContent).toContain("<LineClamp>");
+    expect(
+      referenceShell(mountedPage.container).querySelector('[data-reference-notice="inline"]'),
+    ).toBeNull();
 
     await selectSurface(mountedPage.container, "wrap");
 
@@ -1293,11 +1289,9 @@ describe("Website demo page", () => {
     expect(wrapSummary.textContent).toContain("wrapped items");
     expect(wrapSummary.textContent).toContain("after");
     expect(wrapSummary.textContent).toContain("Less");
-    const wrapNotice = referenceShell(mountedPage.container).querySelector(
-      '[data-reference-notice="wrap"]',
-    );
-    expect(wrapNotice?.textContent).toContain("Atomic items");
-    expect(wrapNotice?.textContent).toContain("whole units");
+    expect(
+      referenceShell(mountedPage.container).querySelector('[data-reference-notice="wrap"]'),
+    ).toBeNull();
   });
 
   it("animates the hero tagline width at mobile content widths", async () => {
