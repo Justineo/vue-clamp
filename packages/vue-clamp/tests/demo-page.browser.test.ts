@@ -1266,10 +1266,11 @@ describe("Website demo page", () => {
     if (!(inlineSummary instanceof HTMLElement)) {
       throw new Error("Expected the InlineClamp API summary.");
     }
-    expect(inlineSummary.textContent).toContain("single-line text");
-    expect(inlineSummary.textContent).toContain("no slots or events");
-    expect(inlineSummary.textContent).toContain("split(text)");
-    expect(inlineSummary.textContent).toContain("body");
+    expect(inlineSummary.textContent).toContain("one-line strings");
+    expect(inlineSummary.textContent).toContain("beginning, ending, or both");
+    expect(inlineSummary.textContent).toContain("filenames");
+    expect(inlineSummary.textContent).toContain("paths");
+    expect(inlineSummary.textContent).toContain("email addresses");
     expect(referenceShell(mountedPage.container).querySelector('[data-alert="inline"]')).toBeNull();
 
     await selectSurface(mountedPage.container, "wrap");
