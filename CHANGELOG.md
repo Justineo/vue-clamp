@@ -9,7 +9,7 @@ Minor release focused on one-line ellipsis placement.
 ### Added
 
 - `<InlineClamp>` now supports `location`, using the same `start`, `middle`, `end`, and numeric
-  ratio values as `<LineClamp>` to choose where the ellipsis appears inside the shrinkable body.
+  ratio values as `<LineClamp>` to control how body text is kept around the ellipsis.
 
 ### Fixed
 

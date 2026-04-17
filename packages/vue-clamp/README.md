@@ -108,7 +108,8 @@ Rich clamping is intentionally scoped:
 ## Single-line strings
 
 Use `<InlineClamp>` for one-line text where part of the string should remain fixed while the body
-shrinks. The `location` prop controls where the ellipsis appears inside that body.
+shrinks. The `location` prop controls how body text is kept around the ellipsis; in tight spaces,
+the body can become just the ellipsis.
 
 ```vue
 <script setup lang="ts">
@@ -132,8 +133,8 @@ Useful props:
 
 - `text`: required source string.
 - `ellipsis`: string inserted into the rewritten body. Defaults to `…`.
-- `location`: ellipsis position inside `body`: `start`, `middle`, `end`, or a number from `0` to
-  `1`. Defaults to `end`.
+- `location`: how body text is kept around the ellipsis: `start`, `middle`, `end`, or a number from
+  `0` to `1`. Defaults to `end`.
 - `split`: optional function returning `{ start?: string, body: string, end?: string }`.
 - `as`: root tag name. Defaults to `span`.
 

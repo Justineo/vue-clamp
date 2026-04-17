@@ -1292,8 +1292,8 @@ const highlightedWrapCode = computed(() => highlightCode(wrapCodeExample, "vue")
               <p class="api-summary" data-api-summary="inline">
                 Use <code>&lt;InlineClamp&gt;</code> for one-line strings such as filenames, paths,
                 and email addresses when the beginning, ending, or both must remain readable. Use
-                <code>location</code> to choose where the ellipsis appears inside the rewritten
-                body.
+                <code>location</code> to choose how the rewritten body keeps text around the
+                ellipsis.
               </p>
             </template>
             <template v-else>
@@ -2552,8 +2552,9 @@ const highlightedWrapCode = computed(() => highlightCode(wrapCodeExample, "vue")
                       </div>
                     </div>
                     <p class="api-entry-copy">
-                      Ellipsis position inside the rewritten <code>body</code> segment. Numeric
-                      values map from <code>0</code> at the start to <code>1</code> at the end.
+                      Controls how the rewritten <code>body</code> segment keeps text around the
+                      ellipsis. Numeric values map from <code>0</code> at the start to
+                      <code>1</code> at the end.
                     </p>
                   </div>
                   <div class="api-entry">
