@@ -1280,9 +1280,8 @@ const highlightedWrapCode = computed(() => highlightCode(wrapCodeExample, "vue")
             </template>
             <template v-else-if="activeSurface === 'inline'">
               <p class="api-summary" data-api-summary="inline">
-                Use <code>&lt;InlineClamp&gt;</code> for single-line text where the start or end
-                should stay visible. It has no slots or events, and <code>split(text)</code> should
-                stay pure because only <code>body</code> shrinks.
+                Use <code>&lt;InlineClamp&gt;</code> for one-line values where a fixed prefix or
+                suffix needs to stay visible, such as filenames, paths, and email addresses.
               </p>
             </template>
             <template v-else>
