@@ -48,6 +48,8 @@ RichLineClamp is intentionally scoped:
 - Leaf elements without light DOM content are treated as atomic inline units, including custom
   elements.
 - `br`, `wbr`, `img`, and outer `svg` still keep explicit handling.
+- Inline rich images must provide deterministic layout dimensions before loading, such as
+  explicit `width` / `height` attributes or CSS dimensions.
 - Markup that renders outside inline flow still falls back to the original HTML unchanged.
 - Sanitization is the caller's responsibility.
 

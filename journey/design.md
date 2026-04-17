@@ -94,7 +94,8 @@
 - `packages/vue-clamp/src/RichLineClamp.ts` now owns only rich-html behavior:
   - visible/probe rich DOM decisions and rich fallback state
   - hidden probe setup for rich measurement
-  - generation-scoped image settlement for inline rich content
+  - the visible rich HTML is patched directly into the shared `body` part
+  - no image-load settlement; inline rich images must provide stable layout dimensions up front
 - Shared code stays in small helpers instead of a large base shell.
 - `LineClamp` and `RichLineClamp` now share one narrow internal shell helper rather than
   duplicating the same lifecycle shell:
@@ -163,7 +164,7 @@
     - then refine inside only the next text run using grapheme-safe cuts
     - candidate output is generated from structural boundary decisions instead of serialized HTML
     - parsed rich preprocessing now caches text boundary metadata once per `html` source and reuses
-      it across width, slot, image, and font reclamps
+      it across width, slot, and font reclamps
     - rich preparation no longer carries its own support flag; support is decided only from the
       rendered layout at clamp time
     - unchanged content still validates the rendered rich layout, but now exits before logical-run
@@ -175,13 +176,12 @@
       prefix descendants such as images are not recreated during width-only reclamps
     - hidden-probe images use an inert data URI source while preserving sizing attributes/styles, so
       probe-only candidate churn does not repeatedly fetch remote image URLs
+    - inline rich images must have a deterministic layout size before loading; responsive
+      resource selection is not preserved inside the hidden probe because measurement depends only
+      on the image box
   - sanitization stays the caller's responsibility
   - the runtime measures rich candidates in a connected hidden probe so the visible rich subtree is
     not mutated during binary search
-  - descendant image settlement is generation-scoped:
-    - each recompute abandons old listeners and rescans the current connected rich images
-    - only unresolved images without an already stable box participate in the settlement barrier
-    - when the current blocking set settles, the component schedules one bounded follow-up recompute
 - `before` and `after` slots render directly into the same inline flow and are observed for size changes via `ResizeObserver`.
 - `WrapClamp` treats each item as an atomic box and uses a single visible-DOM clamp engine:
   - collapsed states are measured from the real rendered `before` / items / `after` sequence
@@ -197,10 +197,9 @@
   - text changes
   - relevant prop changes
   - font readiness events when available
-- `RichLineClamp` follows the same invalidation model, but tracks `html` source changes and
-  generation-scoped image settlement instead of text-location changes:
-  - detached stale image events are ignored once a newer recompute generation owns the DOM
-  - deterministic-size unresolved images do not participate in the settlement barrier
+- `RichLineClamp` follows the same invalidation model, but tracks `html` source changes instead of
+  text-location changes. Inline rich images must provide stable layout dimensions up front; image
+  loading does not schedule an extra clamp pass.
 - `LineClamp` and `RichLineClamp` both re-run their clamp pass in `onUpdated` when their own
   rendered layout signature
   changes, so reactive width/slot changes in the same Vue flush do not wait on a later

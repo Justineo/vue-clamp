@@ -1,13 +1,4 @@
-import {
-  computed,
-  defineComponent,
-  h,
-  mergeProps,
-  nextTick,
-  onBeforeUnmount,
-  ref,
-  watch,
-} from "vue";
+import { computed, defineComponent, h, mergeProps, nextTick, ref, watch } from "vue";
 import { cssLength, normalizeLineLimit } from "./layout.ts";
 import { useMultilineClamp } from "./multiline.ts";
 import { clampRichTextToLayout, patchRichTextToDecision, prepareRichText } from "./rich.ts";
@@ -36,7 +27,6 @@ const probeStyle: CSSProperties = {
 type ProbeElements = {
   body: HTMLElement;
   content: HTMLElement;
-  rich: HTMLElement;
 };
 
 const propsDef = {
@@ -65,22 +55,13 @@ const emitsDef = {
   clampchange: (value: boolean) => typeof value === "boolean",
 };
 
-function hasStableImageBox(image: HTMLImageElement): boolean {
-  const { height, width } = getComputedStyle(image);
-  return Number.parseFloat(width) > 0 && Number.parseFloat(height) > 0;
-}
-
 function createProbeElements(): ProbeElements {
   const content = document.createElement("span");
   const body = document.createElement("span");
-  const rich = document.createElement("span");
-
-  body.appendChild(rich);
 
   return {
     body,
     content,
-    rich,
   };
 }
 
@@ -90,95 +71,38 @@ export const RichLineClamp = defineComponent({
   props: propsDef,
   emits: emitsDef,
   setup(props, { attrs, emit, expose, slots }) {
-    const htmlRef = ref<HTMLElement | null>(null);
     const probeRef = ref<HTMLElement | null>(null);
     const isFallback = ref(false);
 
     const lineLimit = computed(() => normalizeLineLimit(props.maxLines));
     const hasLimit = computed(() => lineLimit.value !== undefined || props.maxHeight !== undefined);
     const preparedHtml = computed(() => prepareRichText(props.html));
-    let imageAbortController: AbortController | null = null;
-    let pendingImages = new Set<HTMLImageElement>();
     let visibleDecision: RichClampDecision | null = null;
     let probeDecision: RichClampDecision | null = null;
     let probeElements: ProbeElements | null = null;
 
-    function stopTrackingImages(): void {
-      imageAbortController?.abort();
-      imageAbortController = null;
-      pendingImages.clear();
-    }
-
-    function settleTrackedImage(image: HTMLImageElement): void {
-      if (!pendingImages.delete(image) || pendingImages.size > 0) {
-        return;
-      }
-
-      stopTrackingImages();
-      requestRecompute();
-    }
-
-    function trackCurrentImages(): void {
-      stopTrackingImages();
-
-      const htmlElement = htmlRef.value;
-      if (!htmlElement) {
-        return;
-      }
-
-      const images = [...htmlElement.querySelectorAll("img")].filter(
-        (element): element is HTMLImageElement =>
-          element instanceof HTMLImageElement && !element.complete && !hasStableImageBox(element),
-      );
-      if (images.length === 0) {
-        return;
-      }
-
-      const controller = new AbortController();
-      const { signal } = controller;
-
-      imageAbortController = controller;
-      pendingImages = new Set(images);
-
-      for (const image of images) {
-        const handleImageSettle = (): void => {
-          if (signal.aborted) {
-            return;
-          }
-
-          settleTrackedImage(image);
-        };
-
-        image.addEventListener("load", handleImageSettle, { once: true, signal });
-        image.addEventListener("error", handleImageSettle, { once: true, signal });
-
-        if (image.complete) {
-          settleTrackedImage(image);
-        }
-      }
-    }
-
-    function resetDecisionState(): void {
+    function resetDecisions(): void {
       visibleDecision = null;
       probeDecision = null;
     }
 
-    function patchVisibleDecision(prepared: PreparedRichText, decision: RichClampDecision): void {
-      const htmlElement = htmlRef.value;
-      if (!htmlElement) {
+    function patchVisible(prepared: PreparedRichText, decision: RichClampDecision): void {
+      const bodyElement = bodyRef.value;
+      if (!bodyElement) {
+        resetDecisions();
         return;
       }
 
       visibleDecision = patchRichTextToDecision(
         prepared,
-        htmlElement,
+        bodyElement,
         visibleDecision,
         decision,
         props.ellipsis,
       );
     }
 
-    async function applyClampState(nextClamped: boolean, nextFallback: boolean): Promise<void> {
+    async function applyState(nextClamped: boolean, nextFallback: boolean): Promise<void> {
       const changed = isClamped.value !== nextClamped || isFallback.value !== nextFallback;
 
       isClamped.value = nextClamped;
@@ -189,38 +113,35 @@ export const RichLineClamp = defineComponent({
       }
     }
 
-    async function resetRichState(): Promise<void> {
-      stopTrackingImages();
-
+    async function resetClamp(): Promise<void> {
       const prepared = preparedHtml.value;
+
       if (prepared) {
-        patchVisibleDecision(prepared, { kind: "full" });
+        patchVisible(prepared, { kind: "full" });
       } else {
-        resetDecisionState();
+        resetDecisions();
       }
 
-      await applyClampState(false, false);
+      await applyState(false, false);
     }
 
-    function ensureProbeElements(
-      rootElement: HTMLElement,
-      maxHeight: number | string | undefined,
-    ): {
+    function prepareProbe(): {
+      body: HTMLElement;
       content: HTMLElement;
-      rich: HTMLElement;
       root: HTMLElement;
     } | null {
-      const root = probeRef.value;
-      if (!root) {
+      const rootElement = rootRef.value;
+      const probeRoot = probeRef.value;
+      if (!rootElement || !probeRoot) {
         return null;
       }
 
       const elements = (probeElements ??= createProbeElements());
+      const maxHeight = cssLength(props.maxHeight);
 
-      const maxHeightValue = cssLength(maxHeight);
-      root.style.width = `${rootElement.getBoundingClientRect().width}px`;
-      root.style.maxHeight = maxHeightValue === undefined ? "" : String(maxHeightValue);
-      root.style.overflow = maxHeightValue === undefined ? "visible" : "hidden";
+      probeRoot.style.width = `${rootElement.getBoundingClientRect().width}px`;
+      probeRoot.style.maxHeight = maxHeight === undefined ? "" : String(maxHeight);
+      probeRoot.style.overflow = maxHeight === undefined ? "visible" : "hidden";
 
       elements.content.replaceChildren();
 
@@ -236,12 +157,12 @@ export const RichLineClamp = defineComponent({
         elements.content.appendChild(afterElement.cloneNode(true));
       }
 
-      root.replaceChildren(elements.content);
+      probeRoot.replaceChildren(elements.content);
 
       return {
+        body: elements.body,
         content: elements.content,
-        rich: elements.rich,
-        root,
+        root: probeRoot,
       };
     }
 
@@ -268,22 +189,20 @@ export const RichLineClamp = defineComponent({
       recompute: async ({ expanded }): Promise<void> => {
         const { ellipsis, html: sourceHtml, maxHeight } = props;
         if (expanded.value || sourceHtml.length === 0 || !hasLimit.value) {
-          await resetRichState();
+          await resetClamp();
           return;
         }
 
-        const rootElement = rootRef.value;
-        const htmlElement = htmlRef.value;
         const prepared = preparedHtml.value;
 
-        if (!rootElement || !htmlElement || !prepared) {
-          await resetRichState();
+        if (!bodyRef.value || !prepared) {
+          await resetClamp();
           return;
         }
 
-        const probe = ensureProbeElements(rootElement, maxHeight);
+        const probe = prepareProbe();
         if (!probe) {
-          await resetRichState();
+          await resetClamp();
           return;
         }
 
@@ -291,7 +210,7 @@ export const RichLineClamp = defineComponent({
           prepared,
           probe.root,
           probe.content,
-          probe.rich,
+          probe.body,
           probeDecision,
           ellipsis,
           lineLimit.value,
@@ -300,34 +219,24 @@ export const RichLineClamp = defineComponent({
         probeDecision = nextState.decision;
 
         if (!nextState.decision) {
-          await resetRichState();
+          await resetClamp();
           return;
         }
 
-        patchVisibleDecision(prepared, nextState.decision);
-        await applyClampState(nextState.decision.kind === "clamped", nextState.fallback);
-
-        if (nextState.fallback) {
-          stopTrackingImages();
-        } else {
-          trackCurrentImages();
-        }
+        patchVisible(prepared, nextState.decision);
+        await applyState(nextState.decision.kind === "clamped", nextState.fallback);
       },
     });
 
     watch(
       [() => props.html, () => props.maxLines, () => props.maxHeight, () => props.ellipsis],
       () => {
-        resetDecisionState();
+        resetDecisions();
         isFallback.value = false;
         requestRecompute();
       },
       { flush: "post" },
     );
-
-    onBeforeUnmount(() => {
-      stopTrackingImages();
-    });
 
     expose({
       expand,
@@ -387,20 +296,11 @@ export const RichLineClamp = defineComponent({
                     beforeSlot,
                   )
                 : null,
-              h(
-                "span",
-                {
-                  "data-part": "body",
-                  ref: bodyRef,
-                },
-                [
-                  h("span", {
-                    key: "html",
-                    ref: htmlRef,
-                    innerHTML: sourceHtml,
-                  }),
-                ],
-              ),
+              h("span", {
+                "data-part": "body",
+                ref: bodyRef,
+                innerHTML: sourceHtml,
+              }),
               hasAfterSlot
                 ? h(
                     "span",
