@@ -16,6 +16,7 @@ import {
   listenForFontLoads,
   normalizeLineLimit,
 } from "./layout.ts";
+import { blockAsProp, expandedProp, maxHeightProp, maxLinesProp } from "./props.ts";
 import { hasSlotContent } from "./slot.ts";
 
 import type { CSSProperties, PropType, VNodeChild } from "vue";
@@ -47,21 +48,15 @@ const contentStyle: CSSProperties = {
 };
 
 const propsDef = {
-  as: {
-    type: String,
-    default: "div",
-  },
+  as: blockAsProp,
   items: {
     type: Array as PropType<readonly unknown[]>,
     default: () => [],
   },
   itemKey: [String, Function] as PropType<string | ItemKeyResolver | undefined>,
-  maxLines: Number,
-  maxHeight: [Number, String] as PropType<number | string | undefined>,
-  expanded: {
-    type: Boolean,
-    default: false,
-  },
+  maxLines: maxLinesProp,
+  maxHeight: maxHeightProp,
+  expanded: expandedProp,
 } as const;
 
 const emitsDef = {

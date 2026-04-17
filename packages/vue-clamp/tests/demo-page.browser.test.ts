@@ -215,6 +215,32 @@ function inlineWidthInput(container: HTMLElement): HTMLInputElement {
   return input;
 }
 
+function inlineLocationRatioInput(container: HTMLElement): HTMLInputElement {
+  const input = inlineDemoBlock(container).querySelector("[data-inline-location-ratio-slider]");
+  if (!(input instanceof HTMLInputElement)) {
+    throw new Error("Expected the inline location ratio slider.");
+  }
+
+  return input;
+}
+
+function inlineLocationPresetButtons(container: HTMLElement): HTMLButtonElement[] {
+  return [...inlineDemoBlock(container).querySelectorAll("[data-inline-location-preset]")].filter(
+    (button): button is HTMLButtonElement => button instanceof HTMLButtonElement,
+  );
+}
+
+function inlineLocationPresetButton(container: HTMLElement, preset: string): HTMLButtonElement {
+  const button = inlineDemoBlock(container).querySelector(
+    `[data-inline-location-preset="${preset}"]`,
+  );
+  if (!(button instanceof HTMLButtonElement)) {
+    throw new Error(`Expected the ${preset} inline location preset button.`);
+  }
+
+  return button;
+}
+
 function inlineExampleBlocks(container: HTMLElement): HTMLElement[] {
   return [...inlineDemoBlock(container).querySelectorAll("[data-inline-example]")].filter(
     (block): block is HTMLElement => block instanceof HTMLElement,
@@ -547,8 +573,17 @@ async function setInlineWidth(container: HTMLElement, width: number): Promise<vo
   await setRangeValue(inlineWidthInput(container), width);
 }
 
+async function setInlineLocationRatio(container: HTMLElement, ratio: number): Promise<void> {
+  await setRangeValue(inlineLocationRatioInput(container), ratio);
+}
+
 async function clickLocationPreset(container: HTMLElement, preset: string): Promise<void> {
   locationPresetButton(container, preset).click();
+  await settle(4);
+}
+
+async function clickInlineLocationPreset(container: HTMLElement, preset: string): Promise<void> {
+  inlineLocationPresetButton(container, preset).click();
   await settle(4);
 }
 
@@ -952,6 +987,15 @@ describe("Website demo page", () => {
     expect(surfaceTab(mountedPage.container, "inline").getAttribute("aria-pressed")).toBe("true");
     expect(surfaceTab(mountedPage.container, "wrap").getAttribute("aria-pressed")).toBe("false");
     expect(mountedPage.container.querySelector('[data-demo="location"]')).toBeNull();
+    expect(
+      inlineLocationPresetButtons(mountedPage.container).map(
+        (button) => button.dataset.inlineLocationPreset,
+      ),
+    ).toEqual(["start", "middle", "end"]);
+    expect(inlineLocationRatioInput(mountedPage.container).value).toBe("1");
+    expect(
+      inlineLocationPresetButton(mountedPage.container, "end").getAttribute("aria-pressed"),
+    ).toBe("true");
 
     expect(
       inlineExampleBlocks(mountedPage.container).map((block) => block.dataset.inlineExample),
@@ -971,6 +1015,21 @@ describe("Website demo page", () => {
       throw new Error("Expected the split file-list body element.");
     }
     expect(splitFileListBody.textContent?.endsWith("…")).toBe(true);
+
+    await clickInlineLocationPreset(mountedPage.container, "middle");
+
+    expect(inlineLocationRatioInput(mountedPage.container).value).toBe("0.5");
+    expect(
+      inlineLocationPresetButton(mountedPage.container, "middle").getAttribute("aria-pressed"),
+    ).toBe("true");
+    expect(splitFileListBody.textContent).toContain("…");
+    expect(splitFileListBody.textContent?.startsWith("…")).toBe(false);
+    expect(splitFileListBody.textContent?.endsWith("…")).toBe(false);
+
+    await setInlineLocationRatio(mountedPage.container, 0);
+
+    expect(inlineLocationRatioInput(mountedPage.container).value).toBe("0");
+    expect(splitFileListBody.textContent?.startsWith("…")).toBe(true);
 
     const splitEmailRow = inlineRow(inlineExampleBlock(mountedPage.container, "email"), "split");
     expect(splitEmailRow.querySelector('[data-part="end"]')?.textContent).toBe("@acme.dev");

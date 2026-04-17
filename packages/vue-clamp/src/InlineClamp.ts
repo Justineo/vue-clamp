@@ -11,7 +11,8 @@ import {
   watchPostEffect,
 } from "vue";
 import { combinedSizeSignature, createCoalescingRunner, listenForFontLoads } from "./layout.ts";
-import { prepareText, searchKeptCount } from "./text.ts";
+import { ellipsisProp, locationProp } from "./props.ts";
+import { normalizeLocationRatio, prepareText, searchClampedTextToFit } from "./text.ts";
 
 import type { CSSProperties, PropType } from "vue";
 import type { InlineClampSplit } from "./types.ts";
@@ -46,30 +47,10 @@ const propsDef = {
     type: String,
     required: true,
   },
-  ellipsis: {
-    type: String,
-    default: "…",
-  },
+  ellipsis: ellipsisProp,
+  location: locationProp,
   split: Function as PropType<InlineClampSplit | undefined>,
 } as const;
-
-function bodyText(
-  prepared: ReturnType<typeof prepareText>,
-  kept: number,
-  ellipsis: string,
-): string {
-  const graphemeCount = prepared.boundaryOffsets.length - 1;
-
-  if (prepared.text.length === 0 || kept >= graphemeCount) {
-    return prepared.text;
-  }
-
-  if (kept <= 0) {
-    return ellipsis;
-  }
-
-  return `${prepared.text.slice(0, prepared.boundaryOffsets[kept]).trimEnd()}${ellipsis}`;
-}
 
 export const InlineClamp = defineComponent({
   name: "InlineClamp",
@@ -79,6 +60,7 @@ export const InlineClamp = defineComponent({
     const rootRef = ref<HTMLElement | null>(null);
     const bodyRef = ref<HTMLElement | null>(null);
     const parts = computed(() => props.split?.(props.text) ?? { body: props.text });
+    const locationRatio = computed(() => normalizeLocationRatio(props.location));
     const visibleBody = ref(parts.value.body);
     let resizeObserver: ResizeObserver | null = null;
     let stopFonts = () => {};
@@ -112,13 +94,16 @@ export const InlineClamp = defineComponent({
       }
 
       const prepared = prepareText(body);
-      const graphemeCount = prepared.boundaryOffsets.length - 1;
-      const best = searchKeptCount(graphemeCount, (kept) => {
-        const candidate = bodyText(prepared, kept, props.ellipsis);
-        bodyElement.textContent = candidate;
-        return fits();
-      });
-      const nextBody = bodyText(prepared, best, props.ellipsis);
+      const nextBody = searchClampedTextToFit(
+        prepared,
+        locationRatio.value,
+        props.ellipsis,
+        (candidate) => {
+          bodyElement.textContent = candidate;
+          return fits();
+        },
+        "preserve-outer",
+      );
       bodyElement.textContent = nextBody;
 
       return nextBody;
@@ -135,7 +120,7 @@ export const InlineClamp = defineComponent({
     });
 
     watch(
-      [parts, () => props.ellipsis],
+      [parts, () => props.ellipsis, () => props.location],
       () => {
         visibleBody.value = parts.value.body;
         requestRecompute();

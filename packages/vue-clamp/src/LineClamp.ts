@@ -1,6 +1,14 @@
 import { computed, defineComponent, h, mergeProps, nextTick, ref, watch } from "vue";
 import { cssLength, normalizeLineLimit } from "./layout.ts";
 import { useMultilineClamp } from "./multiline.ts";
+import {
+  blockAsProp,
+  ellipsisProp,
+  expandedProp,
+  locationProp,
+  maxHeightProp,
+  maxLinesProp,
+} from "./props.ts";
 import { hasSlotContent } from "./slot.ts";
 import {
   canUseNativeClamp,
@@ -10,8 +18,8 @@ import {
   prepareText,
 } from "./text.ts";
 
-import type { CSSProperties, PropType, VNodeChild } from "vue";
-import type { LineClampExposed, LineClampLocation, LineClampSlotProps } from "./types.ts";
+import type { CSSProperties, VNodeChild } from "vue";
+import type { LineClampExposed, LineClampSlotProps } from "./types.ts";
 
 const slotStyle: CSSProperties = {
   display: "inline-flex",
@@ -57,36 +65,16 @@ const visuallyHiddenTextStyle: CSSProperties = {
 };
 
 const propsDef = {
-  as: {
-    type: String,
-    default: "div",
-  },
+  as: blockAsProp,
   text: {
     type: String,
     default: "",
   },
-  maxLines: Number,
-  maxHeight: [Number, String] as PropType<number | string | undefined>,
-  ellipsis: {
-    type: String,
-    default: "…",
-  },
-  location: {
-    type: [String, Number] as PropType<LineClampLocation>,
-    default: "end",
-    validator(value: unknown) {
-      return (
-        value === "start" ||
-        value === "middle" ||
-        value === "end" ||
-        (typeof value === "number" && Number.isFinite(value))
-      );
-    },
-  },
-  expanded: {
-    type: Boolean,
-    default: false,
-  },
+  maxLines: maxLinesProp,
+  maxHeight: maxHeightProp,
+  ellipsis: ellipsisProp,
+  location: locationProp,
+  expanded: expandedProp,
 } as const;
 
 const emitsDef = {

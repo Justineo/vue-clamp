@@ -11,6 +11,8 @@ export interface PreparedText {
   boundaryOffsets: number[];
 }
 
+export type TextClampSpacing = "trim" | "preserve-outer";
+
 function isAsciiSafe(text: string): boolean {
   for (let index = 0; index < text.length; index += 1) {
     const code = text.charCodeAt(index);
@@ -61,6 +63,7 @@ export function displayTextForKeptCount(
   ratio: number,
   ellipsis: string,
   kept: number,
+  spacing: TextClampSpacing = "trim",
 ): string {
   const { boundaryOffsets, text } = prepared;
   const graphemeCount = boundaryOffsets.length - 1;
@@ -71,18 +74,20 @@ export function displayTextForKeptCount(
 
   const prefix = Math.floor(kept * ratio);
   const suffix = kept - prefix;
+  const prefixText = text.slice(0, boundaryOffsets[prefix]);
+  const suffixText = text.slice(boundaryOffsets[graphemeCount - suffix]);
+  const trimPrefix = spacing === "preserve-outer" ? prefixText.trimEnd() : prefixText.trim();
+  const trimSuffix = spacing === "preserve-outer" ? suffixText.trimStart() : suffixText.trim();
 
   if (prefix <= 0) {
-    return `${ellipsis}${text.slice(boundaryOffsets[graphemeCount - suffix]).trim()}`;
+    return `${ellipsis}${trimSuffix}`;
   }
 
   if (suffix <= 0) {
-    return `${text.slice(0, boundaryOffsets[prefix]).trim()}${ellipsis}`;
+    return `${trimPrefix}${ellipsis}`;
   }
 
-  return `${text.slice(0, boundaryOffsets[prefix]).trim()}${ellipsis}${text
-    .slice(boundaryOffsets[graphemeCount - suffix])
-    .trim()}`;
+  return `${trimPrefix}${ellipsis}${trimSuffix}`;
 }
 
 export function searchKeptCount(graphemeCount: number, fits: (kept: number) => boolean): number {
@@ -118,6 +123,23 @@ export function normalizeLocationRatio(location: LineClampLocation): number {
   }
 
   return Math.max(0, Math.min(1, location));
+}
+
+export function searchClampedTextToFit(
+  preparedText: PreparedText,
+  locationRatio: number,
+  ellipsis: string,
+  fits: (text: string) => boolean,
+  spacing: TextClampSpacing = "trim",
+): string {
+  const graphemeCount = preparedText.boundaryOffsets.length - 1;
+  const best = searchKeptCount(graphemeCount, (kept) =>
+    fits(displayTextForKeptCount(preparedText, locationRatio, ellipsis, kept, spacing)),
+  );
+  const text = displayTextForKeptCount(preparedText, locationRatio, ellipsis, best, spacing);
+
+  fits(text);
+  return text;
 }
 
 export function canUseNativeClamp(
@@ -156,32 +178,21 @@ export function clampTextToLayout(
     return null;
   }
 
-  const { boundaryOffsets, text } = preparedText;
-  const graphemeCount = boundaryOffsets.length - 1;
+  const { text } = preparedText;
   let currentText = textElement.textContent ?? "";
 
-  function applyKept(kept: number): string {
-    const nextText = displayTextForKeptCount(preparedText, locationRatio, ellipsis, kept);
-
+  function applyText(nextText: string): boolean {
     if (nextText !== currentText) {
       textElement.textContent = nextText;
       currentText = nextText;
     }
 
-    return nextText;
+    return fitsContent(rootElement, contentElement, lineLimit, maxHeight);
   }
 
-  if (
-    applyKept(graphemeCount) === text &&
-    fitsContent(rootElement, contentElement, lineLimit, maxHeight)
-  ) {
+  if (applyText(text)) {
     return text;
   }
 
-  const best = searchKeptCount(graphemeCount, (kept) => {
-    applyKept(kept);
-    return fitsContent(rootElement, contentElement, lineLimit, maxHeight);
-  });
-
-  return applyKept(best);
+  return searchClampedTextToFit(preparedText, locationRatio, ellipsis, applyText);
 }

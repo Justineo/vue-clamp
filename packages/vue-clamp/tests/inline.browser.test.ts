@@ -4,7 +4,7 @@ import { InlineClamp } from "../src/index.ts";
 import { frame } from "./browser.ts";
 
 import type { App, Ref } from "vue";
-import type { InlineClampSplit } from "../src/index.ts";
+import type { InlineClampSplit, LineClampLocation } from "../src/index.ts";
 
 type MountedInlineClamp = {
   app: App;
@@ -21,6 +21,7 @@ type MountInlineOptions = {
   width?: number;
   as?: string;
   ellipsis?: string;
+  location?: LineClampLocation;
   split?: InlineClampSplit;
   style?: string;
 };
@@ -59,6 +60,7 @@ function mountInlineClamp(options: MountInlineOptions): MountedInlineClamp {
           style: string;
           as?: string;
           ellipsis?: string;
+          location?: LineClampLocation;
           split?: InlineClampSplit;
         } = {
           style: hostStyle(options.width ?? 180, options.style),
@@ -71,6 +73,10 @@ function mountInlineClamp(options: MountInlineOptions): MountedInlineClamp {
 
         if (typeof options.ellipsis === "string") {
           props.ellipsis = options.ellipsis;
+        }
+
+        if (typeof options.location !== "undefined") {
+          props.location = options.location;
         }
 
         if (typeof options.split === "function") {
@@ -106,6 +112,7 @@ function mountResizableInlineClamp(options: MountInlineOptions): MountedResizabl
         const props: {
           text: string;
           ellipsis?: string;
+          location?: LineClampLocation;
           split?: InlineClampSplit;
         } = {
           text: text.value,
@@ -113,6 +120,10 @@ function mountResizableInlineClamp(options: MountInlineOptions): MountedResizabl
 
         if (typeof options.ellipsis === "string") {
           props.ellipsis = options.ellipsis;
+        }
+
+        if (typeof options.location !== "undefined") {
+          props.location = options.location;
         }
 
         if (typeof options.split === "function") {
@@ -252,6 +263,104 @@ describe("InlineClamp browser contract", () => {
     expect(body.textContent).toContain(" [...] ");
     expect(getComputedStyle(body).textOverflow).toBe("clip");
     expect(root.textContent).toContain(".d.ts");
+    expect(root.getBoundingClientRect().width).toBeLessThanOrEqual(151);
+  });
+
+  it("preserves split boundary spacing when the body is clamped", async () => {
+    const start = "The only";
+    const bodySource = " line clamp body";
+    const end = " for Vue.";
+    const targetText = " line…";
+    const targetWidth = measureReferenceWidth(`${start}${targetText}${end}`);
+    const mountedClamp = mountInlineClamp({
+      text: `${start}${bodySource}${end}`,
+      width: Math.ceil(targetWidth),
+      split() {
+        return {
+          start,
+          body: bodySource,
+          end,
+        };
+      },
+    });
+
+    await settle();
+
+    const root = rootElement(mountedClamp.container);
+    const body = segment(root, "body");
+
+    if (!body) {
+      throw new Error("Expected inline clamp body segment.");
+    }
+
+    expect(body.textContent?.startsWith(" ")).toBe(true);
+    expect(body.textContent).toContain("…");
+    expect(root.textContent).toContain("The only ");
+    expect(root.textContent).toContain(" for Vue.");
+  });
+
+  it("places the ellipsis inside the body at the requested location", async () => {
+    const start = "/workspace/";
+    const bodySource = "abcdefghijklmnop";
+    const end = ".vue";
+    const targetText = "abcd…mnop";
+    const targetWidth = measureReferenceWidth(`${start}${targetText}${end}`);
+    const mountedClamp = mountInlineClamp({
+      text: `${start}${bodySource}${end}`,
+      width: Math.ceil(targetWidth),
+      location: "middle",
+      split() {
+        return {
+          start,
+          body: bodySource,
+          end,
+        };
+      },
+    });
+
+    await settle();
+
+    const root = rootElement(mountedClamp.container);
+    const body = segment(root, "body");
+
+    if (!body) {
+      throw new Error("Expected inline clamp body segment.");
+    }
+
+    expect(body.textContent).toContain("…");
+    expect(body.textContent?.startsWith("abcd")).toBe(true);
+    expect(body.textContent?.endsWith("mnop")).toBe(true);
+    expect(segment(root, "start")?.textContent).toBe(start);
+    expect(segment(root, "end")?.textContent).toBe(end);
+    expect(root.getBoundingClientRect().width).toBeLessThanOrEqual(Math.ceil(targetWidth) + 1);
+  });
+
+  it("supports start-location clamping within the body", async () => {
+    const end = "@acme.dev";
+    const mountedClamp = mountInlineClamp({
+      text: `release.notifications.digest${end}`,
+      width: 150,
+      location: "start",
+      split(text) {
+        return {
+          body: text.slice(0, -end.length),
+          end,
+        };
+      },
+    });
+
+    await settle();
+
+    const root = rootElement(mountedClamp.container);
+    const body = segment(root, "body");
+
+    if (!body) {
+      throw new Error("Expected inline clamp body segment.");
+    }
+
+    expect(body.textContent?.startsWith("…")).toBe(true);
+    expect(body.textContent).not.toBe("release.notifications.digest");
+    expect(segment(root, "end")?.textContent).toBe(end);
     expect(root.getBoundingClientRect().width).toBeLessThanOrEqual(151);
   });
 

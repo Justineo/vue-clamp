@@ -1,10 +1,11 @@
 import { computed, defineComponent, h, mergeProps, nextTick, ref, watch } from "vue";
 import { cssLength, normalizeLineLimit } from "./layout.ts";
 import { useMultilineClamp } from "./multiline.ts";
+import { blockAsProp, ellipsisProp, expandedProp, maxHeightProp, maxLinesProp } from "./props.ts";
 import { clampRichTextToLayout, patchRichTextToDecision, prepareRichText } from "./rich.ts";
 import { hasSlotContent } from "./slot.ts";
 
-import type { CSSProperties, PropType } from "vue";
+import type { CSSProperties } from "vue";
 import type { PreparedRichText, RichClampDecision } from "./rich.ts";
 import type { RichLineClampExposed, RichLineClampSlotProps } from "./types.ts";
 
@@ -30,24 +31,15 @@ type ProbeElements = {
 };
 
 const propsDef = {
-  as: {
-    type: String,
-    default: "div",
-  },
+  as: blockAsProp,
   html: {
     type: String,
     required: true,
   },
-  maxLines: Number,
-  maxHeight: [Number, String] as PropType<number | string | undefined>,
-  ellipsis: {
-    type: String,
-    default: "…",
-  },
-  expanded: {
-    type: Boolean,
-    default: false,
-  },
+  maxLines: maxLinesProp,
+  maxHeight: maxHeightProp,
+  ellipsis: ellipsisProp,
+  expanded: expandedProp,
 } as const;
 
 const emitsDef = {

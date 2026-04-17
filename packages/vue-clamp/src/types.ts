@@ -57,6 +57,7 @@ export interface InlineClampProps {
   as?: string;
   text: string;
   ellipsis?: string;
+  location?: LineClampLocation;
   split?: InlineClampSplit;
 }
 

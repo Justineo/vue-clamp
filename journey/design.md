@@ -57,6 +57,7 @@
 - `InlineClamp` accepts:
   - `text`
   - `ellipsis`
+  - `location`
   - optional `split(text) => { start?, body, end? }`
   - `as`
 - `WrapClamp` accepts:
@@ -112,6 +113,8 @@
   - optional fixed `start` and `end` segments in normal inline flow
   - one rewritten `body` segment found by grapheme-safe binary search against the live inline
     content
+  - `location` shares the `LineClamp` keyword/ratio semantics and applies only inside the
+    rewritten `body`; split `start` and `end` segments remain fixed
   - each clamp pass restores the full body text before reading the root width, so a previously
     shortened inline-block root does not become the stale width limit when the parent grows
   - custom `ellipsis` is inserted by JS, so the rewritten body can shrink to only the ellipsis

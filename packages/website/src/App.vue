@@ -458,7 +458,30 @@ let heroTaglineMounted = false;
 let stopBodyOverlayScrollbars = () => {};
 
 const inlineWidth5 = ref(280);
+const inlineLocationRatio5 = ref(1);
 const commonImageExtensions = [".png", ".jpg", ".jpeg", ".webp", ".gif", ".avif"] as const;
+
+const inlineLocationPresetOptions = locationPresets4.map((preset) => ({
+  buttonAttrs: { "data-inline-location-preset": preset.value },
+  label: preset.label,
+  value: preset.value,
+}));
+
+const selectedInlineLocationPreset5 = computed(() => {
+  const preset = locationPresets4.find(
+    (candidate) => Math.abs(inlineLocationRatio5.value - candidate.ratio) < 0.001,
+  );
+
+  return preset?.value ?? null;
+});
+
+const inlineLocation5 = computed<LineClampLocation>(() => {
+  return selectedInlineLocationPreset5.value ?? inlineLocationRatio5.value;
+});
+
+function selectInlineLocationPreset5(ratio: number): void {
+  inlineLocationRatio5.value = ratio;
+}
 
 const splitImageFile: InlineClampSplit = (text) => {
   const extension = commonImageExtensions.find((candidate) =>
@@ -906,6 +929,13 @@ function updateLocationPreset(value: string): void {
   }
 }
 
+function updateInlineLocationPreset(value: string): void {
+  const preset = locationPresets4.find((candidate) => candidate.value === value);
+  if (preset) {
+    selectInlineLocationPreset5(preset.ratio);
+  }
+}
+
 function updateRichHtmlPreset(value: string): void {
   const preset = richHtmlPresets.find((candidate) => candidate.id === value);
   if (preset) {
@@ -995,7 +1025,7 @@ const inlineCodeExample = [
   "<" + "/script>",
   "",
   "<template>",
-  '  <InlineClamp :text="file" :split="splitImageFile" />',
+  '  <InlineClamp :text="file" :split="splitImageFile" location="middle" />',
   "</template>",
 ].join("\n");
 
@@ -1261,7 +1291,9 @@ const highlightedWrapCode = computed(() => highlightCode(wrapCodeExample, "vue")
             <template v-else-if="activeSurface === 'inline'">
               <p class="api-summary" data-api-summary="inline">
                 Use <code>&lt;InlineClamp&gt;</code> for one-line strings such as filenames, paths,
-                and email addresses when the beginning, ending, or both must remain readable.
+                and email addresses when the beginning, ending, or both must remain readable. Use
+                <code>location</code> to choose where the ellipsis appears inside the rewritten
+                body.
               </p>
             </template>
             <template v-else>
@@ -1776,6 +1808,36 @@ const highlightedWrapCode = computed(() => highlightCode(wrapCodeExample, "vue")
             <div v-else-if="activeSurface === 'inline'" class="demo-surface" data-demo="inline">
               <div class="demo-shared-controls">
                 <div class="demo-controls">
+                  <div class="control stacked-control">
+                    <span class="control-label">Location</span>
+                    <span class="control-stack">
+                      <PillControls
+                        class="control-pills"
+                        aria-label="Inline location presets"
+                        button-class="control-pill"
+                        :model-value="selectedInlineLocationPreset5"
+                        :options="inlineLocationPresetOptions"
+                        @update:modelValue="updateInlineLocationPreset"
+                      />
+                    </span>
+                  </div>
+                  <div class="control stacked-control">
+                    <span class="control-label">Ratio</span>
+                    <span class="control-stack">
+                      <span class="control-row">
+                        <input
+                          v-model.number="inlineLocationRatio5"
+                          data-inline-location-ratio-slider
+                          class="control-range"
+                          type="range"
+                          min="0"
+                          max="1"
+                          step="0.05"
+                        />
+                        <span class="control-value">{{ inlineLocationRatio5.toFixed(2) }}</span>
+                      </span>
+                    </span>
+                  </div>
                   <label class="control">
                     <span class="control-label">Width</span>
                     <span class="control-row">
@@ -1809,7 +1871,11 @@ const highlightedWrapCode = computed(() => highlightCode(wrapCodeExample, "vue")
                           class="demo-output width-guide"
                           :style="{ width: `${inlineWidth5}px` }"
                         >
-                          <InlineClamp class="demo-inline" :text="example.text" />
+                          <InlineClamp
+                            class="demo-inline"
+                            :text="example.text"
+                            :location="inlineLocation5"
+                          />
                         </div>
                       </div>
                       <div class="comparison-panel" data-inline-mode="split">
@@ -1822,6 +1888,7 @@ const highlightedWrapCode = computed(() => highlightCode(wrapCodeExample, "vue")
                             class="demo-inline"
                             :text="example.text"
                             :split="example.split"
+                            :location="inlineLocation5"
                           />
                         </div>
                       </div>
@@ -2468,6 +2535,25 @@ const highlightedWrapCode = computed(() => highlightCode(wrapCodeExample, "vue")
                     </div>
                     <p class="api-entry-copy">
                       Text inserted when the shrinkable body is shortened.
+                    </p>
+                  </div>
+                  <div class="api-entry">
+                    <div class="api-entry-header">
+                      <div class="api-entry-name"><code>location</code></div>
+                      <div class="api-entry-meta">
+                        <span class="api-meta-pair">
+                          <span class="api-meta-label">Type</span>
+                          <code>'start' | 'middle' | 'end' | number</code>
+                        </span>
+                        <span class="api-meta-pair">
+                          <span class="api-meta-label">Default</span>
+                          <code>'end'</code>
+                        </span>
+                      </div>
+                    </div>
+                    <p class="api-entry-copy">
+                      Ellipsis position inside the rewritten <code>body</code> segment. Numeric
+                      values map from <code>0</code> at the start to <code>1</code> at the end.
                     </p>
                   </div>
                   <div class="api-entry">

@@ -27,4 +27,10 @@ describe("text helpers", () => {
 
     expect(displayTextForKeptCount(prepared, 0.75, "…", 4)).toBe("abc…h");
   });
+
+  it("can preserve outer spacing for inline split text", () => {
+    const prepared = prepareText(" line clamp body");
+
+    expect(displayTextForKeptCount(prepared, 1, "…", 5, "preserve-outer")).toBe(" line…");
+  });
 });

@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.2.0]
+
+Minor release focused on one-line ellipsis placement.
+
+### Added
+
+- `<InlineClamp>` now supports the `location` prop. It uses the same `start`, `middle`, `end`, and
+  numeric ratio values as `<LineClamp>`, and applies the ellipsis position inside the shrinkable
+  `body` segment while split `start` and `end` segments stay fixed.
+- The InlineClamp docs and demo now include location examples, preset controls, and a numeric ratio
+  control for trying the ellipsis position interactively.
+
+### Fixed
+
+- `<InlineClamp>` now preserves meaningful spaces at split boundaries when the body is clamped.
+
 ## [1.1.0]
 
 Minor release focused on richer multiline content.
