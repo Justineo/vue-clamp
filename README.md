@@ -25,8 +25,8 @@ Sanitize untrusted input first with the
 available, or [DOMPurify](https://github.com/cure53/DOMPurify). Rich clamping is best-effort and
 behavior-based: if the runtime can clone the markup back into the DOM and the rendered element stays
 in inline flow, it can participate in clamping, including leaf custom elements and other inline
-atomic nodes. Inline rich images must provide deterministic layout dimensions before loading, such
-as explicit `width` / `height` attributes or CSS dimensions.
+atomic nodes. Inline rich images must provide a deterministic rendered size before loading, set by
+attributes or CSS.
 
 - Check everything is ready:
 

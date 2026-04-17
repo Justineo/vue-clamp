@@ -284,7 +284,7 @@ const surfaceGuideItems = [
       "Multiline browser-fit clamp for plain text, previews, cards, and expandable copy.",
     guide: "Plain-text multiline clamp for previews, cards, lists, and expandable copy.",
     id: surfaceHashes.line,
-    label: "<LineClamp>",
+    label: "LineClamp",
     value: "line",
   },
   {
@@ -292,21 +292,21 @@ const surfaceGuideItems = [
       "Trusted inline rich-html clamp for styled excerpts, links, and mixed inline markup.",
     guide: "Trusted inline HTML clamp for styled excerpts, links, and mixed inline markup.",
     id: surfaceHashes.rich,
-    label: "<RichLineClamp>",
+    label: "RichLineClamp",
     value: "rich",
   },
   {
     description: "Native single-line clamp for filenames, paths, and email addresses.",
     guide: "Single-line clamp for filenames, paths, and emails when one edge must stay visible.",
     id: surfaceHashes.inline,
-    label: "<InlineClamp>",
+    label: "InlineClamp",
     value: "inline",
   },
   {
     description: "Wrapped atomic-item clamp for labels, filters, and selected-value lists.",
     guide: "Wrapped item clamp for tags, filters, invitees, and selected-value lists.",
     id: surfaceHashes.wrap,
-    label: "<WrapClamp>",
+    label: "WrapClamp",
     value: "wrap",
   },
 ] as const;
@@ -1244,10 +1244,6 @@ const highlightedWrapCode = computed(() => highlightCode(wrapCodeExample, "vue")
                 decides wrapping. Pick <code>max-lines</code> for text-driven limits or
                 <code>max-height</code> for layout-driven limits.
               </p>
-              <ReferenceNotice surface="line" title="Plain text source">
-                <code>&lt;LineClamp&gt;</code> accepts plain strings. Use
-                <code>&lt;RichLineClamp&gt;</code> when inline HTML needs to remain visible.
-              </ReferenceNotice>
             </template>
             <template v-else-if="activeSurface === 'rich'">
               <p class="api-summary" data-api-summary="rich">
@@ -1256,30 +1252,30 @@ const highlightedWrapCode = computed(() => highlightCode(wrapCodeExample, "vue")
                 only.
               </p>
               <ReferenceNotice surface="rich" title="HTML input contract">
-                <p>
-                  Pass only trusted HTML, or sanitize untrusted input with the native
-                  <a
-                    href="https://developer.mozilla.org/en-US/docs/Web/API/HTML_Sanitizer_API"
-                    target="_blank"
-                    rel="noopener"
-                    >HTML Sanitizer API</a
-                  >
-                  where available, or
-                  <a href="https://github.com/cure53/DOMPurify" target="_blank" rel="noopener"
-                    >DOMPurify</a
-                  >
-                  before binding <code>html</code>.
-                </p>
-                <p>
-                  Supported content must stay in inline flow: text, inline formatting, links,
-                  <code>br</code>, <code>wbr</code>, <code>img</code>, outer <code>svg</code>, leaf
-                  custom elements, and atomic inline boxes such as <code>inline-block</code>.
-                </p>
-                <p>
-                  Markup that leaves inline flow falls back to the original HTML. Inline images need
-                  explicit <code>width</code> / <code>height</code> attributes or CSS dimensions
-                  before loading.
-                </p>
+                <ul>
+                  <li>
+                    Pass trusted HTML. Sanitize untrusted input with the native
+                    <a
+                      href="https://developer.mozilla.org/en-US/docs/Web/API/HTML_Sanitizer_API"
+                      target="_blank"
+                      rel="noopener"
+                      >HTML Sanitizer API</a
+                    >
+                    where available, or
+                    <a href="https://github.com/cure53/DOMPurify" target="_blank" rel="noopener"
+                      >DOMPurify</a
+                    >, before binding <code>html</code>.
+                  </li>
+                  <li>
+                    Keep content in inline flow: text, inline formatting, links, <code>br</code>,
+                    <code>wbr</code>, <code>img</code>, inline <code>&lt;svg&gt;</code>, leaf custom
+                    elements, and atomic inline boxes such as <code>inline-block</code>.
+                  </li>
+                  <li>
+                    Layouts that leave inline flow render the original HTML unchanged. Images need a
+                    deterministic rendered size before loading, set by attributes or CSS.
+                  </li>
+                </ul>
               </ReferenceNotice>
             </template>
             <template v-else-if="activeSurface === 'inline'">
@@ -1288,10 +1284,6 @@ const highlightedWrapCode = computed(() => highlightCode(wrapCodeExample, "vue")
                 should stay visible. It has no slots or events, and <code>split(text)</code> should
                 stay pure because only <code>body</code> shrinks.
               </p>
-              <ReferenceNotice surface="inline" title="Single line only">
-                <code>&lt;InlineClamp&gt;</code> uses native one-line overflow. Use
-                <code>&lt;LineClamp&gt;</code> for multiline text.
-              </ReferenceNotice>
             </template>
             <template v-else>
               <p class="api-summary" data-api-summary="wrap">
@@ -1299,10 +1291,6 @@ const highlightedWrapCode = computed(() => highlightCode(wrapCodeExample, "vue")
                 each visible item through <code>item</code>, and use <code>after</code> for
                 <code>+N</code>, <code>More</code>, or <code>Less</code> UI.
               </p>
-              <ReferenceNotice surface="wrap" title="Atomic items">
-                <code>&lt;WrapClamp&gt;</code> hides overflowing items as whole units. It does not
-                split or clip inside one item.
-              </ReferenceNotice>
             </template>
           </section>
 

@@ -11,7 +11,7 @@ Minor release focused on richer multiline content.
 - Added `<RichLineClamp>` for trusted inline HTML. It clamps from the end and preserves inline
   formatting, links, line breaks, inline media, and atomic inline content.
 - `<RichLineClamp>` requires inline-flow markup; unsupported layouts render the original HTML
-  unchanged, and inline images need deterministic dimensions before loading.
+  unchanged, and inline images need a deterministic rendered size before loading.
 
 ## [1.0.1]
 
