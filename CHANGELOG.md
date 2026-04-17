@@ -22,13 +22,6 @@ Minor release focused on richer multiline content.
 ### Fixed
 
 - Fixed `<InlineClamp>` not restoring trimmed body text after its container grows wider.
-
-## [1.0.1]
-
-Patch release focused on multiline clamp correctness.
-
-### Fixed
-
 - Fixed `<LineClamp>` edge cases where browser layout could undercount wrapped lines, so collapsed
   text now respects `maxLines` and `maxHeight` more reliably.
 
