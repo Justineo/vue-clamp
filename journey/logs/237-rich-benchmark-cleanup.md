@@ -1,0 +1,29 @@
+# 2026-04-09 Rich benchmark cleanup
+
+- Follow-up after the temporary A/B benchmark pass.
+- Decision:
+  - keep the measured current-versus-legacy rich benchmark numbers in `236-rich-benchmark-ab.md`
+  - remove the benchmark-only legacy helper from the repo
+  - retain `benchmark:rich` as a current-only workload benchmark for future optimization passes
+- Validation:
+  - `vp check`
+  - `vp run benchmark:rich`
+- Current-only benchmark medians after cleanup:
+  - `fit-width-sweep`
+    - total: `0.25ms`
+    - step: `0.03125ms`
+    - `getBoundingClientRect`: `8`
+    - `getClientRects`: `8`
+    - `replaceChildren`: `0`
+  - `truncate-width-sweep`
+    - total: `2.65ms`
+    - step: `0.33125ms`
+    - `getBoundingClientRect`: `8`
+    - `getClientRects`: `77`
+    - `replaceChildren`: `71`
+  - `dense-grid-width-sweep`
+    - total: `71.75ms`
+    - step: `11.96ms`
+    - `getBoundingClientRect`: `240`
+    - `getClientRects`: `1890`
+    - `replaceChildren`: `1767`

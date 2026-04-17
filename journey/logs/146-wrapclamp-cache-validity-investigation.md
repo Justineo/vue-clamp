@@ -1,0 +1,26 @@
+# 2026-04-03 WrapClamp cache validity investigation
+
+- Revisited the cache benchmark after noticing that the stress-table demo felt slower when the cache layer was removed.
+- Confirmed a critical gate mismatch in `WrapClamp`:
+  - `canSkipGrowthProbe()` returns early unless `normalizeLineLimit(props.maxLines) === 1`
+  - the website stress demo uses `:max-lines="2"`
+  - the original cache benchmark also used `maxLines: 2`
+- That means the earlier table benchmark did not measure the value of the cache shortcut itself. It measured:
+  - the direct path
+  - versus the same direct path plus cache bookkeeping overhead
+- Updated the benchmark to run two explicit scenarios:
+  - `single-line`
+  - `table-demo` (`maxLines: 2`)
+- Also removed a no-op timing step where the benchmark mounted at `260px` and then immediately measured a first width step back to `260px`.
+- Updated benchmark result:
+  - `single-line`
+    - render delta ratio: `0.9697` (`WrapClampWithGrowthCache` does avoid some rerenders)
+    - median total ratio: `1.0152` (still slightly slower overall)
+  - `table-demo`
+    - render delta ratio: `1`
+    - median total ratio: `1.0286`
+- Interpretation:
+  - the benchmark harness is sensitive enough to detect an effect when the cache branch is reachable, because the `single-line` run shows a measurable render-delta reduction
+  - the table stress demo does not benefit because it never uses the cache-assisted branch
+  - the cache bookkeeping itself is not free and currently costs more than the rerenders it saves
+  - the benchmark is valid for settled width-sweep recompute cost, but not for direct slider-drag latency or frame pacing

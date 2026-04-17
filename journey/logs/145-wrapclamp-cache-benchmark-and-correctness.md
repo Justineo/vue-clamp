@@ -1,0 +1,33 @@
+# 2026-04-03 WrapClamp cache benchmark and correctness
+
+- Added an internal `WrapClampWithGrowthCache` factory variant so the removed growth-hint cache can be benchmarked against the current direct live-DOM path without restoring it to the public package surface.
+- Kept the cache path intentionally conservative:
+  - only considered for collapsed single-line growth probes
+  - disabled when `maxHeight` participates
+  - item width hints are stored as lower-bound-style widths via `Math.min(...)`
+  - `after` width hints are tracked per hidden-count state
+- Added cache invalidation around the cases most likely to make cached growth decisions stale:
+  - keyed item content changes
+  - `items` / `itemKey` changes
+  - `after` slot width changes
+  - host font signature changes
+- Added browser comparison tests that mount the direct and cached strategies side by side and assert identical visible items / `after` output across:
+  - width sweeps
+  - keyed item shrink cases
+  - `itemKey` changes
+  - external `after` summary changes
+  - host font changes
+- Added a dedicated browser benchmark config and `benchmark:wrap-cache` script that run a 200-row table workload through a 10-step width sweep.
+- Benchmark result from the current Chromium run:
+  - direct median total: `1208.4ms`
+  - cached median total: `1216.7ms`
+  - total-time ratio: `1.0069`
+  - mean render delta ratio: `1`
+- Conclusion: once the cache is hardened enough to survive realistic external changes, it is effectively neutral to slightly slower on the stress-table workload. The simpler direct live-DOM path remains the preferred implementation.
+- Validation passed with:
+  - `vp check`
+  - `vp test`
+  - `vp test -c vite.browser.config.ts packages/vue-clamp/tests/wrap.browser.test.ts packages/vue-clamp/tests/wrap.cache.browser.test.ts`
+  - `vp run test:browser`
+  - `vp run benchmark:wrap-cache`
+- The browser runs still emit the repo's existing non-failing mixed Vitest/browser version warning and repeated `ResizeObserver loop completed with undelivered notifications` noise.
