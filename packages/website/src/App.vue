@@ -3,10 +3,10 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref } from "vue";
 import { ArrowUpRight, Ellipsis } from "@lucide/vue";
 import { siGithub } from "simple-icons";
 import { InlineClamp, LineClamp, RichLineClamp, WrapClamp } from "vue-clamp";
+import Alert from "./Alert.vue";
 import ComponentTabs from "./ComponentTabs.vue";
 import CodeBlock from "./CodeBlock.vue";
 import PillControls from "./PillControls.vue";
-import ReferenceNotice from "./ReferenceNotice.vue";
 import {
   horizontalOverlayScrollbarsOptions,
   initBodyOverlayScrollbars,
@@ -1251,7 +1251,7 @@ const highlightedWrapCode = computed(() => highlightCode(wrapCodeExample, "vue")
                 links, line breaks, and inline media should remain visible. It clamps from the end
                 only.
               </p>
-              <ReferenceNotice surface="rich" title="HTML input contract">
+              <Alert name="rich" title="HTML input contract">
                 <ul>
                   <li>
                     Pass trusted HTML. Sanitize untrusted input with the native
@@ -1276,7 +1276,7 @@ const highlightedWrapCode = computed(() => highlightCode(wrapCodeExample, "vue")
                     deterministic rendered size before loading, set by attributes or CSS.
                   </li>
                 </ul>
-              </ReferenceNotice>
+              </Alert>
             </template>
             <template v-else-if="activeSurface === 'inline'">
               <p class="api-summary" data-api-summary="inline">
