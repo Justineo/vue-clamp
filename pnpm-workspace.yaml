@@ -16,7 +16,7 @@ catalog:
   simple-icons: ^16.14.0
   typescript: ^5
   vite: npm:@voidzero-dev/vite-plus-core@latest
-  vite-plus: ^0.1.16
+  vite-plus: ^0.1.17
   vitest: npm:@voidzero-dev/vite-plus-test@latest
   vue: ^3.5.31
   vue-tsc: ^3.2.6
