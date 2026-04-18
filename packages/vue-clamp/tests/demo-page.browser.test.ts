@@ -1341,15 +1341,27 @@ describe("Website demo page", () => {
     expect(richSummary.textContent).toContain("line breaks");
     expect(richSummary.textContent).toContain("clamps from the end");
     const richNotice = referenceShell(mountedPage.container).querySelector('[data-alert="rich"]');
-    expect(richNotice?.textContent).toContain("HTML input contract");
-    expect(richNotice?.textContent).toContain("Sanitize untrusted input");
-    expect(richNotice?.textContent).toContain("HTML Sanitizer API");
-    expect(richNotice?.textContent).toContain("DOMPurify");
-    expect(richNotice?.textContent).toContain("inline flow");
-    expect(richNotice?.textContent).toContain("img");
-    expect(richNotice?.textContent).toContain("<svg>");
-    expect(richNotice?.textContent).toContain("deterministic rendered size");
-    expect(richNotice?.textContent).toContain("attributes or CSS");
+    if (!(richNotice instanceof HTMLElement)) {
+      throw new Error("Expected the RichLineClamp alert.");
+    }
+    expect(richNotice.querySelector(".alert-icon")).toBeInstanceOf(SVGSVGElement);
+    expect(richNotice.textContent).toContain("HTML input contract");
+    expect(richNotice.textContent).toContain("Sanitize untrusted input");
+    expect(richNotice.textContent).toContain("HTML Sanitizer API");
+    expect(richNotice.textContent).toContain("DOMPurify");
+    expect(richNotice.textContent).toContain("sentence-like HTML");
+    expect(richNotice.textContent).toContain("can trim through");
+    expect(richNotice.textContent).toContain("Atomic inline content stays whole");
+    expect(richNotice.textContent).toContain("<img>");
+    expect(richNotice.textContent).toContain("inline <svg>");
+    expect(richNotice.textContent).toContain("display: inline-block");
+    expect(richNotice.textContent).toContain("display: inline-flex");
+    expect(richNotice.textContent).toContain("display: block");
+    expect(richNotice.textContent).toContain("display: flex");
+    expect(richNotice.textContent).toContain("display: grid");
+    expect(richNotice.textContent).toContain("absolute/fixed positioning");
+    expect(richNotice.textContent).toContain("reserve space before load");
+    expect(richNotice.textContent).toContain("aspect-ratio");
 
     await selectSurface(mountedPage.container, "inline");
 

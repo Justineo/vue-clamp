@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { CircleAlert } from "@lucide/vue";
+
 defineProps<{
   name: string;
   title: string;
@@ -7,6 +9,7 @@ defineProps<{
 
 <template>
   <section class="alert" :data-alert="name" role="note">
+    <CircleAlert class="alert-icon" :size="18" aria-hidden="true" />
     <p class="alert-title">{{ title }}</p>
     <div class="alert-copy">
       <slot />
@@ -16,33 +19,37 @@ defineProps<{
 
 <style scoped>
 .alert {
-  position: relative;
   margin: 14px 0 0;
-  padding: 12px 14px 12px 38px;
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  column-gap: 10px;
+  row-gap: 6px;
+  padding: 12px 14px;
   background: #fff8ed;
-  border-block: 1px solid #eadcc7;
+  border: 1px solid #eadcc7;
+  border-radius: var(--radius);
 }
 
-.alert::before {
-  content: "!";
-  position: absolute;
-  top: 13px;
-  left: 14px;
-  display: inline-grid;
-  place-items: center;
-  width: 16px;
-  height: 16px;
-  font-family: var(--font-mono);
-  font-size: 0.68rem;
-  font-weight: 700;
-  line-height: 1;
+.alert-icon {
+  grid-row: 1;
+  align-self: center;
+  width: 18px;
+  height: 18px;
   color: #8a5a13;
-  border: 1px solid #d6b577;
-  border-radius: 50%;
+  stroke-width: 2.4;
+}
+
+.alert-icon :deep(circle) {
+  fill: currentColor;
+}
+
+.alert-icon :deep(line) {
+  stroke: #fff8ed;
 }
 
 .alert-title {
-  margin: 0 0 6px;
+  grid-column: 2;
+  margin: 0;
   font-size: 0.8rem;
   font-weight: 600;
   line-height: 1.4;
@@ -50,6 +57,7 @@ defineProps<{
 }
 
 .alert-copy {
+  grid-column: 2;
   margin: 0;
   max-width: 58rem;
   font-size: 0.82rem;

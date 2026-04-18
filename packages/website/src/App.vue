@@ -1276,14 +1276,28 @@ const highlightedWrapCode = computed(() => highlightCode(wrapCodeExample, "vue")
                     >, before binding <code>html</code>.
                   </li>
                   <li>
-                    Keep the rendered layout in inline flow. Supported nodes include text, inline
-                    formatting, links, <code>br</code>, <code>wbr</code>, <code>img</code>,
-                    <code>&lt;svg&gt;</code>, leaf custom elements, and atomic inline boxes such as
-                    <code>inline-block</code>.
+                    Use sentence-like HTML. <code>&lt;RichLineClamp&gt;</code> can trim through
+                    text, formatting tags such as <code>strong</code>, <code>em</code>, and
+                    <code>code</code>, links, <code>br</code>/<code>wbr</code>, and leaf custom
+                    elements.
                   </li>
                   <li>
-                    Layouts that leave inline flow render the original HTML unchanged. Images need a
-                    deterministic rendered size before loading, set by attributes or CSS.
+                    Atomic inline content stays whole. That includes <code>&lt;img&gt;</code>,
+                    inline <code>&lt;svg&gt;</code>, and elements rendered as
+                    <code>display: inline-block</code> or <code>display: inline-flex</code>; the
+                    component can keep or drop those units, but it does not trim inside them.
+                  </li>
+                  <li>
+                    If rendered content uses block-level layout such as <code>display: block</code>,
+                    <code>display: flex</code>, or <code>display: grid</code>, floats, or
+                    absolute/fixed positioning, <code>&lt;RichLineClamp&gt;</code> leaves the
+                    original HTML unchanged instead of cutting through that layout.
+                  </li>
+                  <li>
+                    For <code>img</code>, reserve space before load with <code>width</code>/
+                    <code>height</code> attributes or CSS <code>width</code>, <code>height</code>,
+                    or <code>aspect-ratio</code>. The component measures that reserved box and does
+                    not wait for the natural image size.
                   </li>
                 </ul>
               </Alert>
@@ -2914,7 +2928,7 @@ const highlightedWrapCode = computed(() => highlightCode(wrapCodeExample, "vue")
   --c-accent: #7c3aed;
   --c-accent-soft: #ede9fe;
   --c-accent-text: #5b21b6;
-  --c-code-bg: #f4f4f8;
+  --c-code-bg: color-mix(in srgb, var(--c-text) 7%, transparent);
   --c-success: #16a34a;
   --c-muted: #9ca3af;
   --focus-ring: 0 0 0 3px color-mix(in srgb, var(--c-accent) 18%, transparent);
@@ -3659,7 +3673,7 @@ pre code {
   font-size: 0.82em;
   font-family: var(--font-mono);
   color: var(--c-accent-text);
-  background: var(--c-accent-soft);
+  background: var(--c-code-bg);
   border-radius: 999px;
 }
 
