@@ -22,7 +22,7 @@ jobs:
       VOID_PROJECT: vue-clamp
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - uses: voidzero-dev/setup-vp@v1
         with:
