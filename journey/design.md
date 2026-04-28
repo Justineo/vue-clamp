@@ -394,6 +394,14 @@
     private `@void-sdk/void` package in the workspace graph
   - GitHub Actions writes the temporary `@void-sdk` `.npmrc` only around the deploy-time `vp dlx`
     steps and sources auth from the `PACKAGES_READ_TOKEN` secret
+- Renovate dependency automation is intentionally weekly but stability-gated:
+  - branch creation is allowed only on Tuesdays in the `Asia/Shanghai` timezone so dependency
+    update work stays batched to one weekly window
+  - package updates must still satisfy `minimumReleaseAge: "7 days"` before PR creation, accepting
+    that frequently published packages can wait more than one week
+  - non-major updates are grouped as `all non-major dependencies` and may automerge only through a
+    PR after status checks pass
+  - major updates stay separate and require manual review
 - Browser test and benchmark configs live at the repo root:
   - the root package owns the `vp run test:browser` and `vp run benchmark:wrap` scripts, so it
     also declares `@vitejs/plugin-vue` and owns the corresponding browser-only Vite configs
