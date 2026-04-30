@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from "vue";
-import { ArrowUpRight, Ellipsis } from "@lucide/vue";
+import { ArrowUpRight, ChevronDown, Ellipsis, SlidersHorizontal } from "@lucide/vue";
 import { siGithub } from "simple-icons";
 import { InlineClamp, LineClamp, RichLineClamp, WrapClamp } from "vue-clamp";
 import Alert from "./Alert.vue";
@@ -22,7 +22,7 @@ import js from "shiki/langs/javascript.mjs";
 import ts from "shiki/langs/typescript.mjs";
 import { websiteShikiTheme } from "./shiki-theme";
 
-import type { InlineClampSplit, LineClampLocation } from "vue-clamp";
+import type { ClampBoundary, InlineClampSplit, LineClampLocation } from "vue-clamp";
 
 const shiki = createHighlighterCoreSync({
   themes: [websiteShikiTheme],
@@ -106,6 +106,19 @@ const selectedLineTextPreset = computed(() => {
   return lineTextPresets.find((preset) => preset.value === lineTextInput.value)?.id ?? null;
 });
 
+const clampBoundaryOptions = [
+  {
+    buttonAttrs: { "data-boundary-option": "grapheme" },
+    label: "Grapheme",
+    value: "grapheme",
+  },
+  {
+    buttonAttrs: { "data-boundary-option": "word" },
+    label: "Word",
+    value: "word",
+  },
+] as const;
+
 function selectLineTextPreset(value: string): void {
   lineTextInput.value = value;
 }
@@ -124,31 +137,23 @@ function lineBadgeLabel(rtl: boolean): string {
 
 // Demo 1: max-lines + after slot toggle
 const lines1 = ref(3);
-const width1 = ref(480);
-const hyphens1 = ref(true);
-const rtl1 = ref(false);
 
 // Demo 2: max-height + before slot + external expanded
 const height2 = ref("calc(36px + 6em)");
-const width2 = ref(480);
-const hyphens2 = ref(true);
-const rtl2 = ref(false);
 const expanded2 = ref(false);
 
 // Demo 3: clampchange event
 const lines3 = ref(6);
-const width3 = ref(480);
-const hyphens3 = ref(true);
-const rtl3 = ref(false);
 const clamped3 = ref(false);
 
 // Demo 4: ellipsis + location
 const lines4 = ref(5);
-const width4 = ref(480);
-const hyphens4 = ref(true);
-const rtl4 = ref(false);
 const ellipsis4 = ref("\u2026");
 const locationRatio4 = ref(1);
+const lineWidth = ref(480);
+const lineHyphens = ref(true);
+const lineRtl = ref(false);
+const lineBoundary = ref<ClampBoundary>("grapheme");
 const locationPresets4 = [
   { label: "Start", ratio: 0, value: "start" as const },
   { label: "Middle", ratio: 0.5, value: "middle" as const },
@@ -179,15 +184,12 @@ function selectLocationPreset4(ratio: number): void {
 
 // Demo 5: rich html
 const richLines5 = ref(3);
-const richWidth5 = ref(420);
-const richHyphens5 = ref(true);
+const richWidth = ref(420);
+const richHyphens = ref(true);
+const richBoundary = ref<ClampBoundary>("grapheme");
 const richHeight6 = ref("calc(36px + 6em)");
-const richWidth6 = ref(420);
-const richHyphens6 = ref(true);
 const richExpanded6 = ref(false);
 const richLines7 = ref(3);
-const richWidth7 = ref(420);
-const richHyphens7 = ref(true);
 const richClamped7 = ref(false);
 const richHtmlInput = ref<string>(richHtmlPresets[0].value);
 
@@ -278,6 +280,7 @@ function setSurfaceRouteHash(surface: SurfaceKey): void {
 
 const activeSurface = ref<SurfaceKey>(currentSurfaceFromLocation() ?? "line");
 const referenceTabsAnchorRef = ref<HTMLElement | null>(null);
+const demoControlsExpanded = ref(false);
 const surfaceGuideItems = [
   {
     description:
@@ -400,6 +403,9 @@ function syncActiveSurfaceFromRoute(): boolean {
     return false;
   }
 
+  if (activeSurface.value !== routedSurface) {
+    demoControlsExpanded.value = false;
+  }
   activeSurface.value = routedSurface;
   return true;
 }
@@ -409,7 +415,10 @@ function updateActiveSurface(surface: string): void {
     return;
   }
 
-  activeSurface.value = surface;
+  if (activeSurface.value !== surface) {
+    demoControlsExpanded.value = false;
+    activeSurface.value = surface;
+  }
   setSurfaceRouteHash(surface);
 
   void nextTick(() => {
@@ -459,6 +468,7 @@ let stopBodyOverlayScrollbars = () => {};
 
 const inlineWidth5 = ref(280);
 const inlineLocationRatio5 = ref(1);
+const inlineBoundary5 = ref<ClampBoundary>("grapheme");
 const commonImageExtensions = [".png", ".jpg", ".jpeg", ".webp", ".gif", ".avif"] as const;
 
 const inlineLocationPresetOptions = locationPresets4.map((preset) => ({
@@ -612,19 +622,57 @@ const selectedWrapTab6 = ref("overview");
 const wrapTabsMenuOpen6 = ref(false);
 const wrapTabsTriggerRef6 = ref<HTMLElement | null>(null);
 const wrapTabsMenuRef6 = ref<HTMLElement | null>(null);
-const wrapWidth6 = ref(360);
-const wrapRtl6 = ref(false);
+const wrapWidth = ref(420);
+const wrapRtl = ref(false);
 const wrapHeight7 = ref("58px");
-const wrapWidth7 = ref(420);
-const wrapRtl7 = ref(false);
 const wrapExpanded7 = ref(false);
 
 const wrapTabItems6 = computed(() => {
-  return wrapRtl6.value ? wrapTabItemsAr : wrapTabItems;
+  return wrapRtl.value ? wrapTabItemsAr : wrapTabItems;
 });
 
 const wrapInviteeItems7 = computed(() => {
-  return wrapRtl7.value ? wrapInviteeItemsAr : wrapInviteeItems;
+  return wrapRtl.value ? wrapInviteeItemsAr : wrapInviteeItems;
+});
+
+function boundaryLabel(boundary: ClampBoundary): string {
+  return boundary === "word" ? "Word" : "Grapheme";
+}
+
+function boolFlag(enabled: boolean, label: string): string | null {
+  return enabled ? label : null;
+}
+
+const demoControlsSummary = computed(() => {
+  switch (activeSurface.value) {
+    case "line":
+      return [
+        boundaryLabel(lineBoundary.value),
+        `${lineWidth.value}px`,
+        boolFlag(lineHyphens.value, "Hyphens"),
+        boolFlag(lineRtl.value, "RTL"),
+      ]
+        .filter((part): part is string => Boolean(part))
+        .join(" · ");
+    case "rich":
+      return [
+        boundaryLabel(richBoundary.value),
+        `${richWidth.value}px`,
+        boolFlag(richHyphens.value, "Hyphens"),
+      ]
+        .filter((part): part is string => Boolean(part))
+        .join(" · ");
+    case "inline":
+      return [
+        selectedInlineLocationPreset5.value ?? inlineLocationRatio5.value.toFixed(2),
+        boundaryLabel(inlineBoundary5.value),
+        `${inlineWidth5.value}px`,
+      ].join(" · ");
+    case "wrap":
+      return [`${wrapWidth.value}px`, boolFlag(wrapRtl.value, "RTL")]
+        .filter((part): part is string => Boolean(part))
+        .join(" · ");
+  }
 });
 
 function wrapInviteePrefixLabel(rtl: boolean): string {
@@ -922,6 +970,22 @@ function updateLineTextPreset(value: string): void {
   }
 }
 
+function toClampBoundary(value: string): ClampBoundary {
+  return value === "word" ? "word" : "grapheme";
+}
+
+function updateLineBoundary(value: string): void {
+  lineBoundary.value = toClampBoundary(value);
+}
+
+function updateRichBoundary(value: string): void {
+  richBoundary.value = toClampBoundary(value);
+}
+
+function updateInlineBoundary(value: string): void {
+  inlineBoundary5.value = toClampBoundary(value);
+}
+
 function updateLocationPreset(value: string): void {
   const preset = locationPresets4.find((candidate) => candidate.value === value);
   if (preset) {
@@ -971,7 +1035,7 @@ const lineCodeExample = [
   "<" + "/script>",
   "",
   "<template>",
-  '  <LineClamp v-model:expanded="expanded" :text="text" :max-lines="2">',
+  '  <LineClamp v-model:expanded="expanded" :text="text" :max-lines="2" boundary="word">',
   '    <template #after="{ clamped, toggle }">',
   '      <button v-if="clamped" type="button" @click="toggle">',
   `        {{ expanded ? 'Less' : 'More' }}`,
@@ -992,7 +1056,7 @@ const richCodeExample = [
   "<" + "/script>",
   "",
   "<template>",
-  '  <RichLineClamp v-model:expanded="expanded" :html="html" :max-lines="2">',
+  '  <RichLineClamp v-model:expanded="expanded" :html="html" :max-lines="2" boundary="word">',
   '    <template #after="{ clamped, toggle }">',
   '      <button v-if="clamped" type="button" @click="toggle">',
   `        {{ expanded ? 'Less' : 'More' }}`,
@@ -1251,14 +1315,15 @@ const highlightedWrapCode = computed(() => highlightCode(wrapCodeExample, "vue")
               <p class="api-summary" data-api-summary="line">
                 Use <code>&lt;LineClamp&gt;</code> for real multiline plain text where the browser
                 decides wrapping. Pick <code>max-lines</code> for text-driven limits or
-                <code>max-height</code> for layout-driven limits.
+                <code>max-height</code> for layout-driven limits, and <code>boundary</code> when
+                prose should clamp at whole words.
               </p>
             </template>
             <template v-else-if="activeSurface === 'rich'">
               <p class="api-summary" data-api-summary="rich">
                 Use <code>&lt;RichLineClamp&gt;</code> for trusted inline HTML where formatting,
                 links, line breaks, and inline media should remain visible. It clamps from the end
-                only.
+                only, with optional word-boundary trimming inside text runs.
               </p>
               <Alert name="rich" title="HTML input contract">
                 <ul>
@@ -1307,7 +1372,7 @@ const highlightedWrapCode = computed(() => highlightCode(wrapCodeExample, "vue")
                 Use <code>&lt;InlineClamp&gt;</code> for one-line strings such as filenames, paths,
                 and email addresses when the beginning, ending, or both must remain readable. Use
                 <code>location</code> to choose how the rewritten body keeps text around the
-                ellipsis.
+                ellipsis, and <code>boundary</code> when the shrinkable body is prose-like.
               </p>
             </template>
             <template v-else>
@@ -1324,9 +1389,9 @@ const highlightedWrapCode = computed(() => highlightCode(wrapCodeExample, "vue")
 
             <template v-if="activeSurface === 'line'">
               <div class="demo-surface">
-                <div class="demo-shared-controls">
+                <div class="demo-source-controls">
                   <div class="demo-controls">
-                    <div class="control stacked-control line-text-settings">
+                    <div class="control stacked-control line-text-settings shared-control-wide">
                       <span class="control-stack">
                         <PillControls
                           class="control-pills"
@@ -1349,6 +1414,80 @@ const highlightedWrapCode = computed(() => highlightCode(wrapCodeExample, "vue")
                   </div>
                 </div>
 
+                <div
+                  class="demo-shared-controls"
+                  :class="{ 'is-expanded': demoControlsExpanded }"
+                  data-shared-controls="line"
+                >
+                  <button
+                    class="demo-controls-toggle"
+                    data-demo-controls-toggle
+                    type="button"
+                    :aria-expanded="demoControlsExpanded"
+                    :aria-label="
+                      demoControlsExpanded ? 'Collapse demo controls' : 'Expand demo controls'
+                    "
+                    @click="demoControlsExpanded = !demoControlsExpanded"
+                  >
+                    <span class="demo-controls-toggle-glyph" aria-hidden="true">
+                      <SlidersHorizontal :size="16" :stroke-width="2" />
+                    </span>
+                    <span class="demo-controls-toggle-copy">
+                      <span class="demo-controls-toggle-title">Demo controls</span>
+                      <span class="demo-controls-toggle-summary">{{ demoControlsSummary }}</span>
+                    </span>
+                    <ChevronDown
+                      class="demo-controls-toggle-icon"
+                      :size="17"
+                      :stroke-width="2"
+                      aria-hidden="true"
+                    />
+                  </button>
+                  <div class="demo-controls-panel">
+                    <div class="demo-controls-panel-inner">
+                      <div class="demo-controls">
+                        <div class="control stacked-control">
+                          <span class="control-label">Boundary</span>
+                          <span class="control-stack">
+                            <PillControls
+                              class="control-pills"
+                              aria-label="Line text boundary"
+                              button-class="control-pill"
+                              :model-value="lineBoundary"
+                              :options="clampBoundaryOptions"
+                              @update:modelValue="updateLineBoundary"
+                            />
+                          </span>
+                        </div>
+                        <label class="control">
+                          <span class="control-label">Width</span>
+                          <span class="control-row">
+                            <input
+                              v-model.number="lineWidth"
+                              data-line-width-slider
+                              class="control-range"
+                              type="range"
+                              min="240"
+                              max="600"
+                            />
+                            <span class="control-value">{{ lineWidth }}px</span>
+                          </span>
+                        </label>
+                        <div class="control-row shared-checks">
+                          <label class="control-check">
+                            <input v-model="lineHyphens" data-line-hyphens-toggle type="checkbox" />
+                            <span>CSS Hyphens</span>
+                          </label>
+                          <label class="control-check">
+                            <input v-model="lineRtl" data-line-rtl-toggle type="checkbox" />
+                            <span>RTL</span>
+                          </label>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
                 <div class="demo-example-list">
                   <!-- Demo 1: max-lines + after slot toggle -->
                   <div class="demo-block">
@@ -1365,42 +1504,20 @@ const highlightedWrapCode = computed(() => highlightCode(wrapCodeExample, "vue")
                           step="1"
                         />
                       </label>
-                      <label class="control">
-                        <span class="control-label">Width</span>
-                        <span class="control-row">
-                          <input
-                            v-model.number="width1"
-                            class="control-range"
-                            type="range"
-                            min="240"
-                            max="600"
-                          />
-                          <span class="control-value">{{ width1 }}px</span>
-                        </span>
-                      </label>
-                      <div class="control-row">
-                        <label class="control-check">
-                          <input v-model="hyphens1" type="checkbox" />
-                          <span>CSS Hyphens</span>
-                        </label>
-                        <label class="control-check">
-                          <input v-model="rtl1" type="checkbox" />
-                          <span>RTL</span>
-                        </label>
-                      </div>
                     </div>
                     <div v-overlay-scrollbars="horizontalOverlayScrollbars" class="demo-preview">
-                      <div class="demo-output width-guide" :style="{ width: `${width1}px` }">
+                      <div class="demo-output width-guide" :style="{ width: `${lineWidth}px` }">
                         <LineClamp
                           class="demo-clamp"
-                          :class="{ hyphens: hyphens1, rtl: rtl1 }"
+                          :class="{ hyphens: lineHyphens, rtl: lineRtl }"
                           :text="lineTextInput"
                           :max-lines="lines1"
-                          :style="{ width: `${width1}px`, maxWidth: '100%' }"
+                          :boundary="lineBoundary"
+                          :style="{ width: `${lineWidth}px`, maxWidth: '100%' }"
                         >
                           <template #after="{ toggle, expanded, clamped }">
                             <button v-if="expanded || clamped" class="toggle-btn" @click="toggle">
-                              {{ toggleLabel(expanded, rtl1) }}
+                              {{ toggleLabel(expanded, lineRtl) }}
                             </button>
                           </template>
                         </LineClamp>
@@ -1418,28 +1535,7 @@ const highlightedWrapCode = computed(() => highlightCode(wrapCodeExample, "vue")
                         <span class="control-label">Max height</span>
                         <input v-model="height2" class="control-input" />
                       </label>
-                      <label class="control">
-                        <span class="control-label">Width</span>
-                        <span class="control-row">
-                          <input
-                            v-model.number="width2"
-                            class="control-range"
-                            type="range"
-                            min="240"
-                            max="600"
-                          />
-                          <span class="control-value">{{ width2 }}px</span>
-                        </span>
-                      </label>
                       <div class="control-row">
-                        <label class="control-check">
-                          <input v-model="hyphens2" type="checkbox" />
-                          <span>CSS Hyphens</span>
-                        </label>
-                        <label class="control-check">
-                          <input v-model="rtl2" type="checkbox" />
-                          <span>RTL</span>
-                        </label>
                         <label class="control-check">
                           <input v-model="expanded2" type="checkbox" />
                           <span>Expanded</span>
@@ -1449,18 +1545,19 @@ const highlightedWrapCode = computed(() => highlightCode(wrapCodeExample, "vue")
                     <div v-overlay-scrollbars="horizontalOverlayScrollbars" class="demo-preview">
                       <div
                         class="demo-output width-guide height-guide"
-                        :style="{ width: `${width2}px` }"
+                        :style="{ width: `${lineWidth}px` }"
                       >
                         <LineClamp
                           class="demo-clamp"
-                          :class="{ hyphens: hyphens2, rtl: rtl2 }"
+                          :class="{ hyphens: lineHyphens, rtl: lineRtl }"
                           :text="lineTextInput"
                           :max-height="height2"
+                          :boundary="lineBoundary"
                           v-model:expanded="expanded2"
-                          :style="{ width: `${width2}px`, maxWidth: '100%' }"
+                          :style="{ width: `${lineWidth}px`, maxWidth: '100%' }"
                         >
                           <template #before>
-                            <span class="badge">{{ lineBadgeLabel(rtl2) }}</span>
+                            <span class="badge">{{ lineBadgeLabel(lineRtl) }}</span>
                           </template>
                         </LineClamp>
                       </div>
@@ -1482,38 +1579,16 @@ const highlightedWrapCode = computed(() => highlightCode(wrapCodeExample, "vue")
                           step="1"
                         />
                       </label>
-                      <label class="control">
-                        <span class="control-label">Width</span>
-                        <span class="control-row">
-                          <input
-                            v-model.number="width3"
-                            class="control-range"
-                            type="range"
-                            min="240"
-                            max="600"
-                          />
-                          <span class="control-value">{{ width3 }}px</span>
-                        </span>
-                      </label>
-                      <div class="control-row">
-                        <label class="control-check">
-                          <input v-model="hyphens3" type="checkbox" />
-                          <span>CSS Hyphens</span>
-                        </label>
-                        <label class="control-check">
-                          <input v-model="rtl3" type="checkbox" />
-                          <span>RTL</span>
-                        </label>
-                      </div>
                     </div>
                     <div v-overlay-scrollbars="horizontalOverlayScrollbars" class="demo-preview">
-                      <div class="demo-output width-guide" :style="{ width: `${width3}px` }">
+                      <div class="demo-output width-guide" :style="{ width: `${lineWidth}px` }">
                         <LineClamp
                           class="demo-clamp"
-                          :class="{ hyphens: hyphens3, rtl: rtl3 }"
+                          :class="{ hyphens: lineHyphens, rtl: lineRtl }"
                           :text="lineTextInput"
                           :max-lines="lines3"
-                          :style="{ width: `${width3}px`, maxWidth: '100%' }"
+                          :boundary="lineBoundary"
+                          :style="{ width: `${lineWidth}px`, maxWidth: '100%' }"
                           @clampchange="clamped3 = $event"
                         />
                       </div>
@@ -1575,45 +1650,22 @@ const highlightedWrapCode = computed(() => highlightCode(wrapCodeExample, "vue")
                           step="1"
                         />
                       </label>
-                      <label class="control">
-                        <span class="control-label">Width</span>
-                        <span class="control-row">
-                          <input
-                            v-model.number="width4"
-                            data-location-width-slider
-                            class="control-range"
-                            type="range"
-                            min="240"
-                            max="600"
-                          />
-                          <span class="control-value">{{ width4 }}px</span>
-                        </span>
-                      </label>
-                      <div class="control-row">
-                        <label class="control-check">
-                          <input v-model="hyphens4" type="checkbox" />
-                          <span>CSS Hyphens</span>
-                        </label>
-                        <label class="control-check">
-                          <input v-model="rtl4" type="checkbox" />
-                          <span>RTL</span>
-                        </label>
-                      </div>
                     </div>
                     <div v-overlay-scrollbars="horizontalOverlayScrollbars" class="demo-preview">
-                      <div class="demo-output width-guide" :style="{ width: `${width4}px` }">
+                      <div class="demo-output width-guide" :style="{ width: `${lineWidth}px` }">
                         <LineClamp
                           class="demo-clamp"
-                          :class="{ hyphens: hyphens4, rtl: rtl4 }"
+                          :class="{ hyphens: lineHyphens, rtl: lineRtl }"
                           :text="lineTextInput"
                           :max-lines="lines4"
                           :location="location4"
                           :ellipsis="ellipsis4"
-                          :style="{ width: `${width4}px`, maxWidth: '100%' }"
+                          :boundary="lineBoundary"
+                          :style="{ width: `${lineWidth}px`, maxWidth: '100%' }"
                         >
                           <template #after="{ toggle, expanded, clamped }">
                             <button v-if="expanded || clamped" class="toggle-btn" @click="toggle">
-                              {{ toggleLabel(expanded, rtl4) }}
+                              {{ toggleLabel(expanded, lineRtl) }}
                             </button>
                           </template>
                         </LineClamp>
@@ -1625,9 +1677,9 @@ const highlightedWrapCode = computed(() => highlightCode(wrapCodeExample, "vue")
             </template>
 
             <div v-else-if="activeSurface === 'rich'" class="demo-surface" data-demo="rich">
-              <div class="demo-shared-controls">
+              <div class="demo-source-controls">
                 <div class="demo-controls">
-                  <div class="control stacked-control rich-html-settings">
+                  <div class="control stacked-control rich-html-settings shared-control-wide">
                     <span class="control-stack">
                       <PillControls
                         class="control-pills"
@@ -1650,6 +1702,76 @@ const highlightedWrapCode = computed(() => highlightCode(wrapCodeExample, "vue")
                 </div>
               </div>
 
+              <div
+                class="demo-shared-controls"
+                :class="{ 'is-expanded': demoControlsExpanded }"
+                data-shared-controls="rich"
+              >
+                <button
+                  class="demo-controls-toggle"
+                  data-demo-controls-toggle
+                  type="button"
+                  :aria-expanded="demoControlsExpanded"
+                  :aria-label="
+                    demoControlsExpanded ? 'Collapse demo controls' : 'Expand demo controls'
+                  "
+                  @click="demoControlsExpanded = !demoControlsExpanded"
+                >
+                  <span class="demo-controls-toggle-glyph" aria-hidden="true">
+                    <SlidersHorizontal :size="16" :stroke-width="2" />
+                  </span>
+                  <span class="demo-controls-toggle-copy">
+                    <span class="demo-controls-toggle-title">Demo controls</span>
+                    <span class="demo-controls-toggle-summary">{{ demoControlsSummary }}</span>
+                  </span>
+                  <ChevronDown
+                    class="demo-controls-toggle-icon"
+                    :size="17"
+                    :stroke-width="2"
+                    aria-hidden="true"
+                  />
+                </button>
+                <div class="demo-controls-panel">
+                  <div class="demo-controls-panel-inner">
+                    <div class="demo-controls">
+                      <div class="control stacked-control">
+                        <span class="control-label">Boundary</span>
+                        <span class="control-stack">
+                          <PillControls
+                            class="control-pills"
+                            aria-label="Rich text boundary"
+                            button-class="control-pill"
+                            :model-value="richBoundary"
+                            :options="clampBoundaryOptions"
+                            @update:modelValue="updateRichBoundary"
+                          />
+                        </span>
+                      </div>
+                      <label class="control">
+                        <span class="control-label">Width</span>
+                        <span class="control-row">
+                          <input
+                            v-model.number="richWidth"
+                            data-rich-width-slider
+                            class="control-range"
+                            type="range"
+                            min="240"
+                            max="600"
+                          />
+                          <span class="control-value">{{ richWidth }}px</span>
+                        </span>
+                      </label>
+                      <div class="control-row shared-checks">
+                        <label class="control-check">
+                          <input v-model="richHyphens" data-rich-hyphens-toggle type="checkbox" />
+                          <span>CSS Hyphens</span>
+                        </label>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
               <div class="demo-example-list">
                 <div class="demo-block" data-demo="rich-html" data-rich-example="max-lines">
                   <div class="demo-label">max-lines / slot <code>after</code> / toggle</div>
@@ -1665,34 +1787,16 @@ const highlightedWrapCode = computed(() => highlightCode(wrapCodeExample, "vue")
                         step="1"
                       />
                     </label>
-                    <label class="control">
-                      <span class="control-label">Width</span>
-                      <span class="control-row">
-                        <input
-                          v-model.number="richWidth5"
-                          class="control-range"
-                          type="range"
-                          min="240"
-                          max="600"
-                        />
-                        <span class="control-value">{{ richWidth5 }}px</span>
-                      </span>
-                    </label>
-                    <div class="control-row">
-                      <label class="control-check">
-                        <input v-model="richHyphens5" data-rich-hyphens-toggle type="checkbox" />
-                        <span>CSS Hyphens</span>
-                      </label>
-                    </div>
                   </div>
                   <div v-overlay-scrollbars="horizontalOverlayScrollbars" class="demo-preview">
-                    <div class="demo-output width-guide" :style="{ width: `${richWidth5}px` }">
+                    <div class="demo-output width-guide" :style="{ width: `${richWidth}px` }">
                       <RichLineClamp
                         class="demo-clamp demo-rich-card"
-                        :class="{ hyphens: richHyphens5 }"
+                        :class="{ hyphens: richHyphens }"
                         :html="richHtmlInput"
                         :max-lines="richLines5"
-                        :style="{ width: `${richWidth5}px`, maxWidth: '100%' }"
+                        :boundary="richBoundary"
+                        :style="{ width: `${richWidth}px`, maxWidth: '100%' }"
                       >
                         <template #after="{ toggle, expanded, clamped }">
                           <button v-if="expanded || clamped" class="toggle-btn" @click="toggle">
@@ -1718,24 +1822,7 @@ const highlightedWrapCode = computed(() => highlightCode(wrapCodeExample, "vue")
                       <span class="control-label">Max height</span>
                       <input v-model="richHeight6" class="control-input" />
                     </label>
-                    <label class="control">
-                      <span class="control-label">Width</span>
-                      <span class="control-row">
-                        <input
-                          v-model.number="richWidth6"
-                          class="control-range"
-                          type="range"
-                          min="240"
-                          max="600"
-                        />
-                        <span class="control-value">{{ richWidth6 }}px</span>
-                      </span>
-                    </label>
                     <div class="control-row">
-                      <label class="control-check">
-                        <input v-model="richHyphens6" type="checkbox" />
-                        <span>CSS Hyphens</span>
-                      </label>
                       <label class="control-check">
                         <input v-model="richExpanded6" type="checkbox" />
                         <span>Expanded</span>
@@ -1745,15 +1832,16 @@ const highlightedWrapCode = computed(() => highlightCode(wrapCodeExample, "vue")
                   <div v-overlay-scrollbars="horizontalOverlayScrollbars" class="demo-preview">
                     <div
                       class="demo-output width-guide height-guide"
-                      :style="{ width: `${richWidth6}px` }"
+                      :style="{ width: `${richWidth}px` }"
                     >
                       <RichLineClamp
                         class="demo-clamp demo-rich-card"
-                        :class="{ hyphens: richHyphens6 }"
+                        :class="{ hyphens: richHyphens }"
                         :html="richHtmlInput"
                         :max-height="richHeight6"
+                        :boundary="richBoundary"
                         v-model:expanded="richExpanded6"
-                        :style="{ width: `${richWidth6}px`, maxWidth: '100%' }"
+                        :style="{ width: `${richWidth}px`, maxWidth: '100%' }"
                       >
                         <template #before>
                           <span class="badge">Featured</span>
@@ -1777,34 +1865,16 @@ const highlightedWrapCode = computed(() => highlightCode(wrapCodeExample, "vue")
                         step="1"
                       />
                     </label>
-                    <label class="control">
-                      <span class="control-label">Width</span>
-                      <span class="control-row">
-                        <input
-                          v-model.number="richWidth7"
-                          class="control-range"
-                          type="range"
-                          min="240"
-                          max="600"
-                        />
-                        <span class="control-value">{{ richWidth7 }}px</span>
-                      </span>
-                    </label>
-                    <div class="control-row">
-                      <label class="control-check">
-                        <input v-model="richHyphens7" type="checkbox" />
-                        <span>CSS Hyphens</span>
-                      </label>
-                    </div>
                   </div>
                   <div v-overlay-scrollbars="horizontalOverlayScrollbars" class="demo-preview">
-                    <div class="demo-output width-guide" :style="{ width: `${richWidth7}px` }">
+                    <div class="demo-output width-guide" :style="{ width: `${richWidth}px` }">
                       <RichLineClamp
                         class="demo-clamp demo-rich-card"
-                        :class="{ hyphens: richHyphens7 }"
+                        :class="{ hyphens: richHyphens }"
                         :html="richHtmlInput"
                         :max-lines="richLines7"
-                        :style="{ width: `${richWidth7}px`, maxWidth: '100%' }"
+                        :boundary="richBoundary"
+                        :style="{ width: `${richWidth}px`, maxWidth: '100%' }"
                         @clampchange="richClamped7 = $event"
                       />
                     </div>
@@ -1820,52 +1890,97 @@ const highlightedWrapCode = computed(() => highlightCode(wrapCodeExample, "vue")
             </div>
 
             <div v-else-if="activeSurface === 'inline'" class="demo-surface" data-demo="inline">
-              <div class="demo-shared-controls">
-                <div class="demo-controls">
-                  <div class="control stacked-control">
-                    <span class="control-label">Location</span>
-                    <span class="control-stack">
-                      <PillControls
-                        class="control-pills"
-                        aria-label="Inline location presets"
-                        button-class="control-pill"
-                        :model-value="selectedInlineLocationPreset5"
-                        :options="inlineLocationPresetOptions"
-                        @update:modelValue="updateInlineLocationPreset"
-                      />
-                    </span>
+              <div
+                class="demo-shared-controls"
+                :class="{ 'is-expanded': demoControlsExpanded }"
+                data-shared-controls="inline"
+              >
+                <button
+                  class="demo-controls-toggle"
+                  data-demo-controls-toggle
+                  type="button"
+                  :aria-expanded="demoControlsExpanded"
+                  :aria-label="
+                    demoControlsExpanded ? 'Collapse demo controls' : 'Expand demo controls'
+                  "
+                  @click="demoControlsExpanded = !demoControlsExpanded"
+                >
+                  <span class="demo-controls-toggle-glyph" aria-hidden="true">
+                    <SlidersHorizontal :size="16" :stroke-width="2" />
+                  </span>
+                  <span class="demo-controls-toggle-copy">
+                    <span class="demo-controls-toggle-title">Demo controls</span>
+                    <span class="demo-controls-toggle-summary">{{ demoControlsSummary }}</span>
+                  </span>
+                  <ChevronDown
+                    class="demo-controls-toggle-icon"
+                    :size="17"
+                    :stroke-width="2"
+                    aria-hidden="true"
+                  />
+                </button>
+                <div class="demo-controls-panel">
+                  <div class="demo-controls-panel-inner">
+                    <div class="demo-controls">
+                      <div class="control stacked-control">
+                        <span class="control-label">Location</span>
+                        <span class="control-stack">
+                          <PillControls
+                            class="control-pills"
+                            aria-label="Inline location presets"
+                            button-class="control-pill"
+                            :model-value="selectedInlineLocationPreset5"
+                            :options="inlineLocationPresetOptions"
+                            @update:modelValue="updateInlineLocationPreset"
+                          />
+                        </span>
+                      </div>
+                      <div class="control stacked-control">
+                        <span class="control-label">Boundary</span>
+                        <span class="control-stack">
+                          <PillControls
+                            class="control-pills"
+                            aria-label="Inline boundary"
+                            button-class="control-pill"
+                            :model-value="inlineBoundary5"
+                            :options="clampBoundaryOptions"
+                            @update:modelValue="updateInlineBoundary"
+                          />
+                        </span>
+                      </div>
+                      <div class="control stacked-control">
+                        <span class="control-label">Ratio</span>
+                        <span class="control-stack">
+                          <span class="control-row">
+                            <input
+                              v-model.number="inlineLocationRatio5"
+                              data-inline-location-ratio-slider
+                              class="control-range"
+                              type="range"
+                              min="0"
+                              max="1"
+                              step="0.05"
+                            />
+                            <span class="control-value">{{ inlineLocationRatio5.toFixed(2) }}</span>
+                          </span>
+                        </span>
+                      </div>
+                      <label class="control">
+                        <span class="control-label">Width</span>
+                        <span class="control-row">
+                          <input
+                            v-model.number="inlineWidth5"
+                            data-inline-width-slider
+                            class="control-range"
+                            type="range"
+                            min="160"
+                            max="280"
+                          />
+                          <span class="control-value">{{ inlineWidth5 }}px</span>
+                        </span>
+                      </label>
+                    </div>
                   </div>
-                  <div class="control stacked-control">
-                    <span class="control-label">Ratio</span>
-                    <span class="control-stack">
-                      <span class="control-row">
-                        <input
-                          v-model.number="inlineLocationRatio5"
-                          data-inline-location-ratio-slider
-                          class="control-range"
-                          type="range"
-                          min="0"
-                          max="1"
-                          step="0.05"
-                        />
-                        <span class="control-value">{{ inlineLocationRatio5.toFixed(2) }}</span>
-                      </span>
-                    </span>
-                  </div>
-                  <label class="control">
-                    <span class="control-label">Width</span>
-                    <span class="control-row">
-                      <input
-                        v-model.number="inlineWidth5"
-                        data-inline-width-slider
-                        class="control-range"
-                        type="range"
-                        min="160"
-                        max="280"
-                      />
-                      <span class="control-value">{{ inlineWidth5 }}px</span>
-                    </span>
-                  </label>
                 </div>
               </div>
 
@@ -1889,6 +2004,7 @@ const highlightedWrapCode = computed(() => highlightCode(wrapCodeExample, "vue")
                             class="demo-inline"
                             :text="example.text"
                             :location="inlineLocation5"
+                            :boundary="inlineBoundary5"
                           />
                         </div>
                       </div>
@@ -1903,6 +2019,7 @@ const highlightedWrapCode = computed(() => highlightCode(wrapCodeExample, "vue")
                             :text="example.text"
                             :split="example.split"
                             :location="inlineLocation5"
+                            :boundary="inlineBoundary5"
                           />
                         </div>
                       </div>
@@ -1913,37 +2030,73 @@ const highlightedWrapCode = computed(() => highlightCode(wrapCodeExample, "vue")
             </div>
 
             <div v-else class="demo-surface" data-demo="wrap">
+              <div
+                class="demo-shared-controls"
+                :class="{ 'is-expanded': demoControlsExpanded }"
+                data-shared-controls="wrap"
+              >
+                <button
+                  class="demo-controls-toggle"
+                  data-demo-controls-toggle
+                  type="button"
+                  :aria-expanded="demoControlsExpanded"
+                  :aria-label="
+                    demoControlsExpanded ? 'Collapse demo controls' : 'Expand demo controls'
+                  "
+                  @click="demoControlsExpanded = !demoControlsExpanded"
+                >
+                  <span class="demo-controls-toggle-glyph" aria-hidden="true">
+                    <SlidersHorizontal :size="16" :stroke-width="2" />
+                  </span>
+                  <span class="demo-controls-toggle-copy">
+                    <span class="demo-controls-toggle-title">Demo controls</span>
+                    <span class="demo-controls-toggle-summary">{{ demoControlsSummary }}</span>
+                  </span>
+                  <ChevronDown
+                    class="demo-controls-toggle-icon"
+                    :size="17"
+                    :stroke-width="2"
+                    aria-hidden="true"
+                  />
+                </button>
+                <div class="demo-controls-panel">
+                  <div class="demo-controls-panel-inner">
+                    <div class="demo-controls">
+                      <label class="control">
+                        <span class="control-label">Width</span>
+                        <span class="control-row">
+                          <input
+                            v-model.number="wrapWidth"
+                            data-wrap-width-slider
+                            class="control-range"
+                            type="range"
+                            min="240"
+                            max="600"
+                          />
+                          <span class="control-value">{{ wrapWidth }}px</span>
+                        </span>
+                      </label>
+                      <div class="control-row shared-checks">
+                        <label class="control-check">
+                          <input v-model="wrapRtl" data-wrap-rtl-toggle type="checkbox" />
+                          <span>RTL</span>
+                        </label>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
               <div class="demo-example-list">
                 <div class="demo-block" data-wrap-example="tabs">
                   <div class="demo-label">
                     tabs / fixed one-line / hidden items in <code>after</code>
                   </div>
-                  <div class="demo-controls">
-                    <label class="control">
-                      <span class="control-label">Width</span>
-                      <span class="control-row">
-                        <input
-                          v-model.number="wrapWidth6"
-                          class="control-range"
-                          type="range"
-                          min="240"
-                          max="600"
-                        />
-                        <span class="control-value">{{ wrapWidth6 }}px</span>
-                      </span>
-                    </label>
-                    <div class="control-row">
-                      <label class="control-check">
-                        <input v-model="wrapRtl6" type="checkbox" />
-                        <span>RTL</span>
-                      </label>
-                    </div>
-                  </div>
                   <div v-overlay-scrollbars="horizontalOverlayScrollbars" class="demo-preview">
-                    <div class="demo-output width-guide" :style="{ width: `${wrapWidth6}px` }">
+                    <div class="demo-output width-guide" :style="{ width: `${wrapWidth}px` }">
                       <WrapClamp
                         class="demo-wrap wrap-tabs"
-                        :class="{ rtl: wrapRtl6 }"
+                        :class="{ rtl: wrapRtl }"
                         :items="wrapTabItems6"
                         item-key="id"
                         :max-lines="1"
@@ -1972,7 +2125,7 @@ const highlightedWrapCode = computed(() => highlightCode(wrapCodeExample, "vue")
                               type="button"
                               ref="wrapTabsTriggerRef6"
                               :aria-expanded="wrapTabsMenuOpen6"
-                              :aria-label="wrapTabsTriggerLabel(wrapRtl6)"
+                              :aria-label="wrapTabsTriggerLabel(wrapRtl)"
                               @click="toggleWrapTabsMenu6"
                             >
                               <Ellipsis :size="16" :stroke-width="2" aria-hidden="true" />
@@ -2013,47 +2166,30 @@ const highlightedWrapCode = computed(() => highlightCode(wrapCodeExample, "vue")
                       <span class="control-label">Max height</span>
                       <input v-model="wrapHeight7" class="control-input" />
                     </label>
-                    <label class="control">
-                      <span class="control-label">Width</span>
-                      <span class="control-row">
-                        <input
-                          v-model.number="wrapWidth7"
-                          class="control-range"
-                          type="range"
-                          min="260"
-                          max="560"
-                        />
-                        <span class="control-value">{{ wrapWidth7 }}px</span>
-                      </span>
-                    </label>
                     <div class="control-row">
                       <label class="control-check">
                         <input v-model="wrapExpanded7" type="checkbox" />
                         <span>Expanded</span>
-                      </label>
-                      <label class="control-check">
-                        <input v-model="wrapRtl7" type="checkbox" />
-                        <span>RTL</span>
                       </label>
                     </div>
                   </div>
                   <div v-overlay-scrollbars="horizontalOverlayScrollbars" class="demo-preview">
                     <div
                       class="demo-output width-guide height-guide"
-                      :style="{ width: `${wrapWidth7}px` }"
+                      :style="{ width: `${wrapWidth}px` }"
                     >
                       <WrapClamp
                         class="demo-wrap"
-                        :class="{ rtl: wrapRtl7 }"
+                        :class="{ rtl: wrapRtl }"
                         :items="wrapInviteeItems7"
                         item-key="id"
                         :max-height="wrapHeight7"
                         v-model:expanded="wrapExpanded7"
-                        :style="{ width: `${wrapWidth7}px`, maxWidth: '100%' }"
+                        :style="{ width: `${wrapWidth}px`, maxWidth: '100%' }"
                       >
                         <template #before>
                           <span class="wrap-prefix" data-wrap-prefix>{{
-                            wrapInviteePrefixLabel(wrapRtl7)
+                            wrapInviteePrefixLabel(wrapRtl)
                           }}</span>
                         </template>
                         <template #item="{ item }">
@@ -2070,7 +2206,7 @@ const highlightedWrapCode = computed(() => highlightCode(wrapCodeExample, "vue")
                             type="button"
                             @click="toggle"
                           >
-                            {{ toggleLabel(expanded, wrapRtl7) }}
+                            {{ toggleLabel(expanded, wrapRtl) }}
                           </button>
                         </template>
                       </WrapClamp>
@@ -2210,6 +2346,24 @@ const highlightedWrapCode = computed(() => highlightCode(wrapCodeExample, "vue")
                     <p class="api-entry-copy">
                       Ellipsis position. Keywords map to <code>0</code>, <code>0.5</code>, and
                       <code>1</code>.
+                    </p>
+                  </div>
+                  <div class="api-entry">
+                    <div class="api-entry-header">
+                      <div class="api-entry-name"><code>boundary</code></div>
+                      <div class="api-entry-meta">
+                        <span class="api-meta-pair">
+                          <span class="api-meta-label">Type</span>
+                          <code>'grapheme' | 'word'</code>
+                        </span>
+                        <span class="api-meta-pair">
+                          <span class="api-meta-label">Default</span>
+                          <code>'grapheme'</code>
+                        </span>
+                      </div>
+                    </div>
+                    <p class="api-entry-copy">
+                      Clamp cut points. Use <code>'word'</code> to avoid partial words.
                     </p>
                   </div>
                   <div class="api-entry">
@@ -2412,6 +2566,25 @@ const highlightedWrapCode = computed(() => highlightCode(wrapCodeExample, "vue")
                   </div>
                   <div class="api-entry">
                     <div class="api-entry-header">
+                      <div class="api-entry-name"><code>boundary</code></div>
+                      <div class="api-entry-meta">
+                        <span class="api-meta-pair">
+                          <span class="api-meta-label">Type</span>
+                          <code>'grapheme' | 'word'</code>
+                        </span>
+                        <span class="api-meta-pair">
+                          <span class="api-meta-label">Default</span>
+                          <code>'grapheme'</code>
+                        </span>
+                      </div>
+                    </div>
+                    <p class="api-entry-copy">
+                      Text-node cut points. Use <code>'word'</code> to avoid partial words inside
+                      rich inline text.
+                    </p>
+                  </div>
+                  <div class="api-entry">
+                    <div class="api-entry-header">
                       <div class="api-entry-name"><code>expanded</code></div>
                       <div class="api-entry-meta">
                         <span class="api-meta-pair">
@@ -2569,6 +2742,25 @@ const highlightedWrapCode = computed(() => highlightCode(wrapCodeExample, "vue")
                       Controls how the rewritten <code>body</code> segment keeps text around the
                       ellipsis. Numeric values map from <code>0</code> at the start to
                       <code>1</code> at the end.
+                    </p>
+                  </div>
+                  <div class="api-entry">
+                    <div class="api-entry-header">
+                      <div class="api-entry-name"><code>boundary</code></div>
+                      <div class="api-entry-meta">
+                        <span class="api-meta-pair">
+                          <span class="api-meta-label">Type</span>
+                          <code>'grapheme' | 'word'</code>
+                        </span>
+                        <span class="api-meta-pair">
+                          <span class="api-meta-label">Default</span>
+                          <code>'grapheme'</code>
+                        </span>
+                      </div>
+                    </div>
+                    <p class="api-entry-copy">
+                      Cut points for the rewritten <code>body</code> segment. Use
+                      <code>'word'</code> for prose-like one-line labels.
                     </p>
                   </div>
                   <div class="api-entry">
@@ -2938,7 +3130,10 @@ const highlightedWrapCode = computed(() => highlightCode(wrapCodeExample, "vue")
     "Geist Mono", "JetBrains Mono", "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
   --radius: 6px;
   --radius-lg: 8px;
-  --demo-range-width: 140px;
+  --component-tabs-height: 42px;
+  --control-height: 28px;
+  --demo-controls-sticky-top: var(--component-tabs-height);
+  --demo-range-width: 126px;
 }
 
 html {
@@ -3350,8 +3545,9 @@ pre code {
 
 .reference-tabs-row {
   position: sticky;
-  top: -1px;
-  z-index: 8;
+  top: 0;
+  z-index: 9;
+  block-size: var(--component-tabs-height);
   background: var(--c-bg);
 }
 
@@ -3393,12 +3589,74 @@ pre code {
   flex-direction: column;
 }
 
+.demo-source-controls {
+  padding-bottom: 14px;
+}
+
 .demo-shared-controls {
-  padding-bottom: 18px;
+  position: sticky;
+  top: var(--demo-controls-sticky-top);
+  z-index: 8;
+  padding: 0;
+  margin-bottom: 22px;
+  background: color-mix(in srgb, var(--c-bg) 96%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--c-border) 72%, transparent);
+  backdrop-filter: blur(12px);
+}
+
+.demo-controls-toggle {
+  display: none;
+}
+
+.demo-controls-panel-inner {
+  padding: 9px 0 10px;
 }
 
 .demo-shared-controls .demo-controls {
+  flex-flow: row wrap;
+  align-items: center;
+  column-gap: 22px;
+  row-gap: 8px;
   padding-bottom: 0;
+}
+
+.demo-shared-controls .control {
+  min-height: var(--control-height);
+}
+
+.demo-shared-controls .stacked-control {
+  align-items: center;
+}
+
+.demo-shared-controls .control-label {
+  width: auto;
+  min-width: 58px;
+}
+
+.demo-shared-controls .control-stack {
+  flex: 0 1 auto;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+}
+
+.demo-shared-controls .control-row {
+  min-height: var(--control-height);
+  flex: 0 1 auto;
+}
+
+.demo-shared-controls .control-range {
+  flex: 0 1 var(--demo-range-width);
+  inline-size: var(--demo-range-width);
+}
+
+.shared-control-wide {
+  inline-size: 100%;
+}
+
+.shared-checks {
+  min-height: var(--control-height);
+  gap: 12px;
 }
 
 .line-text-settings {
@@ -3461,6 +3719,7 @@ pre code {
   display: flex;
   align-items: center;
   gap: 10px;
+  min-height: var(--control-height);
   font-size: 0.8rem;
 }
 
@@ -3469,8 +3728,11 @@ pre code {
 }
 
 .control-label {
+  display: inline-flex;
+  align-items: center;
   flex-shrink: 0;
   width: 72px;
+  min-height: var(--control-height);
   color: var(--c-text-2);
   font-weight: 500;
 }
@@ -3486,7 +3748,7 @@ pre code {
 .control-input {
   flex: 1;
   max-width: 180px;
-  height: 28px;
+  height: var(--control-height);
   padding: 0 8px;
   font-size: 0.8rem;
   font-family: var(--font-mono);
@@ -3537,6 +3799,7 @@ pre code {
   align-items: center;
   gap: 10px;
   flex: 1;
+  min-height: var(--control-height);
 }
 
 .control-range {
@@ -3579,6 +3842,7 @@ pre code {
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  min-height: var(--control-height);
   font-size: 0.8rem;
   color: var(--c-text-2);
   cursor: pointer;
@@ -4309,8 +4573,166 @@ pre code {
 }
 
 @media (max-width: 639px) {
+  :root {
+    --demo-range-width: 100%;
+  }
+
   .hero-tagline-shell {
     max-width: 100%;
+  }
+
+  .demo-source-controls {
+    padding-bottom: 10px;
+  }
+
+  .demo-shared-controls {
+    margin-bottom: 14px;
+    padding: 0;
+    border-bottom: none;
+  }
+
+  .demo-shared-controls.is-expanded {
+    border-bottom: 1px solid color-mix(in srgb, var(--c-border) 82%, transparent);
+  }
+
+  .demo-controls-toggle {
+    display: flex;
+    align-items: center;
+    width: 100%;
+    min-height: 58px;
+    padding: 9px 10px;
+    gap: 10px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    font-family: inherit;
+    color: var(--c-text);
+    background: var(--c-bg);
+    border: 1px solid var(--c-border);
+    border-radius: 13px;
+    box-shadow: 0 1px 2px rgba(18, 20, 28, 0.04);
+    cursor: pointer;
+    text-align: left;
+    transition:
+      border-color 0.15s,
+      background 0.15s,
+      box-shadow 0.15s;
+  }
+
+  .demo-controls-toggle:hover {
+    border-color: var(--c-border-dark);
+    background: color-mix(in srgb, var(--c-bg) 82%, var(--c-bg-soft));
+  }
+
+  .demo-controls-toggle:focus-visible {
+    outline: none;
+    border-color: var(--c-accent);
+    box-shadow: var(--focus-ring);
+  }
+
+  .demo-controls-toggle-glyph {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 34px;
+    width: 34px;
+    height: 34px;
+    color: var(--c-accent-text);
+    background: var(--c-accent-soft);
+    border-radius: 10px;
+  }
+
+  .demo-controls-toggle-copy {
+    display: grid;
+    flex: 1 1 auto;
+    min-width: 0;
+    gap: 1px;
+  }
+
+  .demo-controls-toggle-title {
+    min-width: 0;
+    font-size: 0.82rem;
+    line-height: 1.3;
+    color: var(--c-text);
+  }
+
+  .demo-controls-toggle-summary {
+    min-width: 0;
+    overflow: hidden;
+    font-size: 0.72rem;
+    font-weight: 500;
+    line-height: 1.35;
+    color: var(--c-text-3);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .demo-controls-toggle-icon {
+    flex: 0 0 auto;
+    color: var(--c-text-3);
+    transition: transform 0.15s;
+  }
+
+  .demo-shared-controls.is-expanded .demo-controls-toggle-icon {
+    transform: rotate(180deg);
+  }
+
+  .demo-controls-panel {
+    display: grid;
+    grid-template-rows: 0fr;
+    overflow: hidden;
+    transition: grid-template-rows 0.18s ease;
+  }
+
+  .demo-shared-controls.is-expanded .demo-controls-panel {
+    grid-template-rows: 1fr;
+  }
+
+  .demo-controls-panel-inner {
+    min-height: 0;
+    overflow: hidden;
+    padding: 0;
+  }
+
+  .demo-shared-controls.is-expanded .demo-controls-panel-inner {
+    padding: 8px 0 11px;
+  }
+
+  .demo-shared-controls .demo-controls {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+
+  .demo-shared-controls .control,
+  .demo-shared-controls .shared-checks {
+    width: 100%;
+  }
+
+  .demo-shared-controls .control-label {
+    width: 72px;
+    min-width: 72px;
+  }
+
+  .demo-shared-controls .control-row,
+  .demo-shared-controls .control-stack {
+    flex: 1 1 auto;
+    min-width: 0;
+    justify-content: flex-end;
+  }
+
+  .demo-shared-controls .control-range {
+    flex: 1 1 auto;
+    inline-size: auto;
+    min-width: 96px;
+    max-width: none;
+  }
+
+  .demo-shared-controls .control-pills {
+    justify-content: flex-end;
+  }
+
+  .demo-shared-controls .shared-checks {
+    justify-content: flex-start;
   }
 }
 

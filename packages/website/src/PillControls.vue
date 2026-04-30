@@ -52,18 +52,18 @@ function select(value: string): void {
 .pill-controls {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 6px;
 }
 
 .pill-controls-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 60px;
+  min-width: 54px;
   max-width: 100%;
-  min-height: 30px;
-  padding: 5px 12px;
-  font-size: 0.76rem;
+  min-height: var(--control-height, 28px);
+  padding: 0 10px;
+  font-size: 0.72rem;
   font-weight: 500;
   line-height: 1.1;
   font-family: var(--font-body);
@@ -101,9 +101,10 @@ function select(value: string): void {
 }
 
 .pill-controls.compact .pill-controls-button {
-  min-height: 28px;
-  padding: 4px 12px;
-  font-size: 0.75rem;
+  min-width: 48px;
+  min-height: 24px;
+  padding: 0 9px;
+  font-size: 0.7rem;
 }
 
 .pill-controls.mono .pill-controls-button {

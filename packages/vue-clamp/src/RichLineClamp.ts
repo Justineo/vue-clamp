@@ -1,7 +1,14 @@
 import { computed, defineComponent, h, mergeProps, nextTick, ref, watch } from "vue";
 import { cssLength, normalizeLineLimit } from "./layout.ts";
 import { useMultilineClamp } from "./multiline.ts";
-import { blockAsProp, ellipsisProp, expandedProp, maxHeightProp, maxLinesProp } from "./props.ts";
+import {
+  blockAsProp,
+  boundaryProp,
+  ellipsisProp,
+  expandedProp,
+  maxHeightProp,
+  maxLinesProp,
+} from "./props.ts";
 import { clampRichTextToLayout, patchRichTextToDecision, prepareRichText } from "./rich.ts";
 import { hasSlotContent } from "./slot.ts";
 
@@ -39,6 +46,7 @@ const propsDef = {
   maxLines: maxLinesProp,
   maxHeight: maxHeightProp,
   ellipsis: ellipsisProp,
+  boundary: boundaryProp,
   expanded: expandedProp,
 } as const;
 
@@ -68,7 +76,7 @@ export const RichLineClamp = defineComponent({
 
     const lineLimit = computed(() => normalizeLineLimit(props.maxLines));
     const hasLimit = computed(() => lineLimit.value !== undefined || props.maxHeight !== undefined);
-    const preparedHtml = computed(() => prepareRichText(props.html));
+    const preparedHtml = computed(() => prepareRichText(props.html, props.boundary));
     let visibleDecision: RichClampDecision | null = null;
     let probeDecision: RichClampDecision | null = null;
     let probeElements: ProbeElements | null = null;
@@ -221,7 +229,13 @@ export const RichLineClamp = defineComponent({
     });
 
     watch(
-      [() => props.html, () => props.maxLines, () => props.maxHeight, () => props.ellipsis],
+      [
+        () => props.html,
+        () => props.maxLines,
+        () => props.maxHeight,
+        () => props.ellipsis,
+        () => props.boundary,
+      ],
       () => {
         resetDecisions();
         isFallback.value = false;

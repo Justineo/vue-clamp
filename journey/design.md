@@ -20,6 +20,7 @@
   - `maxHeight`
   - `ellipsis`
   - `location`
+  - `boundary`
   - `expanded`
   - `before` and `after` slots with `{ expand, collapse, toggle, clamped, expanded }`
   - `update:expanded`
@@ -41,6 +42,10 @@
 - `LineClamp` is the text-only multiline component.
 - `RichLineClamp` is the rich-html multiline component.
 - `LineClamp` `location` accepts the keyword aliases `start`, `middle`, and `end`, plus numeric ratios from `0` to `1`.
+- `LineClamp`, `RichLineClamp`, and `InlineClamp` accept `boundary: "grapheme" | "word"`.
+- `boundary` defaults to `"grapheme"` for backwards compatibility and maximum fit. `"word"`
+  chooses word-level clamp candidates and falls back to grapheme candidates only when no whole-word
+  candidate fits.
 - `RichLineClamp` is end-truncation-only and does not carry `location`.
 - `LineClamp` `before` and `after` remain rich Vue slots.
 - `RichLineClamp` keeps the same `before` / `after` slot contract and exposed expand/collapse
@@ -58,6 +63,7 @@
   - `text`
   - `ellipsis`
   - `location`
+  - `boundary`
   - optional `split(text) => { start?, body, end? }`
   - `as`
 - `WrapClamp` accepts:
@@ -84,8 +90,8 @@
   - `packages/vue-clamp/src/multiline.ts` for the small shared multiline shell:
     expanded/clamped state, exposed actions, queued recomputes, `ResizeObserver`, font-load
     invalidation, and same-flush `onUpdated` invalidation
-  - `packages/vue-clamp/src/text.ts` for grapheme splitting, kept-count text generation, text
-    clamp search, location normalization, and native one-line eligibility helpers
+  - `packages/vue-clamp/src/text.ts` for grapheme/word boundary preparation, kept-count text
+    generation, text clamp search, location normalization, and native one-line eligibility helpers
   - `packages/vue-clamp/src/rich.ts` for rich-text parsing, runtime inline-flow classification,
     logical-run preprocessing, boundary slicing, and rich clamp search
   - `packages/vue-clamp/src/layout.ts` for the remaining shared primitives worth centralizing:
@@ -111,7 +117,7 @@
 - `InlineClamp` is a small measured single-line component:
   - one `inline-block` root that clips to its available width
   - optional fixed `start` and `end` segments in normal inline flow
-  - one rewritten `body` segment found by grapheme-safe binary search against the live inline
+  - one rewritten `body` segment found by boundary-aware binary search against the live inline
     content
   - `location` shares the `LineClamp` keyword/ratio semantics and applies only inside the
     rewritten `body`; split `start` and `end` segments remain fixed
@@ -147,13 +153,15 @@
 - The text clamp pass in `LineClamp`:
   - starts from the `text` prop
   - normalizes `location` to an internal ratio before clamp rendering
-  - prepares grapheme boundary offsets once per source text and reuses them across width/slot/font reclamps
+  - prepares clamp boundary offsets once per source text and reuses them across width/slot/font
+    reclamps
   - measures the live content width from the rendered root
   - normalizes `maxLines` and `maxHeight`
   - refreshes the visible root clip box during each `maxHeight` fit probe so reactive height increases can expand the visible text correctly
-  - uses a native CSS overflow fast path for the collapsed single-line end case when the default `…` ellipsis is used and the normalized location ratio is `1`
+  - uses a native CSS overflow fast path for the collapsed single-line end case when `boundary` is
+    `"grapheme"`, the default `…` ellipsis is used, and the normalized location ratio is `1`
   - in that native path, `before` and `after` stay as fixed inline-flex items while the text cell becomes the only flexible width consumer
-  - otherwise binary-searches the kept grapheme count directly against the live DOM
+  - otherwise binary-searches the kept boundary count directly against the live DOM
 - The rich clamp pass in `RichLineClamp`:
   - only end truncation is supported
   - support is behavior-based rather than tag-name-based:
@@ -170,8 +178,10 @@
     positioned or floated descendants, falls back to the original HTML unchanged
   - search is now boundary-oriented:
     - first binary-search the ends of logical runs
-    - then refine inside only the next text run using grapheme-safe cuts
+    - then refine inside only the next text run using the configured text boundary
     - candidate output is generated from structural boundary decisions instead of serialized HTML
+    - clamped rich output appends the ellipsis as a plain text node at the `body` root, even when
+      the truncation point is inside an inline element such as `code`, `strong`, or `a`
     - parsed rich preprocessing now caches text boundary metadata once per `html` source and reuses
       it across width, slot, and font reclamps
     - rich preparation no longer carries its own support flag; support is decided only from the
@@ -321,6 +331,19 @@
     and without browser hyphenation
   - the preview keeps the example focused on article copy itself and uses the expand toggle as the
     only chrome around the clamp
+- The website component demos use one sticky shared-controls bar below the component tabs:
+  - the component tabs have a fixed block size and shared controls use that same value as their
+    sticky `top`, so the two sticky surfaces stack without a gap
+  - large source editors stay just above the sticky controls for `LineClamp` and `RichLineClamp`
+  - shared controls own cross-example settings such as boundary, width, hyphens, direction, and
+    inline location/ratio
+  - `WrapClamp` shares width and direction across its tabs and invitees examples
+  - example-local controls are reserved for options that are unique to one example, such as
+    `max-lines`, `max-height`, expansion, ellipsis, and event state
+  - single-line controls share one compact control height so labels, pills, ranges, inputs, and
+    checkboxes align predictably
+  - on narrow screens, each shared-controls bar collapses behind a compact toggle and expands in
+    place to avoid cramped wrapping
 - The website component tabs now have stable direct-link hashes:
   - `#line-clamp`
   - `#rich-line-clamp`

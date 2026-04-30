@@ -4,6 +4,7 @@ export { InlineClamp } from "./InlineClamp.ts";
 export { WrapClamp } from "./WrapClamp.ts";
 
 export type {
+  ClampBoundary,
   InlineClampParts,
   InlineClampProps,
   InlineClampSplit,

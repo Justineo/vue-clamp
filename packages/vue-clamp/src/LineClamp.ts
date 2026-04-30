@@ -3,6 +3,7 @@ import { cssLength, normalizeLineLimit } from "./layout.ts";
 import { useMultilineClamp } from "./multiline.ts";
 import {
   blockAsProp,
+  boundaryProp,
   ellipsisProp,
   expandedProp,
   locationProp,
@@ -74,6 +75,7 @@ const propsDef = {
   maxHeight: maxHeightProp,
   ellipsis: ellipsisProp,
   location: locationProp,
+  boundary: boundaryProp,
   expanded: expandedProp,
 } as const;
 
@@ -94,7 +96,7 @@ export const LineClamp = defineComponent({
     const lineLimit = computed(() => normalizeLineLimit(props.maxLines));
     const hasLimit = computed(() => lineLimit.value !== undefined || props.maxHeight !== undefined);
     const locationRatio = computed(() => normalizeLocationRatio(props.location));
-    const preparedText = computed(() => prepareText(props.text));
+    const preparedText = computed(() => prepareText(props.text, props.boundary));
     const nativeOverflowMode = computed(() =>
       canUseNativeClamp(
         expanded.value,
@@ -102,6 +104,7 @@ export const LineClamp = defineComponent({
         props.maxHeight,
         locationRatio.value,
         props.ellipsis,
+        props.boundary,
       ),
     );
 
@@ -189,6 +192,7 @@ export const LineClamp = defineComponent({
         () => props.maxHeight,
         () => props.ellipsis,
         () => props.location,
+        () => props.boundary,
       ],
       () => {
         visibleText.value = props.text;

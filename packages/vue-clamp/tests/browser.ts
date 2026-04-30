@@ -5,6 +5,7 @@ import { displayTextForKeptCount, normalizeLocationRatio, prepareText } from "..
 import type { App, Ref, VNodeChild } from "vue";
 import type {
   LineClampExposed,
+  ClampBoundary,
   LineClampLocation,
   LineClampProps,
   LineClampSlotProps,
@@ -217,6 +218,7 @@ export function bestBrowserFitText(
   maxLines: number,
   location: LineClampLocation = "end",
   ellipsis = "…",
+  boundary: ClampBoundary = "grapheme",
 ): string {
   const clone = root.cloneNode(true);
   if (!(clone instanceof HTMLElement)) {
@@ -234,7 +236,7 @@ export function bestBrowserFitText(
   document.body.append(clone);
 
   try {
-    const prepared = prepareText(sourceText);
+    const prepared = prepareText(sourceText, boundary);
     const ratio = normalizeLocationRatio(location);
     let low = 0;
     let high = Math.max(0, prepared.boundaryOffsets.length - 2);

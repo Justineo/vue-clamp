@@ -1,6 +1,8 @@
 import { fitsContent } from "./layout.ts";
 import { prepareText } from "./text.ts";
 
+import type { ClampBoundary } from "./types.ts";
+
 type BoundaryPoint = {
   path: readonly number[];
   offset: number;
@@ -9,7 +11,8 @@ type BoundaryPoint = {
 type PreparedTextNode = {
   kind: "text";
   endPoint: BoundaryPoint;
-  graphemeCuts: BoundaryPoint[];
+  textCuts: BoundaryPoint[];
+  fallbackTextCuts?: BoundaryPoint[];
 };
 
 type PreparedElementNode = {
@@ -26,7 +29,8 @@ type LogicalRun =
   | {
       kind: "text";
       endPoint: BoundaryPoint;
-      graphemeCuts: BoundaryPoint[];
+      textCuts: BoundaryPoint[];
+      fallbackTextCuts?: BoundaryPoint[];
     }
   | {
       kind: "atomic";
@@ -36,11 +40,6 @@ type LogicalRun =
 export type PreparedRichText = {
   root: HTMLElement;
   nodes: PreparedRichNode[];
-};
-
-type ClonePatchResult = {
-  fragment: DocumentFragment;
-  appendTarget: Node;
 };
 
 export type RichClampDecision =
@@ -172,6 +171,7 @@ function endPointForChild(path: readonly number[]): BoundaryPoint {
 function buildPreparedRichNodes(
   container: ParentNode & Node,
   path: readonly number[],
+  boundary: ClampBoundary,
 ): PreparedRichNode[] {
   const nodes: PreparedRichNode[] = [];
   const children = container.childNodes;
@@ -185,25 +185,30 @@ function buildPreparedRichNodes(
     const childPath = [...path, index];
 
     if (child.nodeType === Node.TEXT_NODE) {
-      const preparedText = prepareText(child.textContent ?? "");
+      const preparedText = prepareText(child.textContent ?? "", boundary);
       const { boundaryOffsets, text } = preparedText;
 
       if (boundaryOffsets.length <= 1) {
         continue;
       }
 
-      const graphemeCuts: BoundaryPoint[] = [];
+      const textCuts: BoundaryPoint[] = [];
       for (let boundaryIndex = 1; boundaryIndex < boundaryOffsets.length; boundaryIndex += 1) {
         const offset = boundaryOffsets[boundaryIndex];
         if (offset === undefined) {
           continue;
         }
 
-        graphemeCuts.push({
+        textCuts.push({
           path: childPath,
           offset,
         });
       }
+
+      const fallbackTextCuts = preparedText.fallbackBoundaryOffsets?.slice(1).map((offset) => ({
+        path: childPath,
+        offset,
+      }));
 
       nodes.push({
         kind: "text",
@@ -211,7 +216,8 @@ function buildPreparedRichNodes(
           path: childPath,
           offset: text.length,
         },
-        graphemeCuts,
+        textCuts,
+        ...(fallbackTextCuts && fallbackTextCuts.length > 0 ? { fallbackTextCuts } : {}),
       });
       continue;
     }
@@ -227,7 +233,7 @@ function buildPreparedRichNodes(
       pathKey: pathKey(childPath),
       isBreak: tagName === "br" || tagName === "wbr",
       endPoint: endPointForChild(childPath),
-      children: buildPreparedRichNodes(child, childPath),
+      children: buildPreparedRichNodes(child, childPath, boundary),
     });
   }
 
@@ -247,19 +253,24 @@ function buildLogicalRuns(
     }
 
     const { endPoint } = currentTextNodes[currentTextNodes.length - 1]!;
-    const graphemeCuts: BoundaryPoint[] = [];
+    const textCuts: BoundaryPoint[] = [];
+    const fallbackTextCuts: BoundaryPoint[] = [];
 
     for (const textNode of currentTextNodes) {
-      const { graphemeCuts: textCuts } = textNode;
-      for (const cut of textCuts) {
-        graphemeCuts.push(cut);
+      for (const cut of textNode.textCuts) {
+        textCuts.push(cut);
+      }
+
+      for (const cut of textNode.fallbackTextCuts ?? []) {
+        fallbackTextCuts.push(cut);
       }
     }
 
     runs.push({
       kind: "text",
       endPoint,
-      graphemeCuts,
+      textCuts,
+      ...(fallbackTextCuts.length > 0 ? { fallbackTextCuts } : {}),
     });
 
     currentTextNodes = [];
@@ -332,12 +343,8 @@ function clonePatchFromContainer(
   endPoint: BoundaryPoint,
   depth: number,
   imageSource?: string,
-): ClonePatchResult {
+): DocumentFragment {
   const fragment = document.createDocumentFragment();
-  const result: ClonePatchResult = {
-    appendTarget: fragment,
-    fragment,
-  };
   const { childNodes: children } = container;
   const { offset, path } = endPoint;
 
@@ -351,7 +358,7 @@ function clonePatchFromContainer(
       }
     }
 
-    return result;
+    return fragment;
   }
 
   const targetIndex = path[depth] ?? 0;
@@ -365,12 +372,12 @@ function clonePatchFromContainer(
   }
 
   if (targetIndex < startIndex) {
-    return result;
+    return fragment;
   }
 
   const targetChild = children[targetIndex];
   if (!targetChild) {
-    return result;
+    return fragment;
   }
 
   if (targetChild.nodeType === Node.TEXT_NODE) {
@@ -379,24 +386,20 @@ function clonePatchFromContainer(
       fragment.appendChild(document.createTextNode(nextText));
     }
 
-    return result;
+    return fragment;
   }
 
   if (!(targetChild instanceof Element)) {
-    return result;
+    return fragment;
   }
 
   const childClone = cloneElementForPatch(targetChild, imageSource);
   const childPatch = clonePatchFromContainer(targetChild, 0, endPoint, depth + 1, imageSource);
 
-  childClone.appendChild(childPatch.fragment);
+  childClone.appendChild(childPatch);
   fragment.appendChild(childClone);
 
-  return {
-    appendTarget:
-      childPatch.appendTarget === childPatch.fragment ? childClone : childPatch.appendTarget,
-    fragment,
-  };
+  return fragment;
 }
 
 function clonePatchFromAnchor(
@@ -404,7 +407,7 @@ function clonePatchFromAnchor(
   anchor: PatchAnchor,
   endPoint: BoundaryPoint,
   imageSource?: string,
-): ClonePatchResult {
+): DocumentFragment {
   const sourceAnchor = resolvePatchAnchor(root, anchor.path);
 
   return clonePatchFromContainer(
@@ -463,6 +466,17 @@ function appendEllipsis(target: Node, ellipsis: string): void {
   }
 
   target.appendChild(document.createTextNode(ellipsis));
+}
+
+function removeRootEllipsis(target: Node, ellipsis: string): void {
+  if (!ellipsis) {
+    return;
+  }
+
+  const lastChild = target.lastChild;
+  if (lastChild instanceof Text && lastChild.data === ellipsis) {
+    lastChild.remove();
+  }
 }
 
 function fullEndPoint(root: HTMLElement): BoundaryPoint {
@@ -587,7 +601,11 @@ export function patchRichTextToDecision(
     : ROOT_START_POINT;
   const nextPoint = endPointForDecision(root, nextDecision);
   const anchor = patchAnchorFor(root, currentPoint, nextPoint);
-  const { appendTarget, fragment } = clonePatchFromAnchor(root, anchor, nextPoint, imageSource);
+  const fragment = clonePatchFromAnchor(root, anchor, nextPoint, imageSource);
+
+  if (currentDecision?.kind === "clamped") {
+    removeRootEllipsis(targetElement, ellipsis);
+  }
 
   const liveAnchor = resolvePatchAnchor(targetElement, anchor.path);
 
@@ -595,10 +613,13 @@ export function patchRichTextToDecision(
 
   if (nextDecision.kind === "clamped") {
     trimTrailingWhitespace(fragment);
-    appendEllipsis(appendTarget, ellipsis);
   }
 
   liveAnchor.appendChild(fragment);
+
+  if (nextDecision.kind === "clamped") {
+    appendEllipsis(targetElement, ellipsis);
+  }
 
   return nextDecision;
 }
@@ -625,7 +646,10 @@ function findLastFittingIndex<T>(
   return bestIndex;
 }
 
-export function prepareRichText(html: string): PreparedRichText | null {
+export function prepareRichText(
+  html: string,
+  boundary: ClampBoundary = "grapheme",
+): PreparedRichText | null {
   if (typeof DOMParser === "undefined") {
     return null;
   }
@@ -635,7 +659,7 @@ export function prepareRichText(html: string): PreparedRichText | null {
 
   return {
     root: documentNode.body,
-    nodes: buildPreparedRichNodes(documentNode.body, ROOT_PATH),
+    nodes: buildPreparedRichNodes(documentNode.body, ROOT_PATH, boundary),
   };
 }
 
@@ -721,8 +745,13 @@ export function clampRichTextToLayout(
     };
   }
 
-  const fineIndex = findLastFittingIndex(nextRun.graphemeCuts, fitsCandidate);
-  const finePoint = fineIndex >= 0 ? nextRun.graphemeCuts[fineIndex]! : coarsePoint;
+  const fineIndex = findLastFittingIndex(nextRun.textCuts, fitsCandidate);
+  let finePoint = fineIndex >= 0 ? nextRun.textCuts[fineIndex]! : coarsePoint;
+
+  if (fineIndex < 0 && nextRun.fallbackTextCuts) {
+    const fallbackIndex = findLastFittingIndex(nextRun.fallbackTextCuts, fitsCandidate);
+    finePoint = fallbackIndex >= 0 ? nextRun.fallbackTextCuts[fallbackIndex]! : coarsePoint;
+  }
 
   applyCandidate(finePoint);
   return {

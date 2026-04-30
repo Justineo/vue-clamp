@@ -11,7 +11,7 @@ import {
   watchPostEffect,
 } from "vue";
 import { combinedSizeSignature, createCoalescingRunner, listenForFontLoads } from "./layout.ts";
-import { ellipsisProp, locationProp } from "./props.ts";
+import { boundaryProp, ellipsisProp, locationProp } from "./props.ts";
 import { normalizeLocationRatio, prepareText, searchClampedTextToFit } from "./text.ts";
 
 import type { CSSProperties, PropType } from "vue";
@@ -49,6 +49,7 @@ const propsDef = {
   },
   ellipsis: ellipsisProp,
   location: locationProp,
+  boundary: boundaryProp,
   split: Function as PropType<InlineClampSplit | undefined>,
 } as const;
 
@@ -93,7 +94,7 @@ export const InlineClamp = defineComponent({
         return body;
       }
 
-      const prepared = prepareText(body);
+      const prepared = prepareText(body, props.boundary);
       const nextBody = searchClampedTextToFit(
         prepared,
         locationRatio.value,
@@ -120,7 +121,7 @@ export const InlineClamp = defineComponent({
     });
 
     watch(
-      [parts, () => props.ellipsis, () => props.location],
+      [parts, () => props.ellipsis, () => props.location, () => props.boundary],
       () => {
         visibleBody.value = parts.value.body;
         requestRecompute();

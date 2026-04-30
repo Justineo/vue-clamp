@@ -140,6 +140,7 @@ onBeforeUnmount(() => {
   position: relative;
   overflow: hidden;
   width: 100%;
+  block-size: var(--component-tabs-height, 42px);
   border-bottom: 1px solid var(--c-border);
   background: var(--c-bg);
 }
@@ -147,6 +148,7 @@ onBeforeUnmount(() => {
 .component-tabs-scroll {
   display: flex;
   width: 100%;
+  height: 100%;
   overflow-x: auto;
   overflow-y: hidden;
   overscroll-behavior-x: contain;
@@ -168,10 +170,13 @@ onBeforeUnmount(() => {
 }
 
 .component-tab {
-  display: block;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   width: 100%;
+  height: 100%;
   max-width: 100%;
-  padding: 13px 18px 12px;
+  padding: 0 18px;
   font-size: 0.82rem;
   font-weight: 600;
   font-family: inherit;

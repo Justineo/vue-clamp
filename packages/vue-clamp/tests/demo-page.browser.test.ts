@@ -18,6 +18,8 @@ type MountedPage = {
   container: HTMLElement;
 };
 
+type DemoSurface = "line" | "rich" | "inline" | "wrap";
+
 const mounted = new Set<MountedPage>();
 
 function mountPage(component: Component): MountedPage {
@@ -49,9 +51,9 @@ function workspaceClamp(container: HTMLElement): HTMLElement {
 }
 
 function widthInput(container: HTMLElement): HTMLInputElement {
-  const input = workspaceDemoBlock(container).querySelector(".control-range");
+  const input = container.querySelector("[data-line-width-slider]");
   if (!(input instanceof HTMLInputElement)) {
-    throw new Error("Expected the workspace width slider.");
+    throw new Error("Expected the shared line width slider.");
   }
 
   return input;
@@ -156,12 +158,38 @@ function richPresetButton(container: HTMLElement, preset: string): HTMLButtonEle
 }
 
 function richHyphensToggle(container: HTMLElement): HTMLInputElement {
-  const input = richHtmlDemoBlock(container).querySelector("[data-rich-hyphens-toggle]");
+  const input = container.querySelector("[data-rich-hyphens-toggle]");
   if (!(input instanceof HTMLInputElement)) {
-    throw new Error("Expected the rich html hyphens toggle.");
+    throw new Error("Expected the shared rich hyphens toggle.");
   }
 
   return input;
+}
+
+function sharedControls(container: HTMLElement, surface: DemoSurface): HTMLElement {
+  const controls = container.querySelector(`[data-shared-controls="${surface}"]`);
+  if (!(controls instanceof HTMLElement)) {
+    throw new Error(`Expected the ${surface} shared controls.`);
+  }
+
+  return controls;
+}
+
+function sharedControlsToggle(container: HTMLElement, surface: DemoSurface): HTMLButtonElement {
+  const toggle = sharedControls(container, surface).querySelector("[data-demo-controls-toggle]");
+  if (!(toggle instanceof HTMLButtonElement)) {
+    throw new Error(`Expected the ${surface} shared controls toggle.`);
+  }
+
+  return toggle;
+}
+
+function sharedCheckbox(
+  container: HTMLElement,
+  surface: DemoSurface,
+  label: string,
+): HTMLInputElement {
+  return checkboxInBlock(sharedControls(container, surface), label);
 }
 
 function locationRatioInput(container: HTMLElement): HTMLInputElement {
@@ -174,9 +202,9 @@ function locationRatioInput(container: HTMLElement): HTMLInputElement {
 }
 
 function locationWidthInput(container: HTMLElement): HTMLInputElement {
-  const input = locationDemoBlock(container).querySelector("[data-location-width-slider]");
+  const input = container.querySelector("[data-line-width-slider]");
   if (!(input instanceof HTMLInputElement)) {
-    throw new Error("Expected the location width slider.");
+    throw new Error("Expected the shared line width slider.");
   }
 
   return input;
@@ -289,19 +317,19 @@ function wrapExampleBlock(container: HTMLElement, example: string): HTMLElement 
   return block;
 }
 
+function wrapWidthInput(container: HTMLElement): HTMLInputElement {
+  const input = wrapDemoBlock(container).querySelector("[data-wrap-width-slider]");
+  if (!(input instanceof HTMLInputElement)) {
+    throw new Error("Expected the shared wrap width slider.");
+  }
+
+  return input;
+}
+
 function wrapVisibleTabs(block: HTMLElement): string[] {
   return Array.from(block.querySelectorAll(".wrap-tab"))
     .map((tab) => tab.textContent?.trim())
     .filter((label): label is string => Boolean(label));
-}
-
-function rangeInput(scope: ParentNode): HTMLInputElement {
-  const input = scope.querySelector(".control-range");
-  if (!(input instanceof HTMLInputElement)) {
-    throw new Error("Expected a range input.");
-  }
-
-  return input;
 }
 
 function copyButton(container: ParentNode, blockId: string): HTMLButtonElement {
@@ -313,10 +341,7 @@ function copyButton(container: ParentNode, blockId: string): HTMLButtonElement {
   return button;
 }
 
-function surfaceTab(
-  container: HTMLElement,
-  surface: "line" | "rich" | "inline" | "wrap",
-): HTMLButtonElement {
+function surfaceTab(container: HTMLElement, surface: DemoSurface): HTMLButtonElement {
   const button = container.querySelector(`[data-surface-tab="${surface}"]`);
   if (!(button instanceof HTMLButtonElement)) {
     throw new Error(`Expected the ${surface} surface tab.`);
@@ -325,10 +350,7 @@ function surfaceTab(
   return button;
 }
 
-function surfaceGuideItem(
-  container: HTMLElement,
-  surface: "line" | "rich" | "inline" | "wrap",
-): HTMLElement {
+function surfaceGuideItem(container: HTMLElement, surface: DemoSurface): HTMLElement {
   const element = container.querySelector(`[data-surface-guide-item="${surface}"]`);
   if (!(element instanceof HTMLElement)) {
     throw new Error(`Expected the ${surface} surface guide item.`);
@@ -337,10 +359,7 @@ function surfaceGuideItem(
   return element;
 }
 
-function surfaceGuideLink(
-  container: HTMLElement,
-  surface: "line" | "rich" | "inline" | "wrap",
-): HTMLAnchorElement {
+function surfaceGuideLink(container: HTMLElement, surface: DemoSurface): HTMLAnchorElement {
   const element = container.querySelector(`[data-surface-guide-link="${surface}"]`);
   if (!(element instanceof HTMLAnchorElement)) {
     throw new Error(`Expected the ${surface} surface guide link.`);
@@ -357,10 +376,7 @@ function replaceRouteHash(hash: string): void {
   );
 }
 
-function surfaceTooltip(
-  container: HTMLElement,
-  surface: "line" | "rich" | "inline" | "wrap",
-): HTMLElement {
+function surfaceTooltip(container: HTMLElement, surface: DemoSurface): HTMLElement {
   const tooltip = container.querySelector(`[data-surface-tooltip="${surface}"]`);
   if (!(tooltip instanceof HTMLElement)) {
     throw new Error(`Expected the ${surface} surface tooltip.`);
@@ -573,6 +589,10 @@ async function setInlineWidth(container: HTMLElement, width: number): Promise<vo
   await setRangeValue(inlineWidthInput(container), width);
 }
 
+async function setWrapWidth(container: HTMLElement, width: number): Promise<void> {
+  await setRangeValue(wrapWidthInput(container), width);
+}
+
 async function setInlineLocationRatio(container: HTMLElement, ratio: number): Promise<void> {
   await setRangeValue(inlineLocationRatioInput(container), ratio);
 }
@@ -587,10 +607,7 @@ async function clickInlineLocationPreset(container: HTMLElement, preset: string)
   await settle(4);
 }
 
-async function selectSurface(
-  container: HTMLElement,
-  surface: "line" | "rich" | "inline" | "wrap",
-): Promise<void> {
+async function selectSurface(container: HTMLElement, surface: DemoSurface): Promise<void> {
   surfaceTab(container, surface).click();
   await settle(4);
 }
@@ -675,12 +692,14 @@ describe("Website demo page", () => {
     expect(firstToggle.textContent?.trim()).toBe("More");
     expect(secondBadge.textContent?.trim()).toBe("Featured");
 
-    checkboxInBlock(firstBlock, "RTL").click();
-    checkboxInBlock(secondBlock, "RTL").click();
+    const lineRtlToggle = sharedCheckbox(mountedPage.container, "line", "RTL");
+    expect(lineRtlToggle.checked).toBe(false);
+    lineRtlToggle.click();
     await settle(4);
 
     expect(firstToggle.textContent?.trim()).toBe("المزيد");
     expect(secondBadge.textContent?.trim()).toBe("مميز");
+    expect(lineRtlToggle.checked).toBe(true);
 
     firstToggle.click();
     await settle(4);
@@ -786,7 +805,7 @@ describe("Website demo page", () => {
       "/rich-demo-icon.svg",
     );
     expect(richHyphensToggle(mountedPage.container).checked).toBe(true);
-    expect(clampRoot.classList.contains("hyphens")).toBe(true);
+    expect(richRoots.every((root) => root.classList.contains("hyphens"))).toBe(true);
     expect(block.textContent).toContain("Trusted or sanitized inline HTML only");
     expect(block.textContent).toContain("makes a best-effort pass");
     expect(block.textContent).toContain("inline-flow markup");
@@ -798,13 +817,13 @@ describe("Website demo page", () => {
     await settle(2);
 
     expect(richHyphensToggle(mountedPage.container).checked).toBe(false);
-    expect(clampRoot.classList.contains("hyphens")).toBe(false);
+    expect(richRoots.every((root) => root.classList.contains("hyphens"))).toBe(false);
 
     richHyphensToggle(mountedPage.container).click();
     await settle(2);
 
     expect(richHyphensToggle(mountedPage.container).checked).toBe(true);
-    expect(clampRoot.classList.contains("hyphens")).toBe(true);
+    expect(richRoots.every((root) => root.classList.contains("hyphens"))).toBe(true);
 
     richPresetButton(mountedPage.container, "editorial").click();
     await settle(4);
@@ -1055,7 +1074,7 @@ describe("Website demo page", () => {
     );
 
     await selectSurface(mountedPage.container, "wrap");
-    await setRangeValue(rangeInput(wrapExampleBlock(mountedPage.container, "tabs")), 280);
+    await setWrapWidth(mountedPage.container, 280);
 
     expect(surfaceTab(mountedPage.container, "line").getAttribute("aria-pressed")).toBe("false");
     expect(surfaceTab(mountedPage.container, "rich").getAttribute("aria-pressed")).toBe("false");
@@ -1113,9 +1132,9 @@ describe("Website demo page", () => {
       ),
     ).toBe(true);
 
-    const tabsRtlToggle = checkboxInBlock(tabsBlock, "RTL");
-    expect(tabsRtlToggle.checked).toBe(false);
-    tabsRtlToggle.click();
+    const wrapRtlToggle = sharedCheckbox(mountedPage.container, "wrap", "RTL");
+    expect(wrapRtlToggle.checked).toBe(false);
+    wrapRtlToggle.click();
     await settle(4);
     const tabsTriggerAfterRtl = tabsBlock.querySelector("[data-wrap-tabs-trigger]");
     if (!(tabsTriggerAfterRtl instanceof HTMLButtonElement)) {
@@ -1123,26 +1142,67 @@ describe("Website demo page", () => {
     }
     expect(tabsTriggerAfterRtl.getAttribute("aria-label")).toBe("إظهار التبويبات المخفية");
     expect(tabsBlock.textContent).toContain("نظرة عامة");
-    expect(tabsRtlToggle.checked).toBe(true);
+    expect(wrapRtlToggle.checked).toBe(true);
 
     const inviteesBlock = wrapExampleBlock(mountedPage.container, "invitees");
     const inviteesToggle = inviteesBlock.querySelector("[data-wrap-toggle]");
     if (!(inviteesToggle instanceof HTMLButtonElement)) {
       throw new Error("Expected the invitees wrap toggle.");
     }
-    expect(inviteesToggle.textContent?.trim()).toBe("More");
+    expect(inviteesToggle.textContent?.trim()).toBe("المزيد");
     inviteesToggle.click();
     await settle(4);
-    expect(inviteesToggle.textContent?.trim()).toBe("Less");
-
-    const inviteesRtlToggle = checkboxInBlock(inviteesBlock, "RTL");
-    expect(inviteesRtlToggle.checked).toBe(false);
-    inviteesRtlToggle.click();
-    await settle(4);
+    expect(inviteesToggle.textContent?.trim()).toBe("أقل");
     expect(inviteesBlock.textContent).toContain("المراجعون");
     expect(inviteesBlock.textContent).toContain("مايا تشن");
-    expect(inviteesToggle.textContent?.trim()).toBe("أقل");
-    expect(inviteesRtlToggle.checked).toBe(true);
+  });
+
+  it("keeps shared demo controls sticky under the component tabs", async () => {
+    const { default: App } = await import("../../website/src/App.vue");
+    const mountedPage = mountPage(App);
+
+    await settle(4);
+
+    const rootStyle = getComputedStyle(mountedPage.container.ownerDocument.documentElement);
+    const componentTabsHeight = rootStyle.getPropertyValue("--component-tabs-height").trim();
+
+    const expectedLabels: Record<DemoSurface, string[]> = {
+      inline: ["Location", "Boundary", "Ratio", "Width"],
+      line: ["Boundary", "Width", "CSS Hyphens", "RTL"],
+      rich: ["Boundary", "Width", "CSS Hyphens"],
+      wrap: ["Width", "RTL"],
+    };
+
+    for (const surface of ["line", "rich", "inline", "wrap"] as const) {
+      await selectSurface(mountedPage.container, surface);
+
+      const controls = sharedControls(mountedPage.container, surface);
+      const style = getComputedStyle(controls);
+      const toggle = sharedControlsToggle(mountedPage.container, surface);
+
+      expect(style.position).toBe("sticky");
+      expect(style.top).toBe(componentTabsHeight);
+      expect(toggle.getAttribute("aria-expanded")).toBe("false");
+      expect(toggle.getAttribute("aria-label")).toBe("Expand demo controls");
+      expect(toggle.textContent).toContain("Demo controls");
+
+      for (const label of expectedLabels[surface]) {
+        expect(controls.textContent).toContain(label);
+      }
+    }
+
+    await selectSurface(mountedPage.container, "line");
+    const lineToggle = sharedControlsToggle(mountedPage.container, "line");
+    lineToggle.click();
+    await settle(1);
+    expect(lineToggle.getAttribute("aria-expanded")).toBe("true");
+    expect(lineToggle.getAttribute("aria-label")).toBe("Collapse demo controls");
+
+    await selectSurface(mountedPage.container, "rich");
+
+    expect(sharedControlsToggle(mountedPage.container, "rich").getAttribute("aria-expanded")).toBe(
+      "false",
+    );
   });
 
   it("scrolls to the tabs row when its in-flow top edge is above the viewport", async () => {

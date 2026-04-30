@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vite-plus/test";
-import { displayTextForKeptCount, prepareText, splitGraphemes } from "../src/text.ts";
+import {
+  displayTextForKeptCount,
+  prepareText,
+  searchClampedTextToFit,
+  splitGraphemes,
+} from "../src/text.ts";
 
 describe("text helpers", () => {
   it("splits ascii text into single characters", () => {
@@ -32,5 +37,17 @@ describe("text helpers", () => {
     const prepared = prepareText(" line clamp body");
 
     expect(displayTextForKeptCount(prepared, 1, "…", 5, "preserve-outer")).toBe(" line…");
+  });
+
+  it("can clamp text at word boundaries", () => {
+    const prepared = prepareText("alpha beta gamma", "word");
+
+    expect(displayTextForKeptCount(prepared, 1, "…", 3)).toBe("alpha beta…");
+  });
+
+  it("falls back to grapheme boundaries when no word boundary fits", () => {
+    const prepared = prepareText("supercalifragilistic", "word");
+
+    expect(searchClampedTextToFit(prepared, 1, "…", (text) => text.length <= 8)).toBe("superca…");
   });
 });

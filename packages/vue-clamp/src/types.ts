@@ -1,3 +1,5 @@
+export type ClampBoundary = "grapheme" | "word";
+
 export type LineClampLocation = "start" | "middle" | "end" | number;
 
 type ClampControls = {
@@ -29,6 +31,7 @@ export interface LineClampProps {
   maxHeight?: number | string;
   ellipsis?: string;
   location?: LineClampLocation;
+  boundary?: ClampBoundary;
   expanded?: boolean;
 }
 
@@ -38,6 +41,7 @@ export interface RichLineClampProps {
   maxLines?: number;
   maxHeight?: number | string;
   ellipsis?: string;
+  boundary?: ClampBoundary;
   expanded?: boolean;
 }
 
@@ -58,6 +62,7 @@ export interface InlineClampProps {
   text: string;
   ellipsis?: string;
   location?: LineClampLocation;
+  boundary?: ClampBoundary;
   split?: InlineClampSplit;
 }
 

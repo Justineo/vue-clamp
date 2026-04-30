@@ -1,14 +1,20 @@
 import { fitsContent } from "./layout.ts";
 
-import type { LineClampLocation } from "./types.ts";
+import type { ClampBoundary, LineClampLocation } from "./types.ts";
 
 const graphemeSegmenter = new Intl.Segmenter(undefined, {
   granularity: "grapheme",
 });
 
+const wordSegmenter = new Intl.Segmenter(undefined, {
+  granularity: "word",
+});
+
 export interface PreparedText {
   text: string;
+  boundary: ClampBoundary;
   boundaryOffsets: number[];
+  fallbackBoundaryOffsets?: number[];
 }
 
 export type TextClampSpacing = "trim" | "preserve-outer";
@@ -24,12 +30,9 @@ function isAsciiSafe(text: string): boolean {
   return true;
 }
 
-export function prepareText(text: string): PreparedText {
+function graphemeBoundaryOffsets(text: string): number[] {
   if (isAsciiSafe(text)) {
-    return {
-      text,
-      boundaryOffsets: Array.from({ length: text.length + 1 }, (_, index) => index),
-    };
+    return Array.from({ length: text.length + 1 }, (_, index) => index);
   }
 
   const boundaryOffsets = [0];
@@ -40,14 +43,48 @@ export function prepareText(text: string): PreparedText {
     boundaryOffsets.push(offset);
   }
 
+  return boundaryOffsets;
+}
+
+function wordBoundaryOffsets(text: string, fallbackBoundaryOffsets: readonly number[]): number[] {
+  const fallbackOffsetSet = new Set(fallbackBoundaryOffsets);
+  const boundaryOffsets = [0];
+
+  for (const part of wordSegmenter.segment(text)) {
+    const offset = part.index + part.segment.length;
+    if (fallbackOffsetSet.has(offset) && boundaryOffsets[boundaryOffsets.length - 1] !== offset) {
+      boundaryOffsets.push(offset);
+    }
+  }
+
+  if (boundaryOffsets[boundaryOffsets.length - 1] !== text.length) {
+    boundaryOffsets.push(text.length);
+  }
+
+  return boundaryOffsets;
+}
+
+export function prepareText(text: string, boundary: ClampBoundary = "grapheme"): PreparedText {
+  const fallbackBoundaryOffsets = graphemeBoundaryOffsets(text);
+
+  if (boundary === "grapheme") {
+    return {
+      text,
+      boundary,
+      boundaryOffsets: fallbackBoundaryOffsets,
+    };
+  }
+
   return {
     text,
-    boundaryOffsets,
+    boundary,
+    boundaryOffsets: wordBoundaryOffsets(text, fallbackBoundaryOffsets),
+    fallbackBoundaryOffsets,
   };
 }
 
 export function splitGraphemes(text: string): string[] {
-  const prepared = prepareText(text);
+  const prepared = prepareText(text, "grapheme");
   const { boundaryOffsets } = prepared;
   const graphemes: string[] = [];
 
@@ -66,16 +103,16 @@ export function displayTextForKeptCount(
   spacing: TextClampSpacing = "trim",
 ): string {
   const { boundaryOffsets, text } = prepared;
-  const graphemeCount = boundaryOffsets.length - 1;
+  const boundaryCount = boundaryOffsets.length - 1;
 
-  if (kept >= graphemeCount) {
+  if (kept >= boundaryCount) {
     return text;
   }
 
   const prefix = Math.floor(kept * ratio);
   const suffix = kept - prefix;
   const prefixText = text.slice(0, boundaryOffsets[prefix]);
-  const suffixText = text.slice(boundaryOffsets[graphemeCount - suffix]);
+  const suffixText = text.slice(boundaryOffsets[boundaryCount - suffix]);
   const trimPrefix = spacing === "preserve-outer" ? prefixText.trimEnd() : prefixText.trim();
   const trimSuffix = spacing === "preserve-outer" ? suffixText.trimStart() : suffixText.trim();
 
@@ -132,10 +169,25 @@ export function searchClampedTextToFit(
   fits: (text: string) => boolean,
   spacing: TextClampSpacing = "trim",
 ): string {
-  const graphemeCount = preparedText.boundaryOffsets.length - 1;
-  const best = searchKeptCount(graphemeCount, (kept) =>
+  const boundaryCount = preparedText.boundaryOffsets.length - 1;
+  const best = searchKeptCount(boundaryCount, (kept) =>
     fits(displayTextForKeptCount(preparedText, locationRatio, ellipsis, kept, spacing)),
   );
+
+  if (best === 0 && preparedText.fallbackBoundaryOffsets) {
+    return searchClampedTextToFit(
+      {
+        text: preparedText.text,
+        boundary: "grapheme",
+        boundaryOffsets: preparedText.fallbackBoundaryOffsets,
+      },
+      locationRatio,
+      ellipsis,
+      fits,
+      spacing,
+    );
+  }
+
   const text = displayTextForKeptCount(preparedText, locationRatio, ellipsis, best, spacing);
 
   fits(text);
@@ -148,8 +200,15 @@ export function canUseNativeClamp(
   maxHeight: number | string | undefined,
   locationRatio: number,
   ellipsis: string,
+  boundary: ClampBoundary,
 ): string | null {
-  if (expanded || lineLimit !== 1 || maxHeight !== undefined || locationRatio !== 1) {
+  if (
+    expanded ||
+    lineLimit !== 1 ||
+    maxHeight !== undefined ||
+    locationRatio !== 1 ||
+    boundary !== "grapheme"
+  ) {
     return null;
   }
 

@@ -33,6 +33,14 @@ const ATOMIC_LEAF_RICH_TEXT_HTML =
 const INLINE_BLOCK_RICH_TEXT_HTML =
   'Lead <span class="inline-box" style="display:inline-block">AtomicBox</span> trailing copy that should not split inside the inline box.';
 
+function expectEndWordBoundary(sourceText: string, clampedText: string): void {
+  const prefix = clampedText.replace(/…$/u, "").trim();
+
+  expect(clampedText.endsWith("…")).toBe(true);
+  expect(sourceText.startsWith(prefix)).toBe(true);
+  expect(prefix.length === 0 || sourceText[prefix.length] === " ").toBe(true);
+}
+
 afterEach(() => {
   cleanupMounted();
 });
@@ -294,6 +302,28 @@ describe("LineClamp browser contract", () => {
     expect((mounted.exposed.value as LineClampExposed).clamped).toBe(true);
   });
 
+  it("uses the measured path for one-line word-boundary clamping", async () => {
+    const sourceText = "alpha beta gamma delta";
+    const mounted = mountClamp({
+      text: sourceText,
+      width: 90,
+      props: {
+        maxLines: 1,
+        boundary: "word",
+      },
+    });
+
+    const root = rootElement(mounted.container);
+    await waitUntilVisible(root);
+
+    const textNode = textElement(root);
+    expect(getComputedStyle(textNode).textOverflow).toBe("clip");
+    expect(textNode.getAttribute("aria-hidden")).toBe("true");
+    expectEndWordBoundary(sourceText, textNode.textContent ?? "");
+    expect(accessibleTextElement(root)?.textContent).toBe(sourceText);
+    expect((mounted.exposed.value as LineClampExposed).clamped).toBe(true);
+  });
+
   it("keeps the production component within 3 visible lines at fractional widths", async () => {
     const mounted = mountClamp({
       text: "Vue is a progressive framework for building user interfaces. Unlike other monolithic frameworks, Vue is designed from the ground up to be incrementally adoptable across layouts that change often.",
@@ -510,6 +540,62 @@ describe("LineClamp browser contract", () => {
     expect(accessibleTextElement(root)).toBeNull();
     expect((mounted.exposed.value as RichLineClampExposed).clamped).toBe(true);
     expect(await sampleVisibleLineCounts(root)).toEqual([2, 2, 2]);
+  });
+
+  it("can clamp supported rich text at word boundaries", async () => {
+    const sourceText = "Alpha beta gamma delta epsilon";
+    const mounted = mountRichClamp({
+      html: `<strong>Alpha</strong> beta gamma delta epsilon`,
+      width: 115,
+      props: {
+        maxLines: 1,
+        boundary: "word",
+      },
+    });
+
+    const root = rootElement(mounted.container);
+    await waitUntilVisible(root);
+    await settle(4);
+
+    const rich = richContentElement(root);
+    expect(rich.querySelector("strong")).toBeInstanceOf(HTMLElement);
+    expectEndWordBoundary(sourceText, rich.textContent ?? "");
+    expect((mounted.exposed.value as RichLineClampExposed).clamped).toBe(true);
+    expect(await sampleVisibleLineCounts(root)).toEqual([1, 1, 1]);
+  });
+
+  it("places the rich ellipsis outside the inline element that contains the cut", async () => {
+    const mounted = mountRichClamp({
+      html: "<code>release-candidate-build-number-2026</code> trailing copy",
+      width: 150,
+      props: {
+        maxLines: 1,
+      },
+    });
+
+    const root = rootElement(mounted.container);
+    await waitUntilVisible(root);
+    await settle(4);
+
+    const rich = richContentElement(root);
+    const code = rich.querySelector("code");
+    if (!(code instanceof HTMLElement)) {
+      throw new Error("Expected retained code element.");
+    }
+
+    expect(code.textContent).not.toContain("…");
+    expect(rich.lastChild).toBeInstanceOf(Text);
+    expect(rich.lastChild?.textContent).toBe("…");
+    expect(rich.innerHTML).toMatch(/^<code>.+<\/code>…$/u);
+
+    mounted.width.value = 130;
+    await settle(4);
+
+    const rootEllipses = [...rich.childNodes].filter(
+      (node) => node instanceof Text && node.data === "…",
+    );
+    expect(rootEllipses).toHaveLength(1);
+    expect(rich.querySelector("code")?.textContent).not.toContain("…");
   });
 
   it("preserves visible rich images across same-html width reclamps", async () => {

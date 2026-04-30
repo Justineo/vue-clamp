@@ -1,9 +1,17 @@
 import type { PropType } from "vue";
-import type { LineClampLocation } from "./types.ts";
+import type { ClampBoundary, LineClampLocation } from "./types.ts";
 
 export const blockAsProp = {
   type: String,
   default: "div",
+} as const;
+
+export const boundaryProp = {
+  type: String as PropType<ClampBoundary>,
+  default: "grapheme",
+  validator(value: unknown) {
+    return value === "grapheme" || value === "word";
+  },
 } as const;
 
 export const ellipsisProp = {

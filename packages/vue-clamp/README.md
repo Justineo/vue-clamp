@@ -61,7 +61,7 @@ const text = "Ship review-ready notes with browser-fit text truncation and keep 
 Use `<LineClamp>` when the source is plain text and the browser should decide line wrapping.
 
 ```vue
-<LineClamp :text="title" :max-lines="2" location="middle" ellipsis="..." />
+<LineClamp :text="title" :max-lines="2" location="middle" boundary="word" ellipsis="..." />
 ```
 
 Useful props:
@@ -71,6 +71,8 @@ Useful props:
 - `max-height`: maximum visible height. Numbers are treated as pixels.
 - `ellipsis`: string inserted into clamped output. Defaults to `…`.
 - `location`: `start`, `middle`, `end`, or a number from `0` to `1`. Defaults to `end`.
+- `boundary`: `grapheme` or `word`. Defaults to `grapheme`. Use `word` to avoid partial words;
+  single-line word-boundary clamping uses the measured JS path instead of native `text-overflow`.
 - `expanded`: show the full text. Supports `v-model:expanded`.
 
 `before` and `after` slots render inline with the text and receive
@@ -94,6 +96,8 @@ Rich clamping is intentionally scoped:
 
 - `html` is rendered as HTML. Sanitize untrusted input before passing it in.
 - Rich content clamps from the end only.
+- `boundary` can be `grapheme` or `word`. Defaults to `grapheme`; `word` avoids partial words
+  inside supported text runs.
 - Inline elements can participate when they can be cloned back into the DOM and stay in inline flow.
 - Leaf elements without light DOM content are treated as atomic inline units, including custom
   elements.
@@ -135,6 +139,8 @@ Useful props:
 - `ellipsis`: string inserted into the rewritten body. Defaults to `…`.
 - `location`: how body text is kept around the ellipsis: `start`, `middle`, `end`, or a number from
   `0` to `1`. Defaults to `end`.
+- `boundary`: `grapheme` or `word`. Defaults to `grapheme`; `word` avoids partial words in the
+  rewritten body, falling back to grapheme cuts when no whole word can fit.
 - `split`: optional function returning `{ start?: string, body: string, end?: string }`.
 - `as`: root tag name. Defaults to `span`.
 

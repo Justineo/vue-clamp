@@ -4,7 +4,7 @@ import { InlineClamp } from "../src/index.ts";
 import { frame } from "./browser.ts";
 
 import type { App, Ref } from "vue";
-import type { InlineClampSplit, LineClampLocation } from "../src/index.ts";
+import type { ClampBoundary, InlineClampSplit, LineClampLocation } from "../src/index.ts";
 
 type MountedInlineClamp = {
   app: App;
@@ -22,6 +22,7 @@ type MountInlineOptions = {
   as?: string;
   ellipsis?: string;
   location?: LineClampLocation;
+  boundary?: ClampBoundary;
   split?: InlineClampSplit;
   style?: string;
 };
@@ -61,6 +62,7 @@ function mountInlineClamp(options: MountInlineOptions): MountedInlineClamp {
           as?: string;
           ellipsis?: string;
           location?: LineClampLocation;
+          boundary?: ClampBoundary;
           split?: InlineClampSplit;
         } = {
           style: hostStyle(options.width ?? 180, options.style),
@@ -77,6 +79,10 @@ function mountInlineClamp(options: MountInlineOptions): MountedInlineClamp {
 
         if (typeof options.location !== "undefined") {
           props.location = options.location;
+        }
+
+        if (typeof options.boundary !== "undefined") {
+          props.boundary = options.boundary;
         }
 
         if (typeof options.split === "function") {
@@ -113,6 +119,7 @@ function mountResizableInlineClamp(options: MountInlineOptions): MountedResizabl
           text: string;
           ellipsis?: string;
           location?: LineClampLocation;
+          boundary?: ClampBoundary;
           split?: InlineClampSplit;
         } = {
           text: text.value,
@@ -124,6 +131,10 @@ function mountResizableInlineClamp(options: MountInlineOptions): MountedResizabl
 
         if (typeof options.location !== "undefined") {
           props.location = options.location;
+        }
+
+        if (typeof options.boundary !== "undefined") {
+          props.boundary = options.boundary;
         }
 
         if (typeof options.split === "function") {
@@ -333,6 +344,37 @@ describe("InlineClamp browser contract", () => {
     expect(segment(root, "start")?.textContent).toBe(start);
     expect(segment(root, "end")?.textContent).toBe(end);
     expect(root.getBoundingClientRect().width).toBeLessThanOrEqual(Math.ceil(targetWidth) + 1);
+  });
+
+  it("can clamp the shrinkable body at word boundaries", async () => {
+    const start = "Status: ";
+    const bodySource = "alpha beta gamma delta";
+    const mountedClamp = mountInlineClamp({
+      text: `${start}${bodySource}`,
+      width: Math.ceil(measureReferenceWidth(`${start}alpha beta…`)),
+      boundary: "word",
+      split() {
+        return {
+          start,
+          body: bodySource,
+        };
+      },
+    });
+
+    await settle();
+
+    const root = rootElement(mountedClamp.container);
+    const body = segment(root, "body");
+
+    if (!body) {
+      throw new Error("Expected inline clamp body segment.");
+    }
+
+    const prefix = (body.textContent ?? "").replace(/…$/u, "");
+    expect(body.textContent?.endsWith("…")).toBe(true);
+    expect(bodySource.startsWith(prefix)).toBe(true);
+    expect(prefix.length === 0 || bodySource[prefix.length] === " ").toBe(true);
+    expect(segment(root, "start")?.textContent).toBe(start);
   });
 
   it("supports start-location clamping within the body", async () => {
