@@ -6,6 +6,9 @@ export function normalizeLineLimit(maxLines: number | undefined): number | undef
   return Math.max(1, Math.floor(maxLines));
 }
 
+// ResizeObserver, Vue updates, and font events can arrive in bursts. This runner
+// keeps recomputes serialized while making sure a request that happens during a
+// running clamp pass is not dropped.
 export function createCoalescingRunner(task: () => Promise<void>): () => void {
   let scheduled = false;
   let running = false;
@@ -40,6 +43,8 @@ export function cssLength(value: number | string | undefined): string | number |
   return typeof value === "number" ? `${value}px` : value;
 }
 
+// Layout signatures are intentionally coarse. They are used only to avoid
+// redundant reclamps, while the actual clamp result still comes from DOM reads.
 function sizeSignature(element: HTMLElement | null): string {
   return element ? `${element.offsetWidth}x${element.offsetHeight}` : "0x0";
 }
@@ -62,33 +67,58 @@ export function listenForFontLoads(onLoad: () => void): () => void {
   };
 }
 
+// All DOM clamp implementations use this fit predicate so line counting and
+// max-height clipping agree. It short-circuits as soon as a candidate is known
+// not to fit because this runs inside search loops.
 export function fitsContent(
   rootElement: HTMLElement,
   contentElement: HTMLElement,
   lineLimit: number | undefined,
   maxHeight: number | string | undefined,
 ): boolean {
-  const rects = [...contentElement.getClientRects()].filter((rect) => rect.height > 0);
-
-  if (maxHeight !== undefined && rects.length > 0) {
-    const currentRootRect = rootElement.getBoundingClientRect();
-    const visibleTop = currentRootRect.top + rootElement.clientTop;
-    const visibleBottom = visibleTop + rootElement.clientHeight;
-
-    if (rects.some((rect) => rect.top < visibleTop - 0.5 || rect.bottom > visibleBottom + 0.5)) {
-      return false;
-    }
+  if (lineLimit === undefined && maxHeight === undefined) {
+    // No visual limit means every candidate fits; avoid layout reads entirely.
+    return true;
   }
 
-  if (lineLimit !== undefined) {
-    const lines = new Set<string>();
+  const rects = contentElement.getClientRects();
+  const lines: string[] = [];
+  let visibleTop = 0;
+  let visibleBottom = 0;
+  let measuredVisibleBounds = false;
 
-    for (const rect of rects) {
-      lines.add(`${rect.top}/${rect.bottom}`);
+  for (let index = 0; index < rects.length; index += 1) {
+    const rect = rects[index]!;
+    if (rect.height <= 0) {
+      continue;
     }
 
-    if (lines.size > lineLimit) {
-      return false;
+    if (maxHeight !== undefined) {
+      if (!measuredVisibleBounds) {
+        // Height bounds are only needed if a visible rect exists, which keeps
+        // empty or display-none content from forcing extra root measurements.
+        const currentRootRect = rootElement.getBoundingClientRect();
+        visibleTop = currentRootRect.top + rootElement.clientTop;
+        visibleBottom = visibleTop + rootElement.clientHeight;
+        measuredVisibleBounds = true;
+      }
+
+      if (rect.top < visibleTop - 0.5 || rect.bottom > visibleBottom + 0.5) {
+        return false;
+      }
+    }
+
+    if (lineLimit !== undefined) {
+      const line = `${rect.top}/${rect.bottom}`;
+      if (!lines.includes(line)) {
+        // Browser rects are the source of truth for wrapped lines; grouping by
+        // vertical bounds handles inline content that splits into many boxes.
+        lines.push(line);
+
+        if (lines.length > lineLimit) {
+          return false;
+        }
+      }
     }
   }
 

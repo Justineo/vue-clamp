@@ -1,8 +1,11 @@
 import { fitsContent } from "./layout.ts";
+import { findLastFittingIndex } from "./search.ts";
 import { prepareText } from "./text.ts";
 
 import type { ClampBoundary } from "./types.ts";
 
+// Rich clamping is structural rather than string-based. We parse once, measure
+// candidate DOM fragments, and patch decisions back into the visible/probe DOM.
 type BoundaryPoint = {
   path: readonly number[];
   offset: number;
@@ -42,6 +45,8 @@ export type PreparedRichText = {
   nodes: PreparedRichNode[];
 };
 
+// Decisions are kept as structural points so width-only reclamps can patch from
+// the previous DOM state without serializing and reparsing HTML.
 export type RichClampDecision =
   | {
       kind: "full";
@@ -71,6 +76,8 @@ const ROOT_START_POINT: BoundaryPoint = {
   path: ROOT_PATH,
   offset: 0,
 };
+// Probe images only need layout boxes. Replacing network sources prevents binary
+// search candidate churn from triggering repeated image fetches.
 const PROBE_IMAGE_SRC = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==";
 
 function tagNameFor(element: Element): string {
@@ -109,6 +116,8 @@ function inspectLayout(root: HTMLElement): Set<string> | null {
       const childKey = childPathKey(parentKey, index);
 
       if (tagName === "br" || tagName === "wbr") {
+        // Break opportunities are inline-flow participants and are represented
+        // as atomic runs later.
         continue;
       }
 
@@ -116,6 +125,8 @@ function inspectLayout(root: HTMLElement): Set<string> | null {
       const isAtomicInline = isAtomicInlineDisplay(display);
 
       if (display === "none") {
+        // Hidden elements do not expose searchable text, but preserving them as
+        // atomic structure keeps patch points aligned with the source tree.
         atomicPaths.add(childKey);
         continue;
       }
@@ -126,6 +137,8 @@ function inspectLayout(root: HTMLElement): Set<string> | null {
         position === "sticky" ||
         floatValue !== "none"
       ) {
+        // Out-of-flow descendants break the monotonic inline measurement model:
+        // truncating earlier does not necessarily make layout smaller.
         return false;
       }
 
@@ -136,14 +149,20 @@ function inspectLayout(root: HTMLElement): Set<string> | null {
         isAtomicInline
       ) {
         if (display !== "inline" && !isAtomicInline) {
+          // Non-inline leaf boxes can affect block layout in ways the rich
+          // inline algorithm is not designed to slice.
           return false;
         }
 
+        // Atomic inline boxes can be kept or removed as a unit, but their
+        // internals are not searchable.
         atomicPaths.add(childKey);
         continue;
       }
 
       if (!isInlineWrapperDisplay(display)) {
+        // Search can descend only through transparent inline wrappers; other
+        // display types become unsupported to avoid changing layout semantics.
         return false;
       }
 
@@ -185,6 +204,8 @@ function buildPreparedRichNodes(
     const childPath = [...path, index];
 
     if (child.nodeType === Node.TEXT_NODE) {
+      // Text nodes keep both configured boundary cuts and optional grapheme
+      // fallback cuts so word mode can recover inside a single long word.
       const preparedText = prepareText(child.textContent ?? "", boundary);
       const { boundaryOffsets, text } = preparedText;
 
@@ -266,6 +287,8 @@ function buildLogicalRuns(
       }
     }
 
+    // Adjacent searchable text across inline wrappers is one monotonic run. The
+    // search first chooses a run, then refines only inside the next text run.
     runs.push({
       kind: "text",
       endPoint,
@@ -286,6 +309,8 @@ function buildLogicalRuns(
       const { children, endPoint, isBreak, pathKey } = node;
 
       if (isBreak || atomicPaths.has(pathKey)) {
+        // Breaks and atomic inline boxes split text runs because they can only be
+        // included or excluded as complete units.
         flushTextRun();
         runs.push({
           kind: "atomic",
@@ -306,6 +331,8 @@ function buildLogicalRuns(
 
 function cloneElementForPatch(element: Element, imageSource?: string): Element {
   if (imageSource !== undefined && element instanceof HTMLImageElement) {
+    // Probe clones preserve sizing-related attributes but swap the resource URL
+    // because fit measurement depends on the image box, not decoded pixels.
     const clone = document.createElement("img");
 
     for (const attr of element.attributes) {
@@ -349,6 +376,8 @@ function clonePatchFromContainer(
   const { offset, path } = endPoint;
 
   if (depth === path.length) {
+    // Once the anchor container is reached, copy only the requested sibling
+    // prefix/suffix so unchanged leading DOM is not recreated.
     const limit = Math.min(offset, children.length);
 
     for (let index = startIndex; index < limit; index += 1) {
@@ -381,6 +410,8 @@ function clonePatchFromContainer(
   }
 
   if (targetChild.nodeType === Node.TEXT_NODE) {
+    // A text boundary point slices the target text node; all previous siblings
+    // were already copied above.
     const nextText = (targetChild.textContent ?? "").slice(0, endPoint.offset);
     if (nextText) {
       fragment.appendChild(document.createTextNode(nextText));
@@ -437,6 +468,8 @@ function trimTrailingWhitespace(root: Node): void {
     }
 
     if (leaf instanceof Text) {
+      // The ellipsis is appended at the rich body root. Trimming the fragment
+      // keeps it visually adjacent without inserting it inside inline markup.
       const nextText = leaf.data.replace(/[\t\n\f\r ]+$/u, "");
       if (nextText === leaf.data) {
         return;
@@ -475,6 +508,8 @@ function removeRootEllipsis(target: Node, ellipsis: string): void {
 
   const lastChild = target.lastChild;
   if (lastChild instanceof Text && lastChild.data === ellipsis) {
+    // Only remove the root-level ellipsis that this module appended; identical
+    // text inside source markup should remain untouched.
     lastChild.remove();
   }
 }
@@ -513,6 +548,8 @@ function boundaryPosition(root: HTMLElement, point: BoundaryPoint): BoundaryPosi
   const node = resolvePath(root, point.path);
 
   if (node?.nodeType === Node.TEXT_NODE) {
+    // Text offsets refer inside a child node, so patching starts at that text
+    // node's index within its parent.
     return {
       containerPath: point.path.slice(0, -1),
       childIndex: point.path.at(-1) ?? 0,
@@ -553,6 +590,8 @@ function patchAnchorFor(
 ): PatchAnchor {
   const current = boundaryPosition(root, currentPoint);
   const next = boundaryPosition(root, nextPoint);
+  // Patching from the shared ancestor keeps stable prefixes alive, which matters
+  // for rich descendants such as images and custom inline elements.
   const path = sharedPath(current.containerPath, next.containerPath);
 
   return {
@@ -592,6 +631,7 @@ export function patchRichTextToDecision(
   imageSource?: string,
 ): RichClampDecision {
   if (sameDecision(currentDecision, nextDecision)) {
+    // Avoid touching DOM when the search probes the same structural point again.
     return nextDecision;
   }
 
@@ -604,6 +644,8 @@ export function patchRichTextToDecision(
   const fragment = clonePatchFromAnchor(root, anchor, nextPoint, imageSource);
 
   if (currentDecision?.kind === "clamped") {
+    // The root-level ellipsis is outside the structural source tree, so remove it
+    // before calculating the next source-derived suffix.
     removeRootEllipsis(targetElement, ellipsis);
   }
 
@@ -618,32 +660,12 @@ export function patchRichTextToDecision(
   liveAnchor.appendChild(fragment);
 
   if (nextDecision.kind === "clamped") {
+    // Ellipsis is deliberately appended to the rich body root, not inside the
+    // innermost inline element, so source markup remains structurally intact.
     appendEllipsis(targetElement, ellipsis);
   }
 
   return nextDecision;
-}
-
-function findLastFittingIndex<T>(
-  values: readonly T[],
-  measureValue: (value: T) => boolean,
-): number {
-  let low = 0;
-  let high = values.length - 1;
-  let bestIndex = -1;
-
-  while (low <= high) {
-    const middle = Math.floor((low + high) / 2);
-
-    if (measureValue(values[middle]!)) {
-      bestIndex = middle;
-      low = middle + 1;
-    } else {
-      high = middle - 1;
-    }
-  }
-
-  return bestIndex;
 }
 
 export function prepareRichText(
@@ -663,12 +685,60 @@ export function prepareRichText(
   };
 }
 
+function boundaryPointIndex(points: readonly BoundaryPoint[], point: BoundaryPoint): number | null {
+  for (let index = 0; index < points.length; index += 1) {
+    if (sameBoundaryPoint(points[index]!, point)) {
+      return index;
+    }
+  }
+
+  return null;
+}
+
+function runIndexHintForDecision(
+  runs: readonly LogicalRun[],
+  decision: RichClampDecision | null,
+): number | null {
+  if (!decision) {
+    return null;
+  }
+
+  if (decision.kind === "full") {
+    // Full content corresponds to the last run end and is a good warm-start
+    // point before a shrink.
+    return runs.length - 1;
+  }
+
+  const { point } = decision;
+
+  for (let index = 0; index < runs.length; index += 1) {
+    const run = runs[index]!;
+
+    if (sameBoundaryPoint(run.endPoint, point)) {
+      return index;
+    }
+
+    if (
+      run.kind === "text" &&
+      (boundaryPointIndex(run.textCuts, point) !== null ||
+        boundaryPointIndex(run.fallbackTextCuts ?? [], point) !== null)
+    ) {
+      // A cut inside this text run means the coarse run search should restart
+      // from the previous complete run end.
+      return Math.max(0, index - 1);
+    }
+  }
+
+  return null;
+}
+
 export function clampRichTextToLayout(
   prepared: PreparedRichText,
   rootElement: HTMLElement,
   contentElement: HTMLElement,
   richElement: HTMLElement,
   currentDecision: RichClampDecision | null,
+  searchDecision: RichClampDecision | null,
   ellipsis: string,
   lineLimit: number | undefined,
   maxHeight: number | string | undefined,
@@ -676,6 +746,7 @@ export function clampRichTextToLayout(
   const { nodes } = prepared;
 
   if (rootElement.getBoundingClientRect().width <= 0) {
+    // An unmeasurable probe cannot produce a trustworthy structural decision.
     return {
       decision: null,
       fallback: false,
@@ -712,6 +783,8 @@ export function clampRichTextToLayout(
 
   const atomicPaths = inspectLayout(richElement);
   if (!atomicPaths) {
+    // Unsupported inline layout falls back to the original HTML instead of
+    // risking a structurally valid but visually wrong clamp.
     return {
       decision,
       fallback: true,
@@ -719,6 +792,8 @@ export function clampRichTextToLayout(
   }
 
   if (fitsContent(rootElement, contentElement, lineLimit, maxHeight)) {
+    // The full rich tree fits; exit before logical-run construction because no
+    // searchable candidate is needed.
     return {
       decision,
       fallback: false,
@@ -727,17 +802,28 @@ export function clampRichTextToLayout(
 
   const runs = buildLogicalRuns(nodes, atomicPaths);
   if (runs.length === 0) {
+    // Rich content can be all comments/empty text; in that case the full patched
+    // state is already the only meaningful answer.
     return {
       decision,
       fallback: false,
     };
   }
 
-  const coarseIndex = findLastFittingIndex(runs, (run) => fitsCandidate(run.endPoint));
+  const coarseHint = runIndexHintForDecision(runs, searchDecision);
+  // Coarse search skips over complete logical runs first so refinement only has
+  // to slice the one text run that crosses the fit boundary.
+  const coarseIndex = findLastFittingIndex(
+    runs.length,
+    (index) => fitsCandidate(runs[index]!.endPoint),
+    coarseHint === null ? null : { index: coarseHint },
+  );
   const coarsePoint = coarseIndex >= 0 ? runs[coarseIndex]!.endPoint : ROOT_START_POINT;
   const nextRun = runs[coarseIndex + 1];
 
   if (!nextRun || nextRun.kind === "atomic") {
+    // If the next unit is atomic, there is no legal smaller slice after the
+    // coarse point.
     applyCandidate(coarsePoint);
     return {
       decision,
@@ -745,11 +831,30 @@ export function clampRichTextToLayout(
     };
   }
 
-  const fineIndex = findLastFittingIndex(nextRun.textCuts, fitsCandidate);
+  const fineHint =
+    searchDecision?.kind === "clamped"
+      ? boundaryPointIndex(nextRun.textCuts, searchDecision.point)
+      : null;
+  // Fine search is limited to text cuts inside the first overflowing text run.
+  const fineIndex = findLastFittingIndex(
+    nextRun.textCuts.length,
+    (index) => fitsCandidate(nextRun.textCuts[index]!),
+    fineHint === null ? null : { index: fineHint },
+  );
   let finePoint = fineIndex >= 0 ? nextRun.textCuts[fineIndex]! : coarsePoint;
 
   if (fineIndex < 0 && nextRun.fallbackTextCuts) {
-    const fallbackIndex = findLastFittingIndex(nextRun.fallbackTextCuts, fitsCandidate);
+    // Word boundary mode retries with grapheme cuts only when no whole-word cut
+    // in the overflowing run can fit.
+    const fallbackHint =
+      searchDecision?.kind === "clamped"
+        ? boundaryPointIndex(nextRun.fallbackTextCuts, searchDecision.point)
+        : null;
+    const fallbackIndex = findLastFittingIndex(
+      nextRun.fallbackTextCuts.length,
+      (index) => fitsCandidate(nextRun.fallbackTextCuts![index]!),
+      fallbackHint === null ? null : { index: fallbackHint },
+    );
     finePoint = fallbackIndex >= 0 ? nextRun.fallbackTextCuts[fallbackIndex]! : coarsePoint;
   }
 

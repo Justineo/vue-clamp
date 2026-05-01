@@ -1,7 +1,10 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vite-plus/test";
+import { createApp, defineComponent, h, nextTick, ref } from "vue";
+import { RichLineClamp } from "../src/index.ts";
 import { clampRichTextToLayout, prepareRichText } from "../src/rich.ts";
 import { frame } from "./browser.ts";
 
+import type { App, Ref } from "vue";
 import type { RichClampDecision } from "../src/rich.ts";
 
 type BenchmarkMetrics = {
@@ -14,6 +17,7 @@ type BenchmarkMetrics = {
 
 type BenchmarkRun = BenchmarkMetrics & {
   meanStepMs: number;
+  steps: number;
   totalMs: number;
 };
 
@@ -26,10 +30,19 @@ type BenchmarkSummary = {
   medianReplaceChildrenCalls: number;
   medianTotalMs: number;
   runs: BenchmarkRun[];
+  steps: number;
 };
 
-type ScenarioSpec = {
+type DirectScenarioSpec = {
+  cache: "cold" | "warm";
   htmls: string[];
+  maxLines: number;
+  name: string;
+  widths: readonly number[];
+};
+
+type ComponentScenarioSpec = {
+  html: string;
   maxLines: number;
   name: string;
   widths: readonly number[];
@@ -50,12 +63,31 @@ type MountedHost = {
   setWidth: (width: number) => void;
 };
 
+type ComponentHost = {
+  app: App;
+  container: HTMLElement;
+  root: HTMLElement;
+  width: Ref<number>;
+};
+
 type TrackingMetrics = BenchmarkMetrics;
 
 const RICH_TEXT_HTML =
   '<strong>Vue</strong> ships <img alt="" src="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%2224%22 height=%2212%22 viewBox=%220 0 24 12%22%3E%3Crect width=%2224%22 height=%2212%22 rx=%226%22 fill=%22%23005BD2%22/%3E%3C/svg%3E" style="width:24px;height:12px;vertical-align:baseline" /> <a href="/docs">layout-aware rich text clamping</a> for <em>inline content</em> and trailing markup.';
 const ARTICLE_HTML =
   '<strong>Design systems</strong> need <a href="/guides"><em>predictable</em> truncation</a> when inline badges, <code>code</code>, and <span style="white-space:nowrap">non-breaking phrases</span> share the same paragraph.';
+const richWidthPatterns = {
+  continuous: [...widthSweep(360, 140, -1), ...widthSweep(141, 360, 1)],
+  jitter: jitterWidths(241, 260, 140, 360, 21, 0x65),
+  jumps: repeatedWidths([360, 140, 340, 160, 320, 180, 350, 150, 360], 10),
+};
+const denseWidthPatterns = {
+  jumps: [260, 220, 180, 140, 180, 220, 260],
+};
+const componentWidthPatterns = {
+  continuous: [...widthSweep(360, 140, -4), ...widthSweep(144, 360, 4)],
+  jumps: repeatedWidths([360, 140, 340, 160, 320, 180, 360], 4),
+};
 const benchmarkWarmupRuns = 1;
 const benchmarkMeasuredRuns = 4;
 const trackedRoots: HTMLElement[] = [];
@@ -117,7 +149,51 @@ function summarize(runs: BenchmarkRun[]): BenchmarkSummary {
     medianReplaceChildrenCalls: median(runs.map((run) => run.replaceChildrenCalls)),
     medianTotalMs: median(runs.map((run) => run.totalMs)),
     runs,
+    steps: runs[0]?.steps ?? 0,
   };
+}
+
+function widthSweep(start: number, end: number, step: number): number[] {
+  const widths: number[] = [];
+
+  for (let width = start; step > 0 ? width <= end : width >= end; width += step) {
+    widths.push(width);
+  }
+
+  return widths;
+}
+
+function repeatedWidths(widths: readonly number[], repetitions: number): number[] {
+  const result: number[] = [];
+
+  for (let index = 0; index < repetitions; index += 1) {
+    result.push(...widths);
+  }
+
+  return result;
+}
+
+function jitterWidths(
+  count: number,
+  start: number,
+  min: number,
+  max: number,
+  maxDelta: number,
+  seed: number,
+): number[] {
+  const widths = [start];
+  let width = start;
+  let state = seed;
+
+  while (widths.length < count) {
+    state = (state * 1664525 + 1013904223) >>> 0;
+    const unit = state / 0x100000000;
+    const delta = Math.round((unit * 2 - 1) * maxDelta);
+    width = Math.max(min, Math.min(max, width + (delta === 0 ? 1 : delta)));
+    widths.push(width);
+  }
+
+  return widths;
 }
 
 function isTrackedElement(element: Element): boolean {
@@ -192,17 +268,35 @@ function runClamp(
   prepared: NonNullable<ReturnType<typeof prepareRichText>>,
   host: MountedHost,
   maxLines: number,
+  searchDecision: RichClampDecision | null,
 ): void {
-  const result = clampRichTextToLayout(
-    prepared,
-    host.root,
-    host.content,
-    host.rich,
-    host.decision,
-    "…",
-    maxLines,
-    undefined,
-  );
+  const clamp = clampRichTextToLayout as unknown as (...args: unknown[]) => {
+    decision: RichClampDecision | null;
+    fallback: boolean;
+  };
+  const result =
+    clamp.length >= 9
+      ? clamp(
+          prepared,
+          host.root,
+          host.content,
+          host.rich,
+          host.decision,
+          searchDecision,
+          "…",
+          maxLines,
+          undefined,
+        )
+      : clamp(
+          prepared,
+          host.root,
+          host.content,
+          host.rich,
+          host.decision,
+          "…",
+          maxLines,
+          undefined,
+        );
   host.decision = result.decision;
 
   if (!result.decision) {
@@ -210,7 +304,7 @@ function runClamp(
   }
 }
 
-async function runScenario(spec: ScenarioSpec): Promise<BenchmarkRun> {
+async function runDirectScenario(spec: DirectScenarioSpec): Promise<BenchmarkRun> {
   const initialWidth = spec.widths[0];
   if (initialWidth === undefined) {
     throw new Error(`Scenario ${spec.name} must provide at least one width.`);
@@ -230,7 +324,7 @@ async function runScenario(spec: ScenarioSpec): Promise<BenchmarkRun> {
     });
 
     for (let index = 0; index < hosts.length; index += 1) {
-      runClamp(prepared[index]!, hosts[index]!, spec.maxLines);
+      runClamp(prepared[index]!, hosts[index]!, spec.maxLines, null);
     }
 
     beginTracking([...hosts.map((host) => host.root), ...prepared.map((source) => source.root)]);
@@ -246,7 +340,12 @@ async function runScenario(spec: ScenarioSpec): Promise<BenchmarkRun> {
       }
 
       for (let index = 0; index < hosts.length; index += 1) {
-        runClamp(prepared[index]!, hosts[index]!, spec.maxLines);
+        runClamp(
+          prepared[index]!,
+          hosts[index]!,
+          spec.maxLines,
+          spec.cache === "warm" ? hosts[index]!.decision : null,
+        );
       }
 
       totalMs += performance.now() - startedAt;
@@ -261,6 +360,7 @@ async function runScenario(spec: ScenarioSpec): Promise<BenchmarkRun> {
       imageCloneCalls: tracked.imageCloneCalls,
       meanStepMs: totalMs / Math.max(1, measuredWidths.length),
       replaceChildrenCalls: tracked.replaceChildrenCalls,
+      steps: measuredWidths.length,
       totalMs,
     };
   } finally {
@@ -272,11 +372,95 @@ async function runScenario(spec: ScenarioSpec): Promise<BenchmarkRun> {
   }
 }
 
-async function runBenchmark(spec: ScenarioSpec): Promise<BenchmarkSummary> {
+function rootElement(container: HTMLElement): HTMLElement {
+  const root = container.firstElementChild;
+  if (!(root instanceof HTMLElement)) {
+    throw new Error("Expected benchmark component root.");
+  }
+
+  return root;
+}
+
+async function flushComponentUpdate(): Promise<void> {
+  await nextTick();
+  await nextTick();
+}
+
+async function mountComponentHost(spec: ComponentScenarioSpec): Promise<ComponentHost> {
+  const firstWidth = spec.widths[0];
+  if (firstWidth === undefined) {
+    throw new Error(`Scenario ${spec.name} must provide at least one width.`);
+  }
+
+  const width = ref(firstWidth);
+  const container = document.createElement("div");
+  document.body.append(container);
+
+  const Host = defineComponent({
+    setup() {
+      return () =>
+        h(RichLineClamp, {
+          html: spec.html,
+          maxLines: spec.maxLines,
+          style: hostStyle(width.value),
+        });
+    },
+  });
+
+  const app = createApp(Host);
+  app.mount(container);
+  await flushComponentUpdate();
+
+  return {
+    app,
+    container,
+    root: rootElement(container),
+    width,
+  };
+}
+
+async function runComponentScenario(spec: ComponentScenarioSpec): Promise<BenchmarkRun> {
+  const host = await mountComponentHost(spec);
+
+  try {
+    beginTracking([host.root]);
+
+    let totalMs = 0;
+    const measuredWidths = spec.widths.slice(1);
+
+    for (const width of measuredWidths) {
+      const startedAt = performance.now();
+      host.width.value = width;
+      await flushComponentUpdate();
+      totalMs += performance.now() - startedAt;
+    }
+
+    const tracked = endTracking();
+
+    return {
+      boundingRectReads: tracked.boundingRectReads,
+      clientRectReads: tracked.clientRectReads,
+      cloneNodeCalls: tracked.cloneNodeCalls,
+      imageCloneCalls: tracked.imageCloneCalls,
+      meanStepMs: totalMs / Math.max(1, measuredWidths.length),
+      replaceChildrenCalls: tracked.replaceChildrenCalls,
+      steps: measuredWidths.length,
+      totalMs,
+    };
+  } finally {
+    endTracking();
+    host.app.unmount();
+    host.container.remove();
+  }
+}
+
+async function runBenchmark(
+  runScenario: () => BenchmarkRun | Promise<BenchmarkRun>,
+): Promise<BenchmarkSummary> {
   const runs: BenchmarkRun[] = [];
 
   for (let runIndex = 0; runIndex < benchmarkWarmupRuns + benchmarkMeasuredRuns; runIndex += 1) {
-    const run = await runScenario(spec);
+    const run = await runScenario();
 
     if (runIndex >= benchmarkWarmupRuns) {
       runs.push(run);
@@ -286,26 +470,97 @@ async function runBenchmark(spec: ScenarioSpec): Promise<BenchmarkSummary> {
   return summarize(runs);
 }
 
-const scenarios: ScenarioSpec[] = [
-  {
-    htmls: [ARTICLE_HTML],
-    maxLines: 5,
-    name: "fit-width-sweep",
-    widths: [760, 720, 680, 640, 600, 640, 680, 720, 760],
-  },
-  {
-    htmls: [RICH_TEXT_HTML],
-    maxLines: 2,
-    name: "truncate-width-sweep",
-    widths: [320, 280, 240, 200, 160, 200, 240, 280, 320],
-  },
-  {
-    htmls: makeTableHtmls(40),
-    maxLines: 2,
-    name: "dense-grid-width-sweep",
-    widths: [260, 220, 180, 140, 180, 220, 260],
-  },
-];
+function directScenarios(): DirectScenarioSpec[] {
+  return [
+    {
+      cache: "cold",
+      htmls: [ARTICLE_HTML],
+      maxLines: 5,
+      name: "direct-rich-fit-cold",
+      widths: [760, 720, 680, 640, 600, 640, 680, 720, 760],
+    },
+    {
+      cache: "warm",
+      htmls: [ARTICLE_HTML],
+      maxLines: 5,
+      name: "direct-rich-fit-warm",
+      widths: [760, 720, 680, 640, 600, 640, 680, 720, 760],
+    },
+    {
+      cache: "cold",
+      htmls: [RICH_TEXT_HTML],
+      maxLines: 2,
+      name: "direct-rich-continuous-cold",
+      widths: richWidthPatterns.continuous,
+    },
+    {
+      cache: "warm",
+      htmls: [RICH_TEXT_HTML],
+      maxLines: 2,
+      name: "direct-rich-continuous-warm",
+      widths: richWidthPatterns.continuous,
+    },
+    {
+      cache: "cold",
+      htmls: [RICH_TEXT_HTML],
+      maxLines: 2,
+      name: "direct-rich-jitter-cold",
+      widths: richWidthPatterns.jitter,
+    },
+    {
+      cache: "warm",
+      htmls: [RICH_TEXT_HTML],
+      maxLines: 2,
+      name: "direct-rich-jitter-warm",
+      widths: richWidthPatterns.jitter,
+    },
+    {
+      cache: "cold",
+      htmls: [RICH_TEXT_HTML],
+      maxLines: 2,
+      name: "direct-rich-jumps-cold",
+      widths: richWidthPatterns.jumps,
+    },
+    {
+      cache: "warm",
+      htmls: [RICH_TEXT_HTML],
+      maxLines: 2,
+      name: "direct-rich-jumps-warm",
+      widths: richWidthPatterns.jumps,
+    },
+    {
+      cache: "cold",
+      htmls: makeTableHtmls(40),
+      maxLines: 2,
+      name: "direct-rich-dense-jumps-cold",
+      widths: denseWidthPatterns.jumps,
+    },
+    {
+      cache: "warm",
+      htmls: makeTableHtmls(40),
+      maxLines: 2,
+      name: "direct-rich-dense-jumps-warm",
+      widths: denseWidthPatterns.jumps,
+    },
+  ];
+}
+
+function componentScenarios(): ComponentScenarioSpec[] {
+  return [
+    {
+      html: RICH_TEXT_HTML,
+      maxLines: 2,
+      name: "component-rich-continuous",
+      widths: componentWidthPatterns.continuous,
+    },
+    {
+      html: RICH_TEXT_HTML,
+      maxLines: 2,
+      name: "component-rich-jumps",
+      widths: componentWidthPatterns.jumps,
+    },
+  ];
+}
 
 afterEach(() => {
   trackedRoots.length = 0;
@@ -388,19 +643,26 @@ afterAll(() => {
 });
 
 describe("RichLineClamp benchmark", () => {
-  it("reports current rich clamp workload", async () => {
+  it("reports direct and component rich clamp workloads", async () => {
     const results: ScenarioResult[] = [];
 
-    for (const scenario of scenarios) {
+    for (const scenario of directScenarios()) {
       results.push({
         scenario: scenario.name,
-        summary: await runBenchmark(scenario),
+        summary: await runBenchmark(() => runDirectScenario(scenario)),
+      });
+    }
+
+    for (const scenario of componentScenarios()) {
+      results.push({
+        scenario: scenario.name,
+        summary: await runBenchmark(() => runComponentScenario(scenario)),
       });
     }
 
     console.error(`RICH_BENCHMARK ${JSON.stringify({ scenarios: results })}`);
 
-    expect(results).toHaveLength(scenarios.length);
+    expect(results).toHaveLength(directScenarios().length + componentScenarios().length);
     for (const result of results) {
       expect(result.summary.runs).toHaveLength(benchmarkMeasuredRuns);
     }

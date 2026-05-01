@@ -1,7 +1,11 @@
+// Public declarations live in one module so consumers and the runtime prop
+// definitions stay aligned without importing component implementation files.
 export type ClampBoundary = "grapheme" | "word";
 
 export type LineClampLocation = "start" | "middle" | "end" | number;
 
+// Multiline text/rich and wrap clamps expose the same imperative shell so slot
+// controls can be shared across components.
 type ClampControls = {
   expand: () => void;
   collapse: () => void;

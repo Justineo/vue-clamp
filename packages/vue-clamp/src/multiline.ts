@@ -23,6 +23,9 @@ type ClampShellOptions = {
   recompute: (state: ClampState) => Promise<void>;
 };
 
+// LineClamp and RichLineClamp have different clamp engines but the same shell:
+// controlled expansion, slot/root refs, invalidation sources, and event timing.
+// Keeping that shell here avoids two subtly divergent lifecycle implementations.
 export function useMultilineClamp(options: ClampShellOptions) {
   const { getExpanded, onExpandedChange, onClampedChange, recompute } = options;
   const state: ClampState = {
@@ -52,6 +55,8 @@ export function useMultilineClamp(options: ClampShellOptions) {
   }
 
   function layoutSignature(): string {
+    // Slot and body sizes can change without a prop change. A coarse signature is
+    // enough to decide whether another synchronous clamp pass is needed.
     return combinedSizeSignature(
       state.rootRef.value,
       state.contentRef.value,
@@ -77,6 +82,8 @@ export function useMultilineClamp(options: ClampShellOptions) {
     state.expanded,
     (value) => {
       if (getExpanded() !== value) {
+        // The internal state can be changed by exposed methods, so emit only
+        // when the controlled prop is not already carrying the same value.
         onExpandedChange(value);
       }
 
@@ -96,6 +103,8 @@ export function useMultilineClamp(options: ClampShellOptions) {
   watchPostEffect((onCleanup) => {
     resizeObserver ??= new ResizeObserver(() => {
       if (layoutSignature() !== lastLayoutSignature) {
+        // ResizeObserver is the async catch-all for layout changes not caused by
+        // Vue props, such as container resizes and slot content dimensions.
         requestRecompute();
       }
     });
@@ -126,6 +135,8 @@ export function useMultilineClamp(options: ClampShellOptions) {
 
   onUpdated(() => {
     if (layoutSignature() !== lastLayoutSignature) {
+      // Same-flush Vue updates should not wait for a later ResizeObserver tick;
+      // otherwise stale clamp output can be painted for one frame.
       requestRecompute();
     }
   });

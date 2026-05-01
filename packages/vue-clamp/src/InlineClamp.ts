@@ -12,11 +12,14 @@ import {
 } from "vue";
 import { combinedSizeSignature, createCoalescingRunner, listenForFontLoads } from "./layout.ts";
 import { boundaryProp, ellipsisProp, locationProp } from "./props.ts";
-import { normalizeLocationRatio, prepareText, searchClampedTextToFit } from "./text.ts";
+import { normalizeLocationRatio, prepareText, clampTextToFit } from "./text.ts";
 
 import type { CSSProperties, PropType } from "vue";
 import type { InlineClampSplit } from "./types.ts";
+import type { TextClampResult } from "./text.ts";
 
+// InlineClamp measures a single inline-block because affixes and middle
+// truncation cannot be represented by native text-overflow.
 const rootStyle: CSSProperties = {
   display: "inline-block",
   maxWidth: "100%",
@@ -61,13 +64,17 @@ export const InlineClamp = defineComponent({
     const rootRef = ref<HTMLElement | null>(null);
     const bodyRef = ref<HTMLElement | null>(null);
     const parts = computed(() => props.split?.(props.text) ?? { body: props.text });
+    const preparedBody = computed(() => prepareText(parts.value.body, props.boundary));
     const locationRatio = computed(() => normalizeLocationRatio(props.location));
     const visibleBody = ref(parts.value.body);
     let resizeObserver: ResizeObserver | null = null;
     let stopFonts = () => {};
     let lastLayoutSignature: string | null = null;
+    let lastTextClamp: TextClampResult | null = null;
 
     function layoutSignature(): string {
+      // The parent controls available inline width while the root records the
+      // rendered result; observing both catches shrink and grow transitions.
       return combinedSizeSignature(rootRef.value?.parentElement ?? null, rootRef.value);
     }
 
@@ -80,32 +87,49 @@ export const InlineClamp = defineComponent({
         return body;
       }
 
+      // Always restore the full body before measuring. Otherwise a previously
+      // shortened inline-block could become the stale width limit after growth.
       bodyElement.textContent = body;
 
       const limit = rootElement.getBoundingClientRect().width;
 
       if (limit <= 0) {
+        // Do not replace visible text with a zero-width guess during mount or
+        // hidden layout states.
         return null;
       }
 
       const fits = () => rootElement.scrollWidth <= limit + fitTolerance;
+      const prepared = preparedBody.value;
+      const ratio = locationRatio.value;
 
       if (fits()) {
+        // Store the full body as the next warm-start point so a following shrink
+        // starts from the real upper bound.
+        lastTextClamp = {
+          boundaryOffsets: prepared.boundaryOffsets,
+          kept: prepared.boundaryOffsets.length - 1,
+          text: body,
+        };
         return body;
       }
 
-      const prepared = prepareText(body, props.boundary);
-      const nextBody = searchClampedTextToFit(
+      const nextResult = clampTextToFit(
         prepared,
-        locationRatio.value,
+        ratio,
         props.ellipsis,
         (candidate) => {
           bodyElement.textContent = candidate;
           return fits();
         },
+        // Split affixes already own the outer spacing; preserve spaces at the
+        // body edges so custom split functions keep browser-like inline flow.
         "preserve-outer",
+        lastTextClamp,
       );
+      const nextBody = nextResult.text;
       bodyElement.textContent = nextBody;
+      lastTextClamp = nextResult;
 
       return nextBody;
     }
@@ -123,6 +147,9 @@ export const InlineClamp = defineComponent({
     watch(
       [parts, () => props.ellipsis, () => props.location, () => props.boundary],
       () => {
+        // A split or semantic prop change means the previous boundary hint may
+        // refer to a different body string.
+        lastTextClamp = null;
         visibleBody.value = parts.value.body;
         requestRecompute();
       },
@@ -142,6 +169,8 @@ export const InlineClamp = defineComponent({
 
       resizeObserver ??= new ResizeObserver(() => {
         if (layoutSignature() !== lastLayoutSignature) {
+          // Width-only changes are the hot path, so recompute only when the
+          // coarse dimensions actually changed.
           requestRecompute();
         }
       });
@@ -164,6 +193,8 @@ export const InlineClamp = defineComponent({
 
     onUpdated(() => {
       if (layoutSignature() !== lastLayoutSignature) {
+        // Vue-driven style changes can happen before ResizeObserver delivery; keep
+        // the final clamped text in the same update cycle.
         requestRecompute();
       }
     });
@@ -179,6 +210,8 @@ export const InlineClamp = defineComponent({
       const isRewritten = visibleBody.value !== currentParts.body;
       const ariaHidden = isRewritten ? "true" : undefined;
 
+      // The accessible fallback uses the full original text, including split
+      // affixes, so screen readers do not receive the visual ellipsis rewrite.
       return h(
         as,
         mergeProps(attrs, {

@@ -23,6 +23,10 @@ const slotStyle: CSSProperties = {
   whiteSpace: "nowrap",
   verticalAlign: "baseline",
 };
+
+// Rich candidates are measured in an off-screen connected tree. Connected
+// measurement preserves browser inline layout while keeping candidate churn out
+// of the visible DOM.
 const probeStyle: CSSProperties = {
   display: "block",
   left: "-99999px",
@@ -36,6 +40,9 @@ type ProbeElements = {
   body: HTMLElement;
   content: HTMLElement;
 };
+
+// Large width jumps are cheaper as cold search than as repeated local expansion.
+const warmSearchWidthDelta = 32;
 
 const propsDef = {
   as: blockAsProp,
@@ -77,18 +84,25 @@ export const RichLineClamp = defineComponent({
     const lineLimit = computed(() => normalizeLineLimit(props.maxLines));
     const hasLimit = computed(() => lineLimit.value !== undefined || props.maxHeight !== undefined);
     const preparedHtml = computed(() => prepareRichText(props.html, props.boundary));
+    // The visible tree and hidden probe advance independently: visibleDecision
+    // patches user-facing DOM, while probeDecision keeps measurement patches
+    // cheap across repeated reclamps.
     let visibleDecision: RichClampDecision | null = null;
     let probeDecision: RichClampDecision | null = null;
     let probeElements: ProbeElements | null = null;
+    let probeDecisionWidth: number | null = null;
 
     function resetDecisions(): void {
       visibleDecision = null;
       probeDecision = null;
+      probeDecisionWidth = null;
     }
 
     function patchVisible(prepared: PreparedRichText, decision: RichClampDecision): void {
       const bodyElement = bodyRef.value;
       if (!bodyElement) {
+        // If Vue has not mounted the target body, discard decisions rather than
+        // applying future patches against an unknown DOM state.
         resetDecisions();
         return;
       }
@@ -109,6 +123,8 @@ export const RichLineClamp = defineComponent({
       isFallback.value = nextFallback;
 
       if (changed) {
+        // The measured rich DOM is already final; this tick exposes clamped
+        // state changes after Vue commits the visible patch.
         await nextTick();
       }
     }
@@ -117,6 +133,8 @@ export const RichLineClamp = defineComponent({
       const prepared = preparedHtml.value;
 
       if (prepared) {
+        // Reset through the structural patcher so existing visible descendants
+        // are restored consistently with normal clamp commits.
         patchVisible(prepared, { kind: "full" });
       } else {
         resetDecisions();
@@ -129,6 +147,7 @@ export const RichLineClamp = defineComponent({
       body: HTMLElement;
       content: HTMLElement;
       root: HTMLElement;
+      width: number;
     } | null {
       const rootElement = rootRef.value;
       const probeRoot = probeRef.value;
@@ -138,8 +157,9 @@ export const RichLineClamp = defineComponent({
 
       const elements = (probeElements ??= createProbeElements());
       const maxHeight = cssLength(props.maxHeight);
+      const width = rootElement.getBoundingClientRect().width;
 
-      probeRoot.style.width = `${rootElement.getBoundingClientRect().width}px`;
+      probeRoot.style.width = `${width}px`;
       probeRoot.style.maxHeight = maxHeight === undefined ? "" : String(maxHeight);
       probeRoot.style.overflow = maxHeight === undefined ? "visible" : "hidden";
 
@@ -147,6 +167,8 @@ export const RichLineClamp = defineComponent({
 
       const beforeElement = beforeRef.value;
       if (beforeElement) {
+        // Slot content affects fit but should not be mutated by rich candidate
+        // patches, so the probe receives cloned slot boxes.
         elements.content.appendChild(beforeElement.cloneNode(true));
       }
 
@@ -163,6 +185,7 @@ export const RichLineClamp = defineComponent({
         body: elements.body,
         content: elements.content,
         root: probeRoot,
+        width,
       };
     }
 
@@ -189,6 +212,8 @@ export const RichLineClamp = defineComponent({
       recompute: async ({ expanded }): Promise<void> => {
         const { ellipsis, html: sourceHtml, maxHeight } = props;
         if (expanded.value || sourceHtml.length === 0 || !hasLimit.value) {
+          // Expanded, empty, and unlimited states should leave the trusted HTML
+          // visible as authored.
           await resetClamp();
           return;
         }
@@ -196,6 +221,8 @@ export const RichLineClamp = defineComponent({
         const prepared = preparedHtml.value;
 
         if (!bodyRef.value || !prepared) {
+          // DOMParser can be unavailable in non-browser environments, and refs
+          // can be absent during mount/teardown; both cases use the safe source.
           await resetClamp();
           return;
         }
@@ -206,19 +233,31 @@ export const RichLineClamp = defineComponent({
           return;
         }
 
+        const searchDecision =
+          probeDecisionWidth === null ||
+          Math.abs(probe.width - probeDecisionWidth) <= warmSearchWidthDelta
+            ? probeDecision
+            : null;
+        // Search hints help nearby resizes but can cost more on large jumps. The
+        // current probe decision is still passed separately so patching remains
+        // correct even when the search starts cold.
         const nextState = clampRichTextToLayout(
           prepared,
           probe.root,
           probe.content,
           probe.body,
           probeDecision,
+          searchDecision,
           ellipsis,
           lineLimit.value,
           maxHeight,
         );
         probeDecision = nextState.decision;
+        probeDecisionWidth = probe.width;
 
         if (!nextState.decision) {
+          // A zero-width probe should not replace visible content with a guessed
+          // rich fragment.
           await resetClamp();
           return;
         }
@@ -237,6 +276,8 @@ export const RichLineClamp = defineComponent({
         () => props.boundary,
       ],
       () => {
+        // HTML and clamp semantics change the structural decision space, so both
+        // visible and probe patch cursors must restart.
         resetDecisions();
         isFallback.value = false;
         requestRecompute();

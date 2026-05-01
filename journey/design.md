@@ -127,6 +127,7 @@
   - segment text stays in normal inline flow, so spaces follow standard browser whitespace
     collapsing instead of a component-specific preservation path
   - `ResizeObserver` and font-load invalidation keep the measured result current
+  - width-only reclamps reuse the shared boundary-aware warm-start search helper
   - no slots or exposed instance API
 - `WrapClamp` is item-driven and browser-aligned:
   - one root clamp container with live DOM measurement
@@ -162,6 +163,12 @@
     `"grapheme"`, the default `…` ellipsis is used, and the normalized location ratio is `1`
   - in that native path, `before` and `after` stay as fixed inline-flex items while the text cell becomes the only flexible width consumer
   - otherwise binary-searches the kept boundary count directly against the live DOM
+  - width-only reclamps warm-start from the last kept boundary count when the prepared boundary
+    offsets still match, then do a bounded local expansion before binary searching, so continuous
+    resize does not always restart from the middle of the whole text while large jumps stay close to
+    cold-search cost
+  - fit probes avoid collecting all line rects when an early max-height or line-count failure is
+    already known
 - The rich clamp pass in `RichLineClamp`:
   - only end truncation is supported
   - support is behavior-based rather than tag-name-based:
@@ -198,6 +205,9 @@
     - inline rich images must have a deterministic layout size before loading; responsive
       resource selection is not preserved inside the hidden probe because measurement depends only
       on the image box
+    - rich search now derives warm-start hints from the previous structural decision for nearby
+      width changes; the hidden probe's current patch state and the search hint are separate so
+      large width jumps can cold-search without resetting or repainting the visible tree
   - sanitization stays the caller's responsibility
   - the runtime measures rich candidates in a connected hidden probe so the visible rich subtree is
     not mutated during binary search

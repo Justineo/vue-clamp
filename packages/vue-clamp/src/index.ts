@@ -1,3 +1,5 @@
+// Keep the package entry as an explicit barrel so the public surface stays auditable.
+// Internal helpers are intentionally not re-exported from here.
 export { LineClamp } from "./LineClamp.ts";
 export { RichLineClamp } from "./RichLineClamp.ts";
 export { InlineClamp } from "./InlineClamp.ts";

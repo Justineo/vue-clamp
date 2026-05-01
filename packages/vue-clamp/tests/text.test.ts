@@ -2,7 +2,7 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   displayTextForKeptCount,
   prepareText,
-  searchClampedTextToFit,
+  clampTextToFit,
   splitGraphemes,
 } from "../src/text.ts";
 
@@ -48,6 +48,50 @@ describe("text helpers", () => {
   it("falls back to grapheme boundaries when no word boundary fits", () => {
     const prepared = prepareText("supercalifragilistic", "word");
 
-    expect(searchClampedTextToFit(prepared, 1, "…", (text) => text.length <= 8)).toBe("superca…");
+    expect(clampTextToFit(prepared, 1, "…", (text) => text.length <= 8).text).toBe("superca…");
+  });
+
+  it("can warm-start text fitting near the previous fit", () => {
+    const prepared = prepareText("x".repeat(100));
+    const coldProbes: number[] = [];
+    const warmProbes: number[] = [];
+    const fits = (probes: number[]) => (text: string) => {
+      probes.push(text.length);
+      return text.length <= 43;
+    };
+
+    const cold = clampTextToFit(prepared, 1, "…", fits(coldProbes));
+    const warm = clampTextToFit(prepared, 1, "…", fits(warmProbes), "trim", {
+      boundaryOffsets: prepared.boundaryOffsets,
+      kept: 40,
+    });
+
+    expect(cold.kept).toBe(42);
+    expect(warm.kept).toBe(42);
+    expect(warmProbes[0]).toBe(41);
+    expect(warmProbes.length).toBeLessThan(coldProbes.length);
+  });
+
+  it("can warm-start text fitting downward from an oversized previous fit", () => {
+    const prepared = prepareText("x".repeat(100));
+    const probes: number[] = [];
+    const result = clampTextToFit(
+      prepared,
+      1,
+      "…",
+      (text) => {
+        probes.push(text.length);
+        return text.length <= 37;
+      },
+      "trim",
+      {
+        boundaryOffsets: prepared.boundaryOffsets,
+        kept: 42,
+      },
+    );
+
+    expect(result.kept).toBe(36);
+    expect(probes[0]).toBe(43);
+    expect(probes).toContain(37);
   });
 });

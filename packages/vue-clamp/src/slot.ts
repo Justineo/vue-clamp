@@ -2,6 +2,8 @@ import { Comment, Fragment, Text, isVNode } from "vue";
 
 import type { VNodeChild } from "vue";
 
+// Slot wrappers affect measurement, so comment-only or whitespace-only slots
+// must be treated as absent instead of rendering empty inline boxes.
 export function hasSlotContent(value: VNodeChild | VNodeChild[] | undefined): boolean {
   if (Array.isArray(value)) {
     return value.some(hasSlotContent);

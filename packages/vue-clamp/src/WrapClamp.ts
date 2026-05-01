@@ -33,6 +33,8 @@ type SequenceMeasurement = {
   visibleItems: number;
 };
 
+// WrapClamp treats each rendered item and slot as an atomic inline-flex box. It
+// never clips through an item because callers own item rendering semantics.
 const itemStyle: CSSProperties = {
   display: "inline-flex",
   maxWidth: "100%",
@@ -70,6 +72,7 @@ function resolveItemKey(
   index: number,
 ): string | number {
   if (typeof itemKey === "function") {
+    // Functional keys let callers describe identity for arbitrary item shapes.
     return itemKey(item, index);
   }
 
@@ -85,6 +88,8 @@ function resolveItemKey(
     }
   }
 
+  // Falling back to index keeps primitive arrays usable without requiring a key
+  // option, matching Vue's simple-list ergonomics.
   return index;
 }
 
@@ -111,6 +116,8 @@ function measureSequence(
   let visibleBottom = 0;
 
   if (clipToRootHeight) {
+    // maxHeight clipping depends on the root's visible box, while line counting
+    // depends on each child box below.
     const rootRect = rootElement.getBoundingClientRect();
     visibleTop = rootRect.top + rootElement.clientTop;
     visibleBottom = visibleTop + rootElement.clientHeight;
@@ -121,6 +128,7 @@ function measureSequence(
   let visibleItems = 0;
 
   if (!contentElement) {
+    // Missing content is a lifecycle state, not evidence that items are hidden.
     return {
       allFit: true,
       visibleItems: 0,
@@ -134,6 +142,7 @@ function measureSequence(
 
     const part = child.dataset.part;
     if (part !== "before" && part !== "item" && part !== "after") {
+      // Only component-owned atomic boxes should affect the clamp decision.
       continue;
     }
 
@@ -143,11 +152,15 @@ function measureSequence(
     }
 
     if (previousTop === null || Math.abs(top - previousTop) > 0.5) {
+      // Wrapped inline-flex children share a line by vertical position. The
+      // tolerance absorbs sub-pixel rounding differences across browsers.
       lineCount += 1;
       previousTop = top;
     }
 
     if (lineLimit !== undefined && lineCount > lineLimit) {
+      // Early return keeps measurement proportional to the first overflow, not
+      // the full item count.
       return {
         allFit: false,
         visibleItems,
@@ -155,6 +168,7 @@ function measureSequence(
     }
 
     if (clipToRootHeight && (top < visibleTop - 0.5 || bottom > visibleBottom + 0.5)) {
+      // maxHeight can reject a sequence even when the line count is acceptable.
       return {
         allFit: false,
         visibleItems,
@@ -215,6 +229,8 @@ export const WrapClamp = defineComponent({
       isClamped.value = nextClamped;
 
       if (changed) {
+        // Measurement reads the rendered item sequence, so each visible-count
+        // change must be committed before the next probe.
         await nextTick();
       }
     }
@@ -241,6 +257,8 @@ export const WrapClamp = defineComponent({
         visibleCount.value > 0 &&
         (!measurement.allFit || measurement.visibleItems < visibleCount.value)
       ) {
+        // First shrink to a known fitting prefix. Measurement may report fewer
+        // visible items than requested when before/after slots consume space.
         await applyVisibleCount(Math.min(measurement.visibleItems, visibleCount.value - 1));
         measurement = measureSequence(rootElement, contentRef.value, lineLimit, clipToRootHeight);
       }
@@ -251,6 +269,8 @@ export const WrapClamp = defineComponent({
         visibleCount.value < totalItems
       ) {
         const currentVisibleCount = visibleCount.value;
+        // Then grow one item at a time to recover space after width increases.
+        // Linear growth is deliberate because each item can have arbitrary width.
         await applyVisibleCount(currentVisibleCount + 1);
         measurement = measureSequence(rootElement, contentRef.value, lineLimit, clipToRootHeight);
 
@@ -269,12 +289,15 @@ export const WrapClamp = defineComponent({
       const hasLimit = lineLimit !== undefined || clipToRootHeight;
 
       if (expanded.value || totalItems === 0 || !hasLimit) {
+        // Without an active clamp constraint, render the full item list so slot
+        // props and DOM order stay straightforward.
         await applyVisibleCount(totalItems);
         return;
       }
 
       const rootElement = rootRef.value;
       if (!rootElement || rootElement.getBoundingClientRect().width <= 0) {
+        // Hidden or unmounted roots cannot produce stable item measurements.
         await applyVisibleCount(totalItems);
         return;
       }
@@ -326,6 +349,8 @@ export const WrapClamp = defineComponent({
     watchPostEffect((onCleanup) => {
       resizeObserver ??= new ResizeObserver(() => {
         if (layoutSignature() !== lastLayoutSignature) {
+          // Slot boxes are part of the wrap sequence, so their size changes must
+          // invalidate the item count even when the item array is unchanged.
           requestRecompute();
         }
       });

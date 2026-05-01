@@ -21,7 +21,10 @@ import {
 
 import type { CSSProperties, VNodeChild } from "vue";
 import type { LineClampExposed, LineClampSlotProps } from "./types.ts";
+import type { TextClampResult } from "./text.ts";
 
+// Slot wrappers are inline-flex so before/after controls participate in the same
+// line box as text while staying atomic during measurement.
 const slotStyle: CSSProperties = {
   display: "inline-flex",
   flexWrap: "nowrap",
@@ -38,6 +41,8 @@ const nativeContentStyle: CSSProperties = {
   width: "100%",
 };
 
+// The native path is intentionally narrow: it is only used when browser
+// text-overflow semantics exactly match the public props.
 const nativeTextStyle: CSSProperties = {
   display: "block",
   overflow: "hidden",
@@ -92,6 +97,7 @@ export const LineClamp = defineComponent({
   setup(props, { attrs, emit, expose, slots }) {
     const textRef = ref<HTMLElement | null>(null);
     const visibleText = ref(props.text);
+    let lastTextClamp: TextClampResult | null = null;
 
     const lineLimit = computed(() => normalizeLineLimit(props.maxLines));
     const hasLimit = computed(() => lineLimit.value !== undefined || props.maxHeight !== undefined);
@@ -115,11 +121,14 @@ export const LineClamp = defineComponent({
       isClamped.value = nextClamped;
 
       if (changed) {
+        // DOM measurement has already completed synchronously; this tick only
+        // lets Vue commit the final visible state before callers observe it.
         await nextTick();
       }
     }
 
     async function resetClamp(): Promise<void> {
+      lastTextClamp = null;
       return applyTextState(props.text, false);
     }
 
@@ -146,6 +155,8 @@ export const LineClamp = defineComponent({
       recompute: async ({ expanded }): Promise<void> => {
         const { ellipsis, maxHeight, text: sourceText } = props;
         if (expanded.value || sourceText.length === 0 || !hasLimit.value) {
+          // Expanded, empty, and unlimited states should expose the source text
+          // directly so the DOM stays simple when no truncation is needed.
           await resetClamp();
           return;
         }
@@ -155,33 +166,44 @@ export const LineClamp = defineComponent({
         const textElement = textRef.value;
 
         if (!rootElement || !contentElement || !textElement) {
+          // Missing refs are a mount/teardown timing state; avoid caching a
+          // partial measurement result.
           await resetClamp();
           return;
         }
 
         if (nativeOverflowMode.value) {
+          // Browser text-overflow is cheaper and more faithful for the one case
+          // where it supports every requested behavior.
+          lastTextClamp = null;
           const nextClamped = isNativeClamped(textElement);
           await applyTextState(sourceText, nextClamped ?? false);
           return;
         }
 
-        const nextText = clampTextToLayout(
-          preparedText.value,
+        const prepared = preparedText.value;
+        const ratio = locationRatio.value;
+        const nextResult = clampTextToLayout(
+          prepared,
           rootElement,
           contentElement,
           textElement,
-          locationRatio.value,
+          ratio,
           ellipsis,
           lineLimit.value,
           maxHeight,
+          lastTextClamp,
         );
 
-        if (nextText === null) {
+        if (nextResult === null) {
+          // A zero-width root cannot produce a stable clamp; keep source text
+          // until layout becomes measurable.
           await resetClamp();
           return;
         }
 
-        await applyTextState(nextText, nextText !== preparedText.value.text);
+        lastTextClamp = nextResult;
+        await applyTextState(nextResult.text, nextResult.text !== prepared.text);
       },
     });
 
@@ -195,6 +217,8 @@ export const LineClamp = defineComponent({
         () => props.boundary,
       ],
       () => {
+        // Any semantic prop change invalidates the previous kept-count hint.
+        lastTextClamp = null;
         visibleText.value = props.text;
         requestRecompute();
       },
@@ -231,6 +255,8 @@ export const LineClamp = defineComponent({
       const nativeOverflow = nativeOverflowMode.value;
       const needsAccessibleSourceText =
         !nativeOverflow && visibleText.value !== sourceText && hasLimit.value && !expanded.value;
+      // When JS rewrites visible text, keep the full source in the accessibility
+      // tree while hiding only the visual replacement from assistive tech.
       const bodyStyle = nativeOverflow ? nativeTextContainerStyle : { position: "relative" };
       const shouldRenderFullText =
         nativeOverflow || expanded.value || visibleText.value.length === 0 || !hasLimit.value;
