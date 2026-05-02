@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.3.0]
+
+Minor release focused on boundary-aware clamping and smoother resizing.
+
+### Added
+
+- `<LineClamp>`, `<RichLineClamp>`, and `<InlineClamp>` now support `boundary="word"` to prefer
+  whole-word truncation. The default remains `"grapheme"` for the existing maximum-fit behavior.
+
+### Changed
+
+- `<RichLineClamp>` now places the ellipsis outside preserved inline markup when truncating rich
+  text, so elements such as `<code>`, links, and emphasis stay structurally intact.
+
+### Improved
+
+- Resizing clamped content is smoother, especially when container width changes continuously.
+
 ## [1.2.0]
 
 Minor release focused on one-line ellipsis placement.
