@@ -26,7 +26,35 @@ export interface TextClampResult {
   text: string;
 }
 
-export type TextClampSpacing = "trim" | "preserve-outer";
+type Spacing = "trim" | "preserve-outer";
+
+type FitController = {
+  apply: (text: string) => void;
+  fits: () => boolean;
+};
+
+type Fit = ((text: string) => boolean) | FitController;
+
+type FitInput = {
+  ellipsis: string;
+  fit: Fit;
+  hint?: { boundaryOffsets: readonly number[]; kept: number } | null | undefined;
+  prepared: PreparedText;
+  ratio: number;
+  spacing?: Spacing;
+};
+
+type LayoutInput = {
+  content: HTMLElement;
+  ellipsis: string;
+  hint?: { boundaryOffsets: readonly number[]; kept: number } | null | undefined;
+  lineLimit: number | undefined;
+  maxHeight: number | string | undefined;
+  prepared: PreparedText;
+  ratio: number;
+  root: HTMLElement;
+  target: HTMLElement;
+};
 
 function isAsciiSafe(text: string): boolean {
   for (let index = 0; index < text.length; index += 1) {
@@ -39,8 +67,8 @@ function isAsciiSafe(text: string): boolean {
   return true;
 }
 
-function graphemeBoundaryOffsets(text: string): number[] {
-  if (isAsciiSafe(text)) {
+function graphemeBoundaryOffsets(text: string, asciiSafe = isAsciiSafe(text)): number[] {
+  if (asciiSafe) {
     // ASCII has one UTF-16 code unit per grapheme in the range we accept here,
     // so this hot path avoids Intl.Segmenter for common English/code strings.
     return Array.from({ length: text.length + 1 }, (_, index) => index);
@@ -57,15 +85,24 @@ function graphemeBoundaryOffsets(text: string): number[] {
   return boundaryOffsets;
 }
 
-function wordBoundaryOffsets(text: string, fallbackBoundaryOffsets: readonly number[]): number[] {
-  const fallbackOffsetSet = new Set(fallbackBoundaryOffsets);
+function wordBoundaryOffsets(
+  text: string,
+  fallbackBoundaryOffsets: readonly number[],
+  asciiSafe: boolean,
+): number[] {
   const boundaryOffsets = [0];
+  let fallbackIndex = 0;
 
   for (const part of wordSegmenter.segment(text)) {
     const offset = part.index + part.segment.length;
+    while (!asciiSafe && (fallbackBoundaryOffsets[fallbackIndex] ?? Infinity) < offset) {
+      fallbackIndex += 1;
+    }
+
     // Only keep word boundaries that are also grapheme boundaries. This prevents
     // a word-level cut from landing inside a composed character.
-    if (fallbackOffsetSet.has(offset) && boundaryOffsets[boundaryOffsets.length - 1] !== offset) {
+    const isGraphemeBoundary = asciiSafe || fallbackBoundaryOffsets[fallbackIndex] === offset;
+    if (isGraphemeBoundary && boundaryOffsets[boundaryOffsets.length - 1] !== offset) {
       boundaryOffsets.push(offset);
     }
   }
@@ -78,7 +115,8 @@ function wordBoundaryOffsets(text: string, fallbackBoundaryOffsets: readonly num
 }
 
 export function prepareText(text: string, boundary: ClampBoundary = "grapheme"): PreparedText {
-  const fallbackBoundaryOffsets = graphemeBoundaryOffsets(text);
+  const asciiSafe = isAsciiSafe(text);
+  const fallbackBoundaryOffsets = graphemeBoundaryOffsets(text, asciiSafe);
 
   if (boundary === "grapheme") {
     return {
@@ -93,21 +131,9 @@ export function prepareText(text: string, boundary: ClampBoundary = "grapheme"):
   return {
     text,
     boundary,
-    boundaryOffsets: wordBoundaryOffsets(text, fallbackBoundaryOffsets),
+    boundaryOffsets: wordBoundaryOffsets(text, fallbackBoundaryOffsets, asciiSafe),
     fallbackBoundaryOffsets,
   };
-}
-
-export function splitGraphemes(text: string): string[] {
-  const prepared = prepareText(text, "grapheme");
-  const { boundaryOffsets } = prepared;
-  const graphemes: string[] = [];
-
-  for (let index = 1; index < boundaryOffsets.length; index += 1) {
-    graphemes.push(text.slice(boundaryOffsets[index - 1], boundaryOffsets[index]));
-  }
-
-  return graphemes;
 }
 
 export function displayTextForKeptCount(
@@ -115,7 +141,7 @@ export function displayTextForKeptCount(
   ratio: number,
   ellipsis: string,
   kept: number,
-  spacing: TextClampSpacing = "trim",
+  spacing: Spacing = "trim",
 ): string {
   const { boundaryOffsets, text } = prepared;
   const boundaryCount = boundaryOffsets.length - 1;
@@ -162,125 +188,129 @@ export function normalizeLocationRatio(location: LineClampLocation): number {
   return Math.max(0, Math.min(1, location));
 }
 
-export function clampTextToFit(
-  preparedText: PreparedText,
-  locationRatio: number,
-  ellipsis: string,
-  fits: (text: string) => boolean,
-  spacing: TextClampSpacing = "trim",
-  hint?: { boundaryOffsets: readonly number[]; kept: number } | null,
-): TextClampResult {
-  const boundaryCount = preparedText.boundaryOffsets.length - 1;
+export function clampTextToFit({
+  ellipsis,
+  fit,
+  hint,
+  prepared,
+  ratio,
+  spacing = "trim",
+}: FitInput): TextClampResult {
+  const boundaryCount = prepared.boundaryOffsets.length - 1;
+  let currentCandidate: string | null = null;
+
+  function applyCandidate(text: string): void {
+    if (currentCandidate === text) {
+      return;
+    }
+
+    if (typeof fit === "function") {
+      fit(text);
+    } else {
+      fit.apply(text);
+    }
+
+    currentCandidate = text;
+  }
+
+  function testCandidate(text: string): boolean {
+    if (typeof fit === "function") {
+      currentCandidate = text;
+      return fit(text);
+    }
+
+    applyCandidate(text);
+    return fit.fits();
+  }
+
   // The search helper works over indexes. For text, the index is the number of
   // boundary units kept, with at least the zero-kept ellipsis candidate present.
   const best = Math.max(
     0,
     findLastFittingIndex(
       Math.max(1, boundaryCount),
-      (kept) => fits(displayTextForKeptCount(preparedText, locationRatio, ellipsis, kept, spacing)),
-      hint?.boundaryOffsets === preparedText.boundaryOffsets ? { index: hint.kept } : null,
+      (kept) => testCandidate(displayTextForKeptCount(prepared, ratio, ellipsis, kept, spacing)),
+      hint?.boundaryOffsets === prepared.boundaryOffsets ? { index: hint.kept } : null,
     ),
   );
 
-  if (best === 0 && preparedText.fallbackBoundaryOffsets) {
+  if (best === 0 && prepared.fallbackBoundaryOffsets) {
     // Whole-word truncation should never fail completely just because a single
     // word is wider than the container; retry at grapheme granularity.
-    return clampTextToFit(
-      {
-        text: preparedText.text,
-        boundary: "grapheme",
-        boundaryOffsets: preparedText.fallbackBoundaryOffsets,
-      },
-      locationRatio,
+    return clampTextToFit({
       ellipsis,
-      fits,
-      spacing,
+      fit,
       hint,
-    );
+      prepared: {
+        text: prepared.text,
+        boundary: "grapheme",
+        boundaryOffsets: prepared.fallbackBoundaryOffsets,
+      },
+      ratio,
+      spacing,
+    });
   }
 
-  const text = displayTextForKeptCount(preparedText, locationRatio, ellipsis, best, spacing);
+  const text = displayTextForKeptCount(prepared, ratio, ellipsis, best, spacing);
 
-  // Leave the measured DOM on the exact text returned to the caller, even when
-  // the final binary-search probe happened to be a neighboring candidate.
-  fits(text);
+  // Leave the measured DOM on the exact text returned to the caller. Controller
+  // callers can apply without an extra layout read when the search ended on a
+  // neighboring candidate.
+  applyCandidate(text);
   return {
-    boundaryOffsets: preparedText.boundaryOffsets,
+    boundaryOffsets: prepared.boundaryOffsets,
     kept: best,
     text,
   };
 }
 
-export function canUseNativeClamp(
-  expanded: boolean,
-  lineLimit: number | undefined,
-  maxHeight: number | string | undefined,
-  locationRatio: number,
-  ellipsis: string,
-  boundary: ClampBoundary,
-): string | null {
-  if (
-    expanded ||
-    lineLimit !== 1 ||
-    maxHeight !== undefined ||
-    locationRatio !== 1 ||
-    boundary !== "grapheme"
-  ) {
-    // Native single-line ellipsis cannot honor custom boundaries, custom
-    // ellipsis text, or non-end locations, so those cases stay on the JS path.
-    return null;
-  }
-
-  return ellipsis === "…" ? "ellipsis" : null;
-}
-
-export function isNativeClamped(textElement: HTMLElement): boolean | null {
-  if (textElement.clientWidth <= 0 || textElement.getBoundingClientRect().width <= 0) {
-    // A zero-width element is not a reliable overflow signal; let the caller
-    // keep the unclamped source until layout becomes measurable.
-    return null;
-  }
-
-  return textElement.scrollWidth > textElement.clientWidth + 0.5;
-}
-
-export function clampTextToLayout(
-  preparedText: PreparedText,
-  rootElement: HTMLElement,
-  contentElement: HTMLElement,
-  textElement: HTMLElement,
-  locationRatio: number,
-  ellipsis: string,
-  lineLimit: number | undefined,
-  maxHeight: number | string | undefined,
-  hint?: { boundaryOffsets: readonly number[]; kept: number } | null,
-): TextClampResult | null {
-  if (rootElement.getBoundingClientRect().width <= 0) {
+export function clampTextToLayout({
+  content,
+  ellipsis,
+  hint,
+  lineLimit,
+  maxHeight,
+  prepared,
+  ratio,
+  root,
+  target,
+}: LayoutInput): TextClampResult | null {
+  if (root.getBoundingClientRect().width <= 0) {
     // Measuring against an unlaid-out root would only cache a bogus clamp.
     return null;
   }
 
-  const { text } = preparedText;
-  let currentText = textElement.textContent ?? "";
+  const { text } = prepared;
+  let currentText = target.textContent ?? "";
 
-  function applyText(nextText: string): boolean {
+  function applyText(nextText: string): void {
     if (nextText !== currentText) {
-      textElement.textContent = nextText;
+      target.textContent = nextText;
       currentText = nextText;
     }
-
-    return fitsContent(rootElement, contentElement, lineLimit, maxHeight);
   }
 
-  if (applyText(text)) {
+  const fit: FitController = {
+    apply: applyText,
+    fits: () => fitsContent(root, content, lineLimit, maxHeight),
+  };
+
+  applyText(text);
+  if (fit.fits()) {
     // The full source is the cheapest and most correct answer when it fits.
     // Store it as a warm-start hint so later shrink passes begin from full text.
     return {
-      boundaryOffsets: preparedText.boundaryOffsets,
-      kept: preparedText.boundaryOffsets.length - 1,
+      boundaryOffsets: prepared.boundaryOffsets,
+      kept: prepared.boundaryOffsets.length - 1,
       text,
     };
   }
 
-  return clampTextToFit(preparedText, locationRatio, ellipsis, applyText, "trim", hint);
+  return clampTextToFit({
+    ellipsis,
+    fit,
+    hint,
+    prepared,
+    ratio,
+  });
 }

@@ -114,21 +114,22 @@ export const InlineClamp = defineComponent({
         return body;
       }
 
-      const nextResult = clampTextToFit(
+      const nextResult = clampTextToFit({
+        ellipsis: props.ellipsis,
+        fit: {
+          apply(candidate) {
+            bodyElement.textContent = candidate;
+          },
+          fits,
+        },
+        hint: lastTextClamp,
         prepared,
         ratio,
-        props.ellipsis,
-        (candidate) => {
-          bodyElement.textContent = candidate;
-          return fits();
-        },
         // Split affixes already own the outer spacing; preserve spaces at the
         // body edges so custom split functions keep browser-like inline flow.
-        "preserve-outer",
-        lastTextClamp,
-      );
+        spacing: "preserve-outer",
+      });
       const nextBody = nextResult.text;
-      bodyElement.textContent = nextBody;
       lastTextClamp = nextResult;
 
       return nextBody;
@@ -263,5 +264,3 @@ export const InlineClamp = defineComponent({
     };
   },
 });
-
-export type { InlineClampParts, InlineClampProps, InlineClampSplit } from "./types.ts";

@@ -162,6 +162,32 @@ function wrapSnapshot(root: HTMLElement): { after: string | null; items: string[
   };
 }
 
+function wrapLineCount(root: HTMLElement): number {
+  const tops: number[] = [];
+
+  for (const child of wrapContent(root).children) {
+    if (!(child instanceof HTMLElement)) {
+      continue;
+    }
+
+    const part = child.dataset.part;
+    if (part !== "before" && part !== "item" && part !== "after") {
+      continue;
+    }
+
+    const rect = child.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) {
+      continue;
+    }
+
+    if (!tops.some((top) => Math.abs(top - rect.top) <= 0.5)) {
+      tops.push(rect.top);
+    }
+  }
+
+  return tops.length;
+}
+
 afterEach(() => {
   for (const mountedClamp of mounted) {
     mountedClamp.app.unmount();
@@ -278,6 +304,44 @@ describe("WrapClamp browser contract", () => {
       after: "+1",
       items: ["Alpha", "Beta"],
     });
+  });
+
+  it("settles across a hiddenItems digit boundary when grow changes after width", async () => {
+    const items = Array.from({ length: 20 }, (_, index) => `I${index + 1}`);
+    const mountedClamp = mountWrapClamp({
+      items,
+      props: {
+        maxLines: 1,
+      },
+      width: 324,
+      item: ({ item }) => h("span", { style: fixedBadgeStyle(20) }, item),
+      after: ({ clamped, hiddenItems }) =>
+        clamped
+          ? h(
+              "span",
+              { style: fixedBadgeStyle(hiddenItems.length >= 10 ? 64 : 32) },
+              `+${hiddenItems.length}`,
+            )
+          : null,
+    });
+
+    await settle(5);
+    expect(wrapSnapshot(rootElement(mountedClamp.container))).toEqual({
+      after: "+11",
+      items: items.slice(0, 9),
+    });
+
+    mountedClamp.width.value = 420;
+    await settle(8);
+
+    const root = rootElement(mountedClamp.container);
+    const grownSnapshot = wrapSnapshot(root);
+    const hiddenCount = items.length - grownSnapshot.items.length;
+    expect(hiddenCount).toBeGreaterThan(0);
+    expect(hiddenCount).toBeLessThan(10);
+    expect(grownSnapshot.after).toBe(`+${hiddenCount}`);
+    expect(grownSnapshot.items).toEqual(items.slice(0, grownSnapshot.items.length));
+    expect(wrapLineCount(root)).toBeLessThanOrEqual(1);
   });
 
   it("falls back cleanly when a single item is wider than the container", async () => {

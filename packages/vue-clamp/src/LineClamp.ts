@@ -11,17 +11,13 @@ import {
   maxLinesProp,
 } from "./props.ts";
 import { hasSlotContent } from "./slot.ts";
-import {
-  canUseNativeClamp,
-  clampTextToLayout,
-  isNativeClamped,
-  normalizeLocationRatio,
-  prepareText,
-} from "./text.ts";
+import { clampTextToLayout, normalizeLocationRatio, prepareText } from "./text.ts";
 
 import type { CSSProperties, VNodeChild } from "vue";
 import type { LineClampExposed, LineClampSlotProps } from "./types.ts";
 import type { TextClampResult } from "./text.ts";
+
+type NativeMode = "single-line" | "multi-line";
 
 // Slot wrappers are inline-flex so before/after controls participate in the same
 // line box as text while staying atomic during measurement.
@@ -33,7 +29,9 @@ const slotStyle: CSSProperties = {
   verticalAlign: "baseline",
 };
 
-const nativeContentStyle: CSSProperties = {
+let lineClampSupport: boolean | null = null;
+
+const nativeSingleLineContentStyle: CSSProperties = {
   alignItems: "baseline",
   display: "inline-flex",
   maxWidth: "100%",
@@ -41,22 +39,49 @@ const nativeContentStyle: CSSProperties = {
   width: "100%",
 };
 
-// The native path is intentionally narrow: it is only used when browser
-// text-overflow semantics exactly match the public props.
-const nativeTextStyle: CSSProperties = {
+function makeMultilineStyle(lineLimit: number): CSSProperties {
+  return {
+    display: "-webkit-box",
+    lineClamp: String(lineLimit),
+    maxWidth: "100%",
+    overflow: "hidden",
+    verticalAlign: "baseline",
+    WebkitBoxOrient: "vertical",
+    WebkitLineClamp: String(lineLimit),
+  };
+}
+
+function getContentStyle(
+  mode: NativeMode | null,
+  lineLimit: number | undefined,
+): CSSProperties | undefined {
+  if (mode === "single-line") {
+    return nativeSingleLineContentStyle;
+  }
+
+  if (mode === "multi-line" && lineLimit !== undefined) {
+    return makeMultilineStyle(lineLimit);
+  }
+
+  return undefined;
+}
+
+// Native paths are intentionally narrow: they are only used when browser CSS
+// semantics exactly match the public props.
+const nativeSingleLineTextStyle: CSSProperties = {
   display: "block",
   overflow: "hidden",
   overflowWrap: "normal",
   whiteSpace: "nowrap",
 };
 
-const nativeTextContainerStyle: CSSProperties = {
+const nativeSingleLineBodyStyle: CSSProperties = {
   display: "block",
   flex: "1 1 auto",
   minWidth: "0",
 };
 
-const nativeSlotStyle: CSSProperties = {
+const nativeSingleLineSlotStyle: CSSProperties = {
   ...slotStyle,
   flex: "none",
 };
@@ -89,6 +114,44 @@ const emitsDef = {
   clampchange: (value: boolean) => typeof value === "boolean",
 };
 
+// Native multi-line line-clamp cannot reserve trailing after-slot content.
+// The single-line text-overflow path keeps slots in a flex row, so it remains eligible.
+function pickNativeMode(mode: NativeMode | null, hasAfterSlot: boolean): NativeMode | null {
+  if (mode === "multi-line" && hasAfterSlot) {
+    return null;
+  }
+
+  return mode;
+}
+
+function supportsLineClamp(): boolean {
+  if (lineClampSupport !== null) {
+    return lineClampSupport;
+  }
+
+  if (typeof CSS === "undefined" || typeof CSS.supports !== "function") {
+    return false;
+  }
+
+  lineClampSupport = CSS.supports("-webkit-line-clamp", "2") || CSS.supports("line-clamp", "2");
+
+  return lineClampSupport;
+}
+
+function isNativeClamped(element: HTMLElement, mode: NativeMode): boolean | null {
+  if (element.clientWidth <= 0 || element.getBoundingClientRect().width <= 0) {
+    // A zero-width element is not a reliable overflow signal; let the caller
+    // keep the unclamped source until layout becomes measurable.
+    return null;
+  }
+
+  if (mode === "multi-line") {
+    return element.scrollHeight > element.clientHeight + 0.5;
+  }
+
+  return element.scrollWidth > element.clientWidth + 0.5;
+}
+
 export const LineClamp = defineComponent({
   name: "LineClamp",
   inheritAttrs: false,
@@ -103,16 +166,29 @@ export const LineClamp = defineComponent({
     const hasLimit = computed(() => lineLimit.value !== undefined || props.maxHeight !== undefined);
     const locationRatio = computed(() => normalizeLocationRatio(props.location));
     const preparedText = computed(() => prepareText(props.text, props.boundary));
-    const nativeOverflowMode = computed(() =>
-      canUseNativeClamp(
-        expanded.value,
-        lineLimit.value,
-        props.maxHeight,
-        locationRatio.value,
-        props.ellipsis,
-        props.boundary,
-      ),
-    );
+    const baseNativeMode = computed<NativeMode | null>(() => {
+      if (
+        expanded.value ||
+        props.maxHeight !== undefined ||
+        locationRatio.value !== 1 ||
+        props.boundary !== "grapheme" ||
+        props.ellipsis !== "…"
+      ) {
+        // Native CSS cannot honor custom boundaries or non-end locations, so
+        // those cases stay on the measured path.
+        return null;
+      }
+
+      if (lineLimit.value === 1) {
+        return "single-line";
+      }
+
+      if (lineLimit.value !== undefined && lineLimit.value > 1 && supportsLineClamp()) {
+        return "multi-line";
+      }
+
+      return null;
+    });
 
     async function applyTextState(nextText: string, nextClamped: boolean): Promise<void> {
       const changed = visibleText.value !== nextText || isClamped.value !== nextClamped;
@@ -152,7 +228,7 @@ export const LineClamp = defineComponent({
       onClampedChange: (value) => {
         emit("clampchange", value);
       },
-      recompute: async ({ expanded }): Promise<void> => {
+      recompute: async (expanded): Promise<void> => {
         const { ellipsis, maxHeight, text: sourceText } = props;
         if (expanded.value || sourceText.length === 0 || !hasLimit.value) {
           // Expanded, empty, and unlimited states should expose the source text
@@ -172,28 +248,31 @@ export const LineClamp = defineComponent({
           return;
         }
 
-        if (nativeOverflowMode.value) {
-          // Browser text-overflow is cheaper and more faithful for the one case
-          // where it supports every requested behavior.
+        const nativeMode = pickNativeMode(baseNativeMode.value, afterRef.value !== null);
+
+        if (nativeMode) {
+          // Browser native clamping is cheaper and more faithful for exact
+          // subsets where CSS supports every requested behavior.
           lastTextClamp = null;
-          const nextClamped = isNativeClamped(textElement);
+          const clampedElement = nativeMode === "multi-line" ? contentElement : textElement;
+          const nextClamped = isNativeClamped(clampedElement, nativeMode);
           await applyTextState(sourceText, nextClamped ?? false);
           return;
         }
 
         const prepared = preparedText.value;
         const ratio = locationRatio.value;
-        const nextResult = clampTextToLayout(
-          prepared,
-          rootElement,
-          contentElement,
-          textElement,
-          ratio,
+        const nextResult = clampTextToLayout({
+          content: contentElement,
           ellipsis,
-          lineLimit.value,
+          hint: lastTextClamp,
+          lineLimit: lineLimit.value,
           maxHeight,
-          lastTextClamp,
-        );
+          prepared,
+          ratio,
+          root: rootElement,
+          target: textElement,
+        });
 
         if (nextResult === null) {
           // A zero-width root cannot produce a stable clamp; keep source text
@@ -252,14 +331,17 @@ export const LineClamp = defineComponent({
       const afterSlot = slots.after?.(slotProps);
       const hasBeforeSlot = hasSlotContent(beforeSlot);
       const hasAfterSlot = hasSlotContent(afterSlot);
-      const nativeOverflow = nativeOverflowMode.value;
+      const nativeMode = pickNativeMode(baseNativeMode.value, hasAfterSlot);
+      const usesNativeTextOverflow = nativeMode === "single-line";
       const needsAccessibleSourceText =
-        !nativeOverflow && visibleText.value !== sourceText && hasLimit.value && !expanded.value;
+        !nativeMode && visibleText.value !== sourceText && hasLimit.value && !expanded.value;
       // When JS rewrites visible text, keep the full source in the accessibility
       // tree while hiding only the visual replacement from assistive tech.
-      const bodyStyle = nativeOverflow ? nativeTextContainerStyle : { position: "relative" };
+      const bodyStyle = usesNativeTextOverflow
+        ? nativeSingleLineBodyStyle
+        : { position: "relative" };
       const shouldRenderFullText =
-        nativeOverflow || expanded.value || visibleText.value.length === 0 || !hasLimit.value;
+        nativeMode || expanded.value || visibleText.value.length === 0 || !hasLimit.value;
       const renderedText = shouldRenderFullText ? sourceText : visibleText.value;
       const bodyChildren: VNodeChild[] = [
         needsAccessibleSourceText
@@ -277,10 +359,10 @@ export const LineClamp = defineComponent({
             key: "text",
             ref: textRef,
             "aria-hidden": needsAccessibleSourceText ? "true" : undefined,
-            style: nativeOverflow
+            style: usesNativeTextOverflow
               ? {
-                  ...nativeTextStyle,
-                  textOverflow: nativeOverflow,
+                  ...nativeSingleLineTextStyle,
+                  textOverflow: "ellipsis",
                 }
               : undefined,
           },
@@ -303,7 +385,7 @@ export const LineClamp = defineComponent({
           {
             "data-part": "content",
             ref: contentRef,
-            style: nativeOverflow ? nativeContentStyle : undefined,
+            style: getContentStyle(nativeMode, lineLimit.value),
           },
           [
             hasBeforeSlot
@@ -312,7 +394,7 @@ export const LineClamp = defineComponent({
                   {
                     "data-part": "before",
                     ref: beforeRef,
-                    style: nativeOverflow ? nativeSlotStyle : slotStyle,
+                    style: usesNativeTextOverflow ? nativeSingleLineSlotStyle : slotStyle,
                   },
                   beforeSlot,
                 )
@@ -332,7 +414,7 @@ export const LineClamp = defineComponent({
                   {
                     "data-part": "after",
                     ref: afterRef,
-                    style: nativeOverflow ? nativeSlotStyle : slotStyle,
+                    style: usesNativeTextOverflow ? nativeSingleLineSlotStyle : slotStyle,
                   },
                   afterSlot,
                 )
