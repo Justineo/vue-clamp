@@ -5,7 +5,7 @@ import { prepareText } from "./text.ts";
 import type { ClampBoundary } from "./types.ts";
 
 // Rich clamping is structural rather than string-based. We parse once, measure
-// candidate DOM fragments, and patch decisions back into the visible/probe DOM.
+// candidate DOM fragments, and patch structural states back into visible/probe DOM.
 type BoundaryPoint = {
   path: readonly number[];
   offset: number;
@@ -14,8 +14,8 @@ type BoundaryPoint = {
 type PreparedTextNode = {
   kind: "text";
   endPoint: BoundaryPoint;
-  textCuts: BoundaryPoint[];
-  fallbackTextCuts?: BoundaryPoint[];
+  textCuts: readonly BoundaryPoint[];
+  fallbackTextCuts?: readonly BoundaryPoint[];
 };
 
 type PreparedElementNode = {
@@ -23,7 +23,7 @@ type PreparedElementNode = {
   pathKey: string;
   isBreak: boolean;
   endPoint: BoundaryPoint;
-  children: PreparedRichNode[];
+  children: readonly PreparedRichNode[];
 };
 
 type PreparedRichNode = PreparedTextNode | PreparedElementNode;
@@ -32,22 +32,22 @@ type LogicalRun =
   | {
       kind: "text";
       endPoint: BoundaryPoint;
-      textCuts: BoundaryPoint[];
-      fallbackTextCuts?: BoundaryPoint[];
+      textCuts: readonly BoundaryPoint[];
+      fallbackTextCuts?: readonly BoundaryPoint[];
     }
   | {
       kind: "atomic";
       endPoint: BoundaryPoint;
     };
 
-export type PreparedRichText = {
+export type PreparedRich = {
   root: HTMLElement;
-  nodes: PreparedRichNode[];
+  nodes: readonly PreparedRichNode[];
 };
 
-// Decisions are kept as structural points so width-only reclamps can patch from
-// the previous DOM state without serializing and reparsing HTML.
-export type RichClampDecision =
+// States are kept as structural points so width-only reclamps can patch from the
+// previous DOM state without serializing and reparsing HTML.
+export type RichState =
   | {
       kind: "full";
     }
@@ -66,9 +66,25 @@ type PatchAnchor = {
   startIndex: number;
 };
 
-type RichClampResult = {
-  decision: RichClampDecision | null;
+type ClampResult = {
   fallback: boolean;
+  state: RichState | null;
+};
+
+type Probe = {
+  body: HTMLElement;
+  content: HTMLElement;
+  root: HTMLElement;
+};
+
+type ClampOptions = {
+  ellipsis: string;
+  from: RichState | null;
+  hint: RichState | null;
+  lineLimit: number | undefined;
+  maxHeight: number | string | undefined;
+  prepared: PreparedRich;
+  probe: Probe;
 };
 
 const ROOT_PATH: readonly number[] = [];
@@ -521,8 +537,8 @@ function fullEndPoint(root: HTMLElement): BoundaryPoint {
   };
 }
 
-function endPointForDecision(root: HTMLElement, decision: RichClampDecision): BoundaryPoint {
-  return decision.kind === "full" ? fullEndPoint(root) : decision.point;
+function pointForState(root: HTMLElement, state: RichState): BoundaryPoint {
+  return state.kind === "full" ? fullEndPoint(root) : state.point;
 }
 
 function resolvePath(root: Node, path: readonly number[]): Node | null {
@@ -604,7 +620,7 @@ function sameBoundaryPoint(left: BoundaryPoint, right: BoundaryPoint): boolean {
   return left.offset === right.offset && pathKey(left.path) === pathKey(right.path);
 }
 
-function sameDecision(left: RichClampDecision | null, right: RichClampDecision): boolean {
+function sameState(left: RichState | null, right: RichState): boolean {
   if (!left || left.kind !== right.kind) {
     return false;
   }
@@ -622,56 +638,54 @@ function removeChildrenFrom(container: Node, startIndex: number): void {
   }
 }
 
-export function patchRichTextToDecision(
-  prepared: PreparedRichText,
-  targetElement: HTMLElement,
-  currentDecision: RichClampDecision | null,
-  nextDecision: RichClampDecision,
+export function patchRich(
+  prepared: PreparedRich,
+  target: HTMLElement,
+  from: RichState | null,
+  to: RichState,
   ellipsis: string,
   imageSource?: string,
-): RichClampDecision {
-  if (sameDecision(currentDecision, nextDecision)) {
+): RichState {
+  if (sameState(from, to)) {
     // Avoid touching DOM when the search probes the same structural point again.
-    return nextDecision;
+    return to;
   }
 
   const { root } = prepared;
-  const currentPoint = currentDecision
-    ? endPointForDecision(root, currentDecision)
-    : ROOT_START_POINT;
-  const nextPoint = endPointForDecision(root, nextDecision);
+  const currentPoint = from ? pointForState(root, from) : ROOT_START_POINT;
+  const nextPoint = pointForState(root, to);
   const anchor = patchAnchorFor(root, currentPoint, nextPoint);
   const fragment = clonePatchFromAnchor(root, anchor, nextPoint, imageSource);
 
-  if (currentDecision?.kind === "clamped") {
+  if (from?.kind === "clamped") {
     // The root-level ellipsis is outside the structural source tree, so remove it
     // before calculating the next source-derived suffix.
-    removeRootEllipsis(targetElement, ellipsis);
+    removeRootEllipsis(target, ellipsis);
   }
 
-  const liveAnchor = resolvePatchAnchor(targetElement, anchor.path);
+  const liveAnchor = resolvePatchAnchor(target, anchor.path);
 
   removeChildrenFrom(liveAnchor, anchor.startIndex);
 
-  if (nextDecision.kind === "clamped") {
+  if (to.kind === "clamped") {
     trimTrailingWhitespace(fragment);
   }
 
   liveAnchor.appendChild(fragment);
 
-  if (nextDecision.kind === "clamped") {
+  if (to.kind === "clamped") {
     // Ellipsis is deliberately appended to the rich body root, not inside the
     // innermost inline element, so source markup remains structurally intact.
-    appendEllipsis(targetElement, ellipsis);
+    appendEllipsis(target, ellipsis);
   }
 
-  return nextDecision;
+  return to;
 }
 
-export function prepareRichText(
+export function prepareRich(
   html: string,
   boundary: ClampBoundary = "grapheme",
-): PreparedRichText | null {
+): PreparedRich | null {
   if (typeof DOMParser === "undefined") {
     return null;
   }
@@ -695,21 +709,18 @@ function boundaryPointIndex(points: readonly BoundaryPoint[], point: BoundaryPoi
   return null;
 }
 
-function runIndexHintForDecision(
-  runs: readonly LogicalRun[],
-  decision: RichClampDecision | null,
-): number | null {
-  if (!decision) {
+function runHintForState(runs: readonly LogicalRun[], state: RichState | null): number | null {
+  if (!state) {
     return null;
   }
 
-  if (decision.kind === "full") {
+  if (state.kind === "full") {
     // Full content corresponds to the last run end and is a good warm-start
     // point before a shrink.
     return runs.length - 1;
   }
 
-  const { point } = decision;
+  const { point } = state;
 
   for (let index = 0; index < runs.length; index += 1) {
     const run = runs[index]!;
@@ -732,41 +743,33 @@ function runIndexHintForDecision(
   return null;
 }
 
-export function clampRichTextToLayout(
-  prepared: PreparedRichText,
-  rootElement: HTMLElement,
-  contentElement: HTMLElement,
-  richElement: HTMLElement,
-  currentDecision: RichClampDecision | null,
-  searchDecision: RichClampDecision | null,
-  ellipsis: string,
-  lineLimit: number | undefined,
-  maxHeight: number | string | undefined,
-): RichClampResult {
+export function clampRich({
+  ellipsis,
+  from,
+  hint,
+  lineLimit,
+  maxHeight,
+  prepared,
+  probe,
+}: ClampOptions): ClampResult {
   const { nodes } = prepared;
+  const { body, content, root } = probe;
 
-  if (rootElement.getBoundingClientRect().width <= 0) {
-    // An unmeasurable probe cannot produce a trustworthy structural decision.
+  if (root.getBoundingClientRect().width <= 0) {
+    // An unmeasurable probe cannot produce a trustworthy structural state.
     return {
-      decision: null,
+      state: null,
       fallback: false,
     };
   }
 
-  let decision = patchRichTextToDecision(
-    prepared,
-    richElement,
-    currentDecision,
-    { kind: "full" },
-    ellipsis,
-    PROBE_IMAGE_SRC,
-  );
+  let state = patchRich(prepared, body, from, { kind: "full" }, ellipsis, PROBE_IMAGE_SRC);
 
   function applyCandidate(point: BoundaryPoint): void {
-    decision = patchRichTextToDecision(
+    state = patchRich(
       prepared,
-      richElement,
-      decision,
+      body,
+      state,
       {
         kind: "clamped",
         point,
@@ -778,39 +781,39 @@ export function clampRichTextToLayout(
 
   function fitsCandidate(endPoint: BoundaryPoint): boolean {
     applyCandidate(endPoint);
-    return fitsContent(rootElement, contentElement, lineLimit, maxHeight);
+    return fitsContent(root, content, lineLimit, maxHeight);
   }
 
-  const atomicPaths = inspectLayout(richElement);
-  if (!atomicPaths) {
+  const layout = inspectLayout(body);
+  if (!layout) {
     // Unsupported inline layout falls back to the original HTML instead of
     // risking a structurally valid but visually wrong clamp.
     return {
-      decision,
+      state,
       fallback: true,
     };
   }
 
-  if (fitsContent(rootElement, contentElement, lineLimit, maxHeight)) {
+  if (fitsContent(root, content, lineLimit, maxHeight)) {
     // The full rich tree fits; exit before logical-run construction because no
     // searchable candidate is needed.
     return {
-      decision,
+      state,
       fallback: false,
     };
   }
 
-  const runs = buildLogicalRuns(nodes, atomicPaths);
+  const runs = buildLogicalRuns(nodes, layout);
   if (runs.length === 0) {
     // Rich content can be all comments/empty text; in that case the full patched
     // state is already the only meaningful answer.
     return {
-      decision,
+      state,
       fallback: false,
     };
   }
 
-  const coarseHint = runIndexHintForDecision(runs, searchDecision);
+  const coarseHint = runHintForState(runs, hint);
   // Coarse search skips over complete logical runs first so refinement only has
   // to slice the one text run that crosses the fit boundary.
   const coarseIndex = findLastFittingIndex(
@@ -826,15 +829,13 @@ export function clampRichTextToLayout(
     // coarse point.
     applyCandidate(coarsePoint);
     return {
-      decision,
+      state,
       fallback: false,
     };
   }
 
   const fineHint =
-    searchDecision?.kind === "clamped"
-      ? boundaryPointIndex(nextRun.textCuts, searchDecision.point)
-      : null;
+    hint?.kind === "clamped" ? boundaryPointIndex(nextRun.textCuts, hint.point) : null;
   // Fine search is limited to text cuts inside the first overflowing text run.
   const fineIndex = findLastFittingIndex(
     nextRun.textCuts.length,
@@ -847,9 +848,7 @@ export function clampRichTextToLayout(
     // Word boundary mode retries with grapheme cuts only when no whole-word cut
     // in the overflowing run can fit.
     const fallbackHint =
-      searchDecision?.kind === "clamped"
-        ? boundaryPointIndex(nextRun.fallbackTextCuts, searchDecision.point)
-        : null;
+      hint?.kind === "clamped" ? boundaryPointIndex(nextRun.fallbackTextCuts, hint.point) : null;
     const fallbackIndex = findLastFittingIndex(
       nextRun.fallbackTextCuts.length,
       (index) => fitsCandidate(nextRun.fallbackTextCuts![index]!),
@@ -860,7 +859,7 @@ export function clampRichTextToLayout(
 
   applyCandidate(finePoint);
   return {
-    decision,
+    state,
     fallback: false,
   };
 }

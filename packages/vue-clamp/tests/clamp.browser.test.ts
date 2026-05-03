@@ -54,6 +54,15 @@ function richImage(root: HTMLElement, message: string): HTMLImageElement {
   return image;
 }
 
+function lineContentElement(root: HTMLElement): HTMLElement {
+  const content = root.querySelector('[data-part="content"]');
+  if (!(content instanceof HTMLElement)) {
+    throw new Error("Expected line clamp content element.");
+  }
+
+  return content;
+}
+
 describe("LineClamp browser contract", () => {
   it("renders plain text without role or aria-label when no truncation support is needed", async () => {
     const mounted = mountClamp({
@@ -150,7 +159,12 @@ describe("LineClamp browser contract", () => {
     const root = rootElement(mounted.container);
     await waitUntilVisible(root);
 
-    expect(textElement(root).textContent).toContain("…");
+    expect(textElement(root).textContent).toBe(
+      "abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz",
+    );
+    expect(getComputedStyle(lineContentElement(root)).getPropertyValue("-webkit-line-clamp")).toBe(
+      "2",
+    );
     expect(await sampleVisibleLineCounts(root)).toEqual([2, 2, 2]);
   });
 
@@ -238,6 +252,56 @@ describe("LineClamp browser contract", () => {
     expect(accessibleTextElement(root)).toBeNull();
     expect((mounted.exposed.value as LineClampExposed).clamped).toBe(true);
     expect(await sampleVisibleLineCounts(root)).toEqual([1, 1, 1]);
+  });
+
+  it("allows before slot content in native multiline line-clamp mode", async () => {
+    const mounted = mountClamp({
+      text: DEMO_TEXT,
+      width: 210,
+      props: {
+        maxLines: 2,
+      },
+      before: () => h("strong", "Before"),
+    });
+
+    const root = rootElement(mounted.container);
+    await waitUntilVisible(root);
+    await settle();
+
+    expect(beforeElement(root)?.textContent).toBe("Before");
+    expect(textElement(root).textContent).toBe(DEMO_TEXT);
+    expect(getComputedStyle(lineContentElement(root)).getPropertyValue("-webkit-line-clamp")).toBe(
+      "2",
+    );
+    expect(accessibleTextElement(root)).toBeNull();
+    expect((mounted.exposed.value as LineClampExposed).clamped).toBe(true);
+    expect(await sampleVisibleLineCounts(root)).toEqual([2, 2, 2]);
+  });
+
+  it("keeps multiline after slot cases on the measured path", async () => {
+    const mounted = mountClamp({
+      text: DEMO_TEXT,
+      width: 210,
+      props: {
+        maxLines: 2,
+      },
+      after: () => h("button", { type: "button" }, "After"),
+    });
+
+    const root = rootElement(mounted.container);
+    await waitUntilVisible(root);
+    await settle(4);
+
+    const textNode = textElement(root);
+    expect(
+      getComputedStyle(lineContentElement(root)).getPropertyValue("-webkit-line-clamp"),
+    ).not.toBe("2");
+    expect(textNode.textContent).not.toBe(DEMO_TEXT);
+    expect(textNode.getAttribute("aria-hidden")).toBe("true");
+    expect(accessibleTextElement(root)?.textContent).toBe(DEMO_TEXT);
+    expect(afterElement(root)?.textContent).toBe("After");
+    expect((mounted.exposed.value as LineClampExposed).clamped).toBe(true);
+    expect(await sampleVisibleLineCounts(root)).toEqual([2, 2, 2]);
   });
 
   it("reclamps after an after slot appears when clamped state changes", async () => {
@@ -505,6 +569,7 @@ describe("LineClamp browser contract", () => {
     const mounted = mountClamp({
       text: sourceText,
       props: {
+        ellipsis: "...",
         maxLines: 2,
       },
     });
@@ -514,6 +579,7 @@ describe("LineClamp browser contract", () => {
 
     const textNode = textElement(root);
     expect(textNode.textContent).not.toBe(sourceText);
+    expect(textNode.textContent).toContain("...");
     expect(textNode.getAttribute("aria-hidden")).toBe("true");
     expect(accessibleTextElement(root)?.textContent).toBe(sourceText);
   });

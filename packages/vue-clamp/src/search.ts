@@ -1,4 +1,4 @@
-export type LastFitSearchHint = {
+type SearchHint = {
   index: number;
 };
 
@@ -35,7 +35,7 @@ function binarySearchLastFit(
 export function findLastFittingIndex(
   count: number,
   fits: (index: number) => boolean,
-  hint?: LastFitSearchHint | null,
+  hint?: SearchHint | null,
 ): number {
   if (count <= 0) {
     return -1;

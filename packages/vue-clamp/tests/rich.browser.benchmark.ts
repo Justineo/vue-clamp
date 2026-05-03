@@ -1,11 +1,11 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vite-plus/test";
 import { createApp, defineComponent, h, nextTick, ref } from "vue";
 import { RichLineClamp } from "../src/index.ts";
-import { clampRichTextToLayout, prepareRichText } from "../src/rich.ts";
+import { clampRich, prepareRich } from "../src/rich.ts";
 import { frame } from "./browser.ts";
 
 import type { App, Ref } from "vue";
-import type { RichClampDecision } from "../src/rich.ts";
+import type { RichState } from "../src/rich.ts";
 
 type BenchmarkMetrics = {
   boundingRectReads: number;
@@ -54,13 +54,13 @@ type ScenarioResult = {
 };
 
 type MountedHost = {
+  body: HTMLElement;
   container: HTMLElement;
   content: HTMLElement;
-  decision: RichClampDecision | null;
   destroy: () => void;
-  rich: HTMLElement;
   root: HTMLElement;
   setWidth: (width: number) => void;
+  state: RichState | null;
 };
 
 type ComponentHost = {
@@ -250,57 +250,39 @@ function mountHost(html: string, width: number): MountedHost {
   container.append(root);
 
   return {
+    body,
     container,
     content,
-    decision: null,
     destroy: () => {
       container.remove();
     },
-    rich: body,
     root,
     setWidth: (nextWidth) => {
       root.style.width = `${nextWidth}px`;
     },
+    state: null,
   };
 }
 
 function runClamp(
-  prepared: NonNullable<ReturnType<typeof prepareRichText>>,
+  prepared: NonNullable<ReturnType<typeof prepareRich>>,
   host: MountedHost,
   maxLines: number,
-  searchDecision: RichClampDecision | null,
+  hint: RichState | null,
 ): void {
-  const clamp = clampRichTextToLayout as unknown as (...args: unknown[]) => {
-    decision: RichClampDecision | null;
-    fallback: boolean;
-  };
-  const result =
-    clamp.length >= 9
-      ? clamp(
-          prepared,
-          host.root,
-          host.content,
-          host.rich,
-          host.decision,
-          searchDecision,
-          "…",
-          maxLines,
-          undefined,
-        )
-      : clamp(
-          prepared,
-          host.root,
-          host.content,
-          host.rich,
-          host.decision,
-          "…",
-          maxLines,
-          undefined,
-        );
-  host.decision = result.decision;
+  const result = clampRich({
+    ellipsis: "…",
+    from: host.state,
+    hint,
+    lineLimit: maxLines,
+    maxHeight: undefined,
+    prepared,
+    probe: host,
+  });
+  host.state = result.state;
 
-  if (!result.decision) {
-    throw new Error("Rich benchmark returned null decision.");
+  if (!result.state) {
+    throw new Error("Rich benchmark returned null state.");
   }
 }
 
@@ -316,7 +298,7 @@ async function runDirectScenario(spec: DirectScenarioSpec): Promise<BenchmarkRun
     await frame();
 
     const prepared = spec.htmls.map((html) => {
-      const nextPrepared = prepareRichText(html);
+      const nextPrepared = prepareRich(html);
       if (!nextPrepared) {
         throw new Error(`Rich benchmark could not prepare html for ${spec.name}.`);
       }
@@ -344,7 +326,7 @@ async function runDirectScenario(spec: DirectScenarioSpec): Promise<BenchmarkRun
           prepared[index]!,
           hosts[index]!,
           spec.maxLines,
-          spec.cache === "warm" ? hosts[index]!.decision : null,
+          spec.cache === "warm" ? hosts[index]!.state : null,
         );
       }
 

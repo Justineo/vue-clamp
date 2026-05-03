@@ -9,11 +9,11 @@ import {
   maxHeightProp,
   maxLinesProp,
 } from "./props.ts";
-import { clampRichTextToLayout, patchRichTextToDecision, prepareRichText } from "./rich.ts";
+import { clampRich, patchRich, prepareRich } from "./rich.ts";
 import { hasSlotContent } from "./slot.ts";
 
 import type { CSSProperties } from "vue";
-import type { PreparedRichText, RichClampDecision } from "./rich.ts";
+import type { PreparedRich, RichState } from "./rich.ts";
 import type { RichLineClampExposed, RichLineClampSlotProps } from "./types.ts";
 
 const slotStyle: CSSProperties = {
@@ -62,7 +62,7 @@ const emitsDef = {
   clampchange: (value: boolean) => typeof value === "boolean",
 };
 
-function createProbeElements(): ProbeElements {
+function createProbe(): ProbeElements {
   const content = document.createElement("span");
   const body = document.createElement("span");
 
@@ -83,40 +83,34 @@ export const RichLineClamp = defineComponent({
 
     const lineLimit = computed(() => normalizeLineLimit(props.maxLines));
     const hasLimit = computed(() => lineLimit.value !== undefined || props.maxHeight !== undefined);
-    const preparedHtml = computed(() => prepareRichText(props.html, props.boundary));
-    // The visible tree and hidden probe advance independently: visibleDecision
-    // patches user-facing DOM, while probeDecision keeps measurement patches
-    // cheap across repeated reclamps.
-    let visibleDecision: RichClampDecision | null = null;
-    let probeDecision: RichClampDecision | null = null;
+    const preparedHtml = computed(() => prepareRich(props.html, props.boundary));
+    // The visible tree and hidden probe advance independently: visibleState
+    // patches user-facing DOM, while probeState keeps measurement patches cheap
+    // across repeated reclamps.
+    let visibleState: RichState | null = null;
+    let probeState: RichState | null = null;
     let probeElements: ProbeElements | null = null;
-    let probeDecisionWidth: number | null = null;
+    let probeStateWidth: number | null = null;
 
-    function resetDecisions(): void {
-      visibleDecision = null;
-      probeDecision = null;
-      probeDecisionWidth = null;
+    function resetStates(): void {
+      visibleState = null;
+      probeState = null;
+      probeStateWidth = null;
     }
 
-    function patchVisible(prepared: PreparedRichText, decision: RichClampDecision): void {
+    function patchVisible(prepared: PreparedRich, state: RichState): void {
       const bodyElement = bodyRef.value;
       if (!bodyElement) {
-        // If Vue has not mounted the target body, discard decisions rather than
+        // If Vue has not mounted the target body, discard states rather than
         // applying future patches against an unknown DOM state.
-        resetDecisions();
+        resetStates();
         return;
       }
 
-      visibleDecision = patchRichTextToDecision(
-        prepared,
-        bodyElement,
-        visibleDecision,
-        decision,
-        props.ellipsis,
-      );
+      visibleState = patchRich(prepared, bodyElement, visibleState, state, props.ellipsis);
     }
 
-    async function applyState(nextClamped: boolean, nextFallback: boolean): Promise<void> {
+    async function applyStatus(nextClamped: boolean, nextFallback: boolean): Promise<void> {
       const changed = isClamped.value !== nextClamped || isFallback.value !== nextFallback;
 
       isClamped.value = nextClamped;
@@ -137,10 +131,10 @@ export const RichLineClamp = defineComponent({
         // are restored consistently with normal clamp commits.
         patchVisible(prepared, { kind: "full" });
       } else {
-        resetDecisions();
+        resetStates();
       }
 
-      await applyState(false, false);
+      await applyStatus(false, false);
     }
 
     function prepareProbe(): {
@@ -155,7 +149,7 @@ export const RichLineClamp = defineComponent({
         return null;
       }
 
-      const elements = (probeElements ??= createProbeElements());
+      const elements = (probeElements ??= createProbe());
       const maxHeight = cssLength(props.maxHeight);
       const width = rootElement.getBoundingClientRect().width;
 
@@ -209,7 +203,7 @@ export const RichLineClamp = defineComponent({
       onClampedChange: (value) => {
         emit("clampchange", value);
       },
-      recompute: async ({ expanded }): Promise<void> => {
+      recompute: async (expanded): Promise<void> => {
         const { ellipsis, html: sourceHtml, maxHeight } = props;
         if (expanded.value || sourceHtml.length === 0 || !hasLimit.value) {
           // Expanded, empty, and unlimited states should leave the trusted HTML
@@ -233,37 +227,35 @@ export const RichLineClamp = defineComponent({
           return;
         }
 
-        const searchDecision =
-          probeDecisionWidth === null ||
-          Math.abs(probe.width - probeDecisionWidth) <= warmSearchWidthDelta
-            ? probeDecision
+        const searchHint =
+          probeStateWidth === null ||
+          Math.abs(probe.width - probeStateWidth) <= warmSearchWidthDelta
+            ? probeState
             : null;
         // Search hints help nearby resizes but can cost more on large jumps. The
-        // current probe decision is still passed separately so patching remains
+        // current probe state is still passed separately so patching remains
         // correct even when the search starts cold.
-        const nextState = clampRichTextToLayout(
-          prepared,
-          probe.root,
-          probe.content,
-          probe.body,
-          probeDecision,
-          searchDecision,
+        const result = clampRich({
           ellipsis,
-          lineLimit.value,
+          from: probeState,
+          hint: searchHint,
+          lineLimit: lineLimit.value,
           maxHeight,
-        );
-        probeDecision = nextState.decision;
-        probeDecisionWidth = probe.width;
+          prepared,
+          probe,
+        });
+        probeState = result.state;
+        probeStateWidth = probe.width;
 
-        if (!nextState.decision) {
+        if (!result.state) {
           // A zero-width probe should not replace visible content with a guessed
           // rich fragment.
           await resetClamp();
           return;
         }
 
-        patchVisible(prepared, nextState.decision);
-        await applyState(nextState.decision.kind === "clamped", nextState.fallback);
+        patchVisible(prepared, result.state);
+        await applyStatus(result.state.kind === "clamped", result.fallback);
       },
     });
 
@@ -276,9 +268,9 @@ export const RichLineClamp = defineComponent({
         () => props.boundary,
       ],
       () => {
-        // HTML and clamp semantics change the structural decision space, so both
+        // HTML and clamp semantics change the structural state space, so both
         // visible and probe patch cursors must restart.
-        resetDecisions();
+        resetStates();
         isFallback.value = false;
         requestRecompute();
       },

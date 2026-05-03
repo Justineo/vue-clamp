@@ -261,23 +261,36 @@ function resultFrom(value: unknown, prepared: PreparedText): TextClampResult | n
   return value as TextClampResult;
 }
 
-function clampTextToFit(
-  prepared: PreparedText,
-  ratio: number,
-  ellipsis: string,
-  fits: (text: string) => boolean,
-  spacing: "trim" | "preserve-outer",
-  hint: TextClampHint | null,
-): TextClampResult {
+function clampTextToFit({
+  ellipsis,
+  fit,
+  hint,
+  prepared,
+  ratio,
+  spacing,
+}: {
+  ellipsis: string;
+  fit: (text: string) => boolean;
+  hint: TextClampHint | null;
+  prepared: PreparedText;
+  ratio: number;
+  spacing: "trim" | "preserve-outer";
+}): TextClampResult {
   const module = textModule();
   const clamp =
     module.clampTextToFit ??
-    module.searchClampedTextToFit ??
     (() => {
       throw new Error("Missing text fit helper.");
     });
   const result = resultFrom(
-    (clamp as (...args: unknown[]) => unknown)(prepared, ratio, ellipsis, fits, spacing, hint),
+    (clamp as (...args: unknown[]) => unknown)({
+      ellipsis,
+      fit,
+      hint,
+      prepared,
+      ratio,
+      spacing,
+    }),
     prepared,
   );
 
@@ -295,17 +308,17 @@ function clampTextToLayout(
   maxLines: number,
   hint: TextClampHint | null,
 ): TextClampResult | null {
-  const result = (textModule().clampTextToLayout as (...args: unknown[]) => unknown)(
-    prepared,
-    host.root,
-    host.content,
-    host.text,
-    ratio,
-    "…",
-    maxLines,
-    undefined,
+  const result = (textModule().clampTextToLayout as (...args: unknown[]) => unknown)({
+    content: host.content,
+    ellipsis: "…",
     hint,
-  );
+    lineLimit: maxLines,
+    maxHeight: undefined,
+    prepared,
+    ratio,
+    root: host.root,
+    target: host.text,
+  });
 
   return resultFrom(result, prepared);
 }
@@ -409,17 +422,17 @@ function runInlineClamp(
     };
   }
 
-  const result = clampTextToFit(
-    prepared,
-    ratio,
-    "…",
-    (candidate) => {
+  const result = clampTextToFit({
+    ellipsis: "…",
+    fit: (candidate: string) => {
       host.body.textContent = candidate;
       return fits();
     },
-    "preserve-outer",
+    prepared,
+    ratio,
+    spacing: "preserve-outer",
     hint,
-  );
+  });
   host.body.textContent = result.text;
   return result;
 }

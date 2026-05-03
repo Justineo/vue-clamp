@@ -67,6 +67,15 @@ export function listenForFontLoads(onLoad: () => void): () => void {
   };
 }
 
+type LineBox = {
+  bottom: number;
+  top: number;
+};
+
+function sameLineBox(line: LineBox, rect: DOMRect): boolean {
+  return Math.abs(line.top - rect.top) <= 0.5 && Math.abs(line.bottom - rect.bottom) <= 0.5;
+}
+
 // All DOM clamp implementations use this fit predicate so line counting and
 // max-height clipping agree. It short-circuits as soon as a candidate is known
 // not to fit because this runs inside search loops.
@@ -82,7 +91,7 @@ export function fitsContent(
   }
 
   const rects = contentElement.getClientRects();
-  const lines: string[] = [];
+  const lines: LineBox[] = [];
   let visibleTop = 0;
   let visibleBottom = 0;
   let measuredVisibleBounds = false;
@@ -109,11 +118,13 @@ export function fitsContent(
     }
 
     if (lineLimit !== undefined) {
-      const line = `${rect.top}/${rect.bottom}`;
-      if (!lines.includes(line)) {
+      if (!lines.some((line) => sameLineBox(line, rect))) {
         // Browser rects are the source of truth for wrapped lines; grouping by
         // vertical bounds handles inline content that splits into many boxes.
-        lines.push(line);
+        lines.push({
+          bottom: rect.bottom,
+          top: rect.top,
+        });
 
         if (lines.length > lineLimit) {
           return false;

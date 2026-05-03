@@ -479,11 +479,3 @@ export const WrapClamp = defineComponent({
     };
   },
 });
-
-export type {
-  WrapClampExposed,
-  WrapClampItemKey,
-  WrapClampItemSlotProps,
-  WrapClampProps,
-  WrapClampSlotProps,
-} from "./types.ts";

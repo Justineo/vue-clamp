@@ -1,18 +1,19 @@
 import { describe, expect, it } from "vite-plus/test";
-import {
-  displayTextForKeptCount,
-  prepareText,
-  clampTextToFit,
-  splitGraphemes,
-} from "../src/text.ts";
+import { displayTextForKeptCount, prepareText, clampTextToFit } from "../src/text.ts";
 
 describe("text helpers", () => {
-  it("splits ascii text into single characters", () => {
-    expect(splitGraphemes("abc")).toEqual(["a", "b", "c"]);
+  it("prepares ascii text as single-code-unit grapheme boundaries", () => {
+    expect(prepareText("abc").boundaryOffsets).toEqual([0, 1, 2, 3]);
   });
 
   it("keeps grapheme clusters intact for emoji", () => {
-    expect(splitGraphemes("a👨‍👩‍👧‍👦b")).toEqual(["a", "👨‍👩‍👧‍👦", "b"]);
+    const text = "a👨‍👩‍👧‍👦b";
+    const { boundaryOffsets } = prepareText(text);
+    const graphemes = boundaryOffsets
+      .slice(1)
+      .map((end, index) => text.slice(boundaryOffsets[index], end));
+
+    expect(graphemes).toEqual(["a", "👨‍👩‍👧‍👦", "b"]);
   });
 
   it("builds end-clamped text from a kept grapheme count", () => {
@@ -48,7 +49,14 @@ describe("text helpers", () => {
   it("falls back to grapheme boundaries when no word boundary fits", () => {
     const prepared = prepareText("supercalifragilistic", "word");
 
-    expect(clampTextToFit(prepared, 1, "…", (text) => text.length <= 8).text).toBe("superca…");
+    expect(
+      clampTextToFit({
+        ellipsis: "…",
+        fit: (text) => text.length <= 8,
+        prepared,
+        ratio: 1,
+      }).text,
+    ).toBe("superca…");
   });
 
   it("can warm-start text fitting near the previous fit", () => {
@@ -60,10 +68,21 @@ describe("text helpers", () => {
       return text.length <= 43;
     };
 
-    const cold = clampTextToFit(prepared, 1, "…", fits(coldProbes));
-    const warm = clampTextToFit(prepared, 1, "…", fits(warmProbes), "trim", {
-      boundaryOffsets: prepared.boundaryOffsets,
-      kept: 40,
+    const cold = clampTextToFit({
+      ellipsis: "…",
+      fit: fits(coldProbes),
+      prepared,
+      ratio: 1,
+    });
+    const warm = clampTextToFit({
+      ellipsis: "…",
+      fit: fits(warmProbes),
+      hint: {
+        boundaryOffsets: prepared.boundaryOffsets,
+        kept: 40,
+      },
+      prepared,
+      ratio: 1,
     });
 
     expect(cold.kept).toBe(42);
@@ -75,23 +94,47 @@ describe("text helpers", () => {
   it("can warm-start text fitting downward from an oversized previous fit", () => {
     const prepared = prepareText("x".repeat(100));
     const probes: number[] = [];
-    const result = clampTextToFit(
-      prepared,
-      1,
-      "…",
-      (text) => {
+    const result = clampTextToFit({
+      ellipsis: "…",
+      fit: (text) => {
         probes.push(text.length);
         return text.length <= 37;
       },
-      "trim",
-      {
+      hint: {
         boundaryOffsets: prepared.boundaryOffsets,
         kept: 42,
       },
-    );
+      prepared,
+      ratio: 1,
+    });
 
     expect(result.kept).toBe(36);
     expect(probes[0]).toBe(43);
     expect(probes).toContain(37);
+  });
+
+  it("can apply the final text without retesting layout", () => {
+    const prepared = prepareText("x".repeat(8));
+    const applied: string[] = [];
+    const tested: string[] = [];
+    const result = clampTextToFit({
+      ellipsis: "…",
+      fit: {
+        apply(text) {
+          applied.push(text);
+        },
+        fits() {
+          const current = applied.at(-1) ?? "";
+          tested.push(current);
+          return current.length <= 4;
+        },
+      },
+      prepared,
+      ratio: 1,
+    });
+
+    expect(result.text).toBe("xxx…");
+    expect(applied.at(-1)).toBe(result.text);
+    expect(tested.at(-1)).not.toBe(result.text);
   });
 });

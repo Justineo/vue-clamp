@@ -11,24 +11,24 @@ type FrameRefs = {
   afterRef: Ref<HTMLElement | null>;
 };
 
-type ClampState = FrameRefs & {
+type ShellState = FrameRefs & {
   expanded: Ref<boolean>;
   isClamped: Ref<boolean>;
 };
 
-type ClampShellOptions = {
+type ShellOptions = {
   getExpanded: () => boolean;
   onExpandedChange: (value: boolean) => void;
   onClampedChange: (value: boolean) => void;
-  recompute: (state: ClampState) => Promise<void>;
+  recompute: (expanded: Ref<boolean>) => Promise<void>;
 };
 
 // LineClamp and RichLineClamp have different clamp engines but the same shell:
 // controlled expansion, slot/root refs, invalidation sources, and event timing.
 // Keeping that shell here avoids two subtly divergent lifecycle implementations.
-export function useMultilineClamp(options: ClampShellOptions) {
+export function useMultilineClamp(options: ShellOptions) {
   const { getExpanded, onExpandedChange, onClampedChange, recompute } = options;
-  const state: ClampState = {
+  const state: ShellState = {
     rootRef: ref<HTMLElement | null>(null),
     contentRef: ref<HTMLElement | null>(null),
     beforeRef: ref<HTMLElement | null>(null),
@@ -67,7 +67,7 @@ export function useMultilineClamp(options: ClampShellOptions) {
   }
 
   const requestRecompute = createCoalescingRunner(async () => {
-    await recompute(state);
+    await recompute(state.expanded);
     lastLayoutSignature = layoutSignature();
   });
 
