@@ -428,6 +428,32 @@ function waitTime(ms: number): Promise<void> {
     window.setTimeout(resolve, ms);
   });
 }
+
+async function waitForDocumentElement(document: Document, selector: string): Promise<HTMLElement> {
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    await settle(1);
+
+    const element = document.querySelector(selector);
+    if (element instanceof HTMLElement) {
+      return element;
+    }
+  }
+
+  throw new Error(`Expected document element matching ${selector}.`);
+}
+
+async function waitForElementAttribute(element: HTMLElement, attribute: string): Promise<void> {
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    await settle(1);
+
+    if (element.hasAttribute(attribute)) {
+      return;
+    }
+  }
+
+  throw new Error(`Expected ${attribute} on element.`);
+}
+
 async function waitForHeroTaglineShrink(
   tagline: HTMLElement,
   minimumDelta: number,
@@ -963,6 +989,7 @@ describe("Website demo page", () => {
     expect(referencePanelNames(mountedPage.container)).toEqual([
       "overview",
       "demo",
+      "stress",
       "example",
       "api",
     ]);
@@ -1066,6 +1093,7 @@ describe("Website demo page", () => {
     expect(referencePanelNames(mountedPage.container)).toEqual([
       "overview",
       "demo",
+      "stress",
       "example",
       "api",
     ]);
@@ -1083,6 +1111,7 @@ describe("Website demo page", () => {
     expect(referencePanelNames(mountedPage.container)).toEqual([
       "overview",
       "demo",
+      "stress",
       "example",
       "api",
     ]);
@@ -1203,6 +1232,147 @@ describe("Website demo page", () => {
     expect(sharedControlsToggle(mountedPage.container, "rich").getAttribute("aria-expanded")).toBe(
       "false",
     );
+  });
+
+  it("opens a stress playground with fps and workload controls", async () => {
+    const { default: App } = await import("../../website/src/App.vue");
+    const mountedPage = mountPage(App);
+
+    await settle(4);
+    await selectSurface(mountedPage.container, "wrap");
+
+    const document = mountedPage.container.ownerDocument;
+    const openButton = mountedPage.container.querySelector("[data-stress-playground-open]");
+    if (!(openButton instanceof HTMLButtonElement)) {
+      throw new Error("Expected the stress playground open button.");
+    }
+
+    expect(document.querySelector("[data-stress-playground]")).toBeNull();
+
+    openButton.click();
+
+    const playground = await waitForDocumentElement(document, "[data-stress-playground]");
+    await settle(2);
+    expect(playground).toBeInstanceOf(HTMLElement);
+    expect(
+      document.querySelector('[data-stress-surface="wrap"]')?.getAttribute("aria-pressed"),
+    ).toBe("true");
+    expect(
+      document
+        .querySelector("[data-stress-surface-item]")
+        ?.getAttribute("data-stress-surface-item"),
+    ).toBe("wrap");
+    expect(document.querySelector("[data-fps-meter] canvas")).toBeInstanceOf(HTMLCanvasElement);
+    expect(document.querySelectorAll("[data-stress-item]")).toHaveLength(10);
+    expect(
+      document
+        .querySelector("[data-stress-modal-scroll]")
+        ?.hasAttribute("data-overlayscrollbars-initialize"),
+    ).toBe(true);
+    expect(
+      document
+        .querySelector("[data-stress-workload]")
+        ?.hasAttribute("data-overlayscrollbars-initialize"),
+    ).toBe(true);
+    expect(document.body.style.position).toBe("fixed");
+    expect(document.documentElement.style.overflow).toBe("hidden");
+
+    const meter = document.querySelector("[data-fps-meter]");
+    const countSlider = document.querySelector("[data-stress-count-slider]");
+    const widthSlider = document.querySelector("[data-stress-width-slider]");
+    const payloadSlider = document.querySelector("[data-stress-payload-slider]");
+    const maxLinesSlider = document.querySelector("[data-stress-max-lines-slider]");
+
+    for (const slider of [countSlider, widthSlider, payloadSlider, maxLinesSlider]) {
+      expect(slider).toBeInstanceOf(HTMLInputElement);
+    }
+    expect(document.querySelector("[data-stress-max-height-slider]")).toBeNull();
+    expect(
+      document.querySelector('[data-stress-limit-mode="lines"]')?.getAttribute("aria-pressed"),
+    ).toBe("true");
+    expect(document.querySelector("[data-stress-native-status]")).toBeNull();
+
+    expect(meter).toBeInstanceOf(HTMLElement);
+
+    (countSlider as HTMLInputElement).value = "1.3";
+    countSlider?.dispatchEvent(new Event("input", { bubbles: true }));
+    await settle(2);
+
+    expect(document.querySelector("[data-stress-count]")?.textContent).toBe("20");
+    expect(document.querySelectorAll("[data-stress-item]")).toHaveLength(20);
+
+    expect(document.querySelector("[data-stress-payload]")?.textContent).toBe("24 items");
+    (payloadSlider as HTMLInputElement).value = "5";
+    payloadSlider?.dispatchEvent(new Event("input", { bubbles: true }));
+    await settle(1);
+    expect(document.querySelector("[data-stress-payload]")?.textContent).toBe("40 items");
+
+    const lineSurfaceButton = document.querySelector('[data-stress-surface="line"]');
+    if (!(lineSurfaceButton instanceof HTMLButtonElement)) {
+      throw new Error("Expected the LineClamp stress surface button.");
+    }
+    lineSurfaceButton.click();
+    await settle(2);
+    expect(lineSurfaceButton.getAttribute("aria-pressed")).toBe("true");
+    expect(document.querySelector("[data-stress-payload]")?.textContent).toBe("5x text");
+    expect(
+      document
+        .querySelector("[data-stress-surface-item]")
+        ?.getAttribute("data-stress-surface-item"),
+    ).toBe("line");
+
+    (widthSlider as HTMLInputElement).value = "520";
+    widthSlider?.dispatchEvent(new Event("input", { bubbles: true }));
+    (maxLinesSlider as HTMLInputElement).value = "1";
+    maxLinesSlider?.dispatchEvent(new Event("input", { bubbles: true }));
+    await settle(1);
+
+    const nativeStatus = document.querySelector("[data-stress-native-status]");
+    expect(nativeStatus).toBeInstanceOf(HTMLElement);
+    expect(nativeStatus?.getAttribute("data-stress-native-mode")).toBe("single-line");
+    expect(nativeStatus?.textContent?.trim()).toBe("Native");
+    expect(nativeStatus?.getAttribute("title")).toBe("Native CSS text-overflow");
+
+    (maxLinesSlider as HTMLInputElement).value = "5";
+    maxLinesSlider?.dispatchEvent(new Event("input", { bubbles: true }));
+    await settle(1);
+
+    expect(document.querySelector("[data-stress-width]")?.textContent).toBe("520px");
+    expect(document.querySelector("[data-stress-max-lines]")?.textContent).toBe("5");
+
+    const heightModeButton = document.querySelector('[data-stress-limit-mode="height"]');
+    if (!(heightModeButton instanceof HTMLButtonElement)) {
+      throw new Error("Expected the height stress limit mode button.");
+    }
+    heightModeButton.click();
+    await settle(2);
+
+    expect(heightModeButton.getAttribute("aria-pressed")).toBe("true");
+    expect(document.querySelector("[data-stress-max-lines-slider]")).toBeNull();
+    expect(document.querySelector("[data-stress-native-status]")).toBeNull();
+    const maxHeightSlider = document.querySelector("[data-stress-max-height-slider]");
+    expect(maxHeightSlider).toBeInstanceOf(HTMLInputElement);
+
+    expect(document.querySelector("[data-stress-max-height]")?.textContent).toBe("96px");
+    (maxHeightSlider as HTMLInputElement).value = "140";
+    maxHeightSlider?.dispatchEvent(new Event("input", { bubbles: true }));
+    await settle(1);
+
+    expect(document.querySelector("[data-stress-max-height]")?.textContent).toBe("140px");
+    expect(document.querySelector("[data-stress-item]")?.getAttribute("data-stress-item")).toBe(
+      "height",
+    );
+
+    const closeButton = document.querySelector("[data-stress-close]");
+    if (!(closeButton instanceof HTMLButtonElement)) {
+      throw new Error("Expected the stress playground close button.");
+    }
+    closeButton.click();
+    await settle(1);
+
+    expect(document.querySelector("[data-stress-playground]")).toBeNull();
+    expect(document.body.style.position).toBe("");
+    expect(document.documentElement.style.overflow).toBe("");
   });
 
   it("scrolls to the tabs row when its in-flow top edge is above the viewport", async () => {
@@ -1368,6 +1538,8 @@ describe("Website demo page", () => {
 
     expect(firstDemoPreview).toBeInstanceOf(HTMLElement);
     expect(codeScroll).toBeInstanceOf(HTMLElement);
+    await waitForElementAttribute(firstDemoPreview as HTMLElement, "data-overlayscrollbars");
+    await waitForElementAttribute(codeScroll as HTMLElement, "data-overlayscrollbars");
     expect((firstDemoPreview as HTMLElement).hasAttribute("data-overlayscrollbars")).toBe(true);
     expect((codeScroll as HTMLElement).hasAttribute("data-overlayscrollbars")).toBe(true);
   });

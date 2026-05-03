@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref } from "vue";
-import { ArrowUpRight, ChevronDown, Ellipsis, SlidersHorizontal } from "@lucide/vue";
+import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, ref } from "vue";
+import { ArrowUpRight, ChevronDown, Ellipsis, Gauge, SlidersHorizontal } from "@lucide/vue";
 import { siGithub } from "simple-icons";
 import { InlineClamp, LineClamp, RichLineClamp, WrapClamp } from "vue-clamp";
 import Alert from "./Alert.vue";
@@ -281,6 +281,8 @@ function setSurfaceRouteHash(surface: SurfaceKey): void {
 const activeSurface = ref<SurfaceKey>(currentSurfaceFromLocation() ?? "line");
 const referenceTabsAnchorRef = ref<HTMLElement | null>(null);
 const demoControlsExpanded = ref(false);
+const stressPlaygroundOpen = ref(false);
+const StressPlayground = defineAsyncComponent(() => import("./StressPlayground.vue"));
 const surfaceGuideItems = [
   {
     description:
@@ -2217,6 +2219,29 @@ const highlightedWrapCode = computed(() => highlightCode(wrapCodeExample, "vue")
             </div>
           </section>
 
+          <section
+            class="reference-section stress-playground-section"
+            data-reference-panel="stress"
+          >
+            <h3 class="subsection-title">Stress playground</h3>
+            <div class="stress-playground-row">
+              <button
+                class="stress-playground-open"
+                data-stress-playground-open
+                type="button"
+                @click="stressPlaygroundOpen = true"
+              >
+                <Gauge :size="15" :stroke-width="2" aria-hidden="true" />
+                <span>Open playground</span>
+              </button>
+            </div>
+            <StressPlayground
+              v-if="stressPlaygroundOpen"
+              :initial-surface="activeSurface"
+              @close="stressPlaygroundOpen = false"
+            />
+          </section>
+
           <section class="reference-section" data-reference-panel="example">
             <h3 class="subsection-title">Usage</h3>
             <CodeBlock
@@ -3583,6 +3608,48 @@ pre code {
 }
 
 /* Demo blocks */
+
+.stress-playground-section {
+  text-align: center;
+}
+
+.stress-playground-row {
+  display: flex;
+  justify-content: center;
+  margin: 0;
+}
+
+.stress-playground-open {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  padding: 0 11px;
+  gap: 7px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  font-family: inherit;
+  color: var(--c-text-2);
+  background: transparent;
+  border: 1px solid var(--c-border);
+  border-radius: 8px;
+  cursor: pointer;
+  transition:
+    background 0.15s,
+    border-color 0.15s,
+    color 0.15s,
+    box-shadow 0.15s;
+}
+
+.stress-playground-open:hover {
+  color: var(--c-accent-text);
+  background: color-mix(in srgb, var(--c-accent-soft) 74%, var(--c-bg));
+  border-color: color-mix(in srgb, var(--c-accent) 28%, transparent);
+}
+
+.stress-playground-open:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
 
 .demo-surface {
   display: flex;
