@@ -12,11 +12,13 @@
     "@lucide/vue": "catalog:",
     "overlayscrollbars": "catalog:",
     "simple-icons": "catalog:",
+    "stats.js": "catalog:",
     "vue": "catalog:",
     "vue-clamp": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "catalog:",
+    "@types/stats.js": "catalog:",
     "@vitejs/plugin-vue": "catalog:",
     "shiki": "catalog:",
     "typescript": "catalog:",

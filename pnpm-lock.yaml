@@ -12,6 +12,9 @@ catalogs:
     '@types/node':
       specifier: ^25.6.0
       version: 25.6.0
+    '@types/stats.js':
+      specifier: ^0.17.4
+      version: 0.17.4
     '@vitejs/plugin-vue':
       specifier: ^6.0.6
       version: 6.0.6
@@ -33,6 +36,9 @@ catalogs:
     simple-icons:
       specifier: ^16.16.0
       version: 16.16.0
+    stats.js:
+      specifier: ^0.17.0
+      version: 0.17.0
     typescript:
       specifier: ^6.0.3
       version: 6.0.3
@@ -101,6 +107,9 @@ importers:
       simple-icons:
         specifier: 'catalog:'
         version: 16.16.0
+      stats.js:
+        specifier: 'catalog:'
+        version: 0.17.0
       vue:
         specifier: 'catalog:'
         version: 3.5.32(typescript@6.0.3)
@@ -111,6 +120,9 @@ importers:
       '@types/node':
         specifier: 'catalog:'
         version: 25.6.0
+      '@types/stats.js':
+        specifier: 'catalog:'
+        version: 0.17.4
       '@vitejs/plugin-vue':
         specifier: 'catalog:'
         version: 6.0.6(@voidzero-dev/vite-plus-core@0.1.18(@types/node@25.6.0)(esbuild@0.27.7)(jiti@2.6.1)(tsx@4.21.0)(typescript@6.0.3)(yaml@2.8.3))(vue@3.5.32(typescript@6.0.3))
@@ -724,6 +736,9 @@ packages:
   '@types/node@25.6.0':
     resolution: {integrity: sha512-+qIYRKdNYJwY3vRCZMdJbPLJAtGjQBudzZzdzwQYkEPQd+PJGixUL5QfvCLDaULoLv+RhT3LDkwEfKaAkgSmNQ==}
 
+  '@types/stats.js@0.17.4':
+    resolution: {integrity: sha512-jIBvWWShCvlBqBNIZt0KAshWpvSjhkwkEu4ZUcASoAvhmrgAUI2t1dXrjSL4xXVLB4FznPrIsX3nKXFl/Dt4vA==}
+
   '@types/unist@3.0.3':
     resolution: {integrity: sha512-ko/gIFJRv177XgZsZcBwnqJN5x/Gien8qNOn0D5bQU/zAzVf9Zt3BlcUiLqhV9y4ARk0GbT3tnUiPNgnTXzc/Q==}
 
@@ -1295,6 +1310,9 @@ packages:
     resolution: {integrity: sha512-H+Z29a0TrCw6mrG42V2aqHQaKdJCT87x5aojLlPiIXOf1lpMqnKFAR/jP5xkI5hLrVTCBWs33e9sOtyNWqCx1A==}
     engines: {node: '>=0.12.18'}
 
+  stats.js@0.17.0:
+    resolution: {integrity: sha512-hNKz8phvYLPEcRkeG1rsGmV5ChMjKDAWU7/OJJdDErPBNChQXxCo3WZurGpnWc6gZhAzEPFad1aVgyOANH1sMw==}
+
   sirv@3.0.2:
     resolution: {integrity: sha512-2wcC/oGxHis/BoHkkPwldgiPSYcpZK3JU28WoMVv55yHJgcZ8rlXvuG9iZggz+sU1d4bRgIGASwyWqjxu3FM0g==}
     engines: {node: '>=18'}
@@ -1834,6 +1852,8 @@ snapshots:
   '@types/node@25.6.0':
     dependencies:
       undici-types: 7.19.2
+
+  '@types/stats.js@0.17.4': {}
 
   '@types/unist@3.0.3': {}
 
@@ -2424,6 +2444,8 @@ snapshots:
       '@types/hast': 3.0.4
 
   simple-icons@16.16.0: {}
+
+  stats.js@0.17.0: {}
 
   sirv@3.0.2:
     dependencies:
