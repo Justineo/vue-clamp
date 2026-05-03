@@ -39,6 +39,8 @@
   - `WrapClamp` as the canonical wrapped-item component name
 - There is no default export.
 - Public declaration types live in `packages/vue-clamp/src/types.ts`.
+- Component implementation files do not re-export public declaration types; type exports stay in
+  `types.ts` and the root package barrel so the public surface remains auditable.
 - `LineClamp` is the text-only multiline component.
 - `RichLineClamp` is the rich-html multiline component.
 - `LineClamp` `location` accepts the keyword aliases `start`, `middle`, and `end`, plus numeric ratios from `0` to `1`.
@@ -91,7 +93,7 @@
     expanded/clamped state, exposed actions, queued recomputes, `ResizeObserver`, font-load
     invalidation, and same-flush `onUpdated` invalidation
   - `packages/vue-clamp/src/text.ts` for grapheme/word boundary preparation, kept-count text
-    generation, text clamp search, location normalization, and native one-line eligibility helpers
+    generation, text clamp search, and location normalization
   - `packages/vue-clamp/src/rich.ts` for rich-text parsing, runtime inline-flow classification,
     logical-run preprocessing, boundary slicing, and rich clamp search
   - `packages/vue-clamp/src/layout.ts` for the remaining shared primitives worth centralizing:
@@ -106,6 +108,8 @@
   - the visible rich HTML is patched directly into the shared `body` part
   - no image-load settlement; inline rich images must provide stable layout dimensions up front
 - Shared code stays in small helpers instead of a large base shell.
+- Internal helper contracts use named input objects once a call would otherwise require several
+  same-shaped positional values, especially DOM elements and warm-start hints.
 - `LineClamp` and `RichLineClamp` now share one narrow internal shell helper rather than
   duplicating the same lifecycle shell:
   - root/content/body/before/after refs
@@ -113,7 +117,18 @@
   - queued recomputes
   - resize/font invalidation
   - same-flush `onUpdated` invalidation
+  - recompute callbacks receive only the shared expanded ref; component-specific refs remain local
+    to each component closure
   - the actual clamp logic still stays local to each component
+- `LineClamp` native clamping is represented internally as single-line versus multi-line modes
+  rather than a boolean or CSS-mechanism-specific strings:
+  - `"single-line"` for the exact one-line end/grapheme/default-ellipsis subset
+  - `"multi-line"` for the exact multiline end/grapheme/default-ellipsis subset when `maxHeight`
+    and `after` are absent and browser support is present
+  - `null` for measured DOM clamping
+- Multiline native `line-clamp` allows `before` slot content because it is a prefix inside the same
+  formatting context. It excludes `after` slot content because native CSS cannot reserve suffix
+  space while clamping the body.
 - `InlineClamp` is a small measured single-line component:
   - one `inline-block` root that clips to its available width
   - optional fixed `start` and `end` segments in normal inline flow
@@ -189,8 +204,8 @@
     - candidate output is generated from structural boundary decisions instead of serialized HTML
     - clamped rich output appends the ellipsis as a plain text node at the `body` root, even when
       the truncation point is inside an inline element such as `code`, `strong`, or `a`
-    - parsed rich preprocessing now caches text boundary metadata once per `html` source and reuses
-      it across width, slot, and font reclamps
+    - parsed rich preprocessing prepares text boundary metadata once per parsed source instance and
+      reuses it across width, slot, and font reclamps for that instance
     - rich preparation no longer carries its own support flag; support is decided only from the
       rendered layout at clamp time
     - unchanged content still validates the rendered rich layout, but now exits before logical-run
@@ -216,7 +231,21 @@
   - collapsed states are measured from the real rendered `before` / items / `after` sequence
   - the engine settles by shrinking to a fitting prefix, then probing upward one item at a time
   - measurements come from the rendered content DOM directly instead of a separate per-item ref cache
+  - large grow cases remain linear because each candidate can change arbitrary slot output and item
+    widths; cache/hint variants stay deferred until real component workloads prove a user-visible
+    win
+  - `hiddenItems` remains the public slot prop and is sliced directly from the current item array
   - keep item order logical in the DOM so RTL works through inherited browser direction
+
+### SSR direction
+
+- The preferred SSR direction remains a DOM-preserving visual skeleton rather than approximate
+  native CSS fallback.
+- The package currently has no stylesheet delivery contract or CSS side-effect entry. Because the
+  skeleton requires media-aware CSS such as `@media (scripting: enabled)` to keep full content
+  visible for no-JS users, it is deferred until the CSS delivery contract is designed.
+- Exact native SSR subsets may still render full content with native styles when the component can
+  prove semantic equivalence, but unsupported browsers must hydrate into the measured DOM path.
 
 ### Reactivity and trade-offs
 
@@ -354,6 +383,17 @@
     checkboxes align predictably
   - on narrow screens, each shared-controls bar collapses behind a compact toggle and expands in
     place to avoid cramped wrapping
+  - the demo section has a manual stress playground modal for high-count workloads across all four
+    public components:
+    it opens with the currently active component selected, renders 10-1000 real instances on a
+    logarithmic count slider, switches between `LineClamp`, `RichLineClamp`, `InlineClamp`, and
+    `WrapClamp`, scales text length or wrapped item count, chooses one active `maxLines` or
+    `maxHeight` limit mode at a time, shares one width slider across every item, and keeps the FPS
+    meter scoped to that modal instead of the normal demo surface. When the `LineClamp` workload
+    matches the native CSS fast-path conditions, the playground shows a compact native marker. It
+    locks page scroll, keeps keyboard focus inside the modal, and stays in a centered section after
+    the normal examples. It loads only when opened because it is diagnostic tooling rather than the
+    primary demo path.
 - The website component tabs now have stable direct-link hashes:
   - `#line-clamp`
   - `#rich-line-clamp`
@@ -376,9 +416,17 @@
   - the page body is initialized from the root app and bridged with `data-overlayscrollbars-initialize`
     on `html` and `body`
   - shared horizontal containers use one small directive-backed helper
-  - the current targets are the page body, demo preview frames, and code blocks
+  - the OverlayScrollbars library and stylesheet load asynchronously on first decorated scroll
+    surface instead of joining the primary website bundle
+  - the current targets are the page body, demo preview frames, code blocks, and the stress
+    playground modal/workload scroll areas
   - `ComponentTabs` stays on its native horizontal scroller so its bespoke mobile overflow behavior
     remains independent from the shared scrollbar layer
+- The website keeps non-primary presentation tooling out of the initial `App.vue` bundle:
+  - `CodeBlock.vue` is an async component
+  - Shiki highlighting lives in `packages/website/src/highlight.ts` and loads after mount, while
+    code blocks render plain `<pre><code>` content until highlighted HTML is ready
+  - the stress playground remains an async component because it is diagnostic tooling
 - The website now splits generic and specialized tab controls more cleanly:
   - `packages/website/src/PillControls.vue` is the reusable switcher for demo preset groups
   - the installation block keeps its original dedicated tab-strip styling
