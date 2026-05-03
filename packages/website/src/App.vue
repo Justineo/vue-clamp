@@ -1,34 +1,26 @@
 <script setup lang="ts">
-import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, ref } from "vue";
+import {
+  computed,
+  defineAsyncComponent,
+  nextTick,
+  onBeforeUnmount,
+  onMounted,
+  ref,
+  watch,
+} from "vue";
 import { ArrowUpRight, ChevronDown, Ellipsis, Gauge, SlidersHorizontal } from "@lucide/vue";
 import { siGithub } from "simple-icons";
 import { InlineClamp, LineClamp, RichLineClamp, WrapClamp } from "vue-clamp";
 import Alert from "./Alert.vue";
 import ComponentTabs from "./ComponentTabs.vue";
-import CodeBlock from "./CodeBlock.vue";
 import PillControls from "./PillControls.vue";
 import {
   horizontalOverlayScrollbarsOptions,
   initBodyOverlayScrollbars,
   overlayScrollbarsDirective,
 } from "./overlayScrollbars";
-import { createHighlighterCoreSync } from "shiki/core";
-import { createJavaScriptRegexEngine } from "shiki/engine/javascript";
-import vue from "shiki/langs/vue.mjs";
-import shellscript from "shiki/langs/shellscript.mjs";
-import css from "shiki/langs/css.mjs";
-import html from "shiki/langs/html.mjs";
-import js from "shiki/langs/javascript.mjs";
-import ts from "shiki/langs/typescript.mjs";
-import { websiteShikiTheme } from "./shiki-theme";
 
 import type { ClampBoundary, InlineClampSplit, LineClampLocation } from "vue-clamp";
-
-const shiki = createHighlighterCoreSync({
-  themes: [websiteShikiTheme],
-  langs: [vue, shellscript, css, html, js, ts],
-  engine: createJavaScriptRegexEngine(),
-});
 
 const vOverlayScrollbars = overlayScrollbarsDirective;
 const horizontalOverlayScrollbars = horizontalOverlayScrollbarsOptions;
@@ -282,6 +274,7 @@ const activeSurface = ref<SurfaceKey>(currentSurfaceFromLocation() ?? "line");
 const referenceTabsAnchorRef = ref<HTMLElement | null>(null);
 const demoControlsExpanded = ref(false);
 const stressPlaygroundOpen = ref(false);
+const CodeBlock = defineAsyncComponent(() => import("./CodeBlock.vue"));
 const StressPlayground = defineAsyncComponent(() => import("./StressPlayground.vue"));
 const surfaceGuideItems = [
   {
@@ -465,7 +458,7 @@ let heroTaglineTimer: number | null = null;
 let heroTaglineMotionQuery: MediaQueryList | null = null;
 let heroTaglineResizeObserver: ResizeObserver | null = null;
 let heroTaglineFontsReady = false;
-let heroTaglineMounted = false;
+let pageMounted = false;
 let stopBodyOverlayScrollbars = () => {};
 
 const inlineWidth5 = ref(280);
@@ -669,7 +662,9 @@ const demoControlsSummary = computed(() => {
         selectedInlineLocationPreset5.value ?? inlineLocationRatio5.value.toFixed(2),
         boundaryLabel(inlineBoundary5.value),
         `${inlineWidth5.value}px`,
-      ].join(" · ");
+      ]
+        .filter((part): part is string => Boolean(part))
+        .join(" · ");
     case "wrap":
       return [`${wrapWidth.value}px`, boolFlag(wrapRtl.value, "RTL")]
         .filter((part): part is string => Boolean(part))
@@ -896,8 +891,9 @@ function handleWrapTabsKeydown(event: KeyboardEvent): void {
 }
 
 onMounted(() => {
-  heroTaglineMounted = true;
+  pageMounted = true;
   stopBodyOverlayScrollbars = initBodyOverlayScrollbars();
+  void loadHighlightedCode();
   document.addEventListener("pointerdown", handleWrapTabsPointerDown);
   document.addEventListener("keydown", handleWrapTabsKeydown);
   window.addEventListener("hashchange", handleSurfaceHashChange);
@@ -922,7 +918,7 @@ onMounted(() => {
   void (async () => {
     await waitForFonts();
 
-    if (!heroTaglineMounted) {
+    if (!pageMounted) {
       return;
     }
 
@@ -941,7 +937,8 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   heroTaglineFontsReady = false;
-  heroTaglineMounted = false;
+  pageMounted = false;
+  highlightRequestId += 1;
   stopBodyOverlayScrollbars();
   document.removeEventListener("pointerdown", handleWrapTabsPointerDown);
   document.removeEventListener("keydown", handleWrapTabsKeydown);
@@ -1123,27 +1120,34 @@ const wrapCodeExample = [
   "</template>",
 ].join("\n");
 
-const highlightedInstall = computed(() => {
-  if (pkgManager.value === "agent") {
-    return null;
-  }
-  return shiki.codeToHtml(installCommand.value, {
-    lang: "shellscript",
-    theme: websiteShikiTheme.name,
-  });
-});
+const highlightedInstall = ref<string | null>(null);
+const highlightedLineCode = ref<string | null>(null);
+const highlightedRichCode = ref<string | null>(null);
+const highlightedInlineCode = ref<string | null>(null);
+const highlightedWrapCode = ref<string | null>(null);
+let highlightRequestId = 0;
 
-function highlightCode(code: string, lang: "shellscript" | "vue"): string {
-  return shiki.codeToHtml(code, {
-    lang,
-    theme: websiteShikiTheme.name,
-  });
+async function loadHighlightedCode(): Promise<void> {
+  const requestId = (highlightRequestId += 1);
+  const { highlightCode } = await import("./highlight");
+
+  if (!pageMounted || requestId !== highlightRequestId) {
+    return;
+  }
+
+  highlightedInstall.value =
+    pkgManager.value === "agent" ? null : highlightCode(installCommand.value, "shellscript");
+  highlightedLineCode.value = highlightCode(lineCodeExample, "vue");
+  highlightedRichCode.value = highlightCode(richCodeExample, "vue");
+  highlightedInlineCode.value = highlightCode(inlineCodeExample, "vue");
+  highlightedWrapCode.value = highlightCode(wrapCodeExample, "vue");
 }
 
-const highlightedLineCode = computed(() => highlightCode(lineCodeExample, "vue"));
-const highlightedRichCode = computed(() => highlightCode(richCodeExample, "vue"));
-const highlightedInlineCode = computed(() => highlightCode(inlineCodeExample, "vue"));
-const highlightedWrapCode = computed(() => highlightCode(wrapCodeExample, "vue"));
+watch(installCommand, () => {
+  if (pageMounted) {
+    void loadHighlightedCode();
+  }
+});
 </script>
 
 <template>
@@ -3697,7 +3701,6 @@ pre code {
 
 .demo-shared-controls .control-label {
   width: auto;
-  min-width: 58px;
 }
 
 .demo-shared-controls .control-stack {
