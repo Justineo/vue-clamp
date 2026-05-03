@@ -1281,11 +1281,21 @@ describe("Website demo page", () => {
     const countSlider = document.querySelector("[data-stress-count-slider]");
     const widthSlider = document.querySelector("[data-stress-width-slider]");
     const payloadSlider = document.querySelector("[data-stress-payload-slider]");
+    const afterToggle = document.querySelector("[data-stress-after-toggle]");
     const maxLinesSlider = document.querySelector("[data-stress-max-lines-slider]");
 
     for (const slider of [countSlider, widthSlider, payloadSlider, maxLinesSlider]) {
       expect(slider).toBeInstanceOf(HTMLInputElement);
     }
+    expect(afterToggle).toBeInstanceOf(HTMLInputElement);
+    expect((afterToggle as HTMLInputElement).checked).toBe(false);
+    expect(document.querySelector("[data-stress-after-state]")?.textContent?.trim()).toBe(
+      "After slot",
+    );
+    expect(document.querySelector("[data-stress-after-state]")?.getAttribute("data-enabled")).toBe(
+      "false",
+    );
+    expect(document.querySelector("[data-stress-after-slot]")).toBeNull();
     expect(document.querySelector("[data-stress-max-height-slider]")).toBeNull();
     expect(
       document.querySelector('[data-stress-limit-mode="lines"]')?.getAttribute("aria-pressed"),
@@ -1293,6 +1303,18 @@ describe("Website demo page", () => {
     expect(document.querySelector("[data-stress-native-status]")).toBeNull();
 
     expect(meter).toBeInstanceOf(HTMLElement);
+
+    (afterToggle as HTMLInputElement).click();
+    await settle(2);
+
+    expect((afterToggle as HTMLInputElement).checked).toBe(true);
+    expect(document.querySelector("[data-stress-after-state]")?.textContent?.trim()).toBe(
+      "After slot",
+    );
+    expect(document.querySelector("[data-stress-after-state]")?.getAttribute("data-enabled")).toBe(
+      "true",
+    );
+    expect(document.querySelector("[data-stress-after-slot]")).toBeInstanceOf(HTMLElement);
 
     (countSlider as HTMLInputElement).value = "1.3";
     countSlider?.dispatchEvent(new Event("input", { bubbles: true }));
@@ -1337,6 +1359,7 @@ describe("Website demo page", () => {
     maxLinesSlider?.dispatchEvent(new Event("input", { bubbles: true }));
     await settle(1);
 
+    expect(document.querySelector("[data-stress-native-status]")).toBeNull();
     expect(document.querySelector("[data-stress-width]")?.textContent).toBe("520px");
     expect(document.querySelector("[data-stress-max-lines]")?.textContent).toBe("5");
 

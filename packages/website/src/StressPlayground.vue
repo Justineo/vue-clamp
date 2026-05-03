@@ -50,6 +50,7 @@ const workloadScale = ref(3);
 const limitKind = ref<StressLimitKind>("lines");
 const maxLines = ref(3);
 const maxHeight = ref(96);
+const showAfterSlot = ref(false);
 
 type ScrollLockSnapshot = {
   bodyLeft: string;
@@ -139,6 +140,7 @@ const workloadDescription = computed(() =>
     : `${textRepeatCount.value}x text`,
 );
 const hasLimitControls = computed(() => selectedSurface.value !== "inline");
+const supportsAfterSlot = computed(() => selectedSurface.value !== "inline");
 const nativeClampStatus = computed<NativeClampStatus | null>(() => {
   if (selectedSurface.value !== "line" || limitKind.value !== "lines") {
     return null;
@@ -151,7 +153,7 @@ const nativeClampStatus = computed<NativeClampStatus | null>(() => {
     };
   }
 
-  if (maxLines.value > 1 && supportsNativeLineClamp()) {
+  if (maxLines.value > 1 && !showAfterSlot.value && supportsNativeLineClamp()) {
     return {
       feature: "line-clamp",
       mode: "multi-line",
@@ -411,216 +413,273 @@ onBeforeUnmount(() => {
             </div>
           </header>
 
-          <div class="stress-controls">
-            <div class="stress-control stress-surface-control">
-              <span class="stress-control-label">Component</span>
-              <span class="stress-surface-options" role="group" aria-label="Stress component">
-                <button
-                  v-for="option in surfaceOptions"
-                  :key="option.value"
-                  class="stress-surface-option"
-                  :class="{ active: selectedSurface === option.value }"
-                  :data-stress-surface="option.value"
-                  type="button"
-                  :aria-pressed="selectedSurface === option.value"
-                  @click="selectedSurface = option.value"
-                >
-                  {{ option.label }}
-                </button>
-              </span>
+          <div class="stress-body">
+            <div class="stress-controls">
+              <div class="stress-control-band stress-mode-band">
+                <div class="stress-control stress-component-control">
+                  <span class="stress-control-label">Component</span>
+                  <span class="stress-surface-options" role="group" aria-label="Stress component">
+                    <button
+                      v-for="option in surfaceOptions"
+                      :key="option.value"
+                      class="stress-surface-option"
+                      :class="{ active: selectedSurface === option.value }"
+                      :data-stress-surface="option.value"
+                      type="button"
+                      :aria-pressed="selectedSurface === option.value"
+                      @click="selectedSurface = option.value"
+                    >
+                      {{ option.label }}
+                    </button>
+                  </span>
+                </div>
+
+                <div v-if="hasLimitControls" class="stress-control stress-limit-control">
+                  <span class="stress-control-label">Limit</span>
+                  <span class="stress-surface-options" role="group" aria-label="Stress limit mode">
+                    <button
+                      v-for="option in limitKindOptions"
+                      :key="option.value"
+                      class="stress-surface-option"
+                      :class="{ active: limitKind === option.value }"
+                      :data-stress-limit-mode="option.value"
+                      type="button"
+                      :aria-pressed="limitKind === option.value"
+                      @click="limitKind = option.value"
+                    >
+                      {{ option.label }}
+                    </button>
+                  </span>
+                </div>
+
+                <label v-if="supportsAfterSlot" class="stress-control stress-slot-control">
+                  <span class="stress-control-label">Slots</span>
+                  <span class="stress-toggle-row">
+                    <input
+                      v-model="showAfterSlot"
+                      data-stress-after-toggle
+                      class="stress-checkbox"
+                      type="checkbox"
+                    />
+                    <span
+                      class="stress-toggle-value"
+                      data-stress-after-state
+                      :data-enabled="showAfterSlot ? 'true' : 'false'"
+                    >
+                      After slot
+                    </span>
+                  </span>
+                </label>
+              </div>
+
+              <div class="stress-control-band stress-slider-band">
+                <label class="stress-control">
+                  <span class="stress-control-label">Components</span>
+                  <span class="stress-control-row">
+                    <input
+                      v-model.number="componentCountExponent"
+                      data-stress-count-slider
+                      class="stress-range"
+                      type="range"
+                      min="1"
+                      max="3"
+                      step="0.01"
+                    />
+                    <span class="stress-value" data-stress-count>{{ componentCount }}</span>
+                  </span>
+                </label>
+
+                <label class="stress-control">
+                  <span class="stress-control-label">{{
+                    selectedSurface === "wrap" ? "Item count" : "Text length"
+                  }}</span>
+                  <span class="stress-control-row">
+                    <input
+                      v-model.number="workloadScale"
+                      data-stress-payload-slider
+                      class="stress-range"
+                      type="range"
+                      min="1"
+                      max="8"
+                      step="1"
+                    />
+                    <span class="stress-value" data-stress-payload>{{ workloadDescription }}</span>
+                  </span>
+                </label>
+
+                <label class="stress-control">
+                  <span class="stress-control-label">Width</span>
+                  <span class="stress-control-row">
+                    <input
+                      v-model.number="sharedWidth"
+                      data-stress-width-slider
+                      class="stress-range"
+                      type="range"
+                      min="180"
+                      max="720"
+                      step="4"
+                    />
+                    <span class="stress-value" data-stress-width>{{ sharedWidth }}px</span>
+                  </span>
+                </label>
+
+                <label v-if="hasLimitControls && limitKind === 'lines'" class="stress-control">
+                  <span class="stress-control-label">Max lines</span>
+                  <span class="stress-control-row">
+                    <input
+                      v-model.number="maxLines"
+                      data-stress-max-lines-slider
+                      class="stress-range"
+                      type="range"
+                      min="1"
+                      max="8"
+                      step="1"
+                    />
+                    <span class="stress-value" data-stress-max-lines>{{ maxLines }}</span>
+                  </span>
+                </label>
+
+                <label v-if="hasLimitControls && limitKind === 'height'" class="stress-control">
+                  <span class="stress-control-label">Max height</span>
+                  <span class="stress-control-row">
+                    <input
+                      v-model.number="maxHeight"
+                      data-stress-max-height-slider
+                      class="stress-range"
+                      type="range"
+                      min="24"
+                      max="220"
+                      step="4"
+                    />
+                    <span class="stress-value" data-stress-max-height>{{ maxHeight }}px</span>
+                  </span>
+                </label>
+              </div>
             </div>
 
-            <label class="stress-control">
-              <span class="stress-control-label">Components</span>
-              <span class="stress-control-row">
-                <input
-                  v-model.number="componentCountExponent"
-                  data-stress-count-slider
-                  class="stress-range"
-                  type="range"
-                  min="1"
-                  max="3"
-                  step="0.01"
-                />
-                <span class="stress-value" data-stress-count>{{ componentCount }}</span>
-              </span>
-            </label>
-
-            <label class="stress-control">
-              <span class="stress-control-label">Width</span>
-              <span class="stress-control-row">
-                <input
-                  v-model.number="sharedWidth"
-                  data-stress-width-slider
-                  class="stress-range"
-                  type="range"
-                  min="180"
-                  max="720"
-                  step="4"
-                />
-                <span class="stress-value" data-stress-width>{{ sharedWidth }}px</span>
-              </span>
-            </label>
-
-            <label class="stress-control">
-              <span class="stress-control-label">{{
-                selectedSurface === "wrap" ? "Item count" : "Text length"
-              }}</span>
-              <span class="stress-control-row">
-                <input
-                  v-model.number="workloadScale"
-                  data-stress-payload-slider
-                  class="stress-range"
-                  type="range"
-                  min="1"
-                  max="8"
-                  step="1"
-                />
-                <span class="stress-value" data-stress-payload>{{ workloadDescription }}</span>
-              </span>
-            </label>
-
-            <div v-if="hasLimitControls" class="stress-control">
-              <span class="stress-control-label">Limit</span>
-              <span class="stress-surface-options" role="group" aria-label="Stress limit mode">
-                <button
-                  v-for="option in limitKindOptions"
-                  :key="option.value"
-                  class="stress-surface-option"
-                  :class="{ active: limitKind === option.value }"
-                  :data-stress-limit-mode="option.value"
-                  type="button"
-                  :aria-pressed="limitKind === option.value"
-                  @click="limitKind = option.value"
+            <div
+              v-overlay-scrollbars="verticalOverlayScrollbars"
+              class="stress-workload"
+              data-stress-workload
+              :style="sharedWidthStyle"
+            >
+              <div class="stress-list">
+                <article
+                  v-for="item in stressItems"
+                  :key="`${selectedSurface}-${item.id}`"
+                  class="stress-item"
+                  :data-stress-item="item.limitKind"
+                  :data-stress-surface-item="selectedSurface"
                 >
-                  {{ option.label }}
-                </button>
-              </span>
-            </div>
+                  <span class="stress-item-meta">
+                    {{ selectedSurfaceLabel }} · {{ item.limitKind }}
+                  </span>
 
-            <label v-if="hasLimitControls && limitKind === 'lines'" class="stress-control">
-              <span class="stress-control-label">Max lines</span>
-              <span class="stress-control-row">
-                <input
-                  v-model.number="maxLines"
-                  data-stress-max-lines-slider
-                  class="stress-range"
-                  type="range"
-                  min="1"
-                  max="8"
-                  step="1"
-                />
-                <span class="stress-value" data-stress-max-lines>{{ maxLines }}</span>
-              </span>
-            </label>
+                  <template v-if="selectedSurface === 'line'">
+                    <LineClamp
+                      v-if="item.limitKind === 'lines'"
+                      class="stress-clamp"
+                      :text="item.text"
+                      :max-lines="maxLines"
+                    >
+                      <template #after>
+                        <span v-if="showAfterSlot" class="stress-after-slot" data-stress-after-slot>
+                          After
+                        </span>
+                      </template>
+                    </LineClamp>
+                    <LineClamp
+                      v-else
+                      class="stress-clamp"
+                      :text="item.text"
+                      :max-height="maxHeight"
+                    >
+                      <template #after>
+                        <span v-if="showAfterSlot" class="stress-after-slot" data-stress-after-slot>
+                          After
+                        </span>
+                      </template>
+                    </LineClamp>
+                  </template>
 
-            <label v-if="hasLimitControls && limitKind === 'height'" class="stress-control">
-              <span class="stress-control-label">Max height</span>
-              <span class="stress-control-row">
-                <input
-                  v-model.number="maxHeight"
-                  data-stress-max-height-slider
-                  class="stress-range"
-                  type="range"
-                  min="24"
-                  max="220"
-                  step="4"
-                />
-                <span class="stress-value" data-stress-max-height>{{ maxHeight }}px</span>
-              </span>
-            </label>
-          </div>
+                  <template v-else-if="selectedSurface === 'rich'">
+                    <RichLineClamp
+                      v-if="item.limitKind === 'lines'"
+                      class="stress-clamp stress-rich"
+                      :html="item.html"
+                      :max-lines="maxLines"
+                    >
+                      <template #after>
+                        <span v-if="showAfterSlot" class="stress-after-slot" data-stress-after-slot>
+                          After
+                        </span>
+                      </template>
+                    </RichLineClamp>
+                    <RichLineClamp
+                      v-else
+                      class="stress-clamp stress-rich"
+                      :html="item.html"
+                      :max-height="maxHeight"
+                    >
+                      <template #after>
+                        <span v-if="showAfterSlot" class="stress-after-slot" data-stress-after-slot>
+                          After
+                        </span>
+                      </template>
+                    </RichLineClamp>
+                  </template>
 
-          <div
-            v-overlay-scrollbars="verticalOverlayScrollbars"
-            class="stress-workload"
-            data-stress-workload
-            :style="sharedWidthStyle"
-          >
-            <div class="stress-list">
-              <article
-                v-for="item in stressItems"
-                :key="`${selectedSurface}-${item.id}`"
-                class="stress-item"
-                :data-stress-item="item.limitKind"
-                :data-stress-surface-item="selectedSurface"
-              >
-                <span class="stress-item-meta">
-                  {{ selectedSurfaceLabel }} · {{ item.limitKind }}
-                </span>
-
-                <template v-if="selectedSurface === 'line'">
-                  <LineClamp
-                    v-if="item.limitKind === 'lines'"
-                    class="stress-clamp"
-                    :text="item.text"
-                    :max-lines="maxLines"
+                  <InlineClamp
+                    v-else-if="selectedSurface === 'inline'"
+                    class="stress-clamp stress-inline"
+                    :text="item.inlineText"
+                    location="middle"
                   />
-                  <LineClamp
-                    v-else
-                    class="stress-clamp"
-                    :text="item.text"
-                    :max-height="maxHeight"
-                  />
-                </template>
 
-                <template v-else-if="selectedSurface === 'rich'">
-                  <RichLineClamp
-                    v-if="item.limitKind === 'lines'"
-                    class="stress-clamp stress-rich"
-                    :html="item.html"
-                    :max-lines="maxLines"
-                  />
-                  <RichLineClamp
-                    v-else
-                    class="stress-clamp stress-rich"
-                    :html="item.html"
-                    :max-height="maxHeight"
-                  />
-                </template>
-
-                <InlineClamp
-                  v-else-if="selectedSurface === 'inline'"
-                  class="stress-clamp stress-inline"
-                  :text="item.inlineText"
-                  location="middle"
-                />
-
-                <template v-else>
-                  <WrapClamp
-                    v-if="item.limitKind === 'lines'"
-                    class="stress-clamp stress-wrap"
-                    :items="item.wrapItems"
-                    item-key="id"
-                    :max-lines="maxLines"
-                  >
-                    <template #item="{ item: wrapItem }">
-                      <span class="stress-token">{{ wrapItem.label }}</span>
-                    </template>
-                    <template #after="{ hiddenItems }">
-                      <span class="stress-token stress-token-summary">
-                        +{{ hiddenItems.length }}
-                      </span>
-                    </template>
-                  </WrapClamp>
-                  <WrapClamp
-                    v-else
-                    class="stress-clamp stress-wrap"
-                    :items="item.wrapItems"
-                    item-key="id"
-                    :max-height="maxHeight"
-                  >
-                    <template #item="{ item: wrapItem }">
-                      <span class="stress-token">{{ wrapItem.label }}</span>
-                    </template>
-                    <template #after="{ hiddenItems }">
-                      <span class="stress-token stress-token-summary">
-                        +{{ hiddenItems.length }}
-                      </span>
-                    </template>
-                  </WrapClamp>
-                </template>
-              </article>
+                  <template v-else>
+                    <WrapClamp
+                      v-if="item.limitKind === 'lines'"
+                      class="stress-clamp stress-wrap"
+                      :items="item.wrapItems"
+                      item-key="id"
+                      :max-lines="maxLines"
+                    >
+                      <template #item="{ item: wrapItem }">
+                        <span class="stress-token">{{ wrapItem.label }}</span>
+                      </template>
+                      <template #after="{ hiddenItems }">
+                        <span
+                          v-if="showAfterSlot"
+                          class="stress-token stress-token-summary"
+                          data-stress-after-slot
+                        >
+                          +{{ hiddenItems.length }}
+                        </span>
+                      </template>
+                    </WrapClamp>
+                    <WrapClamp
+                      v-else
+                      class="stress-clamp stress-wrap"
+                      :items="item.wrapItems"
+                      item-key="id"
+                      :max-height="maxHeight"
+                    >
+                      <template #item="{ item: wrapItem }">
+                        <span class="stress-token">{{ wrapItem.label }}</span>
+                      </template>
+                      <template #after="{ hiddenItems }">
+                        <span
+                          v-if="showAfterSlot"
+                          class="stress-token stress-token-summary"
+                          data-stress-after-slot
+                        >
+                          +{{ hiddenItems.length }}
+                        </span>
+                      </template>
+                    </WrapClamp>
+                  </template>
+                </article>
+              </div>
             </div>
           </div>
         </div>
@@ -661,7 +720,7 @@ onBeforeUnmount(() => {
 
 .stress-modal-scroll :deep([data-overlayscrollbars-viewport]) {
   display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
   block-size: 100%;
   overscroll-behavior: contain;
 }
@@ -757,23 +816,41 @@ onBeforeUnmount(() => {
   box-shadow: var(--focus-ring);
 }
 
+.stress-body {
+  display: grid;
+  grid-template-columns: 292px minmax(0, 1fr);
+  min-block-size: 0;
+  block-size: 100%;
+}
+
 .stress-controls {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
-  gap: 16px 28px;
-  padding: 14px 16px;
+  align-content: start;
+  overflow: auto;
+  min-block-size: 0;
+  gap: 15px;
+  padding: 14px;
   background: color-mix(in srgb, var(--c-bg-soft) 64%, transparent);
-  border-bottom: 1px solid color-mix(in srgb, var(--c-border) 82%, transparent);
+  border-right: 1px solid color-mix(in srgb, var(--c-border) 82%, transparent);
+}
+
+.stress-control-band {
+  display: grid;
+  grid-template-columns: 1fr;
+  align-items: start;
+  min-width: 0;
+  gap: 12px;
+}
+
+.stress-control-band + .stress-control-band {
+  padding-top: 15px;
+  border-top: 1px solid color-mix(in srgb, var(--c-border) 72%, transparent);
 }
 
 .stress-control {
   display: grid;
   gap: 7px;
   min-width: 0;
-}
-
-.stress-surface-control {
-  grid-column: 1 / -1;
 }
 
 .stress-control-label {
@@ -792,9 +869,38 @@ onBeforeUnmount(() => {
   gap: 7px;
 }
 
+.stress-toggle-row {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  gap: 8px;
+  color: var(--c-text-2);
+  cursor: pointer;
+}
+
+.stress-checkbox {
+  flex: 0 0 auto;
+  inline-size: 15px;
+  block-size: 15px;
+  margin: 0;
+  accent-color: var(--c-accent);
+  cursor: pointer;
+}
+
+.stress-checkbox:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.stress-toggle-value {
+  font-size: 0.78rem;
+  font-weight: 600;
+  line-height: 1;
+}
+
 .stress-surface-options {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 6px;
 }
 
@@ -802,6 +908,7 @@ onBeforeUnmount(() => {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  min-width: 0;
   min-height: 28px;
   padding: 0 10px;
   font-size: 0.76rem;
@@ -900,6 +1007,7 @@ onBeforeUnmount(() => {
   display: flex;
   flex-wrap: wrap;
   align-items: flex-start;
+  justify-content: flex-start;
   gap: 8px;
 }
 
@@ -942,6 +1050,22 @@ onBeforeUnmount(() => {
   width: 100%;
 }
 
+.stress-after-slot {
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.35em;
+  padding: 0 0.42em;
+  margin-inline-start: 0.4em;
+  font-size: 0.72em;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--c-accent-text);
+  vertical-align: baseline;
+  background: var(--c-accent-soft);
+  border: 1px solid color-mix(in srgb, var(--c-accent) 22%, transparent);
+  border-radius: 999px;
+}
+
 .stress-wrap {
   width: 100%;
 }
@@ -963,6 +1087,32 @@ onBeforeUnmount(() => {
   color: var(--c-accent-text);
   background: var(--c-accent-soft);
   border-color: color-mix(in srgb, var(--c-accent) 22%, transparent);
+}
+
+@media (max-width: 899px) {
+  .stress-body {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
+  .stress-controls {
+    overflow: visible;
+    border-right: none;
+    border-bottom: 1px solid color-mix(in srgb, var(--c-border) 82%, transparent);
+  }
+
+  .stress-control-band {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .stress-component-control {
+    grid-column: 1 / -1;
+  }
+
+  .stress-component-control .stress-surface-options {
+    display: flex;
+    flex-wrap: wrap;
+  }
 }
 
 @media (max-width: 639px) {
@@ -997,9 +1147,18 @@ onBeforeUnmount(() => {
   }
 
   .stress-controls {
+    gap: 12px;
+    padding: 12px;
+  }
+
+  .stress-control-band {
     grid-template-columns: 1fr;
     gap: 10px;
-    padding: 12px;
+  }
+
+  .stress-component-control .stress-surface-options {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .stress-workload {
