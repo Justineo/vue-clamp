@@ -276,7 +276,7 @@ An `after` slot is a suffix. The intended model is:
 
 Native `line-clamp` cannot reliably express this.
 
-If the after content is placed inside the clamped container, it may be clamped away.  
+If the after content is placed inside the clamped container, it may be clamped away.
 If it is placed outside the clamped container, the native clamp does not know how much last-line space the after content requires.
 
 Therefore:
