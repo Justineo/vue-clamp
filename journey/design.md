@@ -94,6 +94,8 @@
     invalidation, and same-flush `onUpdated` invalidation
   - `packages/vue-clamp/src/text.ts` for grapheme/word boundary preparation, kept-count text
     generation, text clamp search, and location normalization
+  - `packages/vue-clamp/src/native.ts` for the narrow native CSS text-clamp subset:
+    eligibility checks, native styles, CSS support detection, and native overflow reads
   - `packages/vue-clamp/src/rich.ts` for rich-text parsing, runtime inline-flow classification,
     logical-run preprocessing, boundary slicing, and rich clamp search
   - `packages/vue-clamp/src/layout.ts` for the remaining shared primitives worth centralizing:
@@ -126,6 +128,8 @@
   - `"multi-line"` for the exact multiline end/grapheme/default-ellipsis subset when `maxHeight`
     and `after` are absent and browser support is present
   - `null` for measured DOM clamping
+- Native CSS clamp eligibility and style details stay outside `LineClamp.ts`; the component only
+  resolves the mode for the current render/recompute and applies the resulting text state.
 - Multiline native `line-clamp` allows `before` slot content because it is a prefix inside the same
   formatting context. It excludes `after` slot content because native CSS cannot reserve suffix
   space while clamping the body.

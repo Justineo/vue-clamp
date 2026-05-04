@@ -99,11 +99,11 @@ export const InlineClamp = defineComponent({
         return null;
       }
 
-      const fits = () => rootElement.scrollWidth <= limit + fitTolerance;
+      const fitsCurrentBody = () => rootElement.scrollWidth <= limit + fitTolerance;
       const prepared = preparedBody.value;
       const ratio = locationRatio.value;
 
-      if (fits()) {
+      if (fitsCurrentBody()) {
         // Store the full body as the next warm-start point so a following shrink
         // starts from the real upper bound.
         lastTextClamp = {
@@ -116,11 +116,9 @@ export const InlineClamp = defineComponent({
 
       const nextResult = clampTextToFit({
         ellipsis: props.ellipsis,
-        fit: {
-          apply(candidate) {
-            bodyElement.textContent = candidate;
-          },
-          fits,
+        fits(candidate) {
+          bodyElement.textContent = candidate;
+          return fitsCurrentBody();
         },
         hint: lastTextClamp,
         prepared,
@@ -130,6 +128,7 @@ export const InlineClamp = defineComponent({
         spacing: "preserve-outer",
       });
       const nextBody = nextResult.text;
+      bodyElement.textContent = nextBody;
       lastTextClamp = nextResult;
 
       return nextBody;

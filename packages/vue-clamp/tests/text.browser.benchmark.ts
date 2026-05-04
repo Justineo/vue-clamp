@@ -263,14 +263,14 @@ function resultFrom(value: unknown, prepared: PreparedText): TextClampResult | n
 
 function clampTextToFit({
   ellipsis,
-  fit,
+  fits,
   hint,
   prepared,
   ratio,
   spacing,
 }: {
   ellipsis: string;
-  fit: (text: string) => boolean;
+  fits: (text: string) => boolean;
   hint: TextClampHint | null;
   prepared: PreparedText;
   ratio: number;
@@ -285,7 +285,7 @@ function clampTextToFit({
   const result = resultFrom(
     (clamp as (...args: unknown[]) => unknown)({
       ellipsis,
-      fit,
+      fits,
       hint,
       prepared,
       ratio,
@@ -424,7 +424,7 @@ function runInlineClamp(
 
   const result = clampTextToFit({
     ellipsis: "…",
-    fit: (candidate: string) => {
+    fits: (candidate: string) => {
       host.body.textContent = candidate;
       return fits();
     },

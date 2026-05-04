@@ -28,16 +28,9 @@ export interface TextClampResult {
 
 type Spacing = "trim" | "preserve-outer";
 
-type FitController = {
-  apply: (text: string) => void;
-  fits: () => boolean;
-};
-
-type Fit = ((text: string) => boolean) | FitController;
-
 type FitInput = {
   ellipsis: string;
-  fit: Fit;
+  fits: (text: string) => boolean;
   hint?: { boundaryOffsets: readonly number[]; kept: number } | null | undefined;
   prepared: PreparedText;
   ratio: number;
@@ -190,38 +183,13 @@ export function normalizeLocationRatio(location: LineClampLocation): number {
 
 export function clampTextToFit({
   ellipsis,
-  fit,
+  fits,
   hint,
   prepared,
   ratio,
   spacing = "trim",
 }: FitInput): TextClampResult {
   const boundaryCount = prepared.boundaryOffsets.length - 1;
-  let currentCandidate: string | null = null;
-
-  function applyCandidate(text: string): void {
-    if (currentCandidate === text) {
-      return;
-    }
-
-    if (typeof fit === "function") {
-      fit(text);
-    } else {
-      fit.apply(text);
-    }
-
-    currentCandidate = text;
-  }
-
-  function testCandidate(text: string): boolean {
-    if (typeof fit === "function") {
-      currentCandidate = text;
-      return fit(text);
-    }
-
-    applyCandidate(text);
-    return fit.fits();
-  }
 
   // The search helper works over indexes. For text, the index is the number of
   // boundary units kept, with at least the zero-kept ellipsis candidate present.
@@ -229,7 +197,7 @@ export function clampTextToFit({
     0,
     findLastFittingIndex(
       Math.max(1, boundaryCount),
-      (kept) => testCandidate(displayTextForKeptCount(prepared, ratio, ellipsis, kept, spacing)),
+      (kept) => fits(displayTextForKeptCount(prepared, ratio, ellipsis, kept, spacing)),
       hint?.boundaryOffsets === prepared.boundaryOffsets ? { index: hint.kept } : null,
     ),
   );
@@ -239,7 +207,7 @@ export function clampTextToFit({
     // word is wider than the container; retry at grapheme granularity.
     return clampTextToFit({
       ellipsis,
-      fit,
+      fits,
       hint,
       prepared: {
         text: prepared.text,
@@ -253,10 +221,6 @@ export function clampTextToFit({
 
   const text = displayTextForKeptCount(prepared, ratio, ellipsis, best, spacing);
 
-  // Leave the measured DOM on the exact text returned to the caller. Controller
-  // callers can apply without an extra layout read when the search ended on a
-  // neighboring candidate.
-  applyCandidate(text);
   return {
     boundaryOffsets: prepared.boundaryOffsets,
     kept: best,
@@ -290,13 +254,8 @@ export function clampTextToLayout({
     }
   }
 
-  const fit: FitController = {
-    apply: applyText,
-    fits: () => fitsContent(root, content, lineLimit, maxHeight),
-  };
-
   applyText(text);
-  if (fit.fits()) {
+  if (fitsContent(root, content, lineLimit, maxHeight)) {
     // The full source is the cheapest and most correct answer when it fits.
     // Store it as a warm-start hint so later shrink passes begin from full text.
     return {
@@ -306,11 +265,17 @@ export function clampTextToLayout({
     };
   }
 
-  return clampTextToFit({
+  const result = clampTextToFit({
     ellipsis,
-    fit,
+    fits(candidate) {
+      applyText(candidate);
+      return fitsContent(root, content, lineLimit, maxHeight);
+    },
     hint,
     prepared,
     ratio,
   });
+  applyText(result.text);
+
+  return result;
 }
