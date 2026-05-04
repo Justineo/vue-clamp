@@ -1316,8 +1316,36 @@ describe("Website demo page", () => {
       "true",
     );
     expect(document.querySelector("[data-stress-after-slot]")).toBeInstanceOf(HTMLElement);
+    expect(
+      [...document.querySelectorAll("[data-stress-after-slot]")].some((slot) => {
+        const match = /^\+(\d+)$/u.exec(slot.textContent?.trim() ?? "");
+        return match ? Number(match[1]) > 0 : false;
+      }),
+    ).toBe(true);
 
-    (countSlider as HTMLInputElement).value = "1.3";
+    (widthSlider as HTMLInputElement).value = "720";
+    widthSlider?.dispatchEvent(new Event("input", { bubbles: true }));
+    (payloadSlider as HTMLInputElement).value = "1";
+    payloadSlider?.dispatchEvent(new Event("input", { bubbles: true }));
+    (maxLinesSlider as HTMLInputElement).value = "8";
+    maxLinesSlider?.dispatchEvent(new Event("input", { bubbles: true }));
+    await settle(2);
+
+    expect(
+      [...document.querySelectorAll("[data-stress-after-slot]")].some(
+        (slot) => slot.textContent?.trim() === "+0",
+      ),
+    ).toBe(false);
+
+    (widthSlider as HTMLInputElement).value = "360";
+    widthSlider?.dispatchEvent(new Event("input", { bubbles: true }));
+    (payloadSlider as HTMLInputElement).value = "3";
+    payloadSlider?.dispatchEvent(new Event("input", { bubbles: true }));
+    (maxLinesSlider as HTMLInputElement).value = "3";
+    maxLinesSlider?.dispatchEvent(new Event("input", { bubbles: true }));
+    await settle(2);
+
+    (countSlider as HTMLInputElement).value = "20";
     countSlider?.dispatchEvent(new Event("input", { bubbles: true }));
     await settle(2);
 
