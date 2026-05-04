@@ -225,6 +225,10 @@ function wrapItemsFor(index: number): StressWrapItem[] {
   });
 }
 
+function wrapAfterLabel(hiddenItems: readonly unknown[]): string {
+  return hiddenItems.length > 0 ? `+${hiddenItems.length}` : "Action";
+}
+
 function supportsNativeLineClamp(): boolean {
   if (typeof CSS === "undefined" || typeof CSS.supports !== "function") {
     return false;
@@ -550,7 +554,7 @@ onBeforeUnmount(() => {
                           class="stress-token stress-token-summary"
                           data-stress-after-slot
                         >
-                          {{ hiddenItems.length > 0 ? `+${hiddenItems.length}` : "Action" }}
+                          {{ wrapAfterLabel(hiddenItems) }}
                         </span>
                       </template>
                     </WrapClamp>
@@ -570,7 +574,7 @@ onBeforeUnmount(() => {
                           class="stress-token stress-token-summary"
                           data-stress-after-slot
                         >
-                          {{ hiddenItems.length > 0 ? `+${hiddenItems.length}` : "Action" }}
+                          {{ wrapAfterLabel(hiddenItems) }}
                         </span>
                       </template>
                     </WrapClamp>

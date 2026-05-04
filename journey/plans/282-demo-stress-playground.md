@@ -8,7 +8,7 @@ Add an interactive website playground for manual stress testing many clamp compo
 
 - Add a demo control that opens a stress playground modal.
 - Desktop modal should be centered and scrollable; mobile modal should use the full viewport.
-- The playground should render a configurable number of examples from 10 to 1000 with a logarithmic slider.
+- The playground should render a configurable number of examples from 10 to 200 with a linear slider.
 - Controls should include shared width, `maxLines`, and `maxHeight` sliders.
 - The rendered workload should use real `vue-clamp` components rather than synthetic placeholders.
 - Keep this as manual demo tooling, not automated performance-regression infrastructure.

@@ -24,7 +24,7 @@
 - Completed three review/simplification passes:
   - simplified native content style selection in `LineClamp`
   - trimmed unused rich diagnostic typing
-  - avoided caching a false native `line-clamp` support result when `CSS.supports` is unavailable,
-    so non-browser environments do not poison later browser support checks
+  - kept native `line-clamp` support detection cached because CSS capability is stable for the
+    browser runtime once checked
 - Verification completed with `vp check`, `vp test`, targeted browser contract tests, and
   `vp run build`.
