@@ -274,6 +274,7 @@ const activeSurface = ref<SurfaceKey>(currentSurfaceFromLocation() ?? "line");
 const referenceTabsAnchorRef = ref<HTMLElement | null>(null);
 const demoControlsExpanded = ref(false);
 const stressPlaygroundOpen = ref(false);
+const stressPlaygroundOpenButtonRef = ref<HTMLButtonElement | null>(null);
 const CodeBlock = defineAsyncComponent(() => import("./CodeBlock.vue"));
 const StressPlayground = defineAsyncComponent(() => import("./StressPlayground.vue"));
 const surfaceGuideItems = [
@@ -2230,6 +2231,7 @@ watch(installCommand, () => {
             <h3 class="subsection-title">Stress playground</h3>
             <div class="stress-playground-row">
               <button
+                ref="stressPlaygroundOpenButtonRef"
                 class="stress-playground-open"
                 data-stress-playground-open
                 type="button"
@@ -2242,6 +2244,7 @@ watch(installCommand, () => {
             <StressPlayground
               v-if="stressPlaygroundOpen"
               :initial-surface="activeSurface"
+              :return-focus-to="stressPlaygroundOpenButtonRef"
               @close="stressPlaygroundOpen = false"
             />
           </section>

@@ -1249,6 +1249,7 @@ describe("Website demo page", () => {
 
     expect(document.querySelector("[data-stress-playground]")).toBeNull();
 
+    openButton.focus();
     openButton.click();
 
     const playground = await waitForDocumentElement(document, "[data-stress-playground]");
@@ -1396,6 +1397,7 @@ describe("Website demo page", () => {
     expect(document.querySelector("[data-stress-playground]")).toBeNull();
     expect(document.body.style.position).toBe("");
     expect(document.documentElement.style.overflow).toBe("");
+    expect(document.activeElement).toBe(openButton);
   });
 
   it("scrolls to the tabs row when its in-flow top edge is above the viewport", async () => {

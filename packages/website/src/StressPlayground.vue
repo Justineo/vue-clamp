@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { X } from "@lucide/vue";
 import { InlineClamp, LineClamp, RichLineClamp, WrapClamp } from "vue-clamp";
 import FpsMeter from "./FpsMeter.vue";
+import { lockPageScroll, trapDialogFocus } from "./modal";
 import { overlayScrollbarsDirective, verticalOverlayScrollbarsOptions } from "./overlayScrollbars";
 
 type StressSurface = "line" | "rich" | "inline" | "wrap";
@@ -29,9 +30,11 @@ type StressItem = {
 const props = withDefaults(
   defineProps<{
     initialSurface?: StressSurface;
+    returnFocusTo?: HTMLElement | null;
   }>(),
   {
     initialSurface: "line",
+    returnFocusTo: null,
   },
 );
 
@@ -52,28 +55,9 @@ const maxLines = ref(3);
 const maxHeight = ref(96);
 const showAfterSlot = ref(false);
 
-type ScrollLockSnapshot = {
-  bodyLeft: string;
-  bodyOverflow: string;
-  bodyPosition: string;
-  bodyRight: string;
-  bodyTop: string;
-  bodyWidth: string;
-  htmlOverflow: string;
-  scrollX: number;
-  scrollY: number;
-};
+function noop(): void {}
 
-let scrollLockSnapshot: ScrollLockSnapshot | null = null;
-
-const focusableSelector = [
-  "a[href]",
-  "button:not([disabled])",
-  "input:not([disabled])",
-  "select:not([disabled])",
-  "textarea:not([disabled])",
-  '[tabindex]:not([tabindex="-1"])',
-].join(",");
+let releaseModal = noop;
 
 const surfaceOptions = [
   { label: "LineClamp", value: "line" },
@@ -257,106 +241,23 @@ function close(): void {
   emit("close");
 }
 
-function handleKeydown(event: KeyboardEvent): void {
-  if (event.key === "Escape") {
-    event.preventDefault();
-    close();
-    return;
-  }
-
-  if (event.key !== "Tab") {
-    return;
-  }
-
-  const dialog = dialogRef.value;
-  if (!dialog) {
-    return;
-  }
-
-  const focusableElements = Array.from(dialog.querySelectorAll<HTMLElement>(focusableSelector));
-  const firstElement = focusableElements[0] ?? closeButtonRef.value;
-  const lastElement = focusableElements.at(-1) ?? firstElement;
-  const activeElement = document.activeElement;
-
-  if (!firstElement || !lastElement) {
-    event.preventDefault();
-    return;
-  }
-
-  if (!dialog.contains(activeElement)) {
-    event.preventDefault();
-    firstElement.focus();
-    return;
-  }
-
-  if (event.shiftKey && activeElement === firstElement) {
-    event.preventDefault();
-    lastElement.focus();
-    return;
-  }
-
-  if (!event.shiftKey && activeElement === lastElement) {
-    event.preventDefault();
-    firstElement.focus();
-  }
-}
-
-function lockPageScroll(): void {
-  if (scrollLockSnapshot) {
-    return;
-  }
-
-  const { body, documentElement } = document;
-  scrollLockSnapshot = {
-    bodyLeft: body.style.left,
-    bodyOverflow: body.style.overflow,
-    bodyPosition: body.style.position,
-    bodyRight: body.style.right,
-    bodyTop: body.style.top,
-    bodyWidth: body.style.width,
-    htmlOverflow: documentElement.style.overflow,
-    scrollX: window.scrollX,
-    scrollY: window.scrollY,
-  };
-
-  documentElement.style.overflow = "hidden";
-  body.style.overflow = "hidden";
-  body.style.position = "fixed";
-  body.style.top = `-${scrollLockSnapshot.scrollY}px`;
-  body.style.left = `-${scrollLockSnapshot.scrollX}px`;
-  body.style.right = "0";
-  body.style.width = "100%";
-}
-
-function unlockPageScroll(): void {
-  if (!scrollLockSnapshot) {
-    return;
-  }
-
-  const { body, documentElement } = document;
-  const { scrollX, scrollY } = scrollLockSnapshot;
-
-  documentElement.style.overflow = scrollLockSnapshot.htmlOverflow;
-  body.style.overflow = scrollLockSnapshot.bodyOverflow;
-  body.style.position = scrollLockSnapshot.bodyPosition;
-  body.style.top = scrollLockSnapshot.bodyTop;
-  body.style.left = scrollLockSnapshot.bodyLeft;
-  body.style.right = scrollLockSnapshot.bodyRight;
-  body.style.width = scrollLockSnapshot.bodyWidth;
-  scrollLockSnapshot = null;
-
-  window.scrollTo(scrollX, scrollY);
-}
-
 onMounted(() => {
-  lockPageScroll();
-  window.addEventListener("keydown", handleKeydown);
-  closeButtonRef.value?.focus();
+  const unlockScroll = lockPageScroll();
+  const releaseFocus = trapDialogFocus({
+    getDialog: () => dialogRef.value,
+    getInitialFocus: () => closeButtonRef.value,
+    getRestoreFocus: () => props.returnFocusTo ?? null,
+    onEscape: close,
+  });
+
+  releaseModal = function releaseStressModal(): void {
+    releaseFocus();
+    unlockScroll();
+  };
 });
 
 onBeforeUnmount(() => {
-  unlockPageScroll();
-  window.removeEventListener("keydown", handleKeydown);
+  releaseModal();
 });
 </script>
 
