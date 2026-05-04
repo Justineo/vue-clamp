@@ -52,7 +52,7 @@ describe("text helpers", () => {
     expect(
       clampTextToFit({
         ellipsis: "…",
-        fit: (text) => text.length <= 8,
+        fits: (text) => text.length <= 8,
         prepared,
         ratio: 1,
       }).text,
@@ -70,13 +70,13 @@ describe("text helpers", () => {
 
     const cold = clampTextToFit({
       ellipsis: "…",
-      fit: fits(coldProbes),
+      fits: fits(coldProbes),
       prepared,
       ratio: 1,
     });
     const warm = clampTextToFit({
       ellipsis: "…",
-      fit: fits(warmProbes),
+      fits: fits(warmProbes),
       hint: {
         boundaryOffsets: prepared.boundaryOffsets,
         kept: 40,
@@ -96,7 +96,7 @@ describe("text helpers", () => {
     const probes: number[] = [];
     const result = clampTextToFit({
       ellipsis: "…",
-      fit: (text) => {
+      fits: (text) => {
         probes.push(text.length);
         return text.length <= 37;
       },
@@ -111,30 +111,5 @@ describe("text helpers", () => {
     expect(result.kept).toBe(36);
     expect(probes[0]).toBe(43);
     expect(probes).toContain(37);
-  });
-
-  it("can apply the final text without retesting layout", () => {
-    const prepared = prepareText("x".repeat(8));
-    const applied: string[] = [];
-    const tested: string[] = [];
-    const result = clampTextToFit({
-      ellipsis: "…",
-      fit: {
-        apply(text) {
-          applied.push(text);
-        },
-        fits() {
-          const current = applied.at(-1) ?? "";
-          tested.push(current);
-          return current.length <= 4;
-        },
-      },
-      prepared,
-      ratio: 1,
-    });
-
-    expect(result.text).toBe("xxx…");
-    expect(applied.at(-1)).toBe(result.text);
-    expect(tested.at(-1)).not.toBe(result.text);
   });
 });
