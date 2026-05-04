@@ -819,7 +819,7 @@ export function clampRich({
   const coarseIndex = findLastFittingIndex(
     runs.length,
     (index) => fitsCandidate(runs[index]!.endPoint),
-    coarseHint === null ? null : { index: coarseHint },
+    coarseHint,
   );
   const coarsePoint = coarseIndex >= 0 ? runs[coarseIndex]!.endPoint : ROOT_START_POINT;
   const nextRun = runs[coarseIndex + 1];
@@ -840,7 +840,7 @@ export function clampRich({
   const fineIndex = findLastFittingIndex(
     nextRun.textCuts.length,
     (index) => fitsCandidate(nextRun.textCuts[index]!),
-    fineHint === null ? null : { index: fineHint },
+    fineHint,
   );
   let finePoint = fineIndex >= 0 ? nextRun.textCuts[fineIndex]! : coarsePoint;
 
@@ -852,7 +852,7 @@ export function clampRich({
     const fallbackIndex = findLastFittingIndex(
       nextRun.fallbackTextCuts.length,
       (index) => fitsCandidate(nextRun.fallbackTextCuts![index]!),
-      fallbackHint === null ? null : { index: fallbackHint },
+      fallbackHint,
     );
     finePoint = fallbackIndex >= 0 ? nextRun.fallbackTextCuts[fallbackIndex]! : coarsePoint;
   }
