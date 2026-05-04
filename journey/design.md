@@ -389,8 +389,8 @@
     place to avoid cramped wrapping
   - the demo section has a manual stress playground modal for high-count workloads across all four
     public components:
-    it opens with the currently active component selected, renders 10-1000 real instances on a
-    logarithmic count slider, switches between `LineClamp`, `RichLineClamp`, `InlineClamp`, and
+    it opens with the currently active component selected, renders 10-200 real instances on a
+    linear count slider, switches between `LineClamp`, `RichLineClamp`, `InlineClamp`, and
     `WrapClamp`, scales text length or wrapped item count, chooses one active `maxLines` or
     `maxHeight` limit mode at a time, shares one width slider across every item, and keeps the FPS
     meter scoped to that modal instead of the normal demo surface. When the `LineClamp` workload

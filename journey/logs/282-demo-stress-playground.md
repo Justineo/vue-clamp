@@ -4,7 +4,7 @@
 
 - Added a website-only stress playground modal opened from the demo section.
 - Moved the FPS monitor into the stress playground and removed the global demo FPS checkbox.
-- The playground uses real `LineClamp` instances, a logarithmic 10-1000 component count slider,
+- The playground uses real clamp component instances, a linear 10-200 component count slider,
   shared width control, and separate `maxLines` / `maxHeight` sliders.
 - Desktop uses a centered scrollable modal; mobile uses a full-screen modal.
 - Added browser coverage for opening the playground, seeing the FPS meter, and updating workload
