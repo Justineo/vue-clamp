@@ -4733,6 +4733,7 @@ pre code {
     overflow: hidden;
     font-size: 0.72rem;
     font-weight: 500;
+    font-variant-numeric: tabular-nums;
     line-height: 1.35;
     color: var(--c-text-3);
     text-overflow: ellipsis;

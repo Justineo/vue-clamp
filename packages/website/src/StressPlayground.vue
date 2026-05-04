@@ -47,7 +47,7 @@ const verticalOverlayScrollbars = verticalOverlayScrollbarsOptions;
 const closeButtonRef = ref<HTMLButtonElement | null>(null);
 const dialogRef = ref<HTMLElement | null>(null);
 const selectedSurface = ref<StressSurface>(props.initialSurface);
-const componentCountExponent = ref(1);
+const componentCount = ref(10);
 const sharedWidth = ref(360);
 const workloadScale = ref(3);
 const limitKind = ref<StressLimitKind>("lines");
@@ -106,10 +106,6 @@ watch(
   (surface) => {
     selectedSurface.value = surface;
   },
-);
-
-const componentCount = computed(() =>
-  Math.min(1000, Math.max(10, Math.round(10 ** componentCountExponent.value))),
 );
 
 const selectedSurfaceLabel = computed(
@@ -378,13 +374,13 @@ onBeforeUnmount(() => {
                   <span class="stress-control-label">Components</span>
                   <span class="stress-control-row">
                     <input
-                      v-model.number="componentCountExponent"
+                      v-model.number="componentCount"
                       data-stress-count-slider
                       class="stress-range"
                       type="range"
-                      min="1"
-                      max="3"
-                      step="0.01"
+                      min="10"
+                      max="200"
+                      step="1"
                     />
                     <span class="stress-value" data-stress-count>{{ componentCount }}</span>
                   </span>
@@ -552,9 +548,12 @@ onBeforeUnmount(() => {
                         <span
                           v-if="showAfterSlot"
                           class="stress-token stress-token-summary"
-                          data-stress-after-slot
+                          :class="{ 'stress-token-summary--placeholder': hiddenItems.length === 0 }"
+                          :aria-hidden="hiddenItems.length === 0 ? 'true' : undefined"
+                          :data-stress-after-placeholder="hiddenItems.length === 0 ? '' : undefined"
+                          :data-stress-after-slot="hiddenItems.length > 0 ? '' : undefined"
                         >
-                          +{{ hiddenItems.length }}
+                          +{{ Math.max(1, hiddenItems.length) }}
                         </span>
                       </template>
                     </WrapClamp>
@@ -572,9 +571,12 @@ onBeforeUnmount(() => {
                         <span
                           v-if="showAfterSlot"
                           class="stress-token stress-token-summary"
-                          data-stress-after-slot
+                          :class="{ 'stress-token-summary--placeholder': hiddenItems.length === 0 }"
+                          :aria-hidden="hiddenItems.length === 0 ? 'true' : undefined"
+                          :data-stress-after-placeholder="hiddenItems.length === 0 ? '' : undefined"
+                          :data-stress-after-slot="hiddenItems.length > 0 ? '' : undefined"
                         >
-                          +{{ hiddenItems.length }}
+                          +{{ Math.max(1, hiddenItems.length) }}
                         </span>
                       </template>
                     </WrapClamp>
@@ -656,6 +658,7 @@ onBeforeUnmount(() => {
 .stress-title-group p {
   margin: 2px 0 0;
   font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
   color: var(--c-text-3);
 }
 
@@ -971,6 +974,10 @@ onBeforeUnmount(() => {
   width: 100%;
 }
 
+.stress-wrap :deep([data-part="content"]) {
+  gap: 6px;
+}
+
 .stress-token {
   display: inline-flex;
   align-items: center;
@@ -985,9 +992,15 @@ onBeforeUnmount(() => {
 }
 
 .stress-token-summary {
+  font-variant-numeric: tabular-nums;
   color: var(--c-accent-text);
   background: var(--c-accent-soft);
   border-color: color-mix(in srgb, var(--c-accent) 22%, transparent);
+}
+
+.stress-token-summary--placeholder {
+  visibility: hidden;
+  pointer-events: none;
 }
 
 @media (max-width: 899px) {
