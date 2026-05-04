@@ -198,7 +198,7 @@ export function clampTextToFit({
     findLastFittingIndex(
       Math.max(1, boundaryCount),
       (kept) => fits(displayTextForKeptCount(prepared, ratio, ellipsis, kept, spacing)),
-      hint?.boundaryOffsets === prepared.boundaryOffsets ? { index: hint.kept } : null,
+      hint?.boundaryOffsets === prepared.boundaryOffsets ? hint.kept : null,
     ),
   );
 

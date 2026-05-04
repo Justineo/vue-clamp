@@ -1,7 +1,3 @@
-type SearchHint = {
-  index: number;
-};
-
 // Two local expansion steps capture normal resize deltas while bounding the
 // penalty when a previous answer is far from the new fit boundary.
 const warmExpansionLimit = 2;
@@ -35,7 +31,7 @@ function binarySearchLastFit(
 export function findLastFittingIndex(
   count: number,
   fits: (index: number) => boolean,
-  hint?: SearchHint | null,
+  hint?: number | null,
 ): number {
   if (count <= 0) {
     return -1;
@@ -43,11 +39,11 @@ export function findLastFittingIndex(
 
   const maxIndex = count - 1;
 
-  if (!hint || !Number.isFinite(hint.index)) {
+  if (hint == null || !Number.isFinite(hint)) {
     return binarySearchLastFit(0, maxIndex, fits);
   }
 
-  const start = Math.max(0, Math.min(maxIndex, Math.floor(hint.index)));
+  const start = Math.max(0, Math.min(maxIndex, Math.floor(hint)));
 
   if (fits(start)) {
     // Growing from a fitting hint favors the common case where a container gets
