@@ -1336,6 +1336,11 @@ describe("Website demo page", () => {
         (slot) => slot.textContent?.trim() === "+0",
       ),
     ).toBe(false);
+    expect(
+      [...document.querySelectorAll("[data-stress-after-slot]")].some(
+        (slot) => slot.textContent?.trim() === "Action",
+      ),
+    ).toBe(true);
 
     (widthSlider as HTMLInputElement).value = "360";
     widthSlider?.dispatchEvent(new Event("input", { bubbles: true }));

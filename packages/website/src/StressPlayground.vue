@@ -548,12 +548,9 @@ onBeforeUnmount(() => {
                         <span
                           v-if="showAfterSlot"
                           class="stress-token stress-token-summary"
-                          :class="{ 'stress-token-summary--placeholder': hiddenItems.length === 0 }"
-                          :aria-hidden="hiddenItems.length === 0 ? 'true' : undefined"
-                          :data-stress-after-placeholder="hiddenItems.length === 0 ? '' : undefined"
-                          :data-stress-after-slot="hiddenItems.length > 0 ? '' : undefined"
+                          data-stress-after-slot
                         >
-                          +{{ Math.max(1, hiddenItems.length) }}
+                          {{ hiddenItems.length > 0 ? `+${hiddenItems.length}` : "Action" }}
                         </span>
                       </template>
                     </WrapClamp>
@@ -571,12 +568,9 @@ onBeforeUnmount(() => {
                         <span
                           v-if="showAfterSlot"
                           class="stress-token stress-token-summary"
-                          :class="{ 'stress-token-summary--placeholder': hiddenItems.length === 0 }"
-                          :aria-hidden="hiddenItems.length === 0 ? 'true' : undefined"
-                          :data-stress-after-placeholder="hiddenItems.length === 0 ? '' : undefined"
-                          :data-stress-after-slot="hiddenItems.length > 0 ? '' : undefined"
+                          data-stress-after-slot
                         >
-                          +{{ Math.max(1, hiddenItems.length) }}
+                          {{ hiddenItems.length > 0 ? `+${hiddenItems.length}` : "Action" }}
                         </span>
                       </template>
                     </WrapClamp>
@@ -996,11 +990,6 @@ onBeforeUnmount(() => {
   color: var(--c-accent-text);
   background: var(--c-accent-soft);
   border-color: color-mix(in srgb, var(--c-accent) 22%, transparent);
-}
-
-.stress-token-summary--placeholder {
-  visibility: hidden;
-  pointer-events: none;
 }
 
 @media (max-width: 899px) {
