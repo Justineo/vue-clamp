@@ -14,7 +14,7 @@ type OverlayScrollbarsTarget = HTMLElement & {
 
 type OverlayScrollbarsFactory = typeof import("overlayscrollbars").OverlayScrollbars;
 
-let overlayScrollbarsLoader: Promise<OverlayScrollbarsFactory> | null = null;
+let overlayScrollbarsLoader: Promise<OverlayScrollbarsFactory | null> | null = null;
 
 const defaultScrollbarOptions = {
   autoHide: "leave",
@@ -50,11 +50,16 @@ function setInitializeAttribute(element: HTMLElement): void {
   element.setAttribute("data-overlayscrollbars-initialize", "");
 }
 
-function loadOverlayScrollbars(): Promise<OverlayScrollbarsFactory> {
+function loadOverlayScrollbars(): Promise<OverlayScrollbarsFactory | null> {
   overlayScrollbarsLoader ??= Promise.all([
     import("overlayscrollbars/overlayscrollbars.css"),
     import("overlayscrollbars"),
-  ]).then(([, module]) => module.OverlayScrollbars);
+  ])
+    .then(([, module]) => module.OverlayScrollbars)
+    .catch(() => {
+      overlayScrollbarsLoader = null;
+      return null;
+    });
 
   return overlayScrollbarsLoader;
 }
@@ -78,7 +83,7 @@ export async function initOverlayScrollbars(
   target[REQUEST_KEY] = requestId;
 
   const createOverlayScrollbars = await loadOverlayScrollbars();
-  if (!target.isConnected || target[REQUEST_KEY] !== requestId) {
+  if (!createOverlayScrollbars || !target.isConnected || target[REQUEST_KEY] !== requestId) {
     return null;
   }
 
@@ -104,7 +109,7 @@ export function initBodyOverlayScrollbars(): () => void {
   let instance: OverlayScrollbarsInstance | null = null;
 
   void loadOverlayScrollbars().then((createOverlayScrollbars) => {
-    if (destroyed) {
+    if (destroyed || !createOverlayScrollbars) {
       return;
     }
 
