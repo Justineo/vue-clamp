@@ -1128,20 +1128,35 @@ const highlightedInlineCode = ref<string | null>(null);
 const highlightedWrapCode = ref<string | null>(null);
 let highlightRequestId = 0;
 
+function clearHighlightedCode(): void {
+  highlightedInstall.value = null;
+  highlightedLineCode.value = null;
+  highlightedRichCode.value = null;
+  highlightedInlineCode.value = null;
+  highlightedWrapCode.value = null;
+}
+
 async function loadHighlightedCode(): Promise<void> {
   const requestId = (highlightRequestId += 1);
-  const { highlightCode } = await import("./highlight");
 
-  if (!pageMounted || requestId !== highlightRequestId) {
-    return;
+  try {
+    const { highlightCode } = await import("./highlight");
+
+    if (!pageMounted || requestId !== highlightRequestId) {
+      return;
+    }
+
+    highlightedInstall.value =
+      pkgManager.value === "agent" ? null : highlightCode(installCommand.value, "shellscript");
+    highlightedLineCode.value = highlightCode(lineCodeExample, "vue");
+    highlightedRichCode.value = highlightCode(richCodeExample, "vue");
+    highlightedInlineCode.value = highlightCode(inlineCodeExample, "vue");
+    highlightedWrapCode.value = highlightCode(wrapCodeExample, "vue");
+  } catch {
+    if (pageMounted && requestId === highlightRequestId) {
+      clearHighlightedCode();
+    }
   }
-
-  highlightedInstall.value =
-    pkgManager.value === "agent" ? null : highlightCode(installCommand.value, "shellscript");
-  highlightedLineCode.value = highlightCode(lineCodeExample, "vue");
-  highlightedRichCode.value = highlightCode(richCodeExample, "vue");
-  highlightedInlineCode.value = highlightCode(inlineCodeExample, "vue");
-  highlightedWrapCode.value = highlightCode(wrapCodeExample, "vue");
 }
 
 watch(installCommand, () => {
