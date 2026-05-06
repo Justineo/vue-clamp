@@ -3,7 +3,7 @@ packages:
   - tools/*
 
 catalog:
-  "@lucide/vue": ^1.8.0
+  "@lucide/vue": ^1.12.0
   "@types/node": ^25.6.0
   "@types/stats.js": ^0.17.4
   "@vitejs/plugin-vue": ^6.0.6
@@ -12,13 +12,13 @@ catalog:
   playwright: ^1.59.1
   releaselog: ^7.0.2
   shiki: ^4.0.2
-  simple-icons: ^16.16.0
+  simple-icons: ^16.18.0
   stats.js: ^0.17.0
   typescript: ^6.0.3
-  vite: npm:@voidzero-dev/vite-plus-core@^0.1.18
-  vite-plus: ^0.1.18
-  vue: ^3.5.32
-  vue-tsc: ^3.2.6
+  vite: npm:@voidzero-dev/vite-plus-core@^0.1.20
+  vite-plus: ^0.1.20
+  vue: ^3.5.33
+  vue-tsc: ^3.2.7
 
 catalogMode: prefer
 overrides:
