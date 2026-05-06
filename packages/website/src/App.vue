@@ -14,16 +14,11 @@ import { InlineClamp, LineClamp, RichLineClamp, WrapClamp } from "vue-clamp";
 import Alert from "./Alert.vue";
 import ComponentTabs from "./ComponentTabs.vue";
 import PillControls from "./PillControls.vue";
-import {
-  horizontalOverlayScrollbarsOptions,
-  initBodyOverlayScrollbars,
-  overlayScrollbarsDirective,
-} from "./overlayScrollbars";
+import { initBodyOverlayScrollbars, overlayScrollbarsDirective } from "./overlayScrollbars";
 
 import type { ClampBoundary, InlineClampSplit, LineClampLocation } from "vue-clamp";
 
 const vOverlayScrollbars = overlayScrollbarsDirective;
-const horizontalOverlayScrollbars = horizontalOverlayScrollbarsOptions;
 
 const englishText =
   "Vue (pronounced /vju\u02D0/, like view) is a progressive framework for building user interfaces. Unlike other monolithic frameworks, Vue is designed from the ground up to be incrementally adoptable. The core library is focused on the view layer only, and is easy to pick up and integrate with other libraries or existing projects. On the other hand, Vue is also perfectly capable of powering sophisticated Single-Page Applications when used in combination with modern tooling and supporting libraries.";
@@ -1527,7 +1522,7 @@ watch(installCommand, () => {
                         />
                       </label>
                     </div>
-                    <div v-overlay-scrollbars="horizontalOverlayScrollbars" class="demo-preview">
+                    <div v-overlay-scrollbars.x class="demo-preview">
                       <div class="demo-output width-guide" :style="{ width: `${lineWidth}px` }">
                         <LineClamp
                           class="demo-clamp"
@@ -1564,7 +1559,7 @@ watch(installCommand, () => {
                         </label>
                       </div>
                     </div>
-                    <div v-overlay-scrollbars="horizontalOverlayScrollbars" class="demo-preview">
+                    <div v-overlay-scrollbars.x class="demo-preview">
                       <div
                         class="demo-output width-guide height-guide"
                         :style="{ width: `${lineWidth}px` }"
@@ -1602,7 +1597,7 @@ watch(installCommand, () => {
                         />
                       </label>
                     </div>
-                    <div v-overlay-scrollbars="horizontalOverlayScrollbars" class="demo-preview">
+                    <div v-overlay-scrollbars.x class="demo-preview">
                       <div class="demo-output width-guide" :style="{ width: `${lineWidth}px` }">
                         <LineClamp
                           class="demo-clamp"
@@ -1673,7 +1668,7 @@ watch(installCommand, () => {
                         />
                       </label>
                     </div>
-                    <div v-overlay-scrollbars="horizontalOverlayScrollbars" class="demo-preview">
+                    <div v-overlay-scrollbars.x class="demo-preview">
                       <div class="demo-output width-guide" :style="{ width: `${lineWidth}px` }">
                         <LineClamp
                           class="demo-clamp"
@@ -1810,7 +1805,7 @@ watch(installCommand, () => {
                       />
                     </label>
                   </div>
-                  <div v-overlay-scrollbars="horizontalOverlayScrollbars" class="demo-preview">
+                  <div v-overlay-scrollbars.x class="demo-preview">
                     <div class="demo-output width-guide" :style="{ width: `${richWidth}px` }">
                       <RichLineClamp
                         class="demo-clamp demo-rich-card"
@@ -1851,7 +1846,7 @@ watch(installCommand, () => {
                       </label>
                     </div>
                   </div>
-                  <div v-overlay-scrollbars="horizontalOverlayScrollbars" class="demo-preview">
+                  <div v-overlay-scrollbars.x class="demo-preview">
                     <div
                       class="demo-output width-guide height-guide"
                       :style="{ width: `${richWidth}px` }"
@@ -1888,7 +1883,7 @@ watch(installCommand, () => {
                       />
                     </label>
                   </div>
-                  <div v-overlay-scrollbars="horizontalOverlayScrollbars" class="demo-preview">
+                  <div v-overlay-scrollbars.x class="demo-preview">
                     <div class="demo-output width-guide" :style="{ width: `${richWidth}px` }">
                       <RichLineClamp
                         class="demo-clamp demo-rich-card"
@@ -2014,7 +2009,7 @@ watch(installCommand, () => {
                   :data-inline-example="example.id"
                 >
                   <div class="demo-label">{{ example.label }}</div>
-                  <div v-overlay-scrollbars="horizontalOverlayScrollbars" class="demo-preview">
+                  <div v-overlay-scrollbars.x class="demo-preview">
                     <div class="comparison-grid">
                       <div class="comparison-panel" data-inline-mode="plain">
                         <div class="comparison-label">Plain</div>
@@ -2114,7 +2109,7 @@ watch(installCommand, () => {
                   <div class="demo-label">
                     tabs / fixed one-line / hidden items in <code>after</code>
                   </div>
-                  <div v-overlay-scrollbars="horizontalOverlayScrollbars" class="demo-preview">
+                  <div v-overlay-scrollbars.x class="demo-preview">
                     <div class="demo-output width-guide" :style="{ width: `${wrapWidth}px` }">
                       <WrapClamp
                         class="demo-wrap wrap-tabs"
@@ -2195,7 +2190,7 @@ watch(installCommand, () => {
                       </label>
                     </div>
                   </div>
-                  <div v-overlay-scrollbars="horizontalOverlayScrollbars" class="demo-preview">
+                  <div v-overlay-scrollbars.x class="demo-preview">
                     <div
                       class="demo-output width-guide height-guide"
                       :style="{ width: `${wrapWidth}px` }"

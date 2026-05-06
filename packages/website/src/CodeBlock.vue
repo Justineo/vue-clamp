@@ -1,10 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref } from "vue";
 import { Check, Copy, X } from "@lucide/vue";
-import {
-  horizontalOverlayScrollbarsOptions,
-  overlayScrollbarsDirective,
-} from "./overlayScrollbars";
+import { overlayScrollbarsDirective } from "./overlayScrollbars";
 
 const props = withDefaults(
   defineProps<{
@@ -23,7 +20,6 @@ const props = withDefaults(
 type CopyState = "idle" | "copied" | "failed";
 
 const vOverlayScrollbars = overlayScrollbarsDirective;
-const horizontalOverlayScrollbars = horizontalOverlayScrollbarsOptions;
 
 const copyState = ref<CopyState>("idle");
 let resetTimer: number | undefined;
@@ -119,7 +115,7 @@ onBeforeUnmount(() => {
       <X v-else class="copy-icon" :size="14" aria-hidden="true" />
       <span class="sr-only">{{ buttonText.label }}</span>
     </button>
-    <div v-overlay-scrollbars="horizontalOverlayScrollbars" class="code-scroll" data-code-scroll>
+    <div v-overlay-scrollbars.x class="code-scroll" data-code-scroll>
       <div v-if="html" class="shiki-wrap" v-html="html" />
       <pre v-else class="code-block"><code>{{ code }}</code></pre>
     </div>

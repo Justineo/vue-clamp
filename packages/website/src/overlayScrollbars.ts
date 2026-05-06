@@ -1,151 +1,71 @@
 import type { ObjectDirective } from "vue";
+import { OverlayScrollbars } from "overlayscrollbars";
 import type {
   OverlayScrollbars as OverlayScrollbarsInstance,
   PartialOptions,
 } from "overlayscrollbars";
+import "overlayscrollbars/overlayscrollbars.css";
 
-const INSTANCE_KEY = Symbol("overlayScrollbars");
-const REQUEST_KEY = Symbol("overlayScrollbarsRequest");
+const instances = new WeakMap<HTMLElement, OverlayScrollbarsInstance>();
+const initAttr = "data-overlayscrollbars-initialize";
 
-type OverlayScrollbarsTarget = HTMLElement & {
-  [INSTANCE_KEY]?: OverlayScrollbarsInstance;
-  [REQUEST_KEY]?: number;
-};
-
-type OverlayScrollbarsFactory = typeof import("overlayscrollbars").OverlayScrollbars;
-
-let overlayScrollbarsLoader: Promise<OverlayScrollbarsFactory | null> | null = null;
-
-const defaultScrollbarOptions = {
+const scrollbars = {
   autoHide: "leave",
   autoHideDelay: 240,
   theme: "os-theme-light",
 } satisfies NonNullable<PartialOptions["scrollbars"]>;
 
-export const horizontalOverlayScrollbarsOptions = {
-  overflow: {
-    x: "scroll",
-    y: "hidden",
-  },
-} satisfies PartialOptions;
+const xOptions = { overflow: { x: "scroll", y: "hidden" }, scrollbars } satisfies PartialOptions;
+const yOptions = { overflow: { x: "hidden", y: "scroll" }, scrollbars } satisfies PartialOptions;
 
-export const verticalOverlayScrollbarsOptions = {
-  overflow: {
-    x: "hidden",
-    y: "scroll",
-  },
-} satisfies PartialOptions;
-
-function withDefaultOptions(options?: PartialOptions): PartialOptions {
-  return {
-    ...options,
-    scrollbars: {
-      ...defaultScrollbarOptions,
-      ...options?.scrollbars,
-    },
-  };
+function mark(element: HTMLElement): void {
+  element.setAttribute(initAttr, "");
 }
 
-function setInitializeAttribute(element: HTMLElement): void {
-  element.setAttribute("data-overlayscrollbars-initialize", "");
-}
+function mount(element: HTMLElement, options: PartialOptions): void {
+  mark(element);
 
-function loadOverlayScrollbars(): Promise<OverlayScrollbarsFactory | null> {
-  overlayScrollbarsLoader ??= Promise.all([
-    import("overlayscrollbars/overlayscrollbars.css"),
-    import("overlayscrollbars"),
-  ])
-    .then(([, module]) => module.OverlayScrollbars)
-    .catch(() => {
-      overlayScrollbarsLoader = null;
-      return null;
-    });
-
-  return overlayScrollbarsLoader;
-}
-
-export async function initOverlayScrollbars(
-  element: HTMLElement,
-  options?: PartialOptions,
-): Promise<OverlayScrollbarsInstance | null> {
-  const target = element as OverlayScrollbarsTarget;
-  const nextOptions = withDefaultOptions(options);
-
-  setInitializeAttribute(target);
-
-  const current = target[INSTANCE_KEY];
+  const current = instances.get(element);
   if (current) {
-    current.options(nextOptions);
-    return current;
+    current.options(options);
+    return;
   }
 
-  const requestId = (target[REQUEST_KEY] ?? 0) + 1;
-  target[REQUEST_KEY] = requestId;
-
-  const createOverlayScrollbars = await loadOverlayScrollbars();
-  if (!createOverlayScrollbars || !target.isConnected || target[REQUEST_KEY] !== requestId) {
-    return null;
-  }
-
-  const instance = createOverlayScrollbars(target, nextOptions);
-  target[INSTANCE_KEY] = instance;
-  return instance;
+  instances.set(element, OverlayScrollbars(element, options));
 }
 
-export function destroyOverlayScrollbars(element: HTMLElement): void {
-  const target = element as OverlayScrollbarsTarget;
-  target[REQUEST_KEY] = (target[REQUEST_KEY] ?? 0) + 1;
-  target[INSTANCE_KEY]?.destroy();
-  delete target[INSTANCE_KEY];
+function destroy(element: HTMLElement): void {
+  instances.get(element)?.destroy();
+  instances.delete(element);
 }
 
 export function initBodyOverlayScrollbars(): () => void {
   const { body, documentElement: html } = document;
 
-  html.setAttribute("data-overlayscrollbars-initialize", "");
-  body.setAttribute("data-overlayscrollbars-initialize", "");
+  mark(html);
+  mark(body);
 
-  let destroyed = false;
-  let instance: OverlayScrollbarsInstance | null = null;
-
-  void loadOverlayScrollbars().then((createOverlayScrollbars) => {
-    if (destroyed || !createOverlayScrollbars) {
-      return;
-    }
-
-    instance = createOverlayScrollbars(
-      {
-        cancel: {
-          body: false,
-        },
-        target: body,
+  const instance = OverlayScrollbars(
+    {
+      cancel: {
+        body: false,
       },
-      withDefaultOptions(verticalOverlayScrollbarsOptions),
-    );
-  });
+      target: body,
+    },
+    yOptions,
+  );
 
   return () => {
-    destroyed = true;
-    instance?.destroy();
-    instance = null;
+    instance.destroy();
   };
 }
 
-export const overlayScrollbarsDirective: ObjectDirective<HTMLElement, PartialOptions | undefined> =
-  {
-    beforeMount(element) {
-      setInitializeAttribute(element);
-    },
-    mounted(element, binding) {
-      void initOverlayScrollbars(element, binding.value);
-    },
-    updated(element, binding) {
-      const { oldValue, value } = binding;
-      if (value !== oldValue) {
-        void initOverlayScrollbars(element, value);
-      }
-    },
-    unmounted(element) {
-      destroyOverlayScrollbars(element);
-    },
-  };
+export const overlayScrollbarsDirective: ObjectDirective<HTMLElement> = {
+  beforeMount: mark,
+  mounted(element, binding) {
+    mount(element, binding.modifiers.y ? yOptions : xOptions);
+  },
+  unmounted(element) {
+    destroy(element);
+  },
+};

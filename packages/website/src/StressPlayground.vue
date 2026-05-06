@@ -4,7 +4,7 @@ import { X } from "@lucide/vue";
 import { InlineClamp, LineClamp, RichLineClamp, WrapClamp } from "vue-clamp";
 import FpsMeter from "./FpsMeter.vue";
 import { lockPageScroll, trapDialogFocus } from "./modal";
-import { overlayScrollbarsDirective, verticalOverlayScrollbarsOptions } from "./overlayScrollbars";
+import { overlayScrollbarsDirective } from "./overlayScrollbars";
 
 type StressSurface = "line" | "rich" | "inline" | "wrap";
 type StressLimitKind = "height" | "lines";
@@ -43,7 +43,6 @@ const emit = defineEmits<{
 }>();
 
 const vOverlayScrollbars = overlayScrollbarsDirective;
-const verticalOverlayScrollbars = verticalOverlayScrollbarsOptions;
 const closeButtonRef = ref<HTMLButtonElement | null>(null);
 const dialogRef = ref<HTMLElement | null>(null);
 const selectedSurface = ref<StressSurface>(props.initialSurface);
@@ -271,11 +270,7 @@ onBeforeUnmount(() => {
         aria-modal="true"
         aria-labelledby="stress-playground-title"
       >
-        <div
-          v-overlay-scrollbars="verticalOverlayScrollbars"
-          class="stress-modal-scroll"
-          data-stress-modal-scroll
-        >
+        <div v-overlay-scrollbars.y class="stress-modal-scroll" data-stress-modal-scroll>
           <header class="stress-header">
             <div class="stress-title-group">
               <div class="stress-title-row">
@@ -459,7 +454,7 @@ onBeforeUnmount(() => {
             </div>
 
             <div
-              v-overlay-scrollbars="verticalOverlayScrollbars"
+              v-overlay-scrollbars.y
               class="stress-workload"
               data-stress-workload
               :style="sharedWidthStyle"
