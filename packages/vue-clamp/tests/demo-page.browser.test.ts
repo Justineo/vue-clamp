@@ -1749,7 +1749,7 @@ describe("Website demo page", () => {
     lineExampleButton.click();
     await settle(2);
 
-    expect(clipboardWrites[2]).toContain("import { LineClamp } from 'vue-clamp'");
+    expect(clipboardWrites[2]).toContain('import { LineClamp } from "vue-clamp"');
     expect(clipboardWrites[2]).toContain(':text="text"');
 
     await selectSurface(mountedPage.container, "rich");
@@ -1758,7 +1758,7 @@ describe("Website demo page", () => {
     richExampleButton.click();
     await settle(2);
 
-    expect(clipboardWrites[3]).toContain("import { RichLineClamp } from 'vue-clamp'");
+    expect(clipboardWrites[3]).toContain('import { RichLineClamp } from "vue-clamp"');
     expect(clipboardWrites[3]).toContain(':html="html"');
     expect(richExampleButton.getAttribute("data-copy-state")).toBe("copied");
 
@@ -1768,7 +1768,7 @@ describe("Website demo page", () => {
     inlineExampleButton.click();
     await settle(2);
 
-    expect(clipboardWrites[4]).toContain("import { InlineClamp } from 'vue-clamp'");
+    expect(clipboardWrites[4]).toContain('import { InlineClamp } from "vue-clamp"');
     expect(clipboardWrites[4]).toContain("splitImageFile");
     expect(inlineExampleButton.getAttribute("data-copy-state")).toBe("copied");
 
@@ -1778,7 +1778,7 @@ describe("Website demo page", () => {
     wrapExampleButton.click();
     await settle(2);
 
-    expect(clipboardWrites[5]).toContain("import { WrapClamp } from 'vue-clamp'");
+    expect(clipboardWrites[5]).toContain('import { WrapClamp } from "vue-clamp"');
     expect(clipboardWrites[5]).toContain("hiddenItems");
     expect(wrapExampleButton.getAttribute("data-copy-state")).toBe("copied");
   });

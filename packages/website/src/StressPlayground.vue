@@ -27,16 +27,10 @@ type StressItem = {
   wrapItems: StressWrapItem[];
 };
 
-const props = withDefaults(
-  defineProps<{
-    initialSurface?: StressSurface;
-    returnFocusTo?: HTMLElement | null;
-  }>(),
-  {
-    initialSurface: "line",
-    returnFocusTo: null,
-  },
-);
+const { initialSurface = "line", returnFocusTo = null } = defineProps<{
+  initialSurface?: StressSurface;
+  returnFocusTo?: HTMLElement | null;
+}>();
 
 const emit = defineEmits<{
   close: [];
@@ -45,7 +39,7 @@ const emit = defineEmits<{
 const vOverlayScrollbars = overlayScrollbarsDirective;
 const closeButtonRef = ref<HTMLButtonElement | null>(null);
 const dialogRef = ref<HTMLElement | null>(null);
-const selectedSurface = ref<StressSurface>(props.initialSurface);
+const selectedSurface = ref<StressSurface>(initialSurface);
 const componentCount = ref(10);
 const sharedWidth = ref(360);
 const workloadScale = ref(3);
@@ -101,7 +95,7 @@ const wrapLabels = [
 ];
 
 watch(
-  () => props.initialSurface,
+  () => initialSurface,
   (surface) => {
     selectedSurface.value = surface;
   },
@@ -245,7 +239,7 @@ onMounted(() => {
   const releaseFocus = trapDialogFocus({
     getDialog: () => dialogRef.value,
     getInitialFocus: () => closeButtonRef.value,
-    getRestoreFocus: () => props.returnFocusTo ?? null,
+    getRestoreFocus: () => returnFocusTo ?? null,
     onEscape: close,
   });
 

@@ -3,19 +3,13 @@ import { computed, onBeforeUnmount, ref } from "vue";
 import { Check, Copy, X } from "@lucide/vue";
 import { overlayScrollbarsDirective } from "./overlayScrollbars";
 
-const props = withDefaults(
-  defineProps<{
-    code: string;
-    html?: string | null;
-    label: string;
-    embedded?: boolean;
-    blockId?: string;
-  }>(),
-  {
-    embedded: false,
-    html: null,
-  },
-);
+const { blockId, code, embedded, html, label } = defineProps<{
+  code: string;
+  html?: string;
+  label: string;
+  embedded?: boolean;
+  blockId?: string;
+}>();
 
 type CopyState = "idle" | "copied" | "failed";
 
@@ -25,7 +19,6 @@ const copyState = ref<CopyState>("idle");
 let resetTimer: number | undefined;
 
 const buttonText = computed(() => {
-  const { label } = props;
   const normalizedLabel = label.toLowerCase();
 
   switch (copyState.value) {
@@ -75,8 +68,6 @@ function copyWithFallback(text: string): boolean {
 }
 
 async function copyCode(): Promise<void> {
-  const { code } = props;
-
   try {
     if (navigator.clipboard?.writeText) {
       await navigator.clipboard.writeText(code);

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 
-const props = defineProps<{
+const { ariaLabel, modelValue, options } = defineProps<{
   modelValue: string;
   options: ReadonlyArray<{
     description?: string;
@@ -45,7 +45,7 @@ function queueOverflowSync(): void {
   void nextTick().then(syncOverflowState);
 }
 
-watch([() => props.modelValue, () => props.options], queueOverflowSync, {
+watch([() => modelValue, () => options], queueOverflowSync, {
   deep: true,
   flush: "post",
 });

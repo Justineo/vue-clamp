@@ -5,22 +5,21 @@ type PillControlOption = {
   value: string;
 };
 
-const props = withDefaults(
-  defineProps<{
-    ariaLabel?: string;
-    buttonClass?: string;
-    compact?: boolean;
-    modelValue?: string | null;
-    mono?: boolean;
-    options: ReadonlyArray<PillControlOption>;
-  }>(),
-  {
-    buttonClass: "",
-    compact: false,
-    modelValue: null,
-    mono: false,
-  },
-);
+const {
+  ariaLabel,
+  buttonClass = "",
+  compact,
+  modelValue = null,
+  mono,
+  options,
+} = defineProps<{
+  ariaLabel?: string;
+  buttonClass?: string;
+  compact?: boolean;
+  modelValue?: string | null;
+  mono?: boolean;
+  options: ReadonlyArray<PillControlOption>;
+}>();
 
 const emit = defineEmits<{
   "update:modelValue": [value: string];
