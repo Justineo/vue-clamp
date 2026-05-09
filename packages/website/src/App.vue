@@ -6,23 +6,27 @@ import {
   onBeforeUnmount,
   onMounted,
   ref,
-  shallowRef,
   watch,
 } from "vue";
 import { ArrowUpRight, ChevronDown, Ellipsis, Gauge, SlidersHorizontal } from "@lucide/vue";
 import { siGithub } from "simple-icons";
+import { highlightedInstallCommands } from "virtual:website-highlighted-install-commands";
 import { InlineClamp, LineClamp, RichLineClamp, WrapClamp } from "vue-clamp";
 import Alert from "./Alert.vue";
 import ComponentTabs from "./ComponentTabs.vue";
 import PillControls from "./PillControls.vue";
+import { installCommands, type PkgManager } from "./installCommands";
 import { initBodyOverlayScrollbars, overlayScrollbarsDirective } from "./overlayScrollbars";
 import inlineCodeExample from "./snippets/InlineClampExample.vue?raw";
+import inlineCodeExampleHtml from "./snippets/InlineClampExample.vue?highlight=vue";
 import lineCodeExample from "./snippets/LineClampExample.vue?raw";
+import lineCodeExampleHtml from "./snippets/LineClampExample.vue?highlight=vue";
 import richCodeExample from "./snippets/RichLineClampExample.vue?raw";
+import richCodeExampleHtml from "./snippets/RichLineClampExample.vue?highlight=vue";
 import wrapCodeExample from "./snippets/WrapClampExample.vue?raw";
+import wrapCodeExampleHtml from "./snippets/WrapClampExample.vue?highlight=vue";
 
 import type { ClampBoundary, InlineClampSplit, LineClampLocation } from "vue-clamp";
-import type { HighlightLanguage } from "./highlight";
 
 const vOverlayScrollbars = overlayScrollbarsDirective;
 
@@ -895,7 +899,6 @@ function handleWrapTabsKeydown(event: KeyboardEvent): void {
 onMounted(() => {
   pageMounted = true;
   stopBodyOverlayScrollbars = initBodyOverlayScrollbars();
-  void loadCodeHighlighter();
   document.addEventListener("pointerdown", handleWrapTabsPointerDown);
   document.addEventListener("keydown", handleWrapTabsKeydown);
   window.addEventListener("hashchange", handleSurfaceHashChange);
@@ -940,7 +943,6 @@ onMounted(() => {
 onBeforeUnmount(() => {
   heroTaglineFontsReady = false;
   pageMounted = false;
-  highlightRequestId += 1;
   stopBodyOverlayScrollbars();
   document.removeEventListener("pointerdown", handleWrapTabsPointerDown);
   document.removeEventListener("keydown", handleWrapTabsKeydown);
@@ -950,8 +952,6 @@ onBeforeUnmount(() => {
   heroTaglineMotionQuery?.removeEventListener("change", handleHeroTaglineMotionChange);
   heroTaglineResizeObserver?.disconnect();
 });
-
-type PkgManager = "vp" | "npm" | "pnpm" | "yarn" | "bun" | "agent";
 
 const pkgManager = ref<PkgManager>("npm");
 
@@ -1008,73 +1008,23 @@ function updateRichHtmlPreset(value: string): void {
   }
 }
 
-const installCommand = computed(() => {
-  switch (pkgManager.value) {
-    case "vp":
-      return "vp add vue-clamp";
-    case "npm":
-      return "npm install vue-clamp";
-    case "pnpm":
-      return "pnpm add vue-clamp";
-    case "yarn":
-      return "yarn add vue-clamp";
-    case "bun":
-      return "bun add vue-clamp";
-    case "agent":
-      return "Add the npm package `vue-clamp` to this project.";
-  }
+const installCommand = computed(() => installCommands[pkgManager.value]);
+
+const highlightedInstallCommand = computed(() => {
+  const manager = pkgManager.value;
+  return manager === "agent" ? undefined : highlightedInstallCommands[manager];
 });
 
-type CodeHighlighter = (code: string, lang: HighlightLanguage) => string;
-type HighlightedCodeKey = "inline" | "install" | "line" | "rich" | "wrap";
-type HighlightedCode = Partial<Record<HighlightedCodeKey, string>>;
-type HighlightedHtmlProps = {
-  html?: string;
-};
-
-const codeHighlighter = shallowRef<CodeHighlighter>();
-let highlightRequestId = 0;
-
-const highlightedCode = computed<HighlightedCode>(() => {
-  const highlight = codeHighlighter.value;
-  if (!highlight) {
-    return {};
-  }
-
-  return {
-    ...(pkgManager.value === "agent"
-      ? {}
-      : {
-          install: highlight(installCommand.value, "shellscript"),
-        }),
-    inline: highlight(inlineCodeExample, "vue"),
-    line: highlight(lineCodeExample, "vue"),
-    rich: highlight(richCodeExample, "vue"),
-    wrap: highlight(wrapCodeExample, "vue"),
-  };
-});
-
-function highlightedHtmlProps(html: string | undefined): HighlightedHtmlProps {
+function highlightedHtmlProps(html: string | undefined): { html?: string } {
   return html === undefined ? {} : { html };
 }
 
-async function loadCodeHighlighter(): Promise<void> {
-  const requestId = (highlightRequestId += 1);
-
-  try {
-    const { highlightCode } = await import("./highlight");
-
-    if (!pageMounted || requestId !== highlightRequestId) {
-      return;
-    }
-
-    codeHighlighter.value = highlightCode;
-  } catch {
-    if (pageMounted && requestId === highlightRequestId) {
-      codeHighlighter.value = undefined;
-    }
-  }
-}
+const highlightedCode = {
+  inline: inlineCodeExampleHtml,
+  line: lineCodeExampleHtml,
+  rich: richCodeExampleHtml,
+  wrap: wrapCodeExampleHtml,
+} as const;
 </script>
 
 <template>
@@ -1221,7 +1171,7 @@ async function loadCodeHighlighter(): Promise<void> {
           label="installation command"
           block-id="install"
           embedded
-          v-bind="highlightedHtmlProps(highlightedCode.install)"
+          v-bind="highlightedHtmlProps(highlightedInstallCommand)"
         />
       </div>
     </section>
@@ -2182,28 +2132,28 @@ async function loadCodeHighlighter(): Promise<void> {
               :code="lineCodeExample"
               label="<LineClamp> example"
               block-id="line-example"
-              v-bind="highlightedHtmlProps(highlightedCode.line)"
+              :html="highlightedCode.line"
             />
             <CodeBlock
               v-else-if="activeSurface === 'rich'"
               :code="richCodeExample"
               label="<RichLineClamp> example"
               block-id="rich-example"
-              v-bind="highlightedHtmlProps(highlightedCode.rich)"
+              :html="highlightedCode.rich"
             />
             <CodeBlock
               v-else-if="activeSurface === 'inline'"
               :code="inlineCodeExample"
               label="<InlineClamp> example"
               block-id="inline-example"
-              v-bind="highlightedHtmlProps(highlightedCode.inline)"
+              :html="highlightedCode.inline"
             />
             <CodeBlock
               v-else
               :code="wrapCodeExample"
               label="<WrapClamp> example"
               block-id="wrap-example"
-              v-bind="highlightedHtmlProps(highlightedCode.wrap)"
+              :html="highlightedCode.wrap"
             />
           </section>
 

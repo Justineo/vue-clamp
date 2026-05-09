@@ -430,8 +430,13 @@
     remains independent from the shared scrollbar layer
 - The website keeps non-primary presentation tooling out of the initial `App.vue` bundle:
   - `CodeBlock.vue` is an async component
-  - Shiki highlighting lives in `packages/website/src/highlight.ts` and loads after mount, while
-    code blocks render plain `<pre><code>` content until highlighted HTML is ready
+  - Shiki highlighting is build-only:
+    - `packages/website/vite.highlight.ts` turns `?highlight=vue` snippet imports and the virtual
+      installation-command module into static highlighted HTML during Vite builds/dev transforms
+    - `packages/website/src/highlight.ts` stays a build helper and is no longer imported by the
+      browser runtime
+    - raw code strings still ship for copy behavior and plain fallback rendering, but the Shiki
+      grammar engine and regex compiler do not ship to the website browser bundle
   - the stress playground remains an async component because it is diagnostic tooling
 - The website now splits generic and specialized tab controls more cleanly:
   - `packages/website/src/PillControls.vue` is the reusable switcher for demo preset groups
