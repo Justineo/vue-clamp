@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.4.0]
+
+Minor release focused on faster default multiline clamping.
+
+### Improved
+
+- `<LineClamp>` can now use browser-native multiline clamping in supported default end-ellipsis
+  `maxLines` cases. Cases that need custom behavior still use measured clamping, so no API changes
+  are required.
+
 ## [1.3.0]
 
 Minor release focused on boundary-aware clamping and smoother resizing.
