@@ -2,6 +2,8 @@
 // definitions stay aligned without importing component implementation files.
 export type ClampBoundary = "grapheme" | "word";
 
+export type ClampLength = number | string;
+
 export type LineClampLocation = "start" | "middle" | "end" | number;
 
 // Multiline text/rich and wrap clamps expose the same imperative shell so slot
@@ -32,7 +34,7 @@ export interface LineClampProps {
   as?: string;
   text?: string;
   maxLines?: number;
-  maxHeight?: number | string;
+  maxHeight?: ClampLength;
   ellipsis?: string;
   location?: LineClampLocation;
   boundary?: ClampBoundary;
@@ -43,7 +45,7 @@ export interface RichLineClampProps {
   as?: string;
   html: string;
   maxLines?: number;
-  maxHeight?: number | string;
+  maxHeight?: ClampLength;
   ellipsis?: string;
   boundary?: ClampBoundary;
   expanded?: boolean;
@@ -88,6 +90,6 @@ export interface WrapClampProps<T = unknown> {
   items: readonly T[];
   itemKey?: WrapClampItemKey<T>;
   maxLines?: number;
-  maxHeight?: number | string;
+  maxHeight?: ClampLength;
   expanded?: boolean;
 }

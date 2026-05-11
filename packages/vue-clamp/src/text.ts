@@ -1,7 +1,7 @@
 import { fitsContent } from "./layout.ts";
 import { findLastFittingIndex } from "./search.ts";
 
-import type { ClampBoundary, LineClampLocation } from "./types.ts";
+import type { ClampBoundary, ClampLength, LineClampLocation } from "./types.ts";
 
 // Text preparation is separated from DOM measurement so width-only reclamps can
 // reuse the same boundary list instead of segmenting the source text again.
@@ -20,18 +20,23 @@ export interface PreparedText {
   fallbackBoundaryOffsets?: number[];
 }
 
-export interface TextClampResult {
+export interface TextClampHint {
   boundaryOffsets: readonly number[];
   kept: number;
+}
+
+export interface TextClampResult extends TextClampHint {
   text: string;
 }
+
+type MaybeTextClampHint = TextClampHint | null | undefined;
 
 type Spacing = "trim" | "preserve-outer";
 
 type FitInput = {
   ellipsis: string;
   fits: (text: string) => boolean;
-  hint?: { boundaryOffsets: readonly number[]; kept: number } | null | undefined;
+  hint?: MaybeTextClampHint;
   prepared: PreparedText;
   ratio: number;
   spacing?: Spacing;
@@ -40,9 +45,9 @@ type FitInput = {
 type LayoutInput = {
   content: HTMLElement;
   ellipsis: string;
-  hint?: { boundaryOffsets: readonly number[]; kept: number } | null | undefined;
+  hint?: MaybeTextClampHint;
   lineLimit: number | undefined;
-  maxHeight: number | string | undefined;
+  maxHeight: ClampLength | undefined;
   prepared: PreparedText;
   ratio: number;
   root: HTMLElement;

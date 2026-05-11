@@ -28,6 +28,27 @@ function binarySearchLastFit(
   return currentBest;
 }
 
+function binarySearchLargestFittingCount(
+  low: number,
+  high: number,
+  fits: (count: number) => boolean,
+): number {
+  let floor = low;
+  let ceiling = high;
+
+  while (floor < ceiling) {
+    const count = Math.ceil((floor + ceiling) / 2);
+
+    if (fits(count)) {
+      floor = count;
+    } else {
+      ceiling = count - 1;
+    }
+  }
+
+  return floor;
+}
+
 export function findLastFittingIndex(
   count: number,
   fits: (index: number) => boolean,
@@ -94,4 +115,32 @@ export function findLastFittingIndex(
   }
 
   return -1;
+}
+
+export function findLargestFittingCount(
+  low: number,
+  high: number,
+  fits: (count: number) => boolean,
+  hint?: number | null,
+): number {
+  if (high <= low) {
+    return low;
+  }
+
+  if (hint == null || !Number.isFinite(hint)) {
+    // Count searches often mutate DOM in their predicate. Keep the no-hint path
+    // on the original ceil-midpoint probe order so those reads do not regress.
+    return binarySearchLargestFittingCount(low, high, fits);
+  }
+
+  const offsetHint = Math.floor(hint) - low;
+  const fittingOffset = findLastFittingIndex(
+    high - low + 1,
+    (offset) => fits(low + offset),
+    offsetHint,
+  );
+
+  // Count searches are called with a known-safe lower bound. Preserve that
+  // fallback if an unusual predicate rejects every probed candidate.
+  return fittingOffset < 0 ? low : low + fittingOffset;
 }

@@ -1,5 +1,6 @@
 import vue from "@vitejs/plugin-vue";
 import { playwright } from "vite-plus/test/browser-playwright";
+import { websiteCodeHighlightPlugin } from "./packages/website/vite.highlight.ts";
 import { websitePublicDir, websiteResolve } from "./packages/website/vite.shared.ts";
 
 export default {
@@ -9,7 +10,7 @@ export default {
     __VUE_PROD_HYDRATION_MISMATCH_DETAILS__: false,
   },
   publicDir: websitePublicDir,
-  plugins: [vue()],
+  plugins: [websiteCodeHighlightPlugin(), vue()],
   resolve: websiteResolve,
   test: {
     include: ["packages/vue-clamp/tests/**/*.browser.test.ts"],

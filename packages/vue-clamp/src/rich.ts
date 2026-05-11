@@ -2,7 +2,7 @@ import { fitsContent } from "./layout.ts";
 import { findLastFittingIndex } from "./search.ts";
 import { prepareText } from "./text.ts";
 
-import type { ClampBoundary } from "./types.ts";
+import type { ClampBoundary, ClampLength } from "./types.ts";
 
 // Rich clamping is structural rather than string-based. We parse once, measure
 // candidate DOM fragments, and patch structural states back into visible/probe DOM.
@@ -82,7 +82,7 @@ type ClampOptions = {
   from: RichState | null;
   hint: RichState | null;
   lineLimit: number | undefined;
-  maxHeight: number | string | undefined;
+  maxHeight: ClampLength | undefined;
   prepared: PreparedRich;
   probe: Probe;
 };

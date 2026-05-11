@@ -42,6 +42,17 @@ type MountedVariant = {
   itemSlotCalls: () => number;
   mountedBenchmark: MountedBenchmark;
 };
+type NoAffixGrowProfile = {
+  hostWidth: number;
+  itemCount: number;
+  itemWidth: number;
+  rowCount: number;
+  widths: readonly number[];
+};
+type MaxHeightProfileOptions = {
+  beforeWidth?: number;
+  maxLines?: number;
+};
 type ScenarioObservation = {
   clamps: ClampSnapshot[];
   signature: string;
@@ -72,6 +83,36 @@ const singleLineWidths = [
   140, 160, 180, 200, 220, 240, 260, 280, 300, 280, 260, 240, 220, 200, 180, 160, 140,
 ];
 const tableWidths = [180, 220, 260, 300, 340, 300, 260, 220, 180];
+const tableWidthBursts = [
+  [220, 260, 300, 340],
+  [300, 260, 220, 180],
+  [220, 260, 300, 340],
+  [300, 260, 220, 180],
+] as const;
+const noAffixJumpGrowWidths = [340, 180, 340, 180, 340, 180, 340];
+const noAffixShrinkWidths = [340, 220, 180, 150, 120];
+const noAffixHiddenGrowWidths = [120, 520, 120, 520, 120, 520];
+const noAffixLargeNWidths = [120, 520, 120, 520];
+const noAffixNarrowItemGrowWidths = [120, 520, 120, 520];
+const noAffixWideItemGrowWidths = [160, 520, 160, 520];
+const noAffixWideContainerGrowWidths = [120, 760, 120, 760];
+const noAffixTinyItemWideGrowWidths = [120, 960, 120, 960];
+const noAffixMixedItemGrowWidths = [120, 680, 120, 680];
+const noAffixHeavyItemGrowWidths = [120, 520, 120, 520, 120, 520];
+const beforeAffixGrowWidths = [120, 520, 120, 520];
+const beforeAffixShrinkWidths = [520, 360, 240, 160, 120];
+const dynamicBeforeGrowWidths = [120, 520, 120, 520];
+const dynamicBeforeShrinkWidths = [520, 360, 240, 160, 120];
+const staticAfterGrowWidths = [120, 520, 120, 520];
+const staticAfterShrinkWidths = [520, 360, 240, 160, 120];
+const staticBeforeDynamicAfterGrowWidths = [120, 520, 120, 520];
+const afterAffixShrinkWidths = [520, 360, 240, 160, 120];
+const maxHeightGrowWidths = [120, 520, 120, 520];
+const maxHeightShrinkWidths = [520, 360, 240, 160, 120];
+const beforeMaxHeightGrowWidths = [120, 520, 120, 520];
+const beforeMaxHeightShrinkWidths = [520, 360, 240, 160, 120];
+const mixedLimitGrowWidths = [120, 520, 120, 520];
+const mixedLimitShrinkWidths = [520, 360, 240, 160, 120];
 const benchmarkWarmupRuns = 1;
 const benchmarkMeasuredRuns = 5;
 
@@ -410,6 +451,1061 @@ function mountTableVariant(component: Component): MountedVariant {
   };
 }
 
+function mountNoAffixJumpGrowVariant(component: Component): MountedVariant {
+  const width = ref(noAffixJumpGrowWidths[0] ?? 340);
+  const container = document.createElement("div");
+  document.body.append(container);
+
+  let itemSlotCalls = 0;
+  let beforeSlotCalls = 0;
+  let afterSlotCalls = 0;
+  const rows = buildTableRows();
+
+  const Host = defineComponent({
+    setup() {
+      return () =>
+        h(
+          "div",
+          {
+            style: hostStyle(360),
+          },
+          h("table", { style: "table-layout:auto;width:100%;border-collapse:collapse;" }, [
+            h(
+              "tbody",
+              rows.map((row) =>
+                h("tr", { key: row.id }, [
+                  h("td", { style: "padding:4px 8px;white-space:nowrap;" }, row.id),
+                  h("td", { style: "padding:4px 8px;white-space:nowrap;" }, "Owner"),
+                  h(
+                    "td",
+                    { style: "padding:4px 8px;" },
+                    h(
+                      component,
+                      {
+                        items: row.labels,
+                        maxLines: 2,
+                        style: `width:${width.value}px;max-width:100%;`,
+                      },
+                      {
+                        item: ({ item }: { item: string }) => {
+                          itemSlotCalls += 1;
+                          return h("span", { style: fixedBadgeStyle(68) }, item);
+                        },
+                      },
+                    ),
+                  ),
+                ]),
+              ),
+            ),
+          ]),
+        );
+    },
+  });
+
+  const app = createApp(Host);
+  app.mount(container);
+
+  const mountedBenchmark = {
+    app,
+    container,
+    width,
+  };
+  mounted.add(mountedBenchmark);
+
+  return {
+    afterSlotCalls: () => afterSlotCalls,
+    beforeSlotCalls: () => beforeSlotCalls,
+    itemSlotCalls: () => itemSlotCalls,
+    mountedBenchmark,
+  };
+}
+
+function mountNoAffixHiddenGrowVariant(component: Component): MountedVariant {
+  const width = ref(noAffixHiddenGrowWidths[0] ?? 120);
+  const container = document.createElement("div");
+  document.body.append(container);
+
+  let itemSlotCalls = 0;
+  let beforeSlotCalls = 0;
+  let afterSlotCalls = 0;
+  const rows = Array.from({ length: 100 }, (_, rowIndex) => ({
+    id: `R-${rowIndex + 1}`,
+    labels: Array.from({ length: 24 }, (_, itemIndex) => `I${itemIndex + 1}`),
+  }));
+
+  const Host = defineComponent({
+    setup() {
+      return () =>
+        h(
+          "div",
+          {
+            style: hostStyle(640),
+          },
+          h("table", { style: "table-layout:auto;width:100%;border-collapse:collapse;" }, [
+            h(
+              "tbody",
+              rows.map((row) =>
+                h("tr", { key: row.id }, [
+                  h("td", { style: "padding:4px 8px;white-space:nowrap;" }, row.id),
+                  h(
+                    "td",
+                    { style: "padding:4px 8px;" },
+                    h(
+                      component,
+                      {
+                        items: row.labels,
+                        maxLines: 2,
+                        style: `width:${width.value}px;max-width:100%;`,
+                      },
+                      {
+                        item: ({ item }: { item: string }) => {
+                          itemSlotCalls += 1;
+                          return h("span", { style: fixedBadgeStyle(40) }, item);
+                        },
+                      },
+                    ),
+                  ),
+                ]),
+              ),
+            ),
+          ]),
+        );
+    },
+  });
+
+  const app = createApp(Host);
+  app.mount(container);
+
+  const mountedBenchmark = {
+    app,
+    container,
+    width,
+  };
+  mounted.add(mountedBenchmark);
+
+  return {
+    afterSlotCalls: () => afterSlotCalls,
+    beforeSlotCalls: () => beforeSlotCalls,
+    itemSlotCalls: () => itemSlotCalls,
+    mountedBenchmark,
+  };
+}
+
+function mountNoAffixLargeNVariant(component: Component): MountedVariant {
+  const width = ref(noAffixLargeNWidths[0] ?? 120);
+  const container = document.createElement("div");
+  document.body.append(container);
+
+  let itemSlotCalls = 0;
+  let beforeSlotCalls = 0;
+  let afterSlotCalls = 0;
+  const rows = Array.from({ length: 40 }, (_, rowIndex) => ({
+    id: `R-${rowIndex + 1}`,
+    labels: Array.from({ length: 200 }, (_, itemIndex) => `I${itemIndex + 1}`),
+  }));
+
+  const Host = defineComponent({
+    setup() {
+      return () =>
+        h(
+          "div",
+          {
+            style: hostStyle(640),
+          },
+          h("table", { style: "table-layout:auto;width:100%;border-collapse:collapse;" }, [
+            h(
+              "tbody",
+              rows.map((row) =>
+                h("tr", { key: row.id }, [
+                  h("td", { style: "padding:4px 8px;white-space:nowrap;" }, row.id),
+                  h(
+                    "td",
+                    { style: "padding:4px 8px;" },
+                    h(
+                      component,
+                      {
+                        items: row.labels,
+                        maxLines: 2,
+                        style: `width:${width.value}px;max-width:100%;`,
+                      },
+                      {
+                        item: ({ item }: { item: string }) => {
+                          itemSlotCalls += 1;
+                          return h("span", { style: fixedBadgeStyle(40) }, item);
+                        },
+                      },
+                    ),
+                  ),
+                ]),
+              ),
+            ),
+          ]),
+        );
+    },
+  });
+
+  const app = createApp(Host);
+  app.mount(container);
+
+  const mountedBenchmark = {
+    app,
+    container,
+    width,
+  };
+  mounted.add(mountedBenchmark);
+
+  return {
+    afterSlotCalls: () => afterSlotCalls,
+    beforeSlotCalls: () => beforeSlotCalls,
+    itemSlotCalls: () => itemSlotCalls,
+    mountedBenchmark,
+  };
+}
+
+function mountNoAffixGrowProfileVariant(
+  component: Component,
+  profile: NoAffixGrowProfile,
+): MountedVariant {
+  const width = ref(profile.widths[0] ?? 120);
+  const container = document.createElement("div");
+  document.body.append(container);
+
+  let itemSlotCalls = 0;
+  let beforeSlotCalls = 0;
+  let afterSlotCalls = 0;
+  const rows = Array.from({ length: profile.rowCount }, (_, rowIndex) => ({
+    id: `R-${rowIndex + 1}`,
+    labels: Array.from({ length: profile.itemCount }, (_, itemIndex) => `I${itemIndex + 1}`),
+  }));
+
+  const Host = defineComponent({
+    setup() {
+      return () =>
+        h(
+          "div",
+          {
+            style: hostStyle(profile.hostWidth),
+          },
+          h("table", { style: "table-layout:auto;width:100%;border-collapse:collapse;" }, [
+            h(
+              "tbody",
+              rows.map((row) =>
+                h("tr", { key: row.id }, [
+                  h("td", { style: "padding:4px 8px;white-space:nowrap;" }, row.id),
+                  h(
+                    "td",
+                    { style: "padding:4px 8px;" },
+                    h(
+                      component,
+                      {
+                        items: row.labels,
+                        maxLines: 2,
+                        style: `width:${width.value}px;max-width:100%;`,
+                      },
+                      {
+                        item: ({ item }: { item: string }) => {
+                          itemSlotCalls += 1;
+                          return h("span", { style: fixedBadgeStyle(profile.itemWidth) }, item);
+                        },
+                      },
+                    ),
+                  ),
+                ]),
+              ),
+            ),
+          ]),
+        );
+    },
+  });
+
+  const app = createApp(Host);
+  app.mount(container);
+
+  const mountedBenchmark = {
+    app,
+    container,
+    width,
+  };
+  mounted.add(mountedBenchmark);
+
+  return {
+    afterSlotCalls: () => afterSlotCalls,
+    beforeSlotCalls: () => beforeSlotCalls,
+    itemSlotCalls: () => itemSlotCalls,
+    mountedBenchmark,
+  };
+}
+
+function mountNoAffixNarrowItemGrowVariant(component: Component): MountedVariant {
+  return mountNoAffixGrowProfileVariant(component, {
+    hostWidth: 640,
+    itemCount: 48,
+    itemWidth: 28,
+    rowCount: 60,
+    widths: noAffixNarrowItemGrowWidths,
+  });
+}
+
+function mountNoAffixWideItemGrowVariant(component: Component): MountedVariant {
+  return mountNoAffixGrowProfileVariant(component, {
+    hostWidth: 640,
+    itemCount: 24,
+    itemWidth: 72,
+    rowCount: 60,
+    widths: noAffixWideItemGrowWidths,
+  });
+}
+
+function mountNoAffixWideContainerGrowVariant(component: Component): MountedVariant {
+  return mountNoAffixGrowProfileVariant(component, {
+    hostWidth: 880,
+    itemCount: 64,
+    itemWidth: 40,
+    rowCount: 60,
+    widths: noAffixWideContainerGrowWidths,
+  });
+}
+
+function mountNoAffixTinyItemWideGrowVariant(component: Component): MountedVariant {
+  return mountNoAffixGrowProfileVariant(component, {
+    hostWidth: 1040,
+    itemCount: 120,
+    itemWidth: 16,
+    rowCount: 40,
+    widths: noAffixTinyItemWideGrowWidths,
+  });
+}
+
+function mountNoAffixMixedItemGrowVariant(component: Component): MountedVariant {
+  const width = ref(noAffixMixedItemGrowWidths[0] ?? 120);
+  const container = document.createElement("div");
+  document.body.append(container);
+
+  let itemSlotCalls = 0;
+  let beforeSlotCalls = 0;
+  let afterSlotCalls = 0;
+  const itemWidths = [24, 64, 36, 96, 48, 120, 28, 72];
+  const rows = Array.from({ length: 60 }, (_, rowIndex) => ({
+    id: `R-${rowIndex + 1}`,
+    labels: Array.from({ length: 64 }, (_, itemIndex) => `I${itemIndex + 1}`),
+  }));
+
+  const Host = defineComponent({
+    setup() {
+      return () =>
+        h(
+          "div",
+          {
+            style: hostStyle(760),
+          },
+          h("table", { style: "table-layout:auto;width:100%;border-collapse:collapse;" }, [
+            h(
+              "tbody",
+              rows.map((row) =>
+                h("tr", { key: row.id }, [
+                  h("td", { style: "padding:4px 8px;white-space:nowrap;" }, row.id),
+                  h(
+                    "td",
+                    { style: "padding:4px 8px;" },
+                    h(
+                      component,
+                      {
+                        items: row.labels,
+                        maxLines: 2,
+                        style: `width:${width.value}px;max-width:100%;`,
+                      },
+                      {
+                        item: ({ index, item }: { index: number; item: string }) => {
+                          itemSlotCalls += 1;
+                          return h(
+                            "span",
+                            { style: fixedBadgeStyle(itemWidths[index % itemWidths.length] ?? 40) },
+                            item,
+                          );
+                        },
+                      },
+                    ),
+                  ),
+                ]),
+              ),
+            ),
+          ]),
+        );
+    },
+  });
+
+  const app = createApp(Host);
+  app.mount(container);
+
+  const mountedBenchmark = {
+    app,
+    container,
+    width,
+  };
+  mounted.add(mountedBenchmark);
+
+  return {
+    afterSlotCalls: () => afterSlotCalls,
+    beforeSlotCalls: () => beforeSlotCalls,
+    itemSlotCalls: () => itemSlotCalls,
+    mountedBenchmark,
+  };
+}
+
+function mountNoAffixHeavyItemGrowVariant(component: Component): MountedVariant {
+  const width = ref(noAffixHeavyItemGrowWidths[0] ?? 120);
+  const container = document.createElement("div");
+  document.body.append(container);
+
+  let itemSlotCalls = 0;
+  let beforeSlotCalls = 0;
+  let afterSlotCalls = 0;
+  const rows = Array.from({ length: 100 }, (_, rowIndex) => ({
+    id: `R-${rowIndex + 1}`,
+    labels: Array.from({ length: 24 }, (_, itemIndex) => `I${itemIndex + 1}`),
+  }));
+
+  function renderWork(seed: string): number {
+    let hash = 0;
+    for (let index = 0; index < 600; index += 1) {
+      hash = (hash * 33 + seed.charCodeAt(index % seed.length)) % 100_000;
+    }
+
+    return hash;
+  }
+
+  const Host = defineComponent({
+    setup() {
+      return () =>
+        h(
+          "div",
+          {
+            style: hostStyle(640),
+          },
+          h("table", { style: "table-layout:auto;width:100%;border-collapse:collapse;" }, [
+            h(
+              "tbody",
+              rows.map((row) =>
+                h("tr", { key: row.id }, [
+                  h("td", { style: "padding:4px 8px;white-space:nowrap;" }, row.id),
+                  h(
+                    "td",
+                    { style: "padding:4px 8px;" },
+                    h(
+                      component,
+                      {
+                        items: row.labels,
+                        maxLines: 2,
+                        style: `width:${width.value}px;max-width:100%;`,
+                      },
+                      {
+                        item: ({ item }: { item: string }) => {
+                          itemSlotCalls += 1;
+                          return h(
+                            "span",
+                            {
+                              "data-render-work": renderWork(item),
+                              style: fixedBadgeStyle(40),
+                            },
+                            item,
+                          );
+                        },
+                      },
+                    ),
+                  ),
+                ]),
+              ),
+            ),
+          ]),
+        );
+    },
+  });
+
+  const app = createApp(Host);
+  app.mount(container);
+
+  const mountedBenchmark = {
+    app,
+    container,
+    width,
+  };
+  mounted.add(mountedBenchmark);
+
+  return {
+    afterSlotCalls: () => afterSlotCalls,
+    beforeSlotCalls: () => beforeSlotCalls,
+    itemSlotCalls: () => itemSlotCalls,
+    mountedBenchmark,
+  };
+}
+
+function mountBeforeAffixGrowVariant(component: Component): MountedVariant {
+  return mountBeforeAffixProfileVariant(component, beforeAffixGrowWidths);
+}
+
+function mountBeforeAffixShrinkVariant(component: Component): MountedVariant {
+  return mountBeforeAffixProfileVariant(component, beforeAffixShrinkWidths);
+}
+
+function mountDynamicBeforeGrowVariant(component: Component): MountedVariant {
+  return mountDynamicBeforeProfileVariant(component, dynamicBeforeGrowWidths);
+}
+
+function mountDynamicBeforeShrinkVariant(component: Component): MountedVariant {
+  return mountDynamicBeforeProfileVariant(component, dynamicBeforeShrinkWidths);
+}
+
+function mountDynamicBeforeProfileVariant(
+  component: Component,
+  widths: readonly number[],
+): MountedVariant {
+  const width = ref(widths[0] ?? 120);
+  const container = document.createElement("div");
+  document.body.append(container);
+
+  let itemSlotCalls = 0;
+  let beforeSlotCalls = 0;
+  let afterSlotCalls = 0;
+  const rows = Array.from({ length: 100 }, (_, rowIndex) => ({
+    id: `R-${rowIndex + 1}`,
+    labels: Array.from({ length: 24 }, (_, itemIndex) => `I${itemIndex + 1}`),
+  }));
+
+  const Host = defineComponent({
+    setup() {
+      return () =>
+        h(
+          "div",
+          {
+            style: hostStyle(640),
+          },
+          h("table", { style: "table-layout:auto;width:100%;border-collapse:collapse;" }, [
+            h(
+              "tbody",
+              rows.map((row) =>
+                h("tr", { key: row.id }, [
+                  h("td", { style: "padding:4px 8px;white-space:nowrap;" }, row.id),
+                  h(
+                    "td",
+                    { style: "padding:4px 8px;" },
+                    h(
+                      component,
+                      {
+                        items: row.labels,
+                        maxLines: 2,
+                        style: `width:${width.value}px;max-width:100%;`,
+                      },
+                      {
+                        before: ({ hiddenItems }: { hiddenItems: readonly string[] }) => {
+                          beforeSlotCalls += 1;
+                          return h(
+                            "span",
+                            { style: fixedBadgeStyle(hiddenItems.length >= 10 ? 160 : 40) },
+                            "Lead",
+                          );
+                        },
+                        item: ({ item }: { item: string }) => {
+                          itemSlotCalls += 1;
+                          return h("span", { style: fixedBadgeStyle(40) }, item);
+                        },
+                      },
+                    ),
+                  ),
+                ]),
+              ),
+            ),
+          ]),
+        );
+    },
+  });
+
+  const app = createApp(Host);
+  app.mount(container);
+
+  const mountedBenchmark = {
+    app,
+    container,
+    width,
+  };
+  mounted.add(mountedBenchmark);
+
+  return {
+    afterSlotCalls: () => afterSlotCalls,
+    beforeSlotCalls: () => beforeSlotCalls,
+    itemSlotCalls: () => itemSlotCalls,
+    mountedBenchmark,
+  };
+}
+
+function mountAfterAffixShrinkVariant(component: Component): MountedVariant {
+  const width = ref(afterAffixShrinkWidths[0] ?? 520);
+  const container = document.createElement("div");
+  document.body.append(container);
+
+  let itemSlotCalls = 0;
+  let beforeSlotCalls = 0;
+  let afterSlotCalls = 0;
+  const rows = Array.from({ length: 100 }, (_, rowIndex) => ({
+    id: `R-${rowIndex + 1}`,
+    labels: Array.from({ length: 24 }, (_, itemIndex) => `I${itemIndex + 1}`),
+  }));
+
+  const Host = defineComponent({
+    setup() {
+      return () =>
+        h(
+          "div",
+          {
+            style: hostStyle(640),
+          },
+          h("table", { style: "table-layout:auto;width:100%;border-collapse:collapse;" }, [
+            h(
+              "tbody",
+              rows.map((row) =>
+                h("tr", { key: row.id }, [
+                  h("td", { style: "padding:4px 8px;white-space:nowrap;" }, row.id),
+                  h(
+                    "td",
+                    { style: "padding:4px 8px;" },
+                    h(
+                      component,
+                      {
+                        items: row.labels,
+                        maxLines: 2,
+                        style: `width:${width.value}px;max-width:100%;`,
+                      },
+                      {
+                        item: ({ item }: { item: string }) => {
+                          itemSlotCalls += 1;
+                          return h("span", { style: fixedBadgeStyle(40) }, item);
+                        },
+                        after: ({
+                          clamped,
+                          hiddenItems,
+                        }: {
+                          clamped: boolean;
+                          hiddenItems: readonly string[];
+                        }) => {
+                          afterSlotCalls += 1;
+                          return clamped
+                            ? h(
+                                "span",
+                                {
+                                  style: fixedBadgeStyle(hiddenItems.length >= 10 ? 68 : 32),
+                                },
+                                `+${hiddenItems.length}`,
+                              )
+                            : null;
+                        },
+                      },
+                    ),
+                  ),
+                ]),
+              ),
+            ),
+          ]),
+        );
+    },
+  });
+
+  const app = createApp(Host);
+  app.mount(container);
+
+  const mountedBenchmark = {
+    app,
+    container,
+    width,
+  };
+  mounted.add(mountedBenchmark);
+
+  return {
+    afterSlotCalls: () => afterSlotCalls,
+    beforeSlotCalls: () => beforeSlotCalls,
+    itemSlotCalls: () => itemSlotCalls,
+    mountedBenchmark,
+  };
+}
+
+function mountStaticAfterGrowVariant(component: Component): MountedVariant {
+  return mountStaticAfterProfileVariant(component, staticAfterGrowWidths);
+}
+
+function mountStaticAfterShrinkVariant(component: Component): MountedVariant {
+  return mountStaticAfterProfileVariant(component, staticAfterShrinkWidths);
+}
+
+function mountStaticAfterProfileVariant(
+  component: Component,
+  widths: readonly number[],
+): MountedVariant {
+  const width = ref(widths[0] ?? 120);
+  const container = document.createElement("div");
+  document.body.append(container);
+
+  let itemSlotCalls = 0;
+  let beforeSlotCalls = 0;
+  let afterSlotCalls = 0;
+  const rows = Array.from({ length: 100 }, (_, rowIndex) => ({
+    id: `R-${rowIndex + 1}`,
+    labels: Array.from({ length: 24 }, (_, itemIndex) => `I${itemIndex + 1}`),
+  }));
+
+  const Host = defineComponent({
+    setup() {
+      return () =>
+        h(
+          "div",
+          {
+            style: hostStyle(640),
+          },
+          h("table", { style: "table-layout:auto;width:100%;border-collapse:collapse;" }, [
+            h(
+              "tbody",
+              rows.map((row) =>
+                h("tr", { key: row.id }, [
+                  h("td", { style: "padding:4px 8px;white-space:nowrap;" }, row.id),
+                  h(
+                    "td",
+                    { style: "padding:4px 8px;" },
+                    h(
+                      component,
+                      {
+                        items: row.labels,
+                        maxLines: 2,
+                        style: `width:${width.value}px;max-width:100%;`,
+                      },
+                      {
+                        item: ({ item }: { item: string }) => {
+                          itemSlotCalls += 1;
+                          return h("span", { style: fixedBadgeStyle(40) }, item);
+                        },
+                        after: ({ clamped }: { clamped: boolean }) => {
+                          afterSlotCalls += 1;
+                          return clamped ? h("span", { style: fixedBadgeStyle(52) }, "More") : null;
+                        },
+                      },
+                    ),
+                  ),
+                ]),
+              ),
+            ),
+          ]),
+        );
+    },
+  });
+
+  const app = createApp(Host);
+  app.mount(container);
+
+  const mountedBenchmark = {
+    app,
+    container,
+    width,
+  };
+  mounted.add(mountedBenchmark);
+
+  return {
+    afterSlotCalls: () => afterSlotCalls,
+    beforeSlotCalls: () => beforeSlotCalls,
+    itemSlotCalls: () => itemSlotCalls,
+    mountedBenchmark,
+  };
+}
+
+function mountStaticBeforeDynamicAfterGrowVariant(component: Component): MountedVariant {
+  const width = ref(staticBeforeDynamicAfterGrowWidths[0] ?? 120);
+  const container = document.createElement("div");
+  document.body.append(container);
+
+  let itemSlotCalls = 0;
+  let beforeSlotCalls = 0;
+  let afterSlotCalls = 0;
+  const rows = Array.from({ length: 100 }, (_, rowIndex) => ({
+    id: `R-${rowIndex + 1}`,
+    labels: Array.from({ length: 24 }, (_, itemIndex) => `I${itemIndex + 1}`),
+  }));
+
+  const Host = defineComponent({
+    setup() {
+      return () =>
+        h(
+          "div",
+          {
+            style: hostStyle(640),
+          },
+          h("table", { style: "table-layout:auto;width:100%;border-collapse:collapse;" }, [
+            h(
+              "tbody",
+              rows.map((row) =>
+                h("tr", { key: row.id }, [
+                  h("td", { style: "padding:4px 8px;white-space:nowrap;" }, row.id),
+                  h(
+                    "td",
+                    { style: "padding:4px 8px;" },
+                    h(
+                      component,
+                      {
+                        items: row.labels,
+                        maxLines: 2,
+                        style: `width:${width.value}px;max-width:100%;`,
+                      },
+                      {
+                        before: () => {
+                          beforeSlotCalls += 1;
+                          return h("span", { style: fixedBadgeStyle(72) }, "Lead");
+                        },
+                        item: ({ item }: { item: string }) => {
+                          itemSlotCalls += 1;
+                          return h("span", { style: fixedBadgeStyle(40) }, item);
+                        },
+                        after: ({
+                          clamped,
+                          hiddenItems,
+                        }: {
+                          clamped: boolean;
+                          hiddenItems: readonly string[];
+                        }) => {
+                          afterSlotCalls += 1;
+                          const hiddenCount = hiddenItems.length;
+                          return clamped
+                            ? h(
+                                "span",
+                                {
+                                  style: fixedBadgeStyle(hiddenCount >= 10 ? 68 : 32),
+                                },
+                                `+${hiddenCount}`,
+                              )
+                            : null;
+                        },
+                      },
+                    ),
+                  ),
+                ]),
+              ),
+            ),
+          ]),
+        );
+    },
+  });
+
+  const app = createApp(Host);
+  app.mount(container);
+
+  const mountedBenchmark = {
+    app,
+    container,
+    width,
+  };
+  mounted.add(mountedBenchmark);
+
+  return {
+    afterSlotCalls: () => afterSlotCalls,
+    beforeSlotCalls: () => beforeSlotCalls,
+    itemSlotCalls: () => itemSlotCalls,
+    mountedBenchmark,
+  };
+}
+
+function mountMaxHeightGrowVariant(component: Component): MountedVariant {
+  return mountMaxHeightProfileVariant(component, maxHeightGrowWidths);
+}
+
+function mountMaxHeightShrinkVariant(component: Component): MountedVariant {
+  return mountMaxHeightProfileVariant(component, maxHeightShrinkWidths);
+}
+
+function mountBeforeMaxHeightGrowVariant(component: Component): MountedVariant {
+  return mountMaxHeightProfileVariant(component, beforeMaxHeightGrowWidths, {
+    beforeWidth: 72,
+  });
+}
+
+function mountBeforeMaxHeightShrinkVariant(component: Component): MountedVariant {
+  return mountMaxHeightProfileVariant(component, beforeMaxHeightShrinkWidths, {
+    beforeWidth: 72,
+  });
+}
+
+function mountMixedLimitGrowVariant(component: Component): MountedVariant {
+  return mountMaxHeightProfileVariant(component, mixedLimitGrowWidths, {
+    maxLines: 3,
+  });
+}
+
+function mountMixedLimitShrinkVariant(component: Component): MountedVariant {
+  return mountMaxHeightProfileVariant(component, mixedLimitShrinkWidths, {
+    maxLines: 3,
+  });
+}
+
+function mountMaxHeightProfileVariant(
+  component: Component,
+  widths: readonly number[],
+  options: MaxHeightProfileOptions = {},
+): MountedVariant {
+  const width = ref(widths[0] ?? 120);
+  const container = document.createElement("div");
+  document.body.append(container);
+
+  let itemSlotCalls = 0;
+  let beforeSlotCalls = 0;
+  let afterSlotCalls = 0;
+  const rows = Array.from({ length: 100 }, (_, rowIndex) => ({
+    id: `R-${rowIndex + 1}`,
+    labels: Array.from({ length: 24 }, (_, itemIndex) => `I${itemIndex + 1}`),
+  }));
+
+  const Host = defineComponent({
+    setup() {
+      const item = ({ item }: { item: string }) => {
+        itemSlotCalls += 1;
+        return h("span", { style: fixedBadgeStyle(40) }, item);
+      };
+
+      return () =>
+        h(
+          "div",
+          {
+            style: hostStyle(640),
+          },
+          h("table", { style: "table-layout:auto;width:100%;border-collapse:collapse;" }, [
+            h(
+              "tbody",
+              rows.map((row) =>
+                h("tr", { key: row.id }, [
+                  h("td", { style: "padding:4px 8px;white-space:nowrap;" }, row.id),
+                  h(
+                    "td",
+                    { style: "padding:4px 8px;" },
+                    h(
+                      component,
+                      {
+                        items: row.labels,
+                        maxHeight: "60px",
+                        maxLines: options.maxLines,
+                        style: `width:${width.value}px;max-width:100%;`,
+                      },
+                      options.beforeWidth === undefined
+                        ? {
+                            item,
+                          }
+                        : {
+                            before: () => {
+                              beforeSlotCalls += 1;
+                              return h(
+                                "span",
+                                { style: fixedBadgeStyle(options.beforeWidth ?? 0) },
+                                "Lead",
+                              );
+                            },
+                            item,
+                          },
+                    ),
+                  ),
+                ]),
+              ),
+            ),
+          ]),
+        );
+    },
+  });
+
+  const app = createApp(Host);
+  app.mount(container);
+
+  const mountedBenchmark = {
+    app,
+    container,
+    width,
+  };
+  mounted.add(mountedBenchmark);
+
+  return {
+    afterSlotCalls: () => afterSlotCalls,
+    beforeSlotCalls: () => beforeSlotCalls,
+    itemSlotCalls: () => itemSlotCalls,
+    mountedBenchmark,
+  };
+}
+
+function mountBeforeAffixProfileVariant(
+  component: Component,
+  widths: readonly number[],
+): MountedVariant {
+  const width = ref(widths[0] ?? 120);
+  const container = document.createElement("div");
+  document.body.append(container);
+
+  let itemSlotCalls = 0;
+  let beforeSlotCalls = 0;
+  let afterSlotCalls = 0;
+  const rows = Array.from({ length: 100 }, (_, rowIndex) => ({
+    id: `R-${rowIndex + 1}`,
+    labels: Array.from({ length: 24 }, (_, itemIndex) => `I${itemIndex + 1}`),
+  }));
+
+  const Host = defineComponent({
+    setup() {
+      return () =>
+        h(
+          "div",
+          {
+            style: hostStyle(640),
+          },
+          h("table", { style: "table-layout:auto;width:100%;border-collapse:collapse;" }, [
+            h(
+              "tbody",
+              rows.map((row) =>
+                h("tr", { key: row.id }, [
+                  h("td", { style: "padding:4px 8px;white-space:nowrap;" }, row.id),
+                  h(
+                    "td",
+                    { style: "padding:4px 8px;" },
+                    h(
+                      component,
+                      {
+                        items: row.labels,
+                        maxLines: 2,
+                        style: `width:${width.value}px;max-width:100%;`,
+                      },
+                      {
+                        before: () => {
+                          beforeSlotCalls += 1;
+                          return h("span", { style: fixedBadgeStyle(72) }, "Lead");
+                        },
+                        item: ({ item }: { item: string }) => {
+                          itemSlotCalls += 1;
+                          return h("span", { style: fixedBadgeStyle(40) }, item);
+                        },
+                      },
+                    ),
+                  ),
+                ]),
+              ),
+            ),
+          ]),
+        );
+    },
+  });
+
+  const app = createApp(Host);
+  app.mount(container);
+
+  const mountedBenchmark = {
+    app,
+    container,
+    width,
+  };
+  mounted.add(mountedBenchmark);
+
+  return {
+    afterSlotCalls: () => afterSlotCalls,
+    beforeSlotCalls: () => beforeSlotCalls,
+    itemSlotCalls: () => itemSlotCalls,
+    mountedBenchmark,
+  };
+}
+
 async function runWidthSequence(
   mountedBenchmark: MountedBenchmark,
   widths: readonly number[],
@@ -440,6 +1536,49 @@ async function runWidthSequence(
 
   return {
     meanStepMs: totalMs / Math.max(1, measuredWidths.length),
+    rectReads: endRectTracking(),
+    totalMs,
+  };
+}
+
+async function runWidthBursts(
+  mountedBenchmark: MountedBenchmark,
+  bursts: readonly (readonly number[])[],
+  initialObservation: ScenarioObservation,
+): Promise<{
+  meanStepMs: number;
+  rectReads: number;
+  totalMs: number;
+}> {
+  const observations = [initialObservation];
+  let totalMs = 0;
+
+  beginRectTracking(mountedBenchmark.container);
+
+  for (const burst of bursts) {
+    const finalWidth = burst.at(-1);
+    if (finalWidth === undefined) {
+      throw new Error("Benchmark width bursts must not be empty.");
+    }
+
+    const stepStart = performance.now();
+    for (const width of burst) {
+      mountedBenchmark.width.value = width;
+      await nextTick();
+    }
+
+    const stableObservation = await waitForStableObservation(
+      mountedBenchmark.container,
+      finalWidth,
+      observations.at(-1)?.signature ?? null,
+      stepStart,
+    );
+    observations.push(stableObservation.observation);
+    totalMs += stableObservation.settledMs;
+  }
+
+  return {
+    meanStepMs: totalMs / Math.max(1, bursts.length),
     rectReads: endRectTracking(),
     totalMs,
   };
@@ -502,6 +1641,62 @@ async function runBenchmark(
   return summarize(runs);
 }
 
+async function runBurstScenario(
+  mountVariant: (component: Component) => MountedVariant,
+  initialWidth: number,
+  bursts: readonly (readonly number[])[],
+): Promise<BenchmarkRun> {
+  const mountedVariant = mountVariant(WrapClamp);
+  mountedVariant.mountedBenchmark.width.value = initialWidth;
+
+  try {
+    const initialObservation = (
+      await waitForStableObservation(
+        mountedVariant.mountedBenchmark.container,
+        initialWidth,
+        null,
+        performance.now(),
+      )
+    ).observation;
+    const baselineAfter = mountedVariant.afterSlotCalls();
+    const baselineBefore = mountedVariant.beforeSlotCalls();
+    const baselineItem = mountedVariant.itemSlotCalls();
+    const metrics = await runWidthBursts(
+      mountedVariant.mountedBenchmark,
+      bursts,
+      initialObservation,
+    );
+
+    return {
+      afterSlotCalls: mountedVariant.afterSlotCalls() - baselineAfter,
+      beforeSlotCalls: mountedVariant.beforeSlotCalls() - baselineBefore,
+      itemSlotCalls: mountedVariant.itemSlotCalls() - baselineItem,
+      meanStepMs: metrics.meanStepMs,
+      rectReads: metrics.rectReads,
+      totalMs: metrics.totalMs,
+    };
+  } finally {
+    destroyMountedBenchmark(mountedVariant.mountedBenchmark);
+  }
+}
+
+async function runBurstBenchmark(
+  mountVariant: (component: Component) => MountedVariant,
+  initialWidth: number,
+  bursts: readonly (readonly number[])[],
+): Promise<BenchmarkSummary> {
+  const runs: BenchmarkRun[] = [];
+
+  for (let runIndex = 0; runIndex < benchmarkWarmupRuns + benchmarkMeasuredRuns; runIndex += 1) {
+    const run = await runBurstScenario(mountVariant, initialWidth, bursts);
+    if (runIndex >= benchmarkWarmupRuns) {
+      runs.push(run);
+    }
+  }
+
+  return summarize(runs);
+}
+
 afterEach(() => {
   for (const mountedBenchmark of Array.from(mounted)) {
     destroyMountedBenchmark(mountedBenchmark);
@@ -548,11 +1743,124 @@ describe("WrapClamp benchmark", () => {
         scenario: "table-demo-width-sweep",
         summary: await runBenchmark(mountTableVariant, tableWidths),
       },
+      {
+        scenario: "table-demo-width-churn",
+        summary: await runBurstBenchmark(
+          mountTableVariant,
+          tableWidths[0] ?? 180,
+          tableWidthBursts,
+        ),
+      },
+      {
+        scenario: "no-affix-jump-grow",
+        summary: await runBenchmark(mountNoAffixJumpGrowVariant, noAffixJumpGrowWidths),
+      },
+      {
+        scenario: "no-affix-shrink",
+        summary: await runBenchmark(mountNoAffixJumpGrowVariant, noAffixShrinkWidths),
+      },
+      {
+        scenario: "no-affix-hidden-grow",
+        summary: await runBenchmark(mountNoAffixHiddenGrowVariant, noAffixHiddenGrowWidths),
+      },
+      {
+        scenario: "no-affix-large-n",
+        summary: await runBenchmark(mountNoAffixLargeNVariant, noAffixLargeNWidths),
+      },
+      {
+        scenario: "no-affix-narrow-item-grow",
+        summary: await runBenchmark(mountNoAffixNarrowItemGrowVariant, noAffixNarrowItemGrowWidths),
+      },
+      {
+        scenario: "no-affix-wide-item-grow",
+        summary: await runBenchmark(mountNoAffixWideItemGrowVariant, noAffixWideItemGrowWidths),
+      },
+      {
+        scenario: "no-affix-wide-container-grow",
+        summary: await runBenchmark(
+          mountNoAffixWideContainerGrowVariant,
+          noAffixWideContainerGrowWidths,
+        ),
+      },
+      {
+        scenario: "no-affix-tiny-item-wide-grow",
+        summary: await runBenchmark(
+          mountNoAffixTinyItemWideGrowVariant,
+          noAffixTinyItemWideGrowWidths,
+        ),
+      },
+      {
+        scenario: "no-affix-mixed-item-grow",
+        summary: await runBenchmark(mountNoAffixMixedItemGrowVariant, noAffixMixedItemGrowWidths),
+      },
+      {
+        scenario: "no-affix-heavy-item-grow",
+        summary: await runBenchmark(mountNoAffixHeavyItemGrowVariant, noAffixHeavyItemGrowWidths),
+      },
+      {
+        scenario: "before-affix-grow",
+        summary: await runBenchmark(mountBeforeAffixGrowVariant, beforeAffixGrowWidths),
+      },
+      {
+        scenario: "before-affix-shrink",
+        summary: await runBenchmark(mountBeforeAffixShrinkVariant, beforeAffixShrinkWidths),
+      },
+      {
+        scenario: "dynamic-before-grow",
+        summary: await runBenchmark(mountDynamicBeforeGrowVariant, dynamicBeforeGrowWidths),
+      },
+      {
+        scenario: "dynamic-before-shrink",
+        summary: await runBenchmark(mountDynamicBeforeShrinkVariant, dynamicBeforeShrinkWidths),
+      },
+      {
+        scenario: "static-after-grow",
+        summary: await runBenchmark(mountStaticAfterGrowVariant, staticAfterGrowWidths),
+      },
+      {
+        scenario: "static-after-shrink",
+        summary: await runBenchmark(mountStaticAfterShrinkVariant, staticAfterShrinkWidths),
+      },
+      {
+        scenario: "static-before-dynamic-after-grow",
+        summary: await runBenchmark(
+          mountStaticBeforeDynamicAfterGrowVariant,
+          staticBeforeDynamicAfterGrowWidths,
+        ),
+      },
+      {
+        scenario: "after-affix-shrink",
+        summary: await runBenchmark(mountAfterAffixShrinkVariant, afterAffixShrinkWidths),
+      },
+      {
+        scenario: "max-height-grow",
+        summary: await runBenchmark(mountMaxHeightGrowVariant, maxHeightGrowWidths),
+      },
+      {
+        scenario: "max-height-shrink",
+        summary: await runBenchmark(mountMaxHeightShrinkVariant, maxHeightShrinkWidths),
+      },
+      {
+        scenario: "before-max-height-grow",
+        summary: await runBenchmark(mountBeforeMaxHeightGrowVariant, beforeMaxHeightGrowWidths),
+      },
+      {
+        scenario: "before-max-height-shrink",
+        summary: await runBenchmark(mountBeforeMaxHeightShrinkVariant, beforeMaxHeightShrinkWidths),
+      },
+      {
+        scenario: "mixed-lines-height-grow",
+        summary: await runBenchmark(mountMixedLimitGrowVariant, mixedLimitGrowWidths),
+      },
+      {
+        scenario: "mixed-lines-height-shrink",
+        summary: await runBenchmark(mountMixedLimitShrinkVariant, mixedLimitShrinkWidths),
+      },
     ];
 
     console.error(`WRAP_BENCHMARK ${JSON.stringify({ scenarios })}`);
 
-    expect(scenarios).toHaveLength(2);
+    expect(scenarios).toHaveLength(27);
     for (const scenario of scenarios) {
       expect(scenario.summary.runs).toHaveLength(benchmarkMeasuredRuns);
     }

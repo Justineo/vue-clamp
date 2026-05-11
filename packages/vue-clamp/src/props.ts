@@ -1,5 +1,5 @@
 import type { PropType } from "vue";
-import type { ClampBoundary, LineClampLocation } from "./types.ts";
+import type { ClampBoundary, ClampLength, LineClampLocation } from "./types.ts";
 
 // Shared prop definitions keep runtime validators and defaults consistent across
 // the components that expose the same public API concepts.
@@ -43,6 +43,6 @@ export const locationProp = {
   },
 } as const;
 
-export const maxHeightProp = [Number, String] as PropType<number | string | undefined>;
+export const maxHeightProp = [Number, String] as PropType<ClampLength | undefined>;
 
 export const maxLinesProp = Number;

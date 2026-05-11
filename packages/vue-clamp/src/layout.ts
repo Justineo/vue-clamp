@@ -1,3 +1,5 @@
+import type { ClampLength } from "./types.ts";
+
 export function normalizeLineLimit(maxLines: number | undefined): number | undefined {
   if (maxLines === undefined || !Number.isFinite(maxLines) || maxLines <= 0) {
     return undefined;
@@ -39,7 +41,7 @@ export function createCoalescingRunner(task: () => Promise<void>): () => void {
   };
 }
 
-export function cssLength(value: number | string | undefined): string | number | undefined {
+export function cssLength(value: ClampLength | undefined): string | undefined {
   return typeof value === "number" ? `${value}px` : value;
 }
 
@@ -83,7 +85,7 @@ export function fitsContent(
   rootElement: HTMLElement,
   contentElement: HTMLElement,
   lineLimit: number | undefined,
-  maxHeight: number | string | undefined,
+  maxHeight: ClampLength | undefined,
 ): boolean {
   if (lineLimit === undefined && maxHeight === undefined) {
     // No visual limit means every candidate fits; avoid layout reads entirely.

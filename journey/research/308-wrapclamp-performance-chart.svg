@@ -1,0 +1,125 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="920" height="520" viewBox="0 0 920 520" role="img" aria-labelledby="title desc">
+  <title id="title">WrapClamp benchmark median settled time before and after optimization</title>
+  <desc id="desc">Horizontal bar chart comparing representative WrapClamp benchmark scenarios before and after the optimization branch. Lower median settled time is better.</desc>
+  <defs>
+    <style>
+      text {
+        font-family:
+          Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        fill: #172033;
+      }
+      .title {
+        font-size: 26px;
+        font-weight: 760;
+      }
+      .subtitle {
+        fill: #536078;
+        font-size: 14px;
+      }
+      .axis {
+        fill: #6b7486;
+        font-size: 12px;
+      }
+      .label {
+        font-size: 13px;
+        font-weight: 650;
+      }
+      .value {
+        fill: #374151;
+        font-size: 12px;
+        font-variant-numeric: tabular-nums;
+      }
+      .legend {
+        fill: #4b5563;
+        font-size: 12px;
+        font-weight: 650;
+      }
+      .delta {
+        fill: #047857;
+        font-size: 12px;
+        font-weight: 760;
+      }
+    </style>
+  </defs>
+
+  <rect width="920" height="520" rx="18" fill="#fbfcfe" />
+  <rect x="24" y="24" width="872" height="472" rx="14" fill="#ffffff" stroke="#e5e7eb" />
+
+  <text class="title" x="48" y="68">WrapClamp optimization impact</text>
+  <text class="subtitle" x="48" y="92">Median browser-settled time in representative resize scenarios. Lower is better.</text>
+
+  <rect x="610" y="52" width="12" height="12" rx="3" fill="#cbd5e1" />
+  <text class="legend" x="630" y="62">Before</text>
+  <rect x="700" y="52" width="12" height="12" rx="3" fill="#2563eb" />
+  <text class="legend" x="720" y="62">After</text>
+
+  <g transform="translate(300 118)">
+    <line x1="0" y1="0" x2="520" y2="0" stroke="#e5e7eb" />
+    <line x1="0" y1="0" x2="0" y2="336" stroke="#d1d5db" />
+    <line x1="130" y1="0" x2="130" y2="336" stroke="#f1f5f9" />
+    <line x1="260" y1="0" x2="260" y2="336" stroke="#f1f5f9" />
+    <line x1="390" y1="0" x2="390" y2="336" stroke="#f1f5f9" />
+    <line x1="520" y1="0" x2="520" y2="336" stroke="#f1f5f9" />
+    <text class="axis" x="-4" y="-10" text-anchor="middle">0</text>
+    <text class="axis" x="130" y="-10" text-anchor="middle">125ms</text>
+    <text class="axis" x="260" y="-10" text-anchor="middle">250ms</text>
+    <text class="axis" x="390" y="-10" text-anchor="middle">375ms</text>
+    <text class="axis" x="520" y="-10" text-anchor="middle">500ms</text>
+  </g>
+
+  <g transform="translate(48 136)">
+    <text class="label" x="0" y="8">Static before + dynamic after grow</text>
+    <rect x="252" y="-2" width="520" height="14" rx="7" fill="#cbd5e1" />
+    <rect x="252" y="18" width="204" height="14" rx="7" fill="#2563eb" />
+    <text class="value" x="782" y="9">~500ms</text>
+    <text class="value" x="466" y="29">196ms</text>
+    <text class="delta" x="842" y="20">-61%</text>
+  </g>
+
+  <g transform="translate(48 196)">
+    <text class="label" x="0" y="8">No-affix tiny-item wide grow</text>
+    <rect x="252" y="-2" width="402" height="14" rx="7" fill="#cbd5e1" />
+    <rect x="252" y="18" width="164" height="14" rx="7" fill="#2563eb" />
+    <text class="value" x="664" y="9">~387ms</text>
+    <text class="value" x="426" y="29">158ms</text>
+    <text class="delta" x="842" y="20">-59%</text>
+  </g>
+
+  <g transform="translate(48 256)">
+    <text class="label" x="0" y="8">Before-affix grow</text>
+    <rect x="252" y="-2" width="453" height="14" rx="7" fill="#cbd5e1" />
+    <rect x="252" y="18" width="198" height="14" rx="7" fill="#2563eb" />
+    <text class="value" x="715" y="9">~436ms</text>
+    <text class="value" x="460" y="29">190ms</text>
+    <text class="delta" x="842" y="20">-56%</text>
+  </g>
+
+  <g transform="translate(48 316)">
+    <text class="label" x="0" y="8">Before-affix shrink</text>
+    <rect x="252" y="-2" width="142" height="14" rx="7" fill="#cbd5e1" />
+    <rect x="252" y="18" width="79" height="14" rx="7" fill="#2563eb" />
+    <text class="value" x="404" y="9">~137ms</text>
+    <text class="value" x="341" y="29">76ms</text>
+    <text class="delta" x="842" y="20">-45%</text>
+  </g>
+
+  <g transform="translate(48 376)">
+    <text class="label" x="0" y="8">maxHeight grow</text>
+    <rect x="252" y="-2" width="216" height="14" rx="7" fill="#cbd5e1" />
+    <rect x="252" y="18" width="137" height="14" rx="7" fill="#2563eb" />
+    <text class="value" x="478" y="9">~208ms</text>
+    <text class="value" x="399" y="29">132ms</text>
+    <text class="delta" x="842" y="20">-37%</text>
+  </g>
+
+  <g transform="translate(48 436)">
+    <text class="label" x="0" y="8">Table width churn</text>
+    <rect x="252" y="-2" width="224" height="14" rx="7" fill="#cbd5e1" />
+    <rect x="252" y="18" width="172" height="14" rx="7" fill="#2563eb" />
+    <text class="value" x="486" y="9">~215ms</text>
+    <text class="value" x="434" y="29">165ms</text>
+    <text class="delta" x="842" y="20">-23%</text>
+  </g>
+
+  <text class="subtitle" x="48" y="482">Data: WrapClamp browser benchmark medians from feat/1.5. The chart shows elapsed browser-settled time, not pure solver CPU.</text>
+</svg>
