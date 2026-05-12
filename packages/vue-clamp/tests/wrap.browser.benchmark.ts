@@ -451,7 +451,7 @@ function mountTableVariant(component: Component): MountedVariant {
   };
 }
 
-function mountNoAffixJumpGrowVariant(component: Component): MountedVariant {
+function mountNoAffixResizeVariant(component: Component): MountedVariant {
   const width = ref(noAffixJumpGrowWidths[0] ?? 340);
   const container = document.createElement("div");
   document.body.append(container);
@@ -1753,11 +1753,11 @@ describe("WrapClamp benchmark", () => {
       },
       {
         scenario: "no-affix-jump-grow",
-        summary: await runBenchmark(mountNoAffixJumpGrowVariant, noAffixJumpGrowWidths),
+        summary: await runBenchmark(mountNoAffixResizeVariant, noAffixJumpGrowWidths),
       },
       {
         scenario: "no-affix-shrink",
-        summary: await runBenchmark(mountNoAffixJumpGrowVariant, noAffixShrinkWidths),
+        summary: await runBenchmark(mountNoAffixResizeVariant, noAffixShrinkWidths),
       },
       {
         scenario: "no-affix-hidden-grow",

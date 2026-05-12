@@ -12,9 +12,9 @@ import {
 import { clampRich, patchRich, prepareRich } from "./rich.ts";
 import { hasSlotContent } from "./slot.ts";
 
-import type { CSSProperties } from "vue";
+import type { CSSProperties, SlotsType } from "vue";
 import type { PreparedRich, RichState } from "./rich.ts";
-import type { RichLineClampExposed, RichLineClampSlotProps } from "./types.ts";
+import type { RichLineClampExposed, RichLineClampSlotProps, RichLineClampSlots } from "./types.ts";
 
 const slotStyle: CSSProperties = {
   display: "inline-flex",
@@ -77,6 +77,7 @@ export const RichLineClamp = defineComponent({
   inheritAttrs: false,
   props: propsDef,
   emits: emitsDef,
+  slots: Object as SlotsType<RichLineClampSlots>,
   setup(props, { attrs, emit, expose, slots }) {
     const probeRef = ref<HTMLElement | null>(null);
     const isFallback = ref(false);

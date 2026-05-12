@@ -3,30 +3,37 @@ import { combinedSizeSignature, createCoalescingRunner, listenForFontLoads } fro
 
 import type { Ref } from "vue";
 
-type FrameRefs = {
-  rootRef: Ref<HTMLElement | null>;
-  contentRef: Ref<HTMLElement | null>;
-  beforeRef: Ref<HTMLElement | null>;
-  bodyRef: Ref<HTMLElement | null>;
-  afterRef: Ref<HTMLElement | null>;
+export type MultilineClampFrameRefs = {
+  readonly rootRef: Ref<HTMLElement | null>;
+  readonly contentRef: Ref<HTMLElement | null>;
+  readonly beforeRef: Ref<HTMLElement | null>;
+  readonly bodyRef: Ref<HTMLElement | null>;
+  readonly afterRef: Ref<HTMLElement | null>;
 };
 
-type ShellState = FrameRefs & {
-  expanded: Ref<boolean>;
-  isClamped: Ref<boolean>;
+type ShellState = MultilineClampFrameRefs & {
+  readonly expanded: Ref<boolean>;
+  readonly isClamped: Ref<boolean>;
 };
 
-type ShellOptions = {
-  getExpanded: () => boolean;
-  onExpandedChange: (value: boolean) => void;
-  onClampedChange: (value: boolean) => void;
-  recompute: (expanded: Ref<boolean>) => Promise<void>;
+export type MultilineClampShellOptions = {
+  readonly getExpanded: () => boolean;
+  readonly onExpandedChange: (value: boolean) => void;
+  readonly onClampedChange: (value: boolean) => void;
+  readonly recompute: (expanded: Ref<boolean>) => Promise<void>;
+};
+
+export type MultilineClampShell = ShellState & {
+  readonly expand: () => void;
+  readonly collapse: () => void;
+  readonly toggle: () => void;
+  readonly requestRecompute: () => void;
 };
 
 // LineClamp and RichLineClamp have different clamp engines but the same shell:
 // controlled expansion, slot/root refs, invalidation sources, and event timing.
 // Keeping that shell here avoids two subtly divergent lifecycle implementations.
-export function useMultilineClamp(options: ShellOptions) {
+export function useMultilineClamp(options: MultilineClampShellOptions): MultilineClampShell {
   const { getExpanded, onExpandedChange, onClampedChange, recompute } = options;
   const state: ShellState = {
     rootRef: ref<HTMLElement | null>(null),

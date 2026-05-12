@@ -7,6 +7,7 @@ export { WrapClamp } from "./WrapClamp.ts";
 
 export type {
   ClampBoundary,
+  ClampLength,
   InlineClampParts,
   InlineClampProps,
   InlineClampSplit,

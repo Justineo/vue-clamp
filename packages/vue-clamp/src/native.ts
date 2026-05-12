@@ -1,16 +1,16 @@
 import type { CSSProperties } from "vue";
 import type { ClampBoundary, ClampLength } from "./types.ts";
 
-type NativeClampMode = "single-line" | "multi-line";
+export type NativeClampMode = "single-line" | "multi-line";
 
-type NativeModeInput = {
-  boundary: ClampBoundary;
-  ellipsis: string;
-  expanded: boolean;
-  hasAfterSlot: boolean;
-  lineLimit: number | undefined;
-  locationRatio: number;
-  maxHeight: ClampLength | undefined;
+export type NativeModeInput = {
+  readonly boundary: ClampBoundary;
+  readonly ellipsis: string;
+  readonly expanded: boolean;
+  readonly hasAfterSlot: boolean;
+  readonly lineLimit: number | undefined;
+  readonly locationRatio: number;
+  readonly maxHeight: ClampLength | undefined;
 };
 
 let supportsMultilineClamp: boolean | null = null;

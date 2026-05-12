@@ -42,20 +42,56 @@
   - `InlineClamp` as the canonical single-line affix-friendly component name
   - `WrapClamp` as the canonical wrapped-item component name
 - There is no default export.
-- Public declaration types live in `packages/vue-clamp/src/types.ts`.
-- Component implementation files do not re-export public declaration types; type exports stay in
-  `types.ts` and the root package barrel so the public surface remains auditable.
-- Type organization preference:
-  - share a type only when it has one semantic owner and multiple real consumers, or when a runtime
-    prop/helper must stay aligned with a public prop contract
-  - colocate component-local solver, DOM, probe, patch, and render-state types with the code that
-    owns those states
-  - do not create shared types only because two objects have the same shape; `RichState`,
-    `TextClampResult`, and `WrapClamp` sequence/flow states are intentionally separate concepts
-  - helper-module types may be exported for internal tests or sibling modules, but the root barrel
-    remains the only package-level public type surface
-  - `ClampLength` is the shared source-level `maxHeight` length primitive; `TextClampHint` is the
-    shared text warm-start contract
+- Type declarations follow four explicit layers:
+  - package API types live in `packages/vue-clamp/src/types.ts` and are re-exported from the root
+    package barrel; these names are semver API
+  - private building-block aliases may live inside `types.ts` only to assemble concrete package API
+    contracts without becoming package-level names themselves
+  - source-module helper contracts live in the behavior module that owns them, such as `text.ts`,
+    `rich.ts`, `native.ts`, and `multiline.ts`; sibling modules, tests, and benchmarks may import
+    those contracts directly from the owner module
+  - implementation-local solver, DOM, probe, patch, render-state, benchmark-fixture, and website UI
+    types stay with the code that owns those states
+- Component implementation files do not re-export package declaration types; public package type
+  exports stay auditable through `types.ts` and the root barrel.
+- Root package type exports currently include the component prop, slot, exposed-instance, and
+  user-callback/value-domain contracts:
+  - `ClampBoundary`
+  - `ClampLength`
+  - `LineClampLocation`
+  - `LineClampProps`
+  - `LineClampSlotProps`
+  - `LineClampExposed`
+  - `RichLineClampProps`
+  - `RichLineClampSlotProps`
+  - `RichLineClampExposed`
+  - `InlineClampParts`
+  - `InlineClampSplit`
+  - `InlineClampProps`
+  - `WrapClampItemKey`
+  - `WrapClampItemSlotProps`
+  - `WrapClampSlotProps`
+  - `WrapClampExposed`
+  - `WrapClampProps`
+- `LineClamp`, `RichLineClamp`, and `WrapClamp` declare their slot maps with Vue `SlotsType`.
+  These slot maps are declaration-building contracts in `types.ts`, not root package exports.
+- `WrapClamp` remains a non-specialized component whose generated slot declaration is tied to
+  `unknown` items. Precise generic item-slot support for consuming apps is deferred to a separate
+  public API design.
+- `ClampControls`, `ClampState`, `ClampSlotProps`, and `ClampExposed` are private building blocks in
+  `types.ts`; they keep concrete public contracts aligned without creating a generic cross-component
+  public abstraction.
+- `TextClampSpacing`, `PreparedText`, `TextClampHint`, `TextClampResult`, `TextClampFitInput`, and
+  `TextClampLayoutInput` are text-helper contracts owned by `text.ts`; they are intentionally not
+  root package exports.
+- `RichBoundaryPoint`, `PreparedRichTextNode`, `PreparedRichElementNode`, `PreparedRichNode`,
+  `PreparedRich`, `RichState`, `RichClampProbe`, `RichClampOptions`, and `RichClampResult` are
+  rich-helper contracts owned by `rich.ts`; they are intentionally not root package exports.
+- Helper snapshot types should be readonly where callers are not meant to mutate prepared state,
+  warm-start hints, or clamp results.
+- Do not create shared types only because two objects have the same shape; `RichState`,
+  `TextClampResult`, native mode state, and `WrapClamp` sequence/flow states are intentionally
+  separate concepts.
 - `LineClamp` is the text-only multiline component.
 - `RichLineClamp` is the rich-html multiline component.
 - `LineClamp` `location` accepts the keyword aliases `start`, `middle`, and `end`, plus numeric ratios from `0` to `1`.

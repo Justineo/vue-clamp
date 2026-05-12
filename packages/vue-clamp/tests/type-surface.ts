@@ -1,0 +1,121 @@
+import type { Ref } from "vue";
+import type {
+  ClampBoundary,
+  ClampLength,
+  InlineClampParts,
+  InlineClampProps,
+  InlineClampSplit,
+  LineClampExposed,
+  LineClampLocation,
+  LineClampProps,
+  LineClampSlotProps,
+  RichLineClampExposed,
+  RichLineClampProps,
+  RichLineClampSlotProps,
+  WrapClampExposed,
+  WrapClampItemKey,
+  WrapClampItemSlotProps,
+  WrapClampProps,
+  WrapClampSlotProps,
+} from "../src/index.ts";
+import type {
+  MultilineClampFrameRefs,
+  MultilineClampShell,
+  MultilineClampShellOptions,
+} from "../src/multiline.ts";
+import type { NativeClampMode, NativeModeInput } from "../src/native.ts";
+import type { LineClampSlots, RichLineClampSlots, WrapClampSlots } from "../src/types.ts";
+import type {
+  PreparedText,
+  TextClampFitInput,
+  TextClampHint,
+  TextClampLayoutInput,
+  TextClampResult,
+  TextClampSpacing,
+} from "../src/text.ts";
+import type {
+  PreparedRich,
+  PreparedRichNode,
+  RichBoundaryPoint,
+  RichClampOptions,
+  RichClampProbe,
+  RichClampResult,
+  RichState,
+} from "../src/rich.ts";
+
+// @ts-expect-error Text helper contracts are source-module API, not package root API.
+import type { TextClampHint as RootTextClampHint } from "../src/index.ts"; // eslint-disable-line no-unused-vars
+
+// @ts-expect-error Rich helper contracts are source-module API, not package root API.
+import type { RichState as RootRichState } from "../src/index.ts"; // eslint-disable-line no-unused-vars
+
+// @ts-expect-error Slot maps are declaration-building contracts, not package root API.
+import type { WrapClampSlots as RootWrapClampSlots } from "../src/index.ts"; // eslint-disable-line no-unused-vars
+
+// @ts-expect-error Generic WrapClamp component specialization is deferred to a separate API design.
+import type { WrapClampComponent as RootWrapClampComponent } from "../src/index.ts"; // eslint-disable-line no-unused-vars
+
+type Equal<Left, Right> =
+  (<Value>() => Value extends Left ? 1 : 2) extends <Value>() => Value extends Right ? 1 : 2
+    ? true
+    : false;
+
+type Expect<Value extends true> = Value;
+type SlotProps<Slot> = Slot extends (props: infer Props) => unknown ? Props : never;
+
+type _PackageApiTypes = [
+  Expect<Equal<ClampBoundary, "grapheme" | "word">>,
+  Expect<Equal<ClampLength, number | string>>,
+  Expect<Equal<LineClampLocation, "start" | "middle" | "end" | number>>,
+  Expect<Equal<LineClampProps["maxHeight"], ClampLength | undefined>>,
+  Expect<Equal<RichLineClampProps["maxHeight"], ClampLength | undefined>>,
+  Expect<Equal<WrapClampProps["maxHeight"], ClampLength | undefined>>,
+  Expect<Equal<InlineClampProps["split"], InlineClampSplit | undefined>>,
+  Expect<Equal<InlineClampSplit, (text: string) => InlineClampParts>>,
+  Expect<
+    Equal<WrapClampItemKey<string>, string | ((item: string, index: number) => string | number)>
+  >,
+  Expect<Equal<WrapClampItemSlotProps<string>["item"], string>>,
+  Expect<Equal<WrapClampSlotProps<string>["hiddenItems"], readonly string[]>>,
+  Expect<Equal<SlotProps<NonNullable<LineClampSlots["before"]>>, LineClampSlotProps>>,
+  Expect<Equal<SlotProps<NonNullable<RichLineClampSlots["after"]>>, RichLineClampSlotProps>>,
+  Expect<Equal<SlotProps<NonNullable<WrapClampSlots<string>["item"]>>["item"], string>>,
+  Expect<
+    Equal<SlotProps<NonNullable<WrapClampSlots<string>["after"]>>["hiddenItems"], readonly string[]>
+  >,
+  Expect<Equal<LineClampSlotProps["toggle"], () => void>>,
+  Expect<Equal<RichLineClampSlotProps["expanded"], boolean>>,
+  Expect<Equal<LineClampExposed["clamped"], boolean>>,
+  Expect<Equal<RichLineClampExposed["expanded"], boolean>>,
+  Expect<Equal<WrapClampExposed["toggle"], () => void>>,
+];
+
+type _TextHelperContracts = [
+  Expect<Equal<TextClampSpacing, "trim" | "preserve-outer">>,
+  Expect<Equal<PreparedText["boundaryOffsets"], readonly number[]>>,
+  Expect<Equal<TextClampHint["boundaryOffsets"], readonly number[]>>,
+  Expect<Equal<TextClampResult["text"], string>>,
+  Expect<Equal<TextClampFitInput["prepared"], PreparedText>>,
+  Expect<Equal<TextClampLayoutInput["maxHeight"], ClampLength | undefined>>,
+];
+
+type _RichHelperContracts = [
+  Expect<Equal<RichBoundaryPoint["path"], readonly number[]>>,
+  Expect<Equal<PreparedRich["nodes"], readonly PreparedRichNode[]>>,
+  Expect<Equal<Extract<RichState, { kind: "clamped" }>["point"], RichBoundaryPoint>>,
+  Expect<Equal<RichClampProbe["body"], HTMLElement>>,
+  Expect<Equal<RichClampOptions["prepared"], PreparedRich>>,
+  Expect<Equal<RichClampResult["state"], RichState | null>>,
+];
+
+type _NativeHelperContracts = [
+  Expect<Equal<NativeClampMode, "single-line" | "multi-line">>,
+  Expect<Equal<NativeModeInput["maxHeight"], ClampLength | undefined>>,
+  Expect<Equal<NativeModeInput["boundary"], ClampBoundary>>,
+];
+
+type _MultilineHelperContracts = [
+  Expect<Equal<MultilineClampFrameRefs["rootRef"], Ref<HTMLElement | null>>>,
+  Expect<Equal<MultilineClampShellOptions["recompute"], (expanded: Ref<boolean>) => Promise<void>>>,
+  Expect<Equal<MultilineClampShell["requestRecompute"], () => void>>,
+];

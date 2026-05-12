@@ -1,10 +1,16 @@
-// Public declarations live in one module so consumers and the runtime prop
+import type { VNodeChild } from "vue";
+
+// Package API declarations live in one module so consumers and the runtime prop
 // definitions stay aligned without importing component implementation files.
+// Private building blocks below keep concrete component contracts consistent
+// without becoming package-level names themselves.
 export type ClampBoundary = "grapheme" | "word";
 
 export type ClampLength = number | string;
 
 export type LineClampLocation = "start" | "middle" | "end" | number;
+
+type ClampSlotRender<Props> = (props: Props) => VNodeChild;
 
 // Multiline text/rich and wrap clamps expose the same imperative shell so slot
 // controls can be shared across components.
@@ -30,6 +36,11 @@ export type LineClampSlotProps = ClampSlotProps;
 
 export type LineClampExposed = ClampExposed;
 
+export interface LineClampSlots {
+  before?: ClampSlotRender<LineClampSlotProps>;
+  after?: ClampSlotRender<LineClampSlotProps>;
+}
+
 export interface LineClampProps {
   as?: string;
   text?: string;
@@ -54,6 +65,11 @@ export interface RichLineClampProps {
 export type RichLineClampSlotProps = ClampSlotProps;
 
 export type RichLineClampExposed = ClampExposed;
+
+export interface RichLineClampSlots {
+  before?: ClampSlotRender<RichLineClampSlotProps>;
+  after?: ClampSlotRender<RichLineClampSlotProps>;
+}
 
 export interface InlineClampParts {
   start?: string;
@@ -81,6 +97,12 @@ export interface WrapClampItemSlotProps<T = unknown> {
 
 export interface WrapClampSlotProps<T = unknown> extends ClampSlotProps {
   hiddenItems: readonly T[];
+}
+
+export interface WrapClampSlots<T = unknown> {
+  item?: ClampSlotRender<WrapClampItemSlotProps<T>>;
+  before?: ClampSlotRender<WrapClampSlotProps<T>>;
+  after?: ClampSlotRender<WrapClampSlotProps<T>>;
 }
 
 export type WrapClampExposed = ClampExposed;

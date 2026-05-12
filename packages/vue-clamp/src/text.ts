@@ -14,44 +14,44 @@ const wordSegmenter = new Intl.Segmenter(undefined, {
 });
 
 export interface PreparedText {
-  text: string;
-  boundary: ClampBoundary;
-  boundaryOffsets: number[];
-  fallbackBoundaryOffsets?: number[];
+  readonly text: string;
+  readonly boundary: ClampBoundary;
+  readonly boundaryOffsets: readonly number[];
+  readonly fallbackBoundaryOffsets?: readonly number[];
 }
 
 export interface TextClampHint {
-  boundaryOffsets: readonly number[];
-  kept: number;
+  readonly boundaryOffsets: readonly number[];
+  readonly kept: number;
 }
 
 export interface TextClampResult extends TextClampHint {
-  text: string;
+  readonly text: string;
 }
 
 type MaybeTextClampHint = TextClampHint | null | undefined;
 
-type Spacing = "trim" | "preserve-outer";
+export type TextClampSpacing = "trim" | "preserve-outer";
 
-type FitInput = {
-  ellipsis: string;
-  fits: (text: string) => boolean;
-  hint?: MaybeTextClampHint;
-  prepared: PreparedText;
-  ratio: number;
-  spacing?: Spacing;
+export type TextClampFitInput = {
+  readonly ellipsis: string;
+  readonly fits: (text: string) => boolean;
+  readonly hint?: MaybeTextClampHint;
+  readonly prepared: PreparedText;
+  readonly ratio: number;
+  readonly spacing?: TextClampSpacing;
 };
 
-type LayoutInput = {
-  content: HTMLElement;
-  ellipsis: string;
-  hint?: MaybeTextClampHint;
-  lineLimit: number | undefined;
-  maxHeight: ClampLength | undefined;
-  prepared: PreparedText;
-  ratio: number;
-  root: HTMLElement;
-  target: HTMLElement;
+export type TextClampLayoutInput = {
+  readonly content: HTMLElement;
+  readonly ellipsis: string;
+  readonly hint?: MaybeTextClampHint;
+  readonly lineLimit: number | undefined;
+  readonly maxHeight: ClampLength | undefined;
+  readonly prepared: PreparedText;
+  readonly ratio: number;
+  readonly root: HTMLElement;
+  readonly target: HTMLElement;
 };
 
 function isAsciiSafe(text: string): boolean {
@@ -139,7 +139,7 @@ export function displayTextForKeptCount(
   ratio: number,
   ellipsis: string,
   kept: number,
-  spacing: Spacing = "trim",
+  spacing: TextClampSpacing = "trim",
 ): string {
   const { boundaryOffsets, text } = prepared;
   const boundaryCount = boundaryOffsets.length - 1;
@@ -193,7 +193,7 @@ export function clampTextToFit({
   prepared,
   ratio,
   spacing = "trim",
-}: FitInput): TextClampResult {
+}: TextClampFitInput): TextClampResult {
   const boundaryCount = prepared.boundaryOffsets.length - 1;
 
   // The search helper works over indexes. For text, the index is the number of
@@ -243,7 +243,7 @@ export function clampTextToLayout({
   ratio,
   root,
   target,
-}: LayoutInput): TextClampResult | null {
+}: TextClampLayoutInput): TextClampResult | null {
   if (root.getBoundingClientRect().width <= 0) {
     // Measuring against an unlaid-out root would only cache a bogus clamp.
     return null;

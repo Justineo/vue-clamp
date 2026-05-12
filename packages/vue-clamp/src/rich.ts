@@ -6,27 +6,29 @@ import type { ClampBoundary, ClampLength } from "./types.ts";
 
 // Rich clamping is structural rather than string-based. We parse once, measure
 // candidate DOM fragments, and patch structural states back into visible/probe DOM.
-type BoundaryPoint = {
-  path: readonly number[];
-  offset: number;
+export type RichBoundaryPoint = {
+  readonly path: readonly number[];
+  readonly offset: number;
 };
 
-type PreparedTextNode = {
-  kind: "text";
-  endPoint: BoundaryPoint;
-  textCuts: readonly BoundaryPoint[];
-  fallbackTextCuts?: readonly BoundaryPoint[];
+type BoundaryPoint = RichBoundaryPoint;
+
+export type PreparedRichTextNode = {
+  readonly kind: "text";
+  readonly endPoint: RichBoundaryPoint;
+  readonly textCuts: readonly RichBoundaryPoint[];
+  readonly fallbackTextCuts?: readonly RichBoundaryPoint[];
 };
 
-type PreparedElementNode = {
-  kind: "element";
-  pathKey: string;
-  isBreak: boolean;
-  endPoint: BoundaryPoint;
-  children: readonly PreparedRichNode[];
+export type PreparedRichElementNode = {
+  readonly kind: "element";
+  readonly pathKey: string;
+  readonly isBreak: boolean;
+  readonly endPoint: RichBoundaryPoint;
+  readonly children: readonly PreparedRichNode[];
 };
 
-type PreparedRichNode = PreparedTextNode | PreparedElementNode;
+export type PreparedRichNode = PreparedRichTextNode | PreparedRichElementNode;
 
 type LogicalRun =
   | {
@@ -41,19 +43,19 @@ type LogicalRun =
     };
 
 export type PreparedRich = {
-  root: HTMLElement;
-  nodes: readonly PreparedRichNode[];
+  readonly root: HTMLElement;
+  readonly nodes: readonly PreparedRichNode[];
 };
 
 // States are kept as structural points so width-only reclamps can patch from the
 // previous DOM state without serializing and reparsing HTML.
 export type RichState =
   | {
-      kind: "full";
+      readonly kind: "full";
     }
   | {
-      kind: "clamped";
-      point: BoundaryPoint;
+      readonly kind: "clamped";
+      readonly point: RichBoundaryPoint;
     };
 
 type BoundaryPosition = {
@@ -66,25 +68,25 @@ type PatchAnchor = {
   startIndex: number;
 };
 
-type ClampResult = {
-  fallback: boolean;
-  state: RichState | null;
+export type RichClampProbe = {
+  readonly body: HTMLElement;
+  readonly content: HTMLElement;
+  readonly root: HTMLElement;
 };
 
-type Probe = {
-  body: HTMLElement;
-  content: HTMLElement;
-  root: HTMLElement;
+export type RichClampOptions = {
+  readonly ellipsis: string;
+  readonly from: RichState | null;
+  readonly hint: RichState | null;
+  readonly lineLimit: number | undefined;
+  readonly maxHeight: ClampLength | undefined;
+  readonly prepared: PreparedRich;
+  readonly probe: RichClampProbe;
 };
 
-type ClampOptions = {
-  ellipsis: string;
-  from: RichState | null;
-  hint: RichState | null;
-  lineLimit: number | undefined;
-  maxHeight: ClampLength | undefined;
-  prepared: PreparedRich;
-  probe: Probe;
+export type RichClampResult = {
+  readonly fallback: boolean;
+  readonly state: RichState | null;
 };
 
 const ROOT_PATH: readonly number[] = [];
@@ -282,7 +284,7 @@ function buildLogicalRuns(
   atomicPaths: ReadonlySet<string>,
 ): LogicalRun[] {
   const runs: LogicalRun[] = [];
-  let currentTextNodes: PreparedTextNode[] = [];
+  let currentTextNodes: PreparedRichTextNode[] = [];
 
   function flushTextRun(): void {
     if (currentTextNodes.length === 0) {
@@ -751,7 +753,7 @@ export function clampRich({
   maxHeight,
   prepared,
   probe,
-}: ClampOptions): ClampResult {
+}: RichClampOptions): RichClampResult {
   const { nodes } = prepared;
   const { body, content, root } = probe;
 
