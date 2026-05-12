@@ -22,7 +22,7 @@ catalog:
   typescript: ^6.0.3
   vite: ^8.0.11
   vite-plus: ^0.1.20
-  void: 0.7.1
+  void: 0.7.3
   vue: ^3.5.33
   vue-tsc: ^3.2.7
 
