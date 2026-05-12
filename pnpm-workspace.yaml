@@ -1,6 +1,11 @@
 packages:
   - packages/*
   - tools/*
+allowBuilds:
+  better-sqlite3: true
+  esbuild: true
+  sharp: true
+  workerd: true
 
 catalog:
   "@lucide/vue": ^1.12.0
