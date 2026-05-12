@@ -13,11 +13,13 @@
   - native and multiline helper function signatures expose source-module contract types from their
     owner modules
   - `packages/vue-clamp/tests/type-surface.ts` type-checks package API and helper API boundaries
-- Added internal slot-map contracts (`LineClampSlots`, `RichLineClampSlots`, `WrapClampSlots<T>`)
-  and wired component implementations to Vue `SlotsType` without re-exporting those maps from the
-  package root.
+- Added internal slot-map contracts (`LineClampSlots`, `RichLineClampSlots`) and wired those
+  component implementations to Vue `SlotsType` without re-exporting those maps from the package
+  root.
 - Tried typing the raw `WrapClamp` export itself as a generic constructor, but it polluted
   `h(WrapClamp, ...)` overload selection in current TypeScript/Vue types.
 - A `createWrapClamp<T>()` specializer was also prototyped and then removed because it would add a
   new public API during a type-organization cleanup. Precise generic `WrapClamp` slot support is
   deferred to a separate design.
+- `WrapClamp` slot-map wiring was also removed because `SlotsType<WrapClampSlots<unknown>>` made
+  current website SFC item slots `unknown` under `vue-tsc`.

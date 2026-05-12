@@ -73,11 +73,11 @@
   - `WrapClampSlotProps`
   - `WrapClampExposed`
   - `WrapClampProps`
-- `LineClamp`, `RichLineClamp`, and `WrapClamp` declare their slot maps with Vue `SlotsType`.
-  These slot maps are declaration-building contracts in `types.ts`, not root package exports.
-- `WrapClamp` remains a non-specialized component whose generated slot declaration is tied to
-  `unknown` items. Precise generic item-slot support for consuming apps is deferred to a separate
-  public API design.
+- `LineClamp` and `RichLineClamp` declare their slot maps with Vue `SlotsType`. These slot maps are
+  declaration-building contracts in `types.ts`, not root package exports.
+- `WrapClamp` remains a non-specialized component without a declared slot map for now. Adding
+  `SlotsType<WrapClampSlots<unknown>>` makes consuming-app item slots `unknown` under `vue-tsc`;
+  precise generic item-slot support is deferred to a separate public API design.
 - `ClampControls`, `ClampState`, `ClampSlotProps`, and `ClampExposed` are private building blocks in
   `types.ts`; they keep concrete public contracts aligned without creating a generic cross-component
   public abstraction.

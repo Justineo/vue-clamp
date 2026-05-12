@@ -24,7 +24,7 @@ import type {
   MultilineClampShellOptions,
 } from "../src/multiline.ts";
 import type { NativeClampMode, NativeModeInput } from "../src/native.ts";
-import type { LineClampSlots, RichLineClampSlots, WrapClampSlots } from "../src/types.ts";
+import type { LineClampSlots, RichLineClampSlots } from "../src/types.ts";
 import type {
   PreparedText,
   TextClampFitInput,
@@ -48,12 +48,6 @@ import type { TextClampHint as RootTextClampHint } from "../src/index.ts"; // es
 
 // @ts-expect-error Rich helper contracts are source-module API, not package root API.
 import type { RichState as RootRichState } from "../src/index.ts"; // eslint-disable-line no-unused-vars
-
-// @ts-expect-error Slot maps are declaration-building contracts, not package root API.
-import type { WrapClampSlots as RootWrapClampSlots } from "../src/index.ts"; // eslint-disable-line no-unused-vars
-
-// @ts-expect-error Generic WrapClamp component specialization is deferred to a separate API design.
-import type { WrapClampComponent as RootWrapClampComponent } from "../src/index.ts"; // eslint-disable-line no-unused-vars
 
 type Equal<Left, Right> =
   (<Value>() => Value extends Left ? 1 : 2) extends <Value>() => Value extends Right ? 1 : 2
@@ -79,10 +73,6 @@ type _PackageApiTypes = [
   Expect<Equal<WrapClampSlotProps<string>["hiddenItems"], readonly string[]>>,
   Expect<Equal<SlotProps<NonNullable<LineClampSlots["before"]>>, LineClampSlotProps>>,
   Expect<Equal<SlotProps<NonNullable<RichLineClampSlots["after"]>>, RichLineClampSlotProps>>,
-  Expect<Equal<SlotProps<NonNullable<WrapClampSlots<string>["item"]>>["item"], string>>,
-  Expect<
-    Equal<SlotProps<NonNullable<WrapClampSlots<string>["after"]>>["hiddenItems"], readonly string[]>
-  >,
   Expect<Equal<LineClampSlotProps["toggle"], () => void>>,
   Expect<Equal<RichLineClampSlotProps["expanded"], boolean>>,
   Expect<Equal<LineClampExposed["clamped"], boolean>>,

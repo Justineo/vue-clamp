@@ -20,13 +20,8 @@ import { blockAsProp, expandedProp, maxHeightProp, maxLinesProp } from "./props.
 import { findLargestFittingCount } from "./search.ts";
 import { hasSlotContent } from "./slot.ts";
 
-import type { CSSProperties, PropType, SlotsType, VNodeChild } from "vue";
-import type {
-  WrapClampExposed,
-  WrapClampItemSlotProps,
-  WrapClampSlotProps,
-  WrapClampSlots,
-} from "./types.ts";
+import type { CSSProperties, PropType, VNodeChild } from "vue";
+import type { WrapClampExposed, WrapClampItemSlotProps, WrapClampSlotProps } from "./types.ts";
 
 type ItemKeyResolver = (item: unknown, index: number) => string | number;
 type SequenceMeasurement = {
@@ -349,7 +344,6 @@ export const WrapClamp = defineComponent({
   inheritAttrs: false,
   props: propsDef,
   emits: emitsDef,
-  slots: Object as SlotsType<WrapClampSlots>,
   setup(props, { attrs, emit, expose, slots }) {
     const { expanded: expandedProp, items: initialItems } = props;
     const rootRef = ref<HTMLElement | null>(null);

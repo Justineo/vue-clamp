@@ -51,13 +51,13 @@ These are correctly package-facing and should remain root exports:
   - Public slot contracts.
   - Concrete per-component names are better than exporting one base type, because future slot
     divergence remains possible.
-- `LineClampSlots`, `RichLineClampSlots`, `WrapClampSlots<T>`
+- `LineClampSlots`, `RichLineClampSlots`
   - Declaration-building contracts for Vue `SlotsType`.
   - Keep them out of the root package barrel for now so this cleanup does not introduce a new
     consumer-facing slot-map API.
 - Precise `WrapClamp` generic slot support for consuming apps remains a future public API design.
   The raw component runtime prop accepts `readonly unknown[]`, so this cleanup should not add a
-  new specializer or cast-based public component type.
+  new specializer, cast-based public component type, or `SlotsType<...unknown>` slot map.
 - `LineClampExposed`, `RichLineClampExposed`, `WrapClampExposed`
   - Public template-ref instance contracts.
   - Runtime `expose(... satisfies ...)` checks currently keep these aligned with component code.
@@ -88,8 +88,9 @@ Gap in `types.ts`:
   primitive (`ClampLength`). That is the real design problem; it is not limited to whether one alias
   should be exported.
 - The file comment should distinguish package API declarations from private building blocks.
-- Slot prop aliases exist, but component implementations do not declare slot maps with Vue
-  `SlotsType`, so generated declarations do not describe slot shapes clearly.
+- Slot prop aliases exist, but `LineClamp` and `RichLineClamp` component implementations do not
+  declare slot maps with Vue `SlotsType`, so generated declarations do not describe slot shapes
+  clearly.
 - There is no current public API for tying `WrapClamp` slot item types to a concrete `items`
   element type; keep that as a separate design problem.
 
@@ -238,7 +239,8 @@ Implemented adjustment:
 
 - Add a lightweight type-only smoke test checked by `vp check` that imports the intended public type
   names from `src/index.ts` and intentionally does not import helper-module contracts.
-- Add internal slot-map types and wire component implementations to Vue `SlotsType`.
+- Add internal slot-map types for `LineClamp` and `RichLineClamp`, then wire those implementations
+  to Vue `SlotsType`.
 
 ## Recommended cleanup sequence
 
@@ -248,7 +250,7 @@ Implemented adjustment:
 4. Make rich helper contracts structurally complete within `rich.ts`, then mark snapshot fields
    readonly.
 5. Add a type-surface smoke file so `vp check` protects root type exports intentionally.
-6. Add internal slot-map contracts for Vue `SlotsType`.
+6. Add internal `LineClamp` and `RichLineClamp` slot-map contracts for Vue `SlotsType`.
 7. Keep precise `WrapClamp` generic slot support out of this cleanup and handle it in a separate
    public API design.
 8. Keep solver/probe/state types local unless a real sibling module needs to name them.

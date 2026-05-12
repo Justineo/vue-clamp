@@ -99,12 +99,6 @@ export interface WrapClampSlotProps<T = unknown> extends ClampSlotProps {
   hiddenItems: readonly T[];
 }
 
-export interface WrapClampSlots<T = unknown> {
-  item?: ClampSlotRender<WrapClampItemSlotProps<T>>;
-  before?: ClampSlotRender<WrapClampSlotProps<T>>;
-  after?: ClampSlotRender<WrapClampSlotProps<T>>;
-}
-
 export type WrapClampExposed = ClampExposed;
 
 export interface WrapClampProps<T = unknown> {
