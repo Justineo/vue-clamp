@@ -9,6 +9,10 @@
   - `RichLineClamp` for multiline trusted-inline-html clamping
   - `InlineClamp` for measured one-line affix-friendly truncation
   - `WrapClamp` for wrapped atomic-item clamping
+- Solver design vocabulary is centralized in `journey/vocabulary.md`; WrapClamp plans and
+  implementation notes should use those terms consistently.
+- WrapClamp optimization outcomes and benchmark deltas from the May 2026 solver work are summarized
+  in `journey/research/308-wrapclamp-optimization-summary.md`.
 
 ## Product Goals
 
@@ -38,9 +42,56 @@
   - `InlineClamp` as the canonical single-line affix-friendly component name
   - `WrapClamp` as the canonical wrapped-item component name
 - There is no default export.
-- Public declaration types live in `packages/vue-clamp/src/types.ts`.
-- Component implementation files do not re-export public declaration types; type exports stay in
-  `types.ts` and the root package barrel so the public surface remains auditable.
+- Type declarations follow four explicit layers:
+  - package API types live in `packages/vue-clamp/src/types.ts` and are re-exported from the root
+    package barrel; these names are semver API
+  - private building-block aliases may live inside `types.ts` only to assemble concrete package API
+    contracts without becoming package-level names themselves
+  - source-module helper contracts live in the behavior module that owns them, such as `text.ts`,
+    `rich.ts`, `native.ts`, and `multiline.ts`; sibling modules, tests, and benchmarks may import
+    those contracts directly from the owner module
+  - implementation-local solver, DOM, probe, patch, render-state, benchmark-fixture, and website UI
+    types stay with the code that owns those states
+- Component implementation files do not re-export package declaration types; public package type
+  exports stay auditable through `types.ts` and the root barrel.
+- Root package type exports currently include the component prop, slot, exposed-instance, and
+  user-callback/value-domain contracts:
+  - `ClampBoundary`
+  - `ClampLength`
+  - `LineClampLocation`
+  - `LineClampProps`
+  - `LineClampSlotProps`
+  - `LineClampExposed`
+  - `RichLineClampProps`
+  - `RichLineClampSlotProps`
+  - `RichLineClampExposed`
+  - `InlineClampParts`
+  - `InlineClampSplit`
+  - `InlineClampProps`
+  - `WrapClampItemKey`
+  - `WrapClampItemSlotProps`
+  - `WrapClampSlotProps`
+  - `WrapClampExposed`
+  - `WrapClampProps`
+- `LineClamp` and `RichLineClamp` declare their slot maps with Vue `SlotsType`. These slot maps are
+  declaration-building contracts in `types.ts`, not root package exports.
+- `WrapClamp` remains a non-specialized component without a declared slot map for now. Adding
+  `SlotsType<WrapClampSlots<unknown>>` makes consuming-app item slots `unknown` under `vue-tsc`;
+  precise generic item-slot support is deferred to a separate public API design.
+- `ClampControls`, `ClampState`, `ClampSlotProps`, and `ClampExposed` are private building blocks in
+  `types.ts`; they keep concrete public contracts aligned without creating a generic cross-component
+  public abstraction.
+- `TextClampSpacing`, `PreparedText`, `TextClampHint`, `TextClampResult`, `TextClampFitInput`, and
+  `TextClampLayoutInput` are text-helper contracts owned by `text.ts`; they are intentionally not
+  root package exports.
+- `RichBoundaryPoint`, `PreparedRichTextNode`, `PreparedRichElementNode`, `PreparedRichNode`,
+  `PreparedRich`, `RichState`, `RichClampProbe`, `RichClampOptions`, and `RichClampResult` are
+  rich-helper contracts owned by `rich.ts`; they are intentionally not root package exports.
+- Helper snapshot types should be readonly where callers are not meant to mutate prepared state,
+  warm-start hints, or clamp results.
+- Do not create shared types only because two objects have the same shape; `RichState`,
+  `TextClampResult`, native mode state, and `WrapClamp` sequence/flow states are intentionally
+  separate concepts.
 - `LineClamp` is the text-only multiline component.
 - `RichLineClamp` is the rich-html multiline component.
 - `LineClamp` `location` accepts the keyword aliases `start`, `middle`, and `end`, plus numeric ratios from `0` to `1`.
@@ -150,11 +201,22 @@
   - no slots or exposed instance API
 - `WrapClamp` is item-driven and browser-aligned:
   - one root clamp container with live DOM measurement
-  - one inline-flex wrapping flow of atomic item shells
+  - one normal horizontal inline-flex wrapping flow of atomic item shells
   - optional `before` / `after` atomic slot shells
+  - internal measurement and flow-estimation contracts use physical `width` / `height` naming
+    because vertical writing mode is intentionally outside the supported contract
   - reactive `visibleCount`, `expanded`, and `isClamped`
   - no public strategy prop or cache-backed variant
   - no partial clipping inside an item
+  - `[data-part="content"]` is a layout-critical shell, not an arbitrary styling container:
+    - supported user-facing geometry styles are `gap`, `row-gap`, `column-gap`, and normal
+      horizontal flex-line `align-items` values such as `flex-start`, `stretch`, `center`,
+      `flex-end`, and `baseline`
+    - the solver identifies rows by vertical box overlap, so mixed-height items remain on the
+      same measured row under center/end/baseline alignment
+    - structural overrides such as `display`, `flex-wrap`, `flex-direction`, `writing-mode`,
+      padding/border/explicit content width, transforms, positioning, `order`, and
+      `content-visibility` are outside the supported contract
 
 ### Accessibility model
 
@@ -235,9 +297,156 @@
   - collapsed states are measured from the real rendered `before` / items / `after` sequence
   - the engine settles by shrinking to a fitting prefix, then probing upward one item at a time
   - measurements come from the rendered content DOM directly instead of a separate per-item ref cache
-  - large grow cases remain linear because each candidate can change arbitrary slot output and item
-    widths; cache/hint variants stay deferred until real component workloads prove a user-visible
-    win
+  - the baseline grow solver remains linear because each candidate can change arbitrary slot output
+    and item widths; narrow hints may jump to a better starting count only when benchmarked counters
+    improve and the baseline still performs final live-DOM settlement
+  - a May 2026 hidden-probe prototype for low expected work passed correctness tests but worsened
+    the table benchmark by materially increasing item slot calls and rect reads, so the hidden
+    measurement-island direction is deferred until it can prove candidate changes do not rerender
+    arbitrary item slots
+  - the accepted May 2026 fast path is deliberately narrower: no `before`, no `after`, no
+    `maxHeight`; it records item-shell widths after verified public DOM measurement and uses those
+    widths only as a visible-count hint before handing control back to the live-DOM settlement loop
+  - removing the no-affix metrics count hint was measured and rejected: the code became simpler, but
+    no-affix grow increased rect reads and median time because more work fell back to live
+    settlement
+  - later May 2026 no-affix work added two accepted solver paths:
+    - shrink-only current-prefix settlement for observed width shrink, which measures the already
+      rendered public prefix and avoids a speculative grow/revert probe
+    - bounded materialized grow search, which uses Vue once to render a hidden item-shell suffix,
+      synchronously toggles component-owned item shell display during search, mutates only the
+      changed display range between candidates, restores candidate mutation before yielding, commits
+      one final count, and verifies with live DOM
+  - materialized grow is a no-`after` static-flow path; it supports `maxLines` and no-`after`
+    `maxHeight` cases, while dynamic `after` remains excluded
+  - its materialization coverage is adaptive rather than one fixed count:
+    - estimate the likely visible frontier from the current root inline size, line limit, and
+      verified visible item widths
+    - empirical calibration across item widths and container widths showed the best fixed-width
+      frontier follows `lineLimit * floor(rootWidth / measuredItemWidth) + 1`
+    - the `+1` is intentional: it gives DOM search an overflow side when the estimate lands exactly
+      on the fitting frontier
+    - the current estimator is expressed as a small flow simulation, not only the fixed-width
+      formula: known item widths use recorded live metrics, unknown hidden item widths use the
+      observed average fallback, and the first predicted overflow item is included for DOM search
+    - cap the estimate by a per-line materialization budget so arbitrary item variation and very
+      large containers still fall back conservatively
+    - verify the final committed result against live DOM
+  - fixed materialization budgets were measured and rejected as too workload-specific:
+    - 24 was good for the original 40px-item / 520px-container benchmark and large-N case
+    - 32 was better for narrower items and wider containers
+    - the adaptive budget preserved the large-N result while matching the wider-frontier scenarios
+      more closely
+    - the later regression-calibrated frontier removed the remaining fixed-width overestimation and
+      fixed the narrow-item / wide-container under-coverage that still fell back to baseline
+  - no-affix and static-affix cases should be treated as one future `static-flow` solver family:
+    - absent `before` / `after` are zero-size static affixes
+    - static `before` / `after` can share the same item-shell materialization, DOM candidate
+      mutation, final commit, and live verification path
+    - user-facing performance hints may later enable static-after participation, but the internal
+      route should be reserved before the public API exists
+  - accepted static-flow predictions share one internal pure placement model:
+    - the model places atomic before/items/after boxes into lines by inline size
+    - unknown item widths return an `unknown` result instead of inventing proof
+    - callers decide whether an overflow result means a fitting count, a materialization frontier,
+      or a dynamic-after starting hint
+    - materialized DOM search and dynamic-after estimation share the same largest-fitting-candidate
+      binary-search helper
+  - stable `before` grow is now included in the materialized grow path when `after` is absent:
+    - stable means observed-stable inside the current solve, not inferred-static as a public
+      contract; without a user hint the component cannot know a slot is generally static
+    - the `before` shell is measured before DOM search and compared again after the final commit
+    - if the `before` geometry changes, the fast path is not accepted and the baseline solver
+      finishes settlement
+    - the frontier estimate accounts for `before` consuming first-line inline space
+  - a `staticAfter` public hint prototype was tested and rejected:
+    - even with correctness preserved by final baseline settlement, the hinted path increased item
+      slot calls, after slot calls, rect reads, and elapsed time
+    - no public hint is currently exposed; future hints need a different implementation and a
+      counter win before becoming part of the API
+  - no-`after` `maxHeight` grow now uses the same materialized item-shell DOM search:
+    - the fit predicate remains monotonic because there is no dynamic `after`
+    - candidate checks measure against the real root clip box
+    - maxHeight-only materialization budget estimates an effective line count from root visible
+      height and the first visible atomic box height
+    - the line-count estimate is only a search budget; final acceptance still comes from live DOM
+      verification
+  - shrink-only current-prefix settlement is also allowed for `before`-only / no-`after`
+    scenarios:
+    - it measures the currently rendered public sequence, commits the smaller fitting prefix once,
+      and verifies live DOM
+    - final acceptance requires the committed `before` geometry to match the geometry used for the
+      shrink decision
+    - dynamic `before` therefore falls back to baseline without leaving materialized suffix state
+  - materialized `after` grow was tested and rejected for now:
+    - final geometry comparison alone can still underfill count-sensitive `after`, because a wider
+      old `after` may prevent discovering a valid candidate with a narrower final `after`
+    - forcing `after` cases through materialized grow worsened table and single-line benchmark
+      counters, so `after` stays on the baseline path until a stricter static-affix signal exists
+    - fixed-size static-after benchmark rows now exist, but without a public/static contract they
+      intentionally use the same guarded dynamic-after path as arbitrary `after`
+  - the accepted dynamic-after optimization is a jump-grow hint, not a proof:
+    - live `measureSequence` reads now record item widths without extra item rect reads, so later
+      solves can reuse already-paid visible DOM metrics
+    - when `after` exists and `maxHeight` is absent, a large width grow may estimate a better
+      starting count by simulating `before + items + current after` with measured/average item
+      widths
+    - the hint is gated by observed geometry: the width delta must be at least one average measured
+      item width, which makes it a jump-grow path and keeps gradual width sweeps on baseline
+    - it does not create a hidden probe, does not materialize arbitrary after DOM, and does not
+      accept the estimate as final; the baseline live-DOM solver still verifies and settles
+    - the main benchmark target is stable/static before plus count-sensitive dynamic after, which
+      dropped from about `48100` item slot calls, `52100` rect reads, and `500ms` to about `17500`,
+      `14700`, and `186ms`
+    - arbitrary dynamic before remains lower priority because before geometry appears before all
+      items and can invalidate every downstream line break
+    - widening the jump-grow hint to gradual grow was measured and rejected: slot calls stayed flat
+      while rect reads rose in both table and single-line sweeps
+    - a dynamic-before confidence prototype that disabled static-flow paths after one before
+      geometry mismatch was also rejected; it increased before slot calls, item slot calls, rect
+      reads, and elapsed time versus the current failed-fast-path-plus-baseline behavior
+    - dedicated dynamic-before grow and shrink benchmark rows now guard that behavior
+  - `after` shrink was also tested with a conservative candidate-first path and rejected:
+    - it did not reduce slot calls
+    - it increased rect reads in both the dedicated after-shrink benchmark and the existing
+      dynamic-after table scenario
+    - after-specific shrink now stays on the baseline path, with a browser guard for hidden-count
+      digit-boundary changes
+  - no-`after` shrink is allowed to use `maxHeight` clipping now:
+    - the path still uses only the currently rendered public prefix
+    - it measures with the real root clip box, commits one smaller prefix, and verifies live DOM
+    - before+maxHeight and mixed maxLines+maxHeight benchmark rows confirm this same static-flow
+      path covers those cases without a separate solver branch
+  - a last-line slack / single-next-item probe was measured and rejected:
+    - the strict version still used live DOM by materializing only `current + 1` when the width
+      estimator predicted no count increase
+    - it was correct, but incomplete hidden-item width data made it under-materialize grow cases,
+      then fall back to linear baseline
+    - no-affix grow slot calls and rect reads rose sharply, so this path should not be revived
+      without a stronger verified slack model
+  - scheduler work remains deliberately scoped:
+    - a table width-churn benchmark now tracks same-batch parent width changes
+    - a microtask scheduler prototype passed correctness but did not reduce slot calls or rect
+      reads, so it was rejected
+    - a broader global scheduler should not be introduced until paired with a solver change that
+      demonstrably reduces candidate work without delaying ResizeObserver settlement past a paint
+  - CSS gap, content alignment, and reactive slot-width changes are covered by browser guards:
+    - CSS gap is left to final live DOM verification rather than approximated in the estimator
+    - content `align-items:center` and `align-items:baseline` with mixed-height items are covered
+      by block-overlap row detection instead of top-equality grouping
+    - reactive item width changes with the same `items` array settle through ResizeObserver,
+      same-flush updates, and live DOM verification; no item-array identity cache is trusted
+  - vertical/sideways writing mode is deliberately outside WrapClamp's supported contract:
+    - `maxLines` and `maxHeight` are defined for horizontal wrapping rows and the root's vertical
+      clip box
+    - the solver no longer inspects CSS `writing-mode` or maps DOM rects to logical axes
+    - future vertical behavior would need explicit product/API design rather than implicit solver
+      branches inside the current API
+  - heavy item slot benchmark coverage confirms elapsed time follows item slot work:
+    - the heavy no-affix grow row keeps the same item slot and rect-read counts as the normal
+      no-affix grow row but takes roughly `75ms` longer
+    - this reinforces the rule that future solver branches must lower arbitrary item slot calls or
+      rect reads, not merely move the work into another rendering path
   - `hiddenItems` remains the public slot prop and is sliced directly from the current item array
   - keep item order logical in the DOM so RTL works through inherited browser direction
 

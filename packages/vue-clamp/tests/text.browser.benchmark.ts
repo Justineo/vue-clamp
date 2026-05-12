@@ -4,6 +4,7 @@ import { InlineClamp, LineClamp } from "../src/index.ts";
 import * as textHelpers from "../src/text.ts";
 
 import type { App, Ref } from "vue";
+import type { PreparedText, TextClampHint, TextClampResult } from "../src/text.ts";
 
 type BenchmarkMetrics = {
   boundingRectReads: number;
@@ -31,17 +32,6 @@ type ScenarioResult = {
   scenario: string;
   summary: BenchmarkSummary;
 };
-
-type TextClampHint = {
-  boundaryOffsets: readonly number[];
-  kept: number;
-};
-
-type TextClampResult = TextClampHint & {
-  text: string;
-};
-
-type PreparedText = ReturnType<typeof textHelpers.prepareText>;
 
 type TextModule = typeof textHelpers & Record<string, unknown>;
 

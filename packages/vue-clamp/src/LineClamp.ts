@@ -20,8 +20,8 @@ import {
 import { hasSlotContent } from "./slot.ts";
 import { clampTextToLayout, normalizeLocationRatio, prepareText } from "./text.ts";
 
-import type { CSSProperties, VNodeChild } from "vue";
-import type { LineClampExposed, LineClampSlotProps } from "./types.ts";
+import type { CSSProperties, SlotsType, VNodeChild } from "vue";
+import type { LineClampExposed, LineClampSlotProps, LineClampSlots } from "./types.ts";
 import type { TextClampResult } from "./text.ts";
 
 // Slot wrappers are inline-flex so before/after controls participate in the same
@@ -72,6 +72,7 @@ export const LineClamp = defineComponent({
   inheritAttrs: false,
   props: propsDef,
   emits: emitsDef,
+  slots: Object as SlotsType<LineClampSlots>,
   setup(props, { attrs, emit, expose, slots }) {
     const textRef = ref<HTMLElement | null>(null);
     const visibleText = ref(props.text);

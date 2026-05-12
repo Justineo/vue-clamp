@@ -25,6 +25,7 @@ type MountWrapOptions = {
   before?: (props: WrapClampSlotProps<string>) => VNodeChild;
   after?: (props: WrapClampSlotProps<string>) => VNodeChild;
 };
+type MixedHeightAlignment = "baseline" | "center" | "flex-end";
 
 const mounted = new Set<MountedWrapClamp>();
 
@@ -64,6 +65,32 @@ function fixedBadgeStyle(width: number): string {
     "margin-inline-end:6px",
     "margin-block-end:6px",
     "white-space:nowrap",
+  ].join(";");
+}
+
+function mixedHeightAlignmentItemStyle(alignment: MixedHeightAlignment, index: number): string {
+  const common = [
+    "width:64px",
+    "border:1px solid currentColor",
+    "box-sizing:border-box",
+    "white-space:nowrap",
+  ];
+
+  if (alignment === "baseline") {
+    return [
+      "display:inline-block",
+      ...common,
+      `font-size:${index === 0 ? 30 : 12}px`,
+      `line-height:${index === 0 ? 34 : 14}px`,
+    ].join(";");
+  }
+
+  return [
+    "display:inline-flex",
+    `align-items:${alignment}`,
+    "justify-content:center",
+    ...common,
+    `height:${index === 0 ? 44 : 18}px`,
   ].join(";");
 }
 
@@ -163,7 +190,9 @@ function wrapSnapshot(root: HTMLElement): { after: string | null; items: string[
 }
 
 function wrapLineCount(root: HTMLElement): number {
-  const tops: number[] = [];
+  let lineCount = 0;
+  let lineTop = 0;
+  let lineBottom = 0;
 
   for (const child of wrapContent(root).children) {
     if (!(child instanceof HTMLElement)) {
@@ -180,12 +209,49 @@ function wrapLineCount(root: HTMLElement): number {
       continue;
     }
 
-    if (!tops.some((top) => Math.abs(top - rect.top) <= 0.5)) {
-      tops.push(rect.top);
+    if (lineCount === 0) {
+      lineCount = 1;
+      lineTop = rect.top;
+      lineBottom = rect.bottom;
+    } else {
+      const verticalOverlap = Math.min(rect.bottom, lineBottom) - Math.max(rect.top, lineTop);
+      const smallerHeight = Math.min(rect.height, lineBottom - lineTop);
+
+      if (verticalOverlap <= Math.min(0.5, smallerHeight / 2)) {
+        lineCount += 1;
+        lineTop = rect.top;
+        lineBottom = rect.bottom;
+      } else {
+        lineTop = Math.min(lineTop, rect.top);
+        lineBottom = Math.max(lineBottom, rect.bottom);
+      }
     }
   }
 
-  return tops.length;
+  return lineCount;
+}
+
+function expectVisibleAtomicBoxesWithinRoot(root: HTMLElement): void {
+  const rootRect = root.getBoundingClientRect();
+  const visibleBottom = rootRect.top + root.clientTop + root.clientHeight;
+
+  for (const child of wrapContent(root).children) {
+    if (!(child instanceof HTMLElement)) {
+      continue;
+    }
+
+    const part = child.dataset.part;
+    if (part !== "before" && part !== "item" && part !== "after") {
+      continue;
+    }
+
+    const rect = child.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) {
+      continue;
+    }
+
+    expect(rect.bottom).toBeLessThanOrEqual(visibleBottom + 0.5);
+  }
 }
 
 afterEach(() => {
@@ -274,6 +340,256 @@ describe("WrapClamp browser contract", () => {
     );
   });
 
+  it("restores a no-affix multiline prefix after a width jump", async () => {
+    const items = ["One", "Two", "Three", "Four", "Five", "Six", "Seven"];
+    const mountedClamp = mountWrapClamp({
+      items,
+      props: {
+        maxLines: 2,
+      },
+      width: 340,
+      item: ({ item }) => h("span", { style: fixedBadgeStyle(68) }, item),
+    });
+
+    await settle(5);
+
+    expect(wrapSnapshot(rootElement(mountedClamp.container))).toEqual({
+      after: null,
+      items,
+    });
+
+    mountedClamp.width.value = 150;
+    await settle(6);
+
+    const shrunkSnapshot = wrapSnapshot(rootElement(mountedClamp.container));
+    expect(shrunkSnapshot.after).toBeNull();
+    expect(shrunkSnapshot.items.length).toBeLessThan(items.length);
+    expect(shrunkSnapshot.items).toEqual(items.slice(0, shrunkSnapshot.items.length));
+
+    mountedClamp.width.value = 340;
+    await settle(6);
+
+    expect(wrapSnapshot(rootElement(mountedClamp.container))).toEqual({
+      after: null,
+      items,
+    });
+  });
+
+  it("does not leave materialized no-affix probe items after hidden grow", async () => {
+    const items = Array.from({ length: 24 }, (_, index) => `I${index + 1}`);
+    const mountedClamp = mountWrapClamp({
+      items,
+      props: {
+        maxLines: 2,
+      },
+      width: 120,
+      item: ({ item }) => h("span", { style: fixedBadgeStyle(40) }, item),
+    });
+
+    await settle(5);
+
+    const initialVisibleCount = wrapItems(rootElement(mountedClamp.container)).length;
+    expect(initialVisibleCount).toBeLessThan(items.length);
+
+    mountedClamp.width.value = 520;
+    await settle(8);
+
+    const root = rootElement(mountedClamp.container);
+    const visibleItems = wrapItems(root);
+    expect(visibleItems.length).toBeGreaterThan(initialVisibleCount);
+    expect(visibleItems.map((item) => item.textContent?.trim())).toEqual(
+      items.slice(0, visibleItems.length),
+    );
+    expect(root.querySelector('[data-part="item"][aria-hidden="true"]')).toBeNull();
+  });
+
+  it("restores a wide no-affix grow frontier above the old fixed budget", async () => {
+    const items = Array.from({ length: 120 }, (_, index) => `I${index + 1}`);
+    const mountedClamp = mountWrapClamp({
+      items,
+      props: {
+        maxLines: 2,
+      },
+      width: 120,
+      item: ({ item }) => h("span", { style: fixedBadgeStyle(16) }, item),
+    });
+
+    await settle(5);
+
+    const initialVisibleCount = wrapItems(rootElement(mountedClamp.container)).length;
+    expect(initialVisibleCount).toBeLessThan(32);
+
+    mountedClamp.width.value = 960;
+    await settle(8);
+
+    const root = rootElement(mountedClamp.container);
+    const visibleItems = wrapItems(root);
+    expect(visibleItems.length).toBeGreaterThan(32);
+    expect(visibleItems.map((item) => item.textContent?.trim())).toEqual(
+      items.slice(0, visibleItems.length),
+    );
+    expect(root.querySelector('[data-part="item"][aria-hidden="true"]')).toBeNull();
+  });
+
+  it("continues settling after fallback-budget materialized grow starts without measured widths", async () => {
+    const initialItems = Array.from({ length: 60 }, (_, index) => `Wide${index + 1}`);
+    const nextItems = Array.from({ length: 60 }, (_, index) => `N${index + 1}`);
+    const mountedClamp = mountWrapClamp({
+      items: initialItems,
+      props: {
+        maxLines: 2,
+      },
+      width: 120,
+      item: ({ item }) =>
+        h("span", { style: fixedBadgeStyle(item.startsWith("Wide") ? 96 : 16) }, item),
+    });
+
+    await settle(5);
+
+    const initialVisibleCount = wrapItems(rootElement(mountedClamp.container)).length;
+    expect(initialVisibleCount).toBeGreaterThan(0);
+    expect(initialVisibleCount).toBeLessThan(32);
+
+    mountedClamp.items.value = nextItems;
+    mountedClamp.width.value = 520;
+    await settle(12);
+
+    const root = rootElement(mountedClamp.container);
+    const visibleItems = wrapItems(root);
+    expect(visibleItems.length).toBeGreaterThan(32);
+    expect(visibleItems.map((item) => item.textContent?.trim())).toEqual(
+      nextItems.slice(0, visibleItems.length),
+    );
+    expect(wrapLineCount(root)).toBeLessThanOrEqual(2);
+    expect(root.querySelector('[data-part="item"][aria-hidden="true"]')).toBeNull();
+  });
+
+  it("restores a before-only grow frontier when the before geometry is stable", async () => {
+    const items = Array.from({ length: 24 }, (_, index) => `I${index + 1}`);
+    const mountedClamp = mountWrapClamp({
+      items,
+      props: {
+        maxLines: 2,
+      },
+      width: 120,
+      before: () => h("span", { style: fixedBadgeStyle(72) }, "Lead"),
+      item: ({ item }) => h("span", { style: fixedBadgeStyle(40) }, item),
+    });
+
+    await settle(5);
+
+    const initialVisibleCount = wrapItems(rootElement(mountedClamp.container)).length;
+    expect(initialVisibleCount).toBeLessThan(items.length);
+
+    mountedClamp.width.value = 520;
+    await settle(8);
+
+    const root = rootElement(mountedClamp.container);
+    const visibleItems = wrapItems(root);
+    expect(wrapBefore(root)?.textContent?.trim()).toBe("Lead");
+    expect(visibleItems.length).toBeGreaterThan(initialVisibleCount);
+    expect(visibleItems.map((item) => item.textContent?.trim())).toEqual(
+      items.slice(0, visibleItems.length),
+    );
+    expect(root.querySelector('[data-part="item"][aria-hidden="true"]')).toBeNull();
+  });
+
+  it("falls back when a before slot changes geometry after grow", async () => {
+    const items = Array.from({ length: 20 }, (_, index) => `I${index + 1}`);
+    const mountedClamp = mountWrapClamp({
+      items,
+      props: {
+        maxLines: 2,
+      },
+      width: 120,
+      before: ({ hiddenItems }) =>
+        h("span", { style: fixedBadgeStyle(hiddenItems.length >= 10 ? 160 : 40) }, "Lead"),
+      item: ({ item }) => h("span", { style: fixedBadgeStyle(40) }, item),
+    });
+
+    await settle(5);
+
+    mountedClamp.width.value = 520;
+    await settle(10);
+
+    const root = rootElement(mountedClamp.container);
+    const visibleItems = wrapItems(root);
+    const hiddenCount = items.length - visibleItems.length;
+    expect(hiddenCount).toBeGreaterThanOrEqual(0);
+    expect(hiddenCount).toBeLessThan(10);
+    expect(visibleItems.map((item) => item.textContent?.trim())).toEqual(
+      items.slice(0, visibleItems.length),
+    );
+    expect(wrapLineCount(root)).toBeLessThanOrEqual(2);
+    expect(root.querySelector('[data-part="item"][aria-hidden="true"]')).toBeNull();
+  });
+
+  it("jumps from a static before and dynamic after hint back to a verified live-DOM result", async () => {
+    const items = Array.from({ length: 24 }, (_, index) => `I${index + 1}`);
+    const mountedClamp = mountWrapClamp({
+      items,
+      props: {
+        maxLines: 2,
+      },
+      width: 120,
+      before: () => h("span", { style: fixedBadgeStyle(72) }, "Lead"),
+      item: ({ item }) => h("span", { style: fixedBadgeStyle(40) }, item),
+      after: ({ clamped, hiddenItems }) =>
+        clamped
+          ? h(
+              "span",
+              { style: fixedBadgeStyle(hiddenItems.length >= 10 ? 68 : 32) },
+              `+${hiddenItems.length}`,
+            )
+          : null,
+    });
+
+    await settle(5);
+
+    const initialVisibleCount = wrapItems(rootElement(mountedClamp.container)).length;
+    expect(initialVisibleCount).toBeLessThan(items.length);
+
+    mountedClamp.width.value = 520;
+    await settle(10);
+
+    const root = rootElement(mountedClamp.container);
+    const grownSnapshot = wrapSnapshot(root);
+    const hiddenCount = items.length - grownSnapshot.items.length;
+    expect(grownSnapshot.items.length).toBeGreaterThan(initialVisibleCount);
+    expect(grownSnapshot.items).toEqual(items.slice(0, grownSnapshot.items.length));
+    expect(grownSnapshot.after).toBe(hiddenCount > 0 ? `+${hiddenCount}` : null);
+    expect(wrapBefore(root)?.textContent?.trim()).toBe("Lead");
+    expect(wrapLineCount(root)).toBeLessThanOrEqual(2);
+    expect(root.querySelector('[data-part="item"][aria-hidden="true"]')).toBeNull();
+  });
+
+  it("falls back when a before slot changes geometry after shrink", async () => {
+    const items = Array.from({ length: 20 }, (_, index) => `I${index + 1}`);
+    const mountedClamp = mountWrapClamp({
+      items,
+      props: {
+        maxLines: 2,
+      },
+      width: 520,
+      before: ({ hiddenItems }) =>
+        h("span", { style: fixedBadgeStyle(hiddenItems.length >= 10 ? 160 : 40) }, "Lead"),
+      item: ({ item }) => h("span", { style: fixedBadgeStyle(40) }, item),
+    });
+
+    await settle(5);
+
+    mountedClamp.width.value = 120;
+    await settle(10);
+
+    const root = rootElement(mountedClamp.container);
+    const visibleItems = wrapItems(root);
+    expect(visibleItems.map((item) => item.textContent?.trim())).toEqual(
+      items.slice(0, visibleItems.length),
+    );
+    expect(wrapLineCount(root)).toBeLessThanOrEqual(2);
+    expect(root.querySelector('[data-part="item"][aria-hidden="true"]')).toBeNull();
+  });
+
   it("uses the one-line calculation path when the after width depends on hiddenItems length", async () => {
     const mountedClamp = mountWrapClamp({
       items: ["Alpha", "Beta", "Gamma"],
@@ -341,6 +657,41 @@ describe("WrapClamp browser contract", () => {
     expect(hiddenCount).toBeLessThan(10);
     expect(grownSnapshot.after).toBe(`+${hiddenCount}`);
     expect(grownSnapshot.items).toEqual(items.slice(0, grownSnapshot.items.length));
+    expect(wrapLineCount(root)).toBeLessThanOrEqual(1);
+  });
+
+  it("settles across a hiddenItems digit boundary when shrink changes after width", async () => {
+    const items = Array.from({ length: 20 }, (_, index) => `I${index + 1}`);
+    const mountedClamp = mountWrapClamp({
+      items,
+      props: {
+        maxLines: 1,
+      },
+      width: 420,
+      item: ({ item }) => h("span", { style: fixedBadgeStyle(20) }, item),
+      after: ({ clamped, hiddenItems }) =>
+        clamped
+          ? h(
+              "span",
+              { style: fixedBadgeStyle(hiddenItems.length >= 10 ? 64 : 32) },
+              `+${hiddenItems.length}`,
+            )
+          : null,
+    });
+
+    await settle(8);
+
+    const initialSnapshot = wrapSnapshot(rootElement(mountedClamp.container));
+    expect(items.length - initialSnapshot.items.length).toBeLessThan(10);
+
+    mountedClamp.width.value = 324;
+    await settle(8);
+
+    const root = rootElement(mountedClamp.container);
+    expect(wrapSnapshot(root)).toEqual({
+      after: "+11",
+      items: items.slice(0, 9),
+    });
     expect(wrapLineCount(root)).toBeLessThanOrEqual(1);
   });
 
@@ -460,6 +811,214 @@ describe("WrapClamp browser contract", () => {
     expect(root.clientHeight).toBeLessThanOrEqual(30);
     expect(wrapItems(root).length).toBeLessThan(5);
     expect(wrapAfter(root)?.textContent).not.toBeNull();
+  });
+
+  it("shrinks a no-after maxHeight clamp from the current visible prefix", async () => {
+    const items = Array.from({ length: 24 }, (_, index) => `I${index + 1}`);
+    const mountedClamp = mountWrapClamp({
+      items,
+      props: {
+        maxHeight: "60px",
+      },
+      width: 520,
+      item: ({ item }) => h("span", { style: fixedBadgeStyle(40) }, item),
+    });
+
+    await settle(5);
+
+    const initialCount = wrapItems(rootElement(mountedClamp.container)).length;
+    expect(initialCount).toBeGreaterThan(0);
+
+    mountedClamp.width.value = 120;
+    await settle(8);
+
+    const root = rootElement(mountedClamp.container);
+    const visibleItems = wrapItems(root);
+    expect(root.clientHeight).toBeLessThanOrEqual(60);
+    expect(visibleItems.length).toBeLessThan(initialCount);
+    expect(visibleItems.map((item) => item.textContent?.trim())).toEqual(
+      items.slice(0, visibleItems.length),
+    );
+    expect(root.querySelector('[data-part="item"][aria-hidden="true"]')).toBeNull();
+  });
+
+  it("grows a no-after maxHeight clamp without leaving materialized probe items", async () => {
+    const items = Array.from({ length: 24 }, (_, index) => `I${index + 1}`);
+    const mountedClamp = mountWrapClamp({
+      items,
+      props: {
+        maxHeight: "60px",
+      },
+      width: 120,
+      item: ({ item }) => h("span", { style: fixedBadgeStyle(40) }, item),
+    });
+
+    await settle(5);
+
+    const initialCount = wrapItems(rootElement(mountedClamp.container)).length;
+    expect(initialCount).toBeGreaterThan(0);
+    expect(initialCount).toBeLessThan(items.length);
+
+    mountedClamp.width.value = 520;
+    await settle(8);
+
+    const root = rootElement(mountedClamp.container);
+    const visibleItems = wrapItems(root);
+    expect(root.clientHeight).toBeLessThanOrEqual(60);
+    expect(visibleItems.length).toBeGreaterThan(initialCount);
+    expect(visibleItems.map((item) => item.textContent?.trim())).toEqual(
+      items.slice(0, visibleItems.length),
+    );
+    expectVisibleAtomicBoxesWithinRoot(root);
+    expect(root.querySelector('[data-part="item"][aria-hidden="true"]')).toBeNull();
+  });
+
+  it("clamps wrapped items when content has CSS gap", async () => {
+    const style = document.createElement("style");
+    style.textContent = `
+      [data-wrap-gap] [data-part="content"] {
+        column-gap: 8px;
+        row-gap: 6px;
+      }
+    `;
+    document.head.append(style);
+
+    try {
+      const items = Array.from({ length: 24 }, (_, index) => `I${index + 1}`);
+      const mountedClamp = mountWrapClamp({
+        items,
+        props: {
+          "data-wrap-gap": "",
+          maxLines: 2,
+        },
+        width: 120,
+        item: ({ item }) => h("span", { style: fixedBadgeStyle(40) }, item),
+      });
+
+      await settle(5);
+
+      const initialCount = wrapItems(rootElement(mountedClamp.container)).length;
+      expect(initialCount).toBeGreaterThan(0);
+      expect(wrapLineCount(rootElement(mountedClamp.container))).toBeLessThanOrEqual(2);
+
+      mountedClamp.width.value = 520;
+      await settle(8);
+
+      const root = rootElement(mountedClamp.container);
+      const visibleItems = wrapItems(root);
+      expect(visibleItems.length).toBeGreaterThan(initialCount);
+      expect(wrapLineCount(root)).toBeLessThanOrEqual(2);
+      expect(visibleItems.map((item) => item.textContent?.trim())).toEqual(
+        items.slice(0, visibleItems.length),
+      );
+      expect(root.querySelector('[data-part="item"][aria-hidden="true"]')).toBeNull();
+    } finally {
+      style.remove();
+    }
+  });
+
+  it("keeps aligned mixed-height items on the same wrap line", async () => {
+    const style = document.createElement("style");
+    style.textContent = `
+      [data-wrap-align] [data-part="content"] {
+        gap: 0;
+      }
+      [data-wrap-align="center"] [data-part="content"] { align-items: center; }
+      [data-wrap-align="flex-end"] [data-part="content"] { align-items: flex-end; }
+      [data-wrap-align="baseline"] [data-part="content"] { align-items: baseline; }
+    `;
+    document.head.append(style);
+
+    try {
+      const cases: Array<{ alignment: MixedHeightAlignment; items: readonly string[] }> = [
+        {
+          alignment: "center",
+          items: ["Tall", "Short", "Next"],
+        },
+        {
+          alignment: "flex-end",
+          items: ["Tall", "Short", "Next"],
+        },
+        {
+          alignment: "baseline",
+          items: ["Large", "Small", "Next"],
+        },
+      ];
+
+      for (const { alignment, items } of cases) {
+        const mountedClamp = mountWrapClamp({
+          items,
+          props: {
+            "data-wrap-align": alignment,
+            maxLines: 1,
+          },
+          width: 150,
+          item: ({ index, item }) =>
+            h("span", { style: mixedHeightAlignmentItemStyle(alignment, index) }, item),
+        });
+
+        await settle(6);
+
+        const root = rootElement(mountedClamp.container);
+        const visibleItems = wrapItems(root);
+        expect(visibleItems.map((item) => item.textContent?.trim())).toEqual(items.slice(0, 2));
+        expect(wrapLineCount(root)).toBe(1);
+
+        const [first, second] = visibleItems;
+        if (!first || !second) {
+          throw new Error(`Expected two visible ${alignment} mixed-height items.`);
+        }
+        expect(
+          Math.abs(first.getBoundingClientRect().top - second.getBoundingClientRect().top),
+        ).toBeGreaterThan(0.5);
+      }
+    } finally {
+      style.remove();
+    }
+  });
+
+  it("settles when item slot widths change without replacing the item array", async () => {
+    const wide = ref(false);
+    const items = Array.from({ length: 16 }, (_, index) => `I${index + 1}`);
+    const mountedClamp = mountWrapClamp({
+      items,
+      props: {
+        maxLines: 2,
+      },
+      width: 260,
+      item: ({ item }) => h("span", { style: fixedBadgeStyle(wide.value ? 72 : 32) }, item),
+    });
+
+    await settle(6);
+
+    const initialRoot = rootElement(mountedClamp.container);
+    const initialCount = wrapItems(initialRoot).length;
+    expect(initialCount).toBeGreaterThan(0);
+    expect(wrapLineCount(initialRoot)).toBeLessThanOrEqual(2);
+
+    wide.value = true;
+    await settle(10);
+
+    const widerRoot = rootElement(mountedClamp.container);
+    const widerItems = wrapItems(widerRoot);
+    expect(widerItems.length).toBeLessThan(initialCount);
+    expect(wrapLineCount(widerRoot)).toBeLessThanOrEqual(2);
+    expect(widerItems.map((item) => item.textContent?.trim())).toEqual(
+      items.slice(0, widerItems.length),
+    );
+    expect(widerRoot.querySelector('[data-part="item"][aria-hidden="true"]')).toBeNull();
+
+    wide.value = false;
+    await settle(10);
+
+    const narrowRoot = rootElement(mountedClamp.container);
+    const narrowItems = wrapItems(narrowRoot);
+    expect(narrowItems.length).toBeGreaterThan(widerItems.length);
+    expect(wrapLineCount(narrowRoot)).toBeLessThanOrEqual(2);
+    expect(narrowItems.map((item) => item.textContent?.trim())).toEqual(
+      items.slice(0, narrowItems.length),
+    );
+    expect(narrowRoot.querySelector('[data-part="item"][aria-hidden="true"]')).toBeNull();
   });
 
   it("keeps the after slot at logical inline-end in RTL mode", async () => {
