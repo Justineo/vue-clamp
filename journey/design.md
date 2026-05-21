@@ -836,11 +836,12 @@
   - demo-page regressions
   - width-sweep regressions
   - browser-fit checks around slots, inherited widths, and `maxHeight`
-- Browser runs can still print the Chromium
-  `ResizeObserver loop completed with undelivered notifications.` noise through Vite's client error
-  catcher.
-  - this is currently non-fatal and does not block the suite from completing
+- Browser runs suppress Chromium's
+  `ResizeObserver loop completed with undelivered notifications.` signal in `vite.browser.config.ts`
+  by filtering Vite's browser-environment logger.
+  - this is a test-output filter for the platform-defined ResizeObserver notification error, not a
+    clamp runtime scheduling change
+  - do not defer runtime `ResizeObserver` reclamps just to quiet test output; that can leave stale
+    clamped DOM visible for a paint after external layout changes
   - the previous `setupFiles`-based suppression attempt was removed because it only downgraded the
     event into terminal `console.error` noise instead of truly suppressing it
-  - do not reintroduce browser-runner patches for this unless they are proven to run before
-    Vitest's own error catcher
