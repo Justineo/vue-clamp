@@ -21,6 +21,7 @@
     "bumpp": "catalog:",
     "playwright": "catalog:",
     "releaselog": "catalog:",
+    "unplugin-vue": "catalog:",
     "vite": "catalog:",
     "vite-plus": "catalog:"
   },

@@ -16,7 +16,7 @@ and wrapped items fit the space they are actually rendered into.
 pnpm add vue-clamp
 ```
 
-`vue-clamp` has a peer dependency on Vue `^3.3.0`. Install Vue too if your project does not already
+`vue-clamp` has a peer dependency on Vue `^3.5.0`. Install Vue too if your project does not already
 depend on it.
 
 ## Components
