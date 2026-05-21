@@ -38,6 +38,7 @@ For any new project, planning-focused request, or sufficiently complex non-trivi
 ## Pull request writing preferences
 
 - Keep PR descriptions concise.
+- Prefer structured sections with short bullets over long descriptive paragraphs.
 - Do not include validation or test command lists by default unless explicitly requested.
 - Summarize the reviewer-relevant changes and the main design considerations behind them.
 - Avoid implementation diary details unless they explain a public API change, migration concern, or important trade-off.
