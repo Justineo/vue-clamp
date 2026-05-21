@@ -45,3 +45,21 @@
   - retained `40` logs, `1` plan, `11` research notes, `1` review, and `design.md`
   - removed the superseded `RichLineClamp` generation-settlement research draft after the explicit
     image-size contract replaced that design
+
+## 2026-05-21 SFC migration memory pass
+
+- Re-ran the retention pass after the SFC migration and type-organization work.
+- Retention rule for this pass:
+  - keep `design.md` as the canonical snapshot
+  - keep only decision/research notes that still explain current API, runtime algorithms, benchmark
+    trade-offs, or future roadmap
+  - keep one detailed RichLineClamp architecture option analysis
+  - delete completed implementation plans, process-only logs, stale review notes, and older research
+    superseded by `design.md`, `308-wrapclamp-optimization-summary.md`, or
+    `309-forward-outlook-research.md`
+- Resulting corpus:
+  - `design.md`
+  - `vocabulary.md`
+  - `1` completed plan with durable architecture analysis
+  - `1` pruning log
+  - `9` research notes plus the WrapClamp performance chart
