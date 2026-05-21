@@ -1,26 +1,33 @@
 // Keep the package entry as an explicit barrel so the public surface stays auditable.
 // Internal helpers are intentionally not re-exported from here.
-export { LineClamp } from "./LineClamp.ts";
-export { RichLineClamp } from "./RichLineClamp.ts";
-export { InlineClamp } from "./InlineClamp.ts";
-export { WrapClamp } from "./WrapClamp.ts";
+export { default as InlineClamp } from "./inline/InlineClamp.vue";
+export { default as LineClamp } from "./line/LineClamp.vue";
+export { default as RichLineClamp } from "./rich-line/RichLineClamp.vue";
+export { default as WrapClamp } from "./wrap/WrapClamp.vue";
+
+export type { ClampBoundary, ClampLength, LineClampLocation } from "./types.ts";
+
+export type { InlineClampParts, InlineClampProps, InlineClampSplit } from "./inline/types.ts";
 
 export type {
-  ClampBoundary,
-  ClampLength,
-  InlineClampParts,
-  InlineClampProps,
-  InlineClampSplit,
   LineClampExposed,
-  LineClampLocation,
   LineClampProps,
   LineClampSlotProps,
+  LineClampSlots,
+} from "./line/types.ts";
+
+export type {
   RichLineClampExposed,
   RichLineClampProps,
   RichLineClampSlotProps,
+  RichLineClampSlots,
+} from "./rich-line/types.ts";
+
+export type {
   WrapClampExposed,
   WrapClampItemKey,
   WrapClampItemSlotProps,
   WrapClampProps,
   WrapClampSlotProps,
-} from "./types.ts";
+  WrapClampSlots,
+} from "./wrap/types.ts";

@@ -1,9 +1,10 @@
-import { onBeforeUnmount, onMounted, onUpdated, ref, watch, watchPostEffect } from "vue";
+import { onBeforeUnmount, onMounted, onUpdated, shallowRef, watch, watchPostEffect } from "vue";
+import { useClampControls } from "./controls.ts";
 import { combinedSizeSignature, createCoalescingRunner, listenForFontLoads } from "./layout.ts";
 
 import type { Ref } from "vue";
 
-export type MultilineClampFrameRefs = {
+export type MultilineFrameRefs = {
   readonly rootRef: Ref<HTMLElement | null>;
   readonly contentRef: Ref<HTMLElement | null>;
   readonly beforeRef: Ref<HTMLElement | null>;
@@ -11,19 +12,17 @@ export type MultilineClampFrameRefs = {
   readonly afterRef: Ref<HTMLElement | null>;
 };
 
-type ShellState = MultilineClampFrameRefs & {
-  readonly expanded: Ref<boolean>;
+type ShellState = MultilineFrameRefs & {
   readonly isClamped: Ref<boolean>;
 };
 
-export type MultilineClampShellOptions = {
-  readonly getExpanded: () => boolean;
-  readonly onExpandedChange: (value: boolean) => void;
+export type MultilineShellOptions = {
+  readonly expanded: Ref<boolean>;
   readonly onClampedChange: (value: boolean) => void;
   readonly recompute: (expanded: Ref<boolean>) => Promise<void>;
 };
 
-export type MultilineClampShell = ShellState & {
+export type MultilineShell = ShellState & {
   readonly expand: () => void;
   readonly collapse: () => void;
   readonly toggle: () => void;
@@ -33,33 +32,21 @@ export type MultilineClampShell = ShellState & {
 // LineClamp and RichLineClamp have different clamp engines but the same shell:
 // controlled expansion, slot/root refs, invalidation sources, and event timing.
 // Keeping that shell here avoids two subtly divergent lifecycle implementations.
-export function useMultilineClamp(options: MultilineClampShellOptions): MultilineClampShell {
-  const { getExpanded, onExpandedChange, onClampedChange, recompute } = options;
+export function useMultilineClamp(options: MultilineShellOptions): MultilineShell {
+  const { expanded, onClampedChange, recompute } = options;
+  const controls = useClampControls(expanded);
   const state: ShellState = {
-    rootRef: ref<HTMLElement | null>(null),
-    contentRef: ref<HTMLElement | null>(null),
-    beforeRef: ref<HTMLElement | null>(null),
-    bodyRef: ref<HTMLElement | null>(null),
-    afterRef: ref<HTMLElement | null>(null),
-    expanded: ref(getExpanded()),
-    isClamped: ref(false),
+    rootRef: shallowRef<HTMLElement | null>(null),
+    contentRef: shallowRef<HTMLElement | null>(null),
+    beforeRef: shallowRef<HTMLElement | null>(null),
+    bodyRef: shallowRef<HTMLElement | null>(null),
+    afterRef: shallowRef<HTMLElement | null>(null),
+    isClamped: shallowRef(false),
   };
 
   let resizeObserver: ResizeObserver | null = null;
   let stopFonts = () => {};
   let lastLayoutSignature: string | null = null;
-
-  function expand(): void {
-    state.expanded.value = true;
-  }
-
-  function collapse(): void {
-    state.expanded.value = false;
-  }
-
-  function toggle(): void {
-    state.expanded.value = !state.expanded.value;
-  }
 
   function layoutSignature(): string {
     // Slot and body sizes can change without a prop change. A coarse signature is
@@ -74,26 +61,13 @@ export function useMultilineClamp(options: MultilineClampShellOptions): Multilin
   }
 
   const requestRecompute = createCoalescingRunner(async () => {
-    await recompute(state.expanded);
+    await recompute(expanded);
     lastLayoutSignature = layoutSignature();
   });
 
   watch(
-    () => getExpanded(),
-    (value) => {
-      state.expanded.value = value;
-    },
-  );
-
-  watch(
-    state.expanded,
-    (value) => {
-      if (getExpanded() !== value) {
-        // The internal state can be changed by exposed methods, so emit only
-        // when the controlled prop is not already carrying the same value.
-        onExpandedChange(value);
-      }
-
+    expanded,
+    () => {
       requestRecompute();
     },
     { flush: "post" },
@@ -155,9 +129,7 @@ export function useMultilineClamp(options: MultilineClampShellOptions): Multilin
 
   return {
     ...state,
-    expand,
-    collapse,
-    toggle,
+    ...controls,
     requestRecompute,
   };
 }
