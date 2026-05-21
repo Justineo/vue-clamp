@@ -1,111 +1,52 @@
 import type { VNodeChild } from "vue";
 
-// Package API declarations live in one module so consumers and the runtime prop
-// definitions stay aligned without importing component implementation files.
-// Private building blocks below keep concrete component contracts consistent
-// without becoming package-level names themselves.
+// Package-level value-domain types live here because multiple components and
+// algorithms use them. Component-specific public contracts stay colocated with
+// their component family.
 export type ClampBoundary = "grapheme" | "word";
 
 export type ClampLength = number | string;
 
 export type LineClampLocation = "start" | "middle" | "end" | number;
 
-type ClampSlotRender<Props> = (props: Props) => VNodeChild;
+export interface ClampProps {
+  as?: string;
+  maxLines?: number;
+  maxHeight?: ClampLength;
+  expanded?: boolean;
+  ellipsis?: string;
+  boundary?: ClampBoundary;
+  location?: LineClampLocation;
+}
+
+export type ClampSlotRender<Props> = (props: Props) => VNodeChild;
 
 // Multiline text/rich and wrap clamps expose the same imperative shell so slot
 // controls can be shared across components.
-type ClampControls = {
+export type ClampControls = {
   expand: () => void;
   collapse: () => void;
   toggle: () => void;
 };
 
-type ClampState = {
+export type ClampState = {
   clamped: boolean;
   expanded: boolean;
 };
 
-type ClampSlotProps = ClampControls & ClampState;
+export type ClampSlotProps = ClampControls & ClampState;
 
-type ClampExposed = ClampControls & {
+export type ClampExposed = ClampControls & {
   readonly clamped: boolean;
   readonly expanded: boolean;
 };
 
-export type LineClampSlotProps = ClampSlotProps;
-
-export type LineClampExposed = ClampExposed;
-
-export interface LineClampSlots {
-  before?: ClampSlotRender<LineClampSlotProps>;
-  after?: ClampSlotRender<LineClampSlotProps>;
+export interface ClampSlots<Props = ClampSlotProps> {
+  before?: ClampSlotRender<Props>;
+  after?: ClampSlotRender<Props>;
 }
 
-export interface LineClampProps {
-  as?: string;
-  text?: string;
-  maxLines?: number;
-  maxHeight?: ClampLength;
-  ellipsis?: string;
-  location?: LineClampLocation;
-  boundary?: ClampBoundary;
-  expanded?: boolean;
-}
-
-export interface RichLineClampProps {
-  as?: string;
-  html: string;
-  maxLines?: number;
-  maxHeight?: ClampLength;
-  ellipsis?: string;
-  boundary?: ClampBoundary;
-  expanded?: boolean;
-}
-
-export type RichLineClampSlotProps = ClampSlotProps;
-
-export type RichLineClampExposed = ClampExposed;
-
-export interface RichLineClampSlots {
-  before?: ClampSlotRender<RichLineClampSlotProps>;
-  after?: ClampSlotRender<RichLineClampSlotProps>;
-}
-
-export interface InlineClampParts {
-  start?: string;
-  body: string;
-  end?: string;
-}
-
-export type InlineClampSplit = (text: string) => InlineClampParts;
-
-export interface InlineClampProps {
-  as?: string;
-  text: string;
-  ellipsis?: string;
-  location?: LineClampLocation;
-  boundary?: ClampBoundary;
-  split?: InlineClampSplit;
-}
-
-export type WrapClampItemKey<T = unknown> = string | ((item: T, index: number) => string | number);
-
-export interface WrapClampItemSlotProps<T = unknown> {
-  item: T;
-  index: number;
-}
-
-export interface WrapClampSlotProps<T = unknown> extends ClampSlotProps {
-  hiddenItems: readonly T[];
-}
-
-export type WrapClampExposed = ClampExposed;
-
-export interface WrapClampProps<T = unknown> {
-  as?: string;
-  items: readonly T[];
-  itemKey?: WrapClampItemKey<T>;
-  maxLines?: number;
-  maxHeight?: ClampLength;
-  expanded?: boolean;
+export interface ClampEmits {
+  "update:expanded": [value: boolean];
+  clampchange: [value: boolean];
 }

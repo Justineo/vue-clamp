@@ -628,11 +628,11 @@ const wrapRtl = ref(false);
 const wrapHeight7 = ref("58px");
 const wrapExpanded7 = ref(false);
 
-const wrapTabItems6 = computed(() => {
+const wrapTabItems6 = computed<readonly WrapDemoItem[]>(() => {
   return wrapRtl.value ? wrapTabItemsAr : wrapTabItems;
 });
 
-const wrapInviteeItems7 = computed(() => {
+const wrapInviteeItems7 = computed<readonly WrapDemoItem[]>(() => {
   return wrapRtl.value ? wrapInviteeItemsAr : wrapInviteeItems;
 });
 

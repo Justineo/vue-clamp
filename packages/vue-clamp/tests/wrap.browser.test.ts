@@ -3,8 +3,13 @@ import { Comment, createApp, defineComponent, h, nextTick, ref } from "vue";
 import { WrapClamp } from "../src/index.ts";
 import { frame } from "./browser.ts";
 
-import type { App, Ref, VNodeChild } from "vue";
-import type { WrapClampExposed, WrapClampItemSlotProps, WrapClampSlotProps } from "../src/index.ts";
+import type { App, DefineComponent, Ref, VNodeChild } from "vue";
+import type {
+  WrapClampExposed,
+  WrapClampItemSlotProps,
+  WrapClampProps,
+  WrapClampSlotProps,
+} from "../src/index.ts";
 
 type MountedWrapClamp = {
   app: App;
@@ -28,6 +33,7 @@ type MountWrapOptions = {
 type MixedHeightAlignment = "baseline" | "center" | "flex-end";
 
 const mounted = new Set<MountedWrapClamp>();
+const StringWrapClamp = WrapClamp as unknown as DefineComponent<WrapClampProps<string>>;
 
 function hostStyle(width: number, extra?: string): string {
   return [
@@ -114,7 +120,7 @@ function mountWrapClamp(options: MountWrapOptions): MountedWrapClamp {
   const Host = defineComponent({
     setup() {
       return () => {
-        const props: Record<string, unknown> = {
+        const props: WrapClampProps<string> & Record<string, unknown> = {
           ref: exposed,
           ...options.props,
           items: items.value,
@@ -125,7 +131,7 @@ function mountWrapClamp(options: MountWrapOptions): MountedWrapClamp {
           props.as = options.as;
         }
 
-        return h(WrapClamp, props, {
+        return h(StringWrapClamp, props, {
           item: options.item,
           before: options.before,
           after: options.after,

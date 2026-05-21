@@ -9,22 +9,24 @@ import type {
   LineClampLocation,
   LineClampProps,
   LineClampSlotProps,
+  LineClampSlots,
   RichLineClampExposed,
   RichLineClampProps,
   RichLineClampSlotProps,
+  RichLineClampSlots,
   WrapClampExposed,
   WrapClampItemKey,
   WrapClampItemSlotProps,
   WrapClampProps,
   WrapClampSlotProps,
+  WrapClampSlots,
 } from "../src/index.ts";
 import type {
-  MultilineClampFrameRefs,
-  MultilineClampShell,
-  MultilineClampShellOptions,
+  MultilineFrameRefs,
+  MultilineShell,
+  MultilineShellOptions,
 } from "../src/multiline.ts";
 import type { NativeClampMode, NativeModeInput } from "../src/native.ts";
-import type { LineClampSlots, RichLineClampSlots } from "../src/types.ts";
 import type {
   PreparedText,
   TextClampFitInput,
@@ -49,6 +51,18 @@ import type { TextClampHint as RootTextClampHint } from "../src/index.ts"; // es
 // @ts-expect-error Rich helper contracts are source-module API, not package root API.
 import type { RichState as RootRichState } from "../src/index.ts"; // eslint-disable-line no-unused-vars
 
+// @ts-expect-error Shared slot building blocks are implementation API, not package root API.
+import type { ClampSlotProps as RootClampSlotProps } from "../src/index.ts"; // eslint-disable-line no-unused-vars
+
+// @ts-expect-error Shared prop maps are implementation API, not package root API.
+import type { ClampProps as RootClampProps } from "../src/index.ts"; // eslint-disable-line no-unused-vars
+
+// @ts-expect-error Shared emit maps are implementation API, not package root API.
+import type { ClampEmits as RootClampEmits } from "../src/index.ts"; // eslint-disable-line no-unused-vars
+
+// @ts-expect-error Shared slot maps are implementation API, not package root API.
+import type { ClampSlots as RootClampSlots } from "../src/index.ts"; // eslint-disable-line no-unused-vars
+
 type Equal<Left, Right> =
   (<Value>() => Value extends Left ? 1 : 2) extends <Value>() => Value extends Right ? 1 : 2
     ? true
@@ -64,6 +78,7 @@ type _PackageApiTypes = [
   Expect<Equal<LineClampProps["maxHeight"], ClampLength | undefined>>,
   Expect<Equal<RichLineClampProps["maxHeight"], ClampLength | undefined>>,
   Expect<Equal<WrapClampProps["maxHeight"], ClampLength | undefined>>,
+  Expect<Equal<WrapClampProps<string>["items"], readonly string[] | undefined>>,
   Expect<Equal<InlineClampProps["split"], InlineClampSplit | undefined>>,
   Expect<Equal<InlineClampSplit, (text: string) => InlineClampParts>>,
   Expect<
@@ -73,6 +88,7 @@ type _PackageApiTypes = [
   Expect<Equal<WrapClampSlotProps<string>["hiddenItems"], readonly string[]>>,
   Expect<Equal<SlotProps<NonNullable<LineClampSlots["before"]>>, LineClampSlotProps>>,
   Expect<Equal<SlotProps<NonNullable<RichLineClampSlots["after"]>>, RichLineClampSlotProps>>,
+  Expect<Equal<SlotProps<NonNullable<WrapClampSlots<string>["item"]>>["item"], string>>,
   Expect<Equal<LineClampSlotProps["toggle"], () => void>>,
   Expect<Equal<RichLineClampSlotProps["expanded"], boolean>>,
   Expect<Equal<LineClampExposed["clamped"], boolean>>,
@@ -105,7 +121,8 @@ type _NativeHelperContracts = [
 ];
 
 type _MultilineHelperContracts = [
-  Expect<Equal<MultilineClampFrameRefs["rootRef"], Ref<HTMLElement | null>>>,
-  Expect<Equal<MultilineClampShellOptions["recompute"], (expanded: Ref<boolean>) => Promise<void>>>,
-  Expect<Equal<MultilineClampShell["requestRecompute"], () => void>>,
+  Expect<Equal<MultilineFrameRefs["rootRef"], Ref<HTMLElement | null>>>,
+  Expect<Equal<MultilineShellOptions["expanded"], Ref<boolean>>>,
+  Expect<Equal<MultilineShellOptions["recompute"], (expanded: Ref<boolean>) => Promise<void>>>,
+  Expect<Equal<MultilineShell["requestRecompute"], () => void>>,
 ];
