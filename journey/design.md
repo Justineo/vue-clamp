@@ -13,6 +13,11 @@
   implementation notes should use those terms consistently.
 - WrapClamp optimization outcomes and benchmark deltas from the May 2026 solver work are summarized
   in `journey/research/308-wrapclamp-optimization-summary.md`.
+- The current post-1.4 forward outlook is summarized in
+  `journey/research/309-forward-outlook-research.md`: prioritize SSR / hydration contract design,
+  release-visible benchmarks, RichLineClamp development diagnostics, and future experimental work
+  such as Pretext acceleration, locale-aware boundaries, and accessibility recipes. The earlier
+  WrapClamp generic slot typing opportunity has been addressed by the SFC migration.
 
 ## Product Goals
 
@@ -42,28 +47,51 @@
   - `InlineClamp` as the canonical single-line affix-friendly component name
   - `WrapClamp` as the canonical wrapped-item component name
 - There is no default export.
-- Type declarations follow four explicit layers:
-  - package API types live in `packages/vue-clamp/src/types.ts` and are re-exported from the root
-    package barrel; these names are semver API
-  - private building-block aliases may live inside `types.ts` only to assemble concrete package API
-    contracts without becoming package-level names themselves
-  - source-module helper contracts live in the behavior module that owns them, such as `text.ts`,
-    `rich.ts`, `native.ts`, and `multiline.ts`; sibling modules, tests, and benchmarks may import
-    those contracts directly from the owner module
+- Type declarations follow explicit ownership layers:
+  - shared public primitives and private shared type building blocks live in
+    `packages/vue-clamp/src/types.ts`
+  - component public contracts live next to their component family:
+    `line/types.ts`, `rich-line/types.ts`, `inline/types.ts`, and `wrap/types.ts`
+  - public types are re-exported only through the root package barrel; those exported names are
+    semver API
+  - root package type exports are reserved for names users reasonably need to spell when authoring
+    app code, render functions, typed slots, wrapper components, refs, or reusable prop callbacks
+  - private building-block aliases may be exported from internal source modules for sibling modules
+    to assemble public contracts, but they must not be re-exported from the root package barrel
+  - shared prop, emit, and slot consistency is enforced with `ClampProps`, `ClampEmits`, and
+    `ClampSlots`; component public prop interfaces select only their supported fields instead of
+    inheriting from common prop interfaces
+  - cross-component internal helper contracts that are not public API should live in the behavior
+    module that owns them, such as `text.ts`, `rich.ts`, `native.ts`, and `multiline.ts`; sibling
+    modules, tests, and benchmarks may import those contracts directly from the owner module
+  - when two components share the same internal algorithm, the shared types belong with that
+    algorithm rather than either component; the names should describe the algorithm domain, not a
+    component, and they must stay out of the root barrel unless they become package API
+  - if a cross-component internal type has no clear behavior-module owner and is genuinely shared,
+    it may live in a dedicated top-level internal type module; use this only when a real shared
+    owner cannot be identified, and never re-export it from the root package barrel
+  - component-family internal contracts shared by files under one component directory live in that
+    directory's type-only module, such as `packages/vue-clamp/src/wrap/types.ts`; these modules do
+    not import runtime helpers, components, or the package barrel
+  - internal type names should use the narrowest useful context: component-family `types.ts` files
+    use local names such as `SequenceMeasurement`, while top-level shared internal modules use
+    domain names specific enough to avoid ambiguous imports
   - implementation-local solver, DOM, probe, patch, render-state, benchmark-fixture, and website UI
     types stay with the code that owns those states
 - Component implementation files do not re-export package declaration types; public package type
-  exports stay auditable through `types.ts` and the root barrel.
-- Root package type exports currently include the component prop, slot, exposed-instance, and
-  user-callback/value-domain contracts:
+  exports stay auditable through component-family `types.ts` files and the root barrel.
+- Root package type exports currently include component prop types, slot prop payloads, slot maps,
+  exposed-instance types, and user-callback/value-domain contracts:
   - `ClampBoundary`
   - `ClampLength`
   - `LineClampLocation`
   - `LineClampProps`
   - `LineClampSlotProps`
+  - `LineClampSlots`
   - `LineClampExposed`
   - `RichLineClampProps`
   - `RichLineClampSlotProps`
+  - `RichLineClampSlots`
   - `RichLineClampExposed`
   - `InlineClampParts`
   - `InlineClampSplit`
@@ -71,16 +99,47 @@
   - `WrapClampItemKey`
   - `WrapClampItemSlotProps`
   - `WrapClampSlotProps`
+  - `WrapClampSlots`
   - `WrapClampExposed`
   - `WrapClampProps`
-- `LineClamp` and `RichLineClamp` declare their slot maps with Vue `SlotsType`. These slot maps are
-  declaration-building contracts in `types.ts`, not root package exports.
-- `WrapClamp` remains a non-specialized component without a declared slot map for now. Adding
-  `SlotsType<WrapClampSlots<unknown>>` makes consuming-app item slots `unknown` under `vue-tsc`;
-  precise generic item-slot support is deferred to a separate public API design.
+- Root package type exports intentionally exclude component macro plumbing, emits maps, solver
+  state, measurement/probe state, render-state, benchmark fixture, and helper-module internals.
+- `LineClamp` and `RichLineClamp` declare their slot maps with Vue `SlotsType`; `WrapClamp` declares
+  its slot map with `defineSlots`. Slot maps are public because wrapper components and render
+  functions may need to spell the named slot surface directly.
+- `WrapClamp` is an SFC using `<script setup lang="ts" generic="T = unknown">` so the item type
+  flows from `items` into the `item`, `before`, and `after` slot props.
+- `LineClamp`, `RichLineClamp`, and `InlineClamp` are also SFCs. Their component shells use
+  `<script setup lang="ts">`, type-based `defineProps`, `defineOptions`, and template refs; the
+  multiline components use `defineModel`, `defineEmits`, `defineSlots`, and `defineExpose` for the
+  same public shell pattern as `WrapClamp`.
+- SFC macro declarations are the prop/emit source of truth; there are no standalone shared runtime
+  prop or emit declaration helper modules.
+- Plain boolean props rely on Vue's boolean prop casting instead of explicit `default: false`.
+- `expanded` is a controlled state model, so each SFC declares it with
+  `defineModel(..., { default: false })`; `undefined` is normalized to `false` at the model boundary
+  and downstream internals receive `Ref<boolean>`.
+- `expanded` `defineModel` refs are the source of truth for expansion state. Shared shells may
+  receive that model ref directly, but they do not maintain a second expanded ref.
+- `WrapClamp` uses Vue macro declarations for the component shell:
+  `defineProps` with reactive destructuring defaults, `defineModel` for `expanded`, `defineEmits`
+  for `clampchange`, `defineSlots`, `defineExpose`, and `defineOptions`.
+- `WrapClamp` uses the public `WrapClampProps<T>` and `WrapClampSlots<T>` contracts directly in the
+  SFC macro declarations. The props macro uses `Omit<WrapClampProps<T>, "expanded">` because
+  `expanded` is declared through `defineModel`.
+- The package now requires Vue `^3.5.0` because `WrapClamp` depends on the modern SFC macro and
+  reactive props destructuring toolchain.
+- `vp pack` builds Vue SFCs through `unplugin-vue/rolldown` and declaration generation through
+  `dts: { vue: true }` / `vue-tsc`; the package follows tsdown's neutral-platform default output
+  extensions, so the root export points to `dist/index.js` and `dist/index.d.ts`.
 - `ClampControls`, `ClampState`, `ClampSlotProps`, and `ClampExposed` are private building blocks in
   `types.ts`; they keep concrete public contracts aligned without creating a generic cross-component
-  public abstraction.
+  public abstraction and are not root package exports.
+- `ClampProps`, `ClampEmits`, and `ClampSlots` are private shared maps in `types.ts`; component
+  contracts colocated in component directories select from those maps with `Pick` or extension, and
+  the root package does not export the shared maps.
+- SFC shells use type-based `defineEmits` declarations without runtime validators; TypeScript
+  payload precision is preserved through `ClampEmits` and type-surface tests.
 - `TextClampSpacing`, `PreparedText`, `TextClampHint`, `TextClampResult`, `TextClampFitInput`, and
   `TextClampLayoutInput` are text-helper contracts owned by `text.ts`; they are intentionally not
   root package exports.
@@ -149,13 +208,25 @@
     eligibility checks, native styles, CSS support detection, and native overflow reads
   - `packages/vue-clamp/src/rich.ts` for rich-text parsing, runtime inline-flow classification,
     logical-run preprocessing, boundary slicing, and rich clamp search
+  - `packages/vue-clamp/src/multiline-render.ts` for the Line/Rich filtered affix-slot wrapper
+  - `packages/vue-clamp/src/multiline-styles.ts` for Line/Rich shared static slot box styles
+  - `packages/vue-clamp/src/styles.ts` for shared internal static styles, currently the visually
+    hidden source-text style used by accessible rewritten output
+  - `packages/vue-clamp/src/wrap/flow.ts` for WrapClamp's low-context DOM sequence measurement,
+    static flow estimation, item-shell display toggling, and measured-width helpers
+  - `packages/vue-clamp/src/wrap/render.ts` for WrapClamp's small render-only helpers:
+    default item text, item key resolution, and the filtered affix-slot wrapper
+  - `packages/vue-clamp/src/wrap/types.ts` for WrapClamp-only internal contracts shared by the SFC
+    and `wrap/*` helpers, using local names because the `wrap/` path provides component context
+  - `packages/vue-clamp/src/{inline,rich-line,wrap}/styles.ts` for component-family static style
+    contracts that affect measurement or hidden probe behavior
   - `packages/vue-clamp/src/layout.ts` for the remaining shared primitives worth centralizing:
     line-limit normalization, CSS length normalization, combined size signatures, and fit checks
-- `packages/vue-clamp/src/LineClamp.ts` now owns only text behavior:
+- `packages/vue-clamp/src/line/LineClamp.vue` now owns only text behavior:
   - reactive `visibleText`
   - text preparation and native one-line fast path dispatch
   - text accessibility handling for rewritten visible output
-- `packages/vue-clamp/src/RichLineClamp.ts` now owns only rich-html behavior:
+- `packages/vue-clamp/src/rich-line/RichLineClamp.vue` now owns only rich-html behavior:
   - visible/probe rich DOM decisions and rich fallback state
   - hidden probe setup for rich measurement
   - the visible rich HTML is patched directly into the shared `body` part
@@ -179,7 +250,7 @@
   - `"multi-line"` for the exact multiline end/grapheme/default-ellipsis subset when `maxHeight`
     and `after` are absent and browser support is present
   - `null` for measured DOM clamping
-- Native CSS clamp eligibility and style details stay outside `LineClamp.ts`; the component only
+- Native CSS clamp eligibility and style details stay outside `LineClamp.vue`; the component only
   resolves the mode for the current render/recompute and applies the resulting text state.
 - Multiline native `line-clamp` allows `before` slot content because it is a prefix inside the same
   formatting context. It excludes `after` slot content because native CSS cannot reserve suffix
@@ -208,6 +279,9 @@
   - reactive `visibleCount`, `expanded`, and `isClamped`
   - no public strategy prop or cache-backed variant
   - no partial clipping inside an item
+  - the SFC owns Vue macros, refs, watchers, exposed methods, and the main recompute state machine;
+    extracted `wrap/*` helpers must stay low-context and should not grow into a composable carrying
+    component refs, props, slots, and lifecycle state
   - `[data-part="content"]` is a layout-critical shell, not an arbitrary styling container:
     - supported user-facing geometry styles are `gap`, `row-gap`, `column-gap`, and normal
       horizontal flex-line `align-items` values such as `flex-start`, `stretch`, `center`,
@@ -520,9 +594,16 @@
 - `RichLineClamp` accepts trusted or already-sanitized inline HTML through `html`.
 - The implementation favors browser truth over a mathematically modeled layout engine.
 - File layout now follows the domain boundaries directly:
+  - component-family public contracts are colocated with their component source under `line/`,
+    `rich-line/`, `inline/`, and `wrap/`
   - shared multiline shell behavior lives in `multiline.ts`
+  - shared Line/Rich render-only affix-slot plumbing lives in `multiline-render.ts`
+  - static internal style contracts live in TS `styles.ts` modules, not CSS files, so required
+    measurement and accessibility styles are present without side-effect imports
+  - dynamic styles that depend on props, model state, or native mode stay in the owning SFC
   - text behavior lives in `text.ts`
   - rich behavior lives in `rich.ts`
+  - WrapClamp's private helpers and component-family internal contracts also live under `wrap/`
   - shared low-level layout primitives remain in `layout.ts`
 - Internal clamp helpers return direct rendered text where possible, while rich clamp returns a
   structural boundary decision so width-only reclamps do not serialize or reparse HTML.
