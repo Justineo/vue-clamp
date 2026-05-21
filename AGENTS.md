@@ -34,3 +34,10 @@ For any new project, planning-focused request, or sufficiently complex non-trivi
 - Keep changelog entries simple and user-facing. Write from first principles: what should a library user know to upgrade, adopt, or use the release.
 - Do not expose implementation details in changelog entries unless they create a direct user-visible requirement or migration step.
 - Use sentence case for changelog headings.
+
+## Pull request writing preferences
+
+- Keep PR descriptions concise.
+- Do not include validation or test command lists by default unless explicitly requested.
+- Summarize the reviewer-relevant changes and the main design considerations behind them.
+- Avoid implementation diary details unless they explain a public API change, migration concern, or important trade-off.
