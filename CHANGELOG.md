@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.5.0]
+
+Minor release focused on Vue 3.5-native typing and maintainability.
+
+### Changed
+
+- Vue `^3.5.0` is now required.
+- Component declarations now come from Vue SFC contracts, improving alignment between props, slots,
+  exposed refs, and editor inference without changing the component template API.
+
+### Improved
+
+- `<WrapClamp>` slots now infer their item payload type from `items`, so `item`, `before`, and
+  `after` slot props are typed more precisely in Vue templates.
+
 ## [1.4.0]
 
 Minor release focused on faster default multiline clamping.
