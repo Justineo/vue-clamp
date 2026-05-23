@@ -28,8 +28,10 @@ jobs:
 
       - run: vp check
       - run: vp test
-      - run: vp exec playwright install --with-deps chromium
+      - run: google-chrome --version
       - run: vp run test:browser
+        env:
+          PLAYWRIGHT_CHROMIUM_CHANNEL: chrome
       - run: vp run build
       - name: Publish preview package
         if: ${{ github.event_name != 'workflow_dispatch' }}
