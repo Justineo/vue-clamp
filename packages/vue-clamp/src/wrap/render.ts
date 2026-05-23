@@ -1,18 +1,38 @@
-import { h } from "vue";
+import { h, mergeProps } from "vue";
 import { hasSlotContent } from "../slot.ts";
-import { wrapClampItemStyle } from "./styles.ts";
+import { contentStyle, hiddenItemStyle, itemStyle } from "./styles.ts";
 
-import type { ComponentPublicInstance, VNodeChild } from "vue";
-import type { WrapClampItemKey, WrapClampSlotProps } from "./types.ts";
+import type { ComponentPublicInstance, CSSProperties, VNodeChild } from "vue";
+import type { WrapClampItemKey, WrapClampItemSlotProps, WrapClampSlotProps } from "./types.ts";
 
-type AffixSlotProps<T> = {
-  part: "before" | "after";
-  render?: ((props: WrapClampSlotProps<T>) => VNodeChild) | undefined;
-  setRef: (element: Element | null) => void;
-  slotProps: WrapClampSlotProps<T>;
+type ElementRef = (element: Element | ComponentPublicInstance | null) => void;
+
+type AffixPart = "before" | "after";
+type AffixSlot<T> = ((props: WrapClampSlotProps<T>) => VNodeChild) | undefined;
+type ItemSlot<T> = ((props: WrapClampItemSlotProps<T>) => VNodeChild) | undefined;
+
+type ItemsOptions<T> = {
+  itemKey: WrapClampItemKey<T> | undefined;
+  items: readonly T[];
+  itemSlot: ItemSlot<T>;
+  renderedItemCount: number;
+  visibleItemCount: number;
 };
 
-export function resolveWrapClampItemKey<T>(
+type RootOptions<T> = ItemsOptions<T> & {
+  affixSlotProps: WrapClampSlotProps<T> | undefined;
+  afterSlot: AffixSlot<T>;
+  attrs: Record<string, unknown>;
+  beforeSlot: AffixSlot<T>;
+  rootStyle: CSSProperties;
+  rootTag: string;
+  setAfterRef: ElementRef;
+  setBeforeRef: ElementRef;
+  setContentRef: ElementRef;
+  setRootRef: ElementRef;
+};
+
+function resolveItemKey<T>(
   itemKey: WrapClampItemKey<T> | undefined,
   item: T,
   index: number,
@@ -39,7 +59,7 @@ export function resolveWrapClampItemKey<T>(
   return index;
 }
 
-export function defaultWrapClampItemText(item: unknown): string {
+function defaultItemText(item: unknown): string {
   if (typeof item === "string") {
     return item;
   }
@@ -52,26 +72,109 @@ export function defaultWrapClampItemText(item: unknown): string {
   return typeof serialized === "string" ? serialized : "";
 }
 
-export function WrapClampAffixSlot<T>({
-  part,
-  render,
-  setRef,
-  slotProps,
-}: AffixSlotProps<T>): VNodeChild {
-  const content = render?.(slotProps);
-  if (!hasSlotContent(content)) {
-    return null;
+function appendAffixSlot<T>(
+  children: VNodeChild[],
+  part: AffixPart,
+  slot: AffixSlot<T>,
+  setRef: ElementRef,
+  affixSlotProps: WrapClampSlotProps<T> | undefined,
+): void {
+  // Keep affix rendering in this helper; resize-heavy flows call it
+  // often enough that a component boundary showed up in WrapClamp benchmarks.
+  if (!slot || !affixSlotProps) {
+    return;
   }
 
-  return h(
-    "span",
-    {
-      "data-part": part,
-      ref(element: Element | ComponentPublicInstance | null) {
-        setRef(element instanceof Element ? element : null);
+  const content = slot(affixSlotProps);
+  if (!hasSlotContent(content)) {
+    return;
+  }
+
+  children.push(
+    h(
+      "span",
+      {
+        "data-part": part,
+        ref: setRef,
+        style: itemStyle,
       },
-      style: wrapClampItemStyle,
-    },
-    content,
+      content,
+    ),
+  );
+}
+
+function appendItems<T>(
+  children: VNodeChild[],
+  { itemKey, items, itemSlot, renderedItemCount, visibleItemCount }: ItemsOptions<T>,
+): void {
+  const renderedCount = Math.min(items.length, renderedItemCount);
+
+  for (let index = 0; index < renderedCount; index += 1) {
+    const item = items[index] as T;
+    const hidden = index >= visibleItemCount;
+
+    children.push(
+      h(
+        "span",
+        {
+          "aria-hidden": hidden ? "true" : undefined,
+          "data-part": "item",
+          key: resolveItemKey(itemKey, item, index),
+          style: hidden ? hiddenItemStyle : itemStyle,
+        },
+        itemSlot?.({
+          item,
+          index,
+        }) ?? defaultItemText(item),
+      ),
+    );
+  }
+}
+
+export function renderRoot<T>({
+  affixSlotProps,
+  afterSlot,
+  attrs,
+  beforeSlot,
+  itemKey,
+  items,
+  itemSlot,
+  renderedItemCount,
+  rootStyle,
+  rootTag,
+  setAfterRef,
+  setBeforeRef,
+  setContentRef,
+  setRootRef,
+  visibleItemCount,
+}: RootOptions<T>): VNodeChild {
+  const children: VNodeChild[] = [];
+
+  appendAffixSlot(children, "before", beforeSlot, setBeforeRef, affixSlotProps);
+  appendItems(children, {
+    itemKey,
+    items,
+    itemSlot,
+    renderedItemCount,
+    visibleItemCount,
+  });
+  appendAffixSlot(children, "after", afterSlot, setAfterRef, affixSlotProps);
+
+  return h(
+    rootTag,
+    mergeProps(attrs, {
+      "data-part": "root",
+      ref: setRootRef,
+      style: rootStyle,
+    }),
+    h(
+      "span",
+      {
+        "data-part": "content",
+        ref: setContentRef,
+        style: contentStyle,
+      },
+      children,
+    ),
   );
 }

@@ -63,3 +63,16 @@
   - `1` completed plan with durable architecture analysis
   - `1` pruning log
   - `9` research notes plus the WrapClamp performance chart
+
+## 2026-05-23 defineRender memory pass
+
+- Re-ran the retention pass after the WrapClamp render-binding cleanup.
+- Retention rule for this pass:
+  - keep `design.md` as the canonical snapshot for the selected `defineRender` design and the
+    simple `as?: string` root-ref decision
+  - keep only the `255-define-render-spike` log because it records the durable migration outcome,
+    dependency boundary, and benchmark comparison
+  - delete completed implementation plans and cleanup-review logs whose useful decisions are now in
+    `design.md`
+  - delete the superseded custom compiler-lowering plan/log because that route was replaced by
+    `defineRender` and should not read as active project guidance

@@ -13,7 +13,7 @@
     "esModuleInterop": true,
     "skipLibCheck": true,
     "jsx": "preserve",
-    "types": ["node"]
+    "types": ["node", "@vue-macros/define-render/macros-global"]
   },
   "include": ["packages/**/*.ts", "packages/**/*.vue", "tests/**/*.ts", "vite.config.ts"]
 }

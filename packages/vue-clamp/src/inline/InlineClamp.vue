@@ -33,7 +33,7 @@ const {
   split,
 } = defineProps<InlineClampProps>();
 
-const rootRef = useTemplateRef("root");
+const rootRef = useTemplateRef<HTMLElement>("root");
 const bodyRef = useTemplateRef("body");
 const parts = computed(() => split?.(text) ?? { body: text });
 const preparedBody = computed(() => prepareText(parts.value.body, boundary));

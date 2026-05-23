@@ -1,6 +1,8 @@
 import vue from "@vitejs/plugin-vue";
+import defineRender from "@vue-macros/define-render/vite";
 import { playwright } from "vite-plus/test/browser-playwright";
 import { websitePublicDir, websiteResolve } from "./packages/website/vite.shared.ts";
+import { browserLogFilter } from "./scripts/browser-log-filter.ts";
 
 export default {
   define: {
@@ -9,7 +11,7 @@ export default {
     __VUE_PROD_HYDRATION_MISMATCH_DETAILS__: false,
   },
   publicDir: websitePublicDir,
-  plugins: [vue()],
+  plugins: [browserLogFilter, vue(), defineRender()],
   resolve: websiteResolve,
   test: {
     include: ["packages/vue-clamp/tests/**/*.browser.benchmark.ts"],

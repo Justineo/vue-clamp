@@ -1,11 +1,10 @@
 <script setup lang="ts" generic="T = unknown">
 import {
-  computed,
   nextTick,
   onBeforeUnmount,
   onMounted,
   shallowRef,
-  useTemplateRef,
+  useAttrs,
   watch,
   watchPostEffect,
 } from "vue";
@@ -30,10 +29,9 @@ import {
   itemWidthAt,
   layoutTolerance,
 } from "./flow.ts";
-import { defaultWrapClampItemText, resolveWrapClampItemKey, WrapClampAffixSlot } from "./render.ts";
-import { wrapClampContentStyle, wrapClampHiddenItemStyle, wrapClampItemStyle } from "./styles.ts";
+import { renderRoot } from "./render.ts";
 
-import type { CSSProperties } from "vue";
+import type { ComponentPublicInstance, VNodeChild } from "vue";
 import type { ClampEmits } from "../types.ts";
 import type { ClampLimits, SequenceMeasurement } from "./types.ts";
 import type {
@@ -66,10 +64,11 @@ const expanded = defineModel<NonNullable<WrapClampProps<T>["expanded"]>>("expand
 });
 const emit = defineEmits<Omit<ClampEmits, "update:expanded">>();
 const slots = defineSlots<WrapClampSlots<T>>();
+const attrs = useAttrs();
 const { expand, collapse, toggle } = useClampControls(expanded);
 
-const rootRef = useTemplateRef("root");
-const contentRef = useTemplateRef("content");
+const rootRef = shallowRef<HTMLElement | null>(null);
+const contentRef = shallowRef<HTMLElement | null>(null);
 const beforeRef = shallowRef<HTMLElement | null>(null);
 const afterRef = shallowRef<HTMLElement | null>(null);
 const visibleCount = shallowRef(items.length);
@@ -490,38 +489,72 @@ const requestRecompute = createCoalescingRunner(async () => {
   lastLayoutSignature = layoutSignature();
 });
 
-const renderedVisibleCount = computed(() => Math.min(visibleCount.value, items.length));
-const renderedItemCount = computed(() =>
-  Math.min(items.length, Math.max(renderedVisibleCount.value, materializedCount.value)),
-);
-const renderedItems = computed(() => items.slice(0, renderedItemCount.value));
-const collapsedMaxHeight = computed(() => (!expanded.value ? cssLength(maxHeight) : undefined));
-const rootStyle = computed<CSSProperties>(() => ({
-  maxHeight: collapsedMaxHeight.value,
-  overflow: "hidden",
-}));
-const slotProps = computed<WrapClampSlotProps<T>>(() => ({
-  expand,
-  collapse,
-  toggle,
-  clamped: renderedVisibleCount.value < items.length,
-  expanded: expanded.value,
-  hiddenItems: items.slice(renderedVisibleCount.value),
-}));
+function getAffixSlotProps(
+  visibleItemCount: number,
+  expandedValue: boolean,
+): WrapClampSlotProps<T> | undefined {
+  if (slots.before === undefined && slots.after === undefined) {
+    return undefined;
+  }
 
-function itemPartStyle(index: number): CSSProperties {
-  return index >= renderedVisibleCount.value ? wrapClampHiddenItemStyle : wrapClampItemStyle;
+  return {
+    expand,
+    collapse,
+    toggle,
+    clamped: visibleItemCount < items.length,
+    expanded: expandedValue,
+    hiddenItems: items.slice(visibleItemCount),
+  };
 }
 
-function itemAriaHidden(index: number): "true" | undefined {
-  return index >= renderedVisibleCount.value ? "true" : undefined;
+// `defineRender` exposes this setup-local function as the SFC render entry;
+// `renderRoot` owns the root/content/item structure so there is no authored
+// template to keep in sync.
+function render(): VNodeChild {
+  const visibleItemCount = Math.min(visibleCount.value, items.length);
+  const renderedItemCount = Math.min(
+    items.length,
+    Math.max(visibleItemCount, materializedCount.value),
+  );
+  const expandedValue = expanded.value;
+
+  return renderRoot({
+    affixSlotProps: getAffixSlotProps(visibleItemCount, expandedValue),
+    afterSlot: slots.after,
+    attrs,
+    beforeSlot: slots.before,
+    itemKey,
+    itemSlot: slots.item,
+    items,
+    renderedItemCount,
+    rootStyle: {
+      maxHeight: !expandedValue ? cssLength(maxHeight) : undefined,
+      overflow: "hidden",
+    },
+    rootTag,
+    setAfterRef: setAfterElement,
+    setBeforeRef: setBeforeElement,
+    setContentRef: setContentElement,
+    setRootRef: setRootElement,
+    visibleItemCount,
+  });
 }
 
-function setBeforeElement(element: Element | null): void {
+defineRender(render);
+
+function setRootElement(element: ComponentPublicInstance | Element | null): void {
+  rootRef.value = element instanceof HTMLElement ? element : null;
+}
+
+function setContentElement(element: ComponentPublicInstance | Element | null): void {
+  contentRef.value = element instanceof HTMLElement ? element : null;
+}
+
+function setBeforeElement(element: ComponentPublicInstance | Element | null): void {
   beforeRef.value = element instanceof HTMLElement ? element : null;
 }
 
-function setAfterElement(element: Element | null): void {
+function setAfterElement(element: ComponentPublicInstance | Element | null): void {
   afterRef.value = element instanceof HTMLElement ? element : null;
 }
 
@@ -609,35 +642,3 @@ defineExpose({
   },
 } satisfies WrapClampExposed);
 </script>
-
-<template>
-  <component :is="rootTag" v-bind="$attrs" data-part="root" ref="root" :style="rootStyle">
-    <span data-part="content" ref="content" :style="wrapClampContentStyle">
-      <WrapClampAffixSlot
-        part="before"
-        :render="slots.before"
-        :setRef="setBeforeElement"
-        :slotProps="slotProps"
-      />
-
-      <span
-        v-for="(item, index) in renderedItems"
-        :key="resolveWrapClampItemKey(itemKey, item, index)"
-        :aria-hidden="itemAriaHidden(index)"
-        data-part="item"
-        :style="itemPartStyle(index)"
-      >
-        <slot name="item" :item="item" :index="index">
-          {{ defaultWrapClampItemText(item) }}
-        </slot>
-      </span>
-
-      <WrapClampAffixSlot
-        part="after"
-        :render="slots.after"
-        :setRef="setAfterElement"
-        :slotProps="slotProps"
-      />
-    </span>
-  </component>
-</template>
