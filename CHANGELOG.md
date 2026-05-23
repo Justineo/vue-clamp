@@ -4,18 +4,22 @@ All notable changes to this project will be documented in this file.
 
 ## [1.5.0]
 
-Minor release focused on Vue 3.5-native typing and maintainability.
+Minor release focused on making the published Vue components and TypeScript declarations line up
+more directly.
 
 ### Changed
 
-- Vue `^3.5.0` is now required.
-- Component declarations now come from Vue SFC contracts, improving alignment between props, slots,
-  exposed refs, and editor inference without changing the component template API.
+- Vue `^3.5.0` is now required. Apps already on Vue 3.5 should not need component template changes.
+- Component declarations now come from the same SFC contracts as the runtime components, so props,
+  slots, events, and exposed component instances are checked from the authored component surface.
 
 ### Improved
 
-- `<WrapClamp>` slots now infer their item payload type from `items`, so `item`, `before`, and
-  `after` slot props are typed more precisely in Vue templates.
+- `<WrapClamp>` now carries the item type from `items` into the `item`, `before`, and `after` slots,
+  including `hiddenItems`, so typed Vue templates need fewer wrapper casts.
+- `<LineClamp>`, `<RichLineClamp>`, and `<InlineClamp>` now share the same SFC declaration model as
+  `<WrapClamp>`, keeping their public prop, slot, event, and exposed-instance types aligned with the
+  shipped components.
 
 ## [1.4.0]
 
