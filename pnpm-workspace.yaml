@@ -12,6 +12,9 @@ catalog:
   "@types/node": ^25.6.0
   "@types/stats.js": ^0.17.4
   "@vitejs/plugin-vue": ^6.0.6
+  "@vue-macros/define-render": ^3.1.2
+  "@vue/compiler-dom": ^3.5.33
+  "@vue/compiler-sfc": ^3.5.33
   bumpp: ^11.0.1
   overlayscrollbars: ^2.15.1
   playwright: ^1.59.1

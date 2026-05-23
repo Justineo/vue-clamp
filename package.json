@@ -18,6 +18,9 @@
   "devDependencies": {
     "@types/node": "catalog:",
     "@vitejs/plugin-vue": "catalog:",
+    "@vue-macros/define-render": "catalog:",
+    "@vue/compiler-dom": "catalog:",
+    "@vue/compiler-sfc": "catalog:",
     "bumpp": "catalog:",
     "playwright": "catalog:",
     "releaselog": "catalog:",

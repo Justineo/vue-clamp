@@ -113,6 +113,10 @@
   `<script setup lang="ts">`, type-based `defineProps`, `defineOptions`, and template refs; the
   multiline components use `defineModel`, `defineEmits`, `defineSlots`, and `defineExpose` for the
   same public shell pattern as `WrapClamp`.
+- SFCs with dynamic root `<component :is="rootTag">` keep root refs typed as `HTMLElement` for
+  measurement. Static child refs continue to rely on Vue template inference. The public `as` prop
+  remains a simple `string`; root element typing is not exposed as a polymorphic public API because
+  components do not expose the root element and only use generic HTML measurement APIs internally.
 - SFC macro declarations are the prop/emit source of truth; there are no standalone shared runtime
   prop or emit declaration helper modules.
 - Plain boolean props rely on Vue's boolean prop casting instead of explicit `default: false`.
@@ -127,6 +131,15 @@
 - `WrapClamp` uses the public `WrapClampProps<T>` and `WrapClampSlots<T>` contracts directly in the
   SFC macro declarations. The props macro uses `Omit<WrapClampProps<T>, "expanded">` because
   `expanded` is declared through `defineModel`.
+- `WrapClamp` intentionally has no authored `<template>` block. The SFC remains the macro and
+  generic type surface, while the setup-local `render()` function is the runtime render entry and
+  `wrap/render.ts` owns the root/content/item structure. This avoids keeping a template and a
+  hand-render helper in sync.
+- `WrapClamp` binds that setup-local render entry through Vue Macros `defineRender(render)`. This
+  keeps the render-only SFC source explicit without carrying a local marker-template plugin or
+  custom template compiler.
+- `@vue-macros/define-render` is a build-time dependency only. The package runtime output contains
+  the returned render function and does not expose Vue Macros as public API.
 - The package now requires Vue `^3.5.0` because `WrapClamp` depends on the modern SFC macro and
   reactive props destructuring toolchain.
 - `vp pack` builds Vue SFCs through `unplugin-vue/rolldown` and declaration generation through
@@ -215,7 +228,8 @@
   - `packages/vue-clamp/src/wrap/flow.ts` for WrapClamp's low-context DOM sequence measurement,
     static flow estimation, item-shell display toggling, and measured-width helpers
   - `packages/vue-clamp/src/wrap/render.ts` for WrapClamp's small render-only helpers:
-    default item text, item key resolution, and the filtered affix-slot wrapper
+    default item text, item key resolution, filtered affix-slot rendering, and root/content/item
+    rendering used by the WrapClamp hot path
   - `packages/vue-clamp/src/wrap/types.ts` for WrapClamp-only internal contracts shared by the SFC
     and `wrap/*` helpers, using local names because the `wrap/` path provides component context
   - `packages/vue-clamp/src/{inline,rich-line,wrap}/styles.ts` for component-family static style
@@ -837,8 +851,8 @@
   - width-sweep regressions
   - browser-fit checks around slots, inherited widths, and `maxHeight`
 - Browser runs suppress Chromium's
-  `ResizeObserver loop completed with undelivered notifications.` signal in `vite.browser.config.ts`
-  by filtering Vite's browser-environment logger.
+  `ResizeObserver loop completed with undelivered notifications.` signal in browser test and
+  browser benchmark configs by filtering Vite's browser-environment logger.
   - this is a test-output filter for the platform-defined ResizeObserver notification error, not a
     clamp runtime scheduling change
   - do not defer runtime `ResizeObserver` reclamps just to quiet test output; that can leave stale

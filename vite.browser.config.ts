@@ -1,31 +1,9 @@
 import vue from "@vitejs/plugin-vue";
+import defineRender from "@vue-macros/define-render/vite";
 import { playwright } from "vite-plus/test/browser-playwright";
 import { websiteCodeHighlightPlugin } from "./packages/website/vite.highlight.ts";
 import { websitePublicDir, websiteResolve } from "./packages/website/vite.shared.ts";
-
-import type { Plugin } from "vite";
-
-const mutedBrowserLogs = ["ResizeObserver loop completed with undelivered notifications."];
-
-const browserLogFilter: Plugin = {
-  name: "vue-clamp:browser-log-filter",
-  apply: "serve",
-  configureServer(server) {
-    const loggers = [
-      server.config.logger,
-      ...Object.values(server.environments).map((environment) => environment.config.logger),
-    ];
-
-    for (const logger of loggers) {
-      const error = logger.error.bind(logger);
-      logger.error = (message, options) => {
-        if (!mutedBrowserLogs.some((log) => message.includes(log))) {
-          error(message, options);
-        }
-      };
-    }
-  },
-};
+import { browserLogFilter } from "./scripts/browser-log-filter.ts";
 
 export default {
   define: {
@@ -34,7 +12,7 @@ export default {
     __VUE_PROD_HYDRATION_MISMATCH_DETAILS__: false,
   },
   publicDir: websitePublicDir,
-  plugins: [browserLogFilter, websiteCodeHighlightPlugin(), vue()],
+  plugins: [browserLogFilter, websiteCodeHighlightPlugin(), vue(), defineRender()],
   resolve: websiteResolve,
   test: {
     include: ["packages/vue-clamp/tests/**/*.browser.test.ts"],
