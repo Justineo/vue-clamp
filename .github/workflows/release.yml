@@ -43,11 +43,13 @@ jobs:
       - name: Test
         run: vp test
 
-      - name: Install Playwright
-        run: vp exec playwright install --with-deps chromium
+      - name: Check Chrome
+        run: google-chrome --version
 
       - name: Browser test
         run: vp run test:browser
+        env:
+          PLAYWRIGHT_CHROMIUM_CHANNEL: chrome
 
       - name: Build
         run: vp run build

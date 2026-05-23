@@ -1,8 +1,8 @@
 import vue from "@vitejs/plugin-vue";
 import defineRender from "@vue-macros/define-render/vite";
-import { playwright } from "vite-plus/test/browser-playwright";
 import { websitePublicDir, websiteResolve } from "./packages/website/vite.shared.ts";
 import { browserLogFilter } from "./scripts/browser-log-filter.ts";
+import { createPlaywrightProvider } from "./scripts/browser-provider.ts";
 
 export default {
   define: {
@@ -19,7 +19,7 @@ export default {
     testTimeout: 120000,
     browser: {
       enabled: true,
-      provider: playwright(),
+      provider: createPlaywrightProvider(),
       headless: true,
       ui: false,
       screenshotFailures: false,
