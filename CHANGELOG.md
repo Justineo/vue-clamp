@@ -12,6 +12,8 @@ more directly.
 - Vue `^3.5.0` is now required. Apps already on Vue 3.5 should not need component template changes.
 - Component declarations now come from the same SFC contracts as the runtime components, so props,
   slots, events, and exposed component instances are checked from the authored component surface.
+- `<WrapClamp>` now requires the `item` slot to render each item. It no longer provides default item
+  text rendering.
 
 ### Improved
 

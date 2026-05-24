@@ -208,6 +208,8 @@
   - `update:expanded`
   - `clampchange`
   - imperative `expand`, `collapse`, and `toggle`
+- `WrapClamp` requires the `item` slot for item rendering. It does not provide default text
+  rendering for any item shape.
 
 ### Runtime model
 
@@ -231,9 +233,9 @@
     hidden source-text style used by accessible rewritten output
   - `packages/vue-clamp/src/wrap/flow.ts` for WrapClamp's low-context DOM sequence measurement,
     static flow estimation, item-shell display toggling, and measured-width helpers
-  - `packages/vue-clamp/src/wrap/render.ts` for WrapClamp's small render-only helpers:
-    default item text, item key resolution, filtered affix-slot rendering, and root/content/item
-    rendering used by the WrapClamp hot path
+  - `packages/vue-clamp/src/wrap/render.ts` for WrapClamp's small render-only helpers: item key
+    resolution, filtered affix-slot rendering, and root/content/item rendering used by the
+    WrapClamp hot path
   - `packages/vue-clamp/src/wrap/types.ts` for WrapClamp-only internal contracts shared by the SFC
     and `wrap/*` helpers, using local names because the `wrap/` path provides component context
   - `packages/vue-clamp/src/{inline,rich-line,wrap}/styles.ts` for component-family static style

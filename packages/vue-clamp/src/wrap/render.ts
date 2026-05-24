@@ -60,19 +60,6 @@ function resolveItemKey<T>(
   return index;
 }
 
-function defaultItemText(item: unknown): string {
-  if (typeof item === "string") {
-    return item;
-  }
-
-  if (typeof item === "number" || typeof item === "boolean" || typeof item === "bigint") {
-    return String(item);
-  }
-
-  const serialized = JSON.stringify(item);
-  return typeof serialized === "string" ? serialized : "";
-}
-
 function appendAffixSlot<T>(
   children: VNodeChild[],
   part: AffixPart,
@@ -126,7 +113,7 @@ function appendItems<T>(
         itemSlot?.({
           item,
           index,
-        }) ?? defaultItemText(item),
+        }) ?? "",
       ),
     );
   }
