@@ -19,14 +19,25 @@ Docs are local at `node_modules/vite-plus/docs` or online at https://viteplus.de
 Use `journey/` as the shared project memory across agent sessions.
 
 - Read `journey/design.md` first at the start of each session. It is the canonical snapshot of the project: current strategy, key design decisions, trade-offs, constraints, and scope.
-- Use `journey/logs/` for chronological process notes, progress, experiments, and failed paths.
-- Use `journey/research/` for research notes and background findings.
+- Use `journey/research/` for durable research notes, background findings, benchmark summaries, and decision evidence that is too detailed for `design.md`.
+- Use `journey/logs/` only for meaningful process records where the sequence matters: benchmark
+  comparisons, failed paths that explain why an option was rejected, migration evidence, or
+  non-obvious operational lessons.
 - Update `journey/design.md` whenever the effective understanding of the project changes. Do not leave important decisions or trade-offs only in logs.
-- Record only non-trivial work in `journey/`.
-- Do not create or update journey plans/logs for routine or transactional tasks such as drafting a PR, making a commit, pushing a branch, minor copy edits, formatting-only changes, dependency bumps, or other trivial maintenance unless they change the design snapshot or capture a reusable decision.
-- Prefer journey entries for work that changes architecture, public API, runtime behavior, testing strategy, deployment/repo standards, or other decisions that future sessions would reasonably need to recover.
+- Keep `journey/logs/` distinct from `journey/design.md` and `journey/research/`: do not duplicate
+  the current design snapshot or long-form research. Log only the process evidence needed to
+  understand how a decision was reached.
+- Do not commit command transcripts, status updates, validation checklists, or step-by-step
+  implementation diaries to tracked journey files.
+- If temporary planning notes or logs are useful during the task, write them as
+  `journey/**/*.local.md`; this suffix is ignored by Git and means the file is local scratch
+  memory, not a repo artifact.
+- Before finishing, fold durable conclusions into `journey/design.md`, `journey/research/`, or a
+  concise tracked `journey/logs/` entry, then leave ignored scratch files uncommitted.
+- Commit journey entries only when they change architecture, public API, runtime behavior, testing strategy, deployment/repo standards, or preserve decision/process evidence that future sessions would reasonably need to recover.
+- Do not create or update journey plans/logs for routine or transactional tasks such as drafting a PR, making a commit, pushing a branch, minor copy edits, formatting-only changes, dependency bumps, CI retries, or other maintenance.
 
-For any new project, planning-focused request, or sufficiently complex non-trivial task, start with a fresh plan and write it to `journey/plans/{index}-{title}.md` before implementing. Treat files in `journey/plans/` as the canonical plans. As work progresses, record concise updates in `journey/logs/{index}-{title}.md` using the same date and title convention. In chat, provide only a brief summary and the relevant file path(s). `index` should be padded with zeros for proper sorting, e.g. `001`, `002`, etc.
+For any new project, planning-focused request, or sufficiently complex non-trivial task, write a plan in chat first. Create a repo-tracked journey plan only if the plan itself contains durable architecture or product decisions that should survive beyond the task. If a temporary file is helpful, use a `journey/**/*.local.md` filename so Git decides that it is not a repo artifact.
 
 ## Release writing preferences
 
