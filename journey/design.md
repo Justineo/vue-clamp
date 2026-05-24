@@ -119,6 +119,10 @@
   components do not expose the root element and only use generic HTML measurement APIs internally.
 - SFC macro declarations are the prop/emit source of truth; there are no standalone shared runtime
   prop or emit declaration helper modules.
+- Component-local `computed` values are reserved for meaningful reactive boundaries: expensive
+  preparation cached across reclamps, template-bound style or slot objects, or derived state that is
+  read by multiple reactive consumers. Trivial one-use normalization and boolean aliases should stay
+  as plain helper calls so component instances do not carry unnecessary reactive effects.
 - Plain boolean props rely on Vue's boolean prop casting instead of explicit `default: false`.
 - `expanded` is a controlled state model, so each SFC declares it with
   `defineModel(..., { default: false })`; `undefined` is normalized to `false` at the model boundary

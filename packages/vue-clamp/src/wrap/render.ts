@@ -1,4 +1,5 @@
 import { h, mergeProps } from "vue";
+import { trueOrUndefined } from "../attributes.ts";
 import { hasSlotContent } from "../slot.ts";
 import { contentStyle, hiddenItemStyle, itemStyle } from "./styles.ts";
 
@@ -117,7 +118,7 @@ function appendItems<T>(
       h(
         "span",
         {
-          "aria-hidden": hidden ? "true" : undefined,
+          "aria-hidden": trueOrUndefined(hidden),
           "data-part": "item",
           key: resolveItemKey(itemKey, item, index),
           style: hidden ? hiddenItemStyle : itemStyle,

@@ -9,6 +9,7 @@ import {
   watch,
   watchPostEffect,
 } from "vue";
+import { trueOrUndefined } from "../attributes.ts";
 import { combinedSizeSignature, createCoalescingRunner, listenForFontLoads } from "../layout.ts";
 import { visuallyHiddenTextStyle } from "../styles.ts";
 import { clampTextToFit, normalizeLocationRatio, prepareText } from "../text.ts";
@@ -37,10 +38,8 @@ const rootRef = useTemplateRef<HTMLElement>("root");
 const bodyRef = useTemplateRef("body");
 const parts = computed(() => split?.(text) ?? { body: text });
 const preparedBody = computed(() => prepareText(parts.value.body, boundary));
-const locationRatio = computed(() => normalizeLocationRatio(location));
 const visibleBody = shallowRef(parts.value.body);
 const isRewritten = computed(() => visibleBody.value !== parts.value.body);
-const ariaHidden = computed(() => (isRewritten.value ? "true" : undefined));
 
 let resizeObserver: ResizeObserver | null = null;
 let stopFonts = () => {};
@@ -76,7 +75,6 @@ function clampBody(): string | null {
 
   const fitsCurrentBody = () => rootElement.scrollWidth <= limit + fitTolerance;
   const prepared = preparedBody.value;
-  const ratio = locationRatio.value;
 
   if (fitsCurrentBody()) {
     // Store the full body as the next warm-start point so a following shrink
@@ -97,7 +95,7 @@ function clampBody(): string | null {
     },
     hint: lastTextClamp,
     prepared,
-    ratio,
+    ratio: normalizeLocationRatio(location),
     // Split affixes already own the outer spacing; preserve spaces at the body
     // edges so custom split functions keep browser-like inline flow.
     spacing: "preserve-outer",
@@ -192,15 +190,15 @@ onBeforeUnmount(() => {
       {{ text }}
     </span>
 
-    <span v-if="parts.start" :aria-hidden="ariaHidden" data-part="start">
+    <span v-if="parts.start" :aria-hidden="trueOrUndefined(isRewritten)" data-part="start">
       {{ parts.start }}
     </span>
 
-    <span ref="body" :aria-hidden="ariaHidden" data-part="body">
+    <span ref="body" :aria-hidden="trueOrUndefined(isRewritten)" data-part="body">
       {{ visibleBody }}
     </span>
 
-    <span v-if="parts.end" :aria-hidden="ariaHidden" data-part="end">
+    <span v-if="parts.end" :aria-hidden="trueOrUndefined(isRewritten)" data-part="end">
       {{ parts.end }}
     </span>
   </component>
