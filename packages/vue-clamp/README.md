@@ -187,7 +187,7 @@ Useful props:
 - `max-height`: maximum visible height. Numbers are treated as pixels.
 - `expanded`: show the full item list. Supports `v-model:expanded`.
 
-The `item` slot receives `{ item, index }`. The `before` and `after` slots receive
+The required `item` slot receives `{ item, index }`. The `before` and `after` slots receive
 `{ expand, collapse, toggle, clamped, expanded, hiddenItems }`.
 
 ## Events and instance methods

@@ -132,7 +132,7 @@ function mountWrapClamp(options: MountWrapOptions): MountedWrapClamp {
         }
 
         return h(StringWrapClamp, props, {
-          item: options.item,
+          item: options.item ?? (({ item }: WrapClampItemSlotProps<string>) => item),
           before: options.before,
           after: options.after,
         });
@@ -270,7 +270,7 @@ afterEach(() => {
 });
 
 describe("WrapClamp browser contract", () => {
-  it("renders the requested root tag and falls back to stringified items", async () => {
+  it("renders the requested root tag and item slot labels", async () => {
     const mountedClamp = mountWrapClamp({
       items: ["Alpha", "Beta", "Gamma"],
       as: "article",
@@ -288,6 +288,39 @@ describe("WrapClamp browser contract", () => {
       "Beta",
       "Gamma",
     ]);
+  });
+
+  it("does not render item content without an item slot", async () => {
+    const item: Record<string, unknown> = {
+      label: "Alpha",
+    };
+    item.self = item;
+
+    const container = document.createElement("div");
+    document.body.append(container);
+
+    const ObjectWrapClamp = WrapClamp as unknown as DefineComponent<
+      WrapClampProps<Record<string, unknown>>
+    >;
+    const Host = defineComponent({
+      setup() {
+        return () =>
+          h(ObjectWrapClamp, {
+            items: [item],
+          });
+      },
+    });
+    const app = createApp(Host);
+
+    try {
+      app.mount(container);
+      await settle();
+
+      expect(wrapItems(rootElement(container)).map((element) => element.textContent)).toEqual([""]);
+    } finally {
+      app.unmount();
+      container.remove();
+    }
   });
 
   it("clamps wrapped items by lines and exposes hidden counts to the after slot", async () => {

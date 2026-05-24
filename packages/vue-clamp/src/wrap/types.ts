@@ -18,7 +18,7 @@ export interface WrapClampSlotProps<T = unknown> extends ClampSlotProps {
 }
 
 export interface WrapClampSlots<T = unknown> extends ClampSlots<WrapClampSlotProps<T>> {
-  item?: ClampSlotRender<WrapClampItemSlotProps<T>>;
+  item: ClampSlotRender<WrapClampItemSlotProps<T>>;
 }
 
 export type WrapClampExposed = ClampExposed;
