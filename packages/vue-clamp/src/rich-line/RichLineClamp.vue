@@ -47,8 +47,6 @@ const slots = defineSlots<RichLineClampSlots>();
 const probeRef = useTemplateRef("probe");
 const isFallback = shallowRef(false);
 
-const lineLimit = computed(() => normalizeLineLimit(maxLines));
-const hasLimit = computed(() => lineLimit.value !== undefined || maxHeight !== undefined);
 const preparedHtml = computed(() => prepareRich(html, boundary));
 
 // The visible tree and hidden probe advance independently: visibleState patches
@@ -76,7 +74,13 @@ const {
     emit("clampchange", value);
   },
   recompute: async (expanded): Promise<void> => {
-    if (expanded.value || html.length === 0 || !hasLimit.value) {
+    const lineLimit = normalizeLineLimit(maxLines);
+
+    if (
+      expanded.value ||
+      html.length === 0 ||
+      (lineLimit === undefined && maxHeight === undefined)
+    ) {
       // Expanded, empty, and unlimited states should leave the trusted HTML
       // visible as authored.
       await resetClamp();
@@ -109,7 +113,7 @@ const {
       ellipsis,
       from: probeState,
       hint: searchHint,
-      lineLimit: lineLimit.value,
+      lineLimit,
       maxHeight,
       prepared,
       probe,
@@ -136,13 +140,15 @@ const slotProps = computed<RichLineClampSlotProps>(() => ({
   clamped: isClamped.value,
   expanded: expanded.value,
 }));
-const collapsedMaxHeight = computed(() =>
-  !expanded.value && !isFallback.value ? cssLength(maxHeight) : undefined,
-);
-const rootStyle = computed<CSSProperties>(() => ({
-  maxHeight: collapsedMaxHeight.value,
-  overflow: collapsedMaxHeight.value ? "hidden" : undefined,
-}));
+const rootStyle = computed<CSSProperties>(() => {
+  const collapsedMaxHeight =
+    !expanded.value && !isFallback.value ? cssLength(maxHeight) : undefined;
+
+  return {
+    maxHeight: collapsedMaxHeight,
+    overflow: collapsedMaxHeight ? "hidden" : undefined,
+  };
+});
 
 function createProbe(): ProbeElements {
   const content = document.createElement("span");

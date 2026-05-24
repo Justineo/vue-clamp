@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, shallowRef, useTemplateRef, watch } from "vue";
+import { trueOrUndefined } from "../attributes.ts";
 import { cssLength, normalizeLineLimit } from "../layout.ts";
 import { useMultilineClamp } from "../multiline.ts";
 import { MultilineAffixSlot } from "../multiline-render.ts";
@@ -50,8 +51,6 @@ const visibleText = shallowRef(text);
 let lastTextClamp: TextClampResult | null = null;
 
 const lineLimit = computed(() => normalizeLineLimit(maxLines));
-const hasLimit = computed(() => lineLimit.value !== undefined || maxHeight !== undefined);
-const locationRatio = computed(() => normalizeLocationRatio(location));
 const preparedText = computed(() => prepareText(text, boundary));
 
 const {
@@ -71,7 +70,7 @@ const {
     emit("clampchange", value);
   },
   recompute: async (expanded): Promise<void> => {
-    if (expanded.value || text.length === 0 || !hasLimit.value) {
+    if (expanded.value || text.length === 0 || !hasClampLimit()) {
       // Expanded, empty, and unlimited states should expose the source text
       // directly so the DOM stays simple when no truncation is needed.
       await resetClamp();
@@ -102,7 +101,6 @@ const {
     }
 
     const prepared = preparedText.value;
-    const ratio = locationRatio.value;
     const nextResult = clampTextToLayout({
       content: contentElement,
       ellipsis,
@@ -110,7 +108,7 @@ const {
       lineLimit: lineLimit.value,
       maxHeight,
       prepared,
-      ratio,
+      ratio: normalizeLocationRatio(location),
       root: rootElement,
       target: textElement,
     });
@@ -138,28 +136,25 @@ const slotProps = computed<LineClampSlotProps>(() => ({
 // Use the rendered after wrapper rather than `slots.after`: filtered or dynamic
 // slots can be declared while producing no DOM, and native clamp remains valid.
 const nativeMode = computed(() => getNativeMode(afterRef.value !== null));
-const usesNativeTextOverflow = computed(() => nativeMode.value === "single-line");
-const collapsedMaxHeight = computed(() => (!expanded.value ? cssLength(maxHeight) : undefined));
 const rootStyle = computed<CSSProperties>(() => ({
-  maxHeight: collapsedMaxHeight.value,
+  maxHeight: !expanded.value ? cssLength(maxHeight) : undefined,
   overflow: "hidden",
 }));
 const contentStyle = computed(() => getNativeContentStyle(nativeMode.value, lineLimit.value));
 const affixSlotStyle = computed(() =>
-  usesNativeTextOverflow.value ? multilineNativeSlotStyle : multilineSlotStyle,
+  nativeMode.value === "single-line" ? multilineNativeSlotStyle : multilineSlotStyle,
 );
 const needsAccessibleSourceText = computed(
-  () => !nativeMode.value && visibleText.value !== text && hasLimit.value && !expanded.value,
+  () => !nativeMode.value && visibleText.value !== text && hasClampLimit() && !expanded.value,
 );
 const bodyStyle = computed<CSSProperties>(() =>
-  usesNativeTextOverflow.value ? nativeBodyStyle : { position: "relative" },
+  nativeMode.value === "single-line" ? nativeBodyStyle : { position: "relative" },
 );
 const renderedText = computed(() => {
   const shouldRenderFullText =
-    nativeMode.value || expanded.value || visibleText.value.length === 0 || !hasLimit.value;
+    nativeMode.value || expanded.value || visibleText.value.length === 0 || !hasClampLimit();
   return shouldRenderFullText ? text : visibleText.value;
 });
-const textStyle = computed(() => (usesNativeTextOverflow.value ? nativeTextStyle : undefined));
 
 async function applyTextState(nextText: string, nextClamped: boolean): Promise<void> {
   const changed = visibleText.value !== nextText || isClamped.value !== nextClamped;
@@ -179,6 +174,10 @@ async function resetClamp(): Promise<void> {
   return applyTextState(text, false);
 }
 
+function hasClampLimit(): boolean {
+  return lineLimit.value !== undefined || maxHeight !== undefined;
+}
+
 function getNativeMode(hasAfterSlot: boolean): NativeClampMode | null {
   return resolveNativeMode({
     boundary,
@@ -186,7 +185,7 @@ function getNativeMode(hasAfterSlot: boolean): NativeClampMode | null {
     expanded: expanded.value,
     hasAfterSlot,
     lineLimit: lineLimit.value,
-    locationRatio: locationRatio.value,
+    locationRatio: normalizeLocationRatio(location),
     maxHeight,
   });
 }
@@ -253,8 +252,8 @@ defineExpose({
         <span
           ref="textElement"
           key="text"
-          :aria-hidden="needsAccessibleSourceText ? 'true' : undefined"
-          :style="textStyle"
+          :aria-hidden="trueOrUndefined(needsAccessibleSourceText)"
+          :style="nativeMode === 'single-line' ? nativeTextStyle : undefined"
         >
           {{ renderedText }}
         </span>
