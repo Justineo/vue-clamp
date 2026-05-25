@@ -3,6 +3,7 @@ import {
   nextTick,
   onBeforeUnmount,
   onMounted,
+  onUpdated,
   shallowRef,
   useAttrs,
   watch,
@@ -80,6 +81,7 @@ let stopFonts = () => {};
 let lastLayoutSignature: string | null = null;
 let lastRootWidth: number | null = null;
 let measuredItemWidths: number[] = [];
+let isRecomputing = false;
 
 async function applyVisibleCount(nextVisibleCount: number): Promise<void> {
   const totalItems = items.length;
@@ -485,8 +487,14 @@ async function recompute(): Promise<void> {
 }
 
 const requestRecompute = createCoalescingRunner(async () => {
-  await recompute();
-  lastLayoutSignature = layoutSignature();
+  isRecomputing = true;
+
+  try {
+    await recompute();
+    lastLayoutSignature = layoutSignature();
+  } finally {
+    isRecomputing = false;
+  }
 });
 
 function getAffixSlotProps(
@@ -567,12 +575,12 @@ watch(
 );
 
 watch(
-  [() => maxLines, () => maxHeight, () => itemKey, () => items],
+  [() => maxLines, () => maxHeight, () => itemKey, () => items, () => items.length],
   () => {
     measuredItemWidths = [];
     requestRecompute();
   },
-  { deep: true, flush: "post" },
+  { flush: "post" },
 );
 
 watch(
@@ -623,6 +631,13 @@ onMounted(() => {
     measuredItemWidths = [];
     requestRecompute();
   });
+});
+
+onUpdated(() => {
+  if (!isRecomputing && layoutSignature() === lastLayoutSignature) {
+    measuredItemWidths = [];
+    requestRecompute();
+  }
 });
 
 onBeforeUnmount(() => {

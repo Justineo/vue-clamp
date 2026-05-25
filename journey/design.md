@@ -123,6 +123,9 @@
   preparation cached across reclamps, template-bound style or slot objects, or derived state that is
   read by multiple reactive consumers. Trivial one-use normalization and boolean aliases should stay
   as plain helper calls so component instances do not carry unnecessary reactive effects.
+- `WrapClamp` does not deep-watch arbitrary item payloads. It observes item sequence changes by
+  array reference and length, while item slot size changes are handled by the existing DOM
+  observation path and same-flush Vue update invalidation.
 - Plain boolean props rely on Vue's boolean prop casting instead of explicit `default: false`.
 - `expanded` is a controlled state model, so each SFC declares it with
   `defineModel(..., { default: false })`; `undefined` is normalized to `false` at the model boundary
