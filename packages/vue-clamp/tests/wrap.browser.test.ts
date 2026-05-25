@@ -323,6 +323,54 @@ describe("WrapClamp browser contract", () => {
     }
   });
 
+  it("does not deep-traverse item payloads when reclamping", async () => {
+    let unusedPayloadReads = 0;
+    const item = {
+      label: "Alpha",
+      get unusedPayload() {
+        unusedPayloadReads += 1;
+        return "unused";
+      },
+    };
+
+    const maxLines = ref(1);
+    const container = document.createElement("div");
+    document.body.append(container);
+
+    const ObjectWrapClamp = WrapClamp as unknown as DefineComponent<WrapClampProps<typeof item>>;
+    const Host = defineComponent({
+      setup() {
+        return () =>
+          h(
+            ObjectWrapClamp,
+            {
+              items: [item],
+              maxLines: maxLines.value,
+              style: hostStyle(200),
+            },
+            {
+              item: ({ item: wrapItem }: WrapClampItemSlotProps<typeof item>) =>
+                h("span", wrapItem.label),
+            },
+          );
+      },
+    });
+    const app = createApp(Host);
+
+    try {
+      app.mount(container);
+      await settle();
+      expect(unusedPayloadReads).toBe(0);
+
+      maxLines.value = 2;
+      await settle();
+      expect(unusedPayloadReads).toBe(0);
+    } finally {
+      app.unmount();
+      container.remove();
+    }
+  });
+
   it("clamps wrapped items by lines and exposes hidden counts to the after slot", async () => {
     const items = ["Design", "Docs", "Testing", "Accessibility", "Performance"] as const;
     const mountedClamp = mountWrapClamp({
@@ -1058,6 +1106,35 @@ describe("WrapClamp browser contract", () => {
       items.slice(0, narrowItems.length),
     );
     expect(narrowRoot.querySelector('[data-part="item"][aria-hidden="true"]')).toBeNull();
+  });
+
+  it("grows after visible item slot widths shrink without changing line height", async () => {
+    const compact = ref(false);
+    const items = Array.from({ length: 8 }, (_, index) => `I${index + 1}`);
+    const mountedClamp = mountWrapClamp({
+      items,
+      props: {
+        maxLines: 2,
+      },
+      width: 220,
+      item: ({ item }) => h("span", { style: fixedBadgeStyle(compact.value ? 64 : 100) }, item),
+    });
+
+    await settle(6);
+
+    const initialRoot = rootElement(mountedClamp.container);
+    const initialItems = wrapItems(initialRoot);
+    expect(initialItems.map((item) => item.textContent?.trim())).toEqual(items.slice(0, 4));
+    expect(wrapLineCount(initialRoot)).toBe(2);
+
+    compact.value = true;
+    await settle(10);
+
+    const compactRoot = rootElement(mountedClamp.container);
+    const compactItems = wrapItems(compactRoot);
+    expect(compactItems.map((item) => item.textContent?.trim())).toEqual(items.slice(0, 6));
+    expect(wrapLineCount(compactRoot)).toBe(2);
+    expect(compactRoot.querySelector('[data-part="item"][aria-hidden="true"]')).toBeNull();
   });
 
   it("keeps the after slot at logical inline-end in RTL mode", async () => {
