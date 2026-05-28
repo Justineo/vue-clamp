@@ -12,5 +12,7 @@ describe("WrapClamp render source", () => {
     expect(wrapClampDescriptor.template).toBeNull();
     expect(wrapClampSource).toContain("function render()");
     expect(wrapClampSource).toContain("defineRender(render)");
+    expect(wrapClampSource).not.toContain("function setRootElement");
+    expect(wrapClampSource).not.toContain("function setContentElement");
   });
 });

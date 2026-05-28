@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { computed, nextTick, shallowRef, useTemplateRef, watch } from "vue";
+import { computed, h, mergeProps, nextTick, shallowRef, useAttrs, watch } from "vue";
 import { trueOrUndefined } from "../attributes.ts";
 import { cssLength, normalizeLineLimit } from "../layout.ts";
 import { useMultilineClamp } from "../multiline.ts";
-import { MultilineAffixSlot } from "../multiline-render.ts";
+import { renderMultilineAffixSlot } from "../multiline-render.ts";
 import { multilineNativeSlotStyle, multilineSlotStyle } from "../multiline-styles.ts";
 import {
   getNativeContentStyle,
@@ -15,7 +15,7 @@ import {
 import { visuallyHiddenTextStyle } from "../styles.ts";
 import { clampTextToLayout, normalizeLocationRatio, prepareText } from "../text.ts";
 
-import type { CSSProperties } from "vue";
+import type { ComponentPublicInstance, CSSProperties, VNodeChild } from "vue";
 import type { ClampEmits } from "../types.ts";
 import type {
   LineClampExposed,
@@ -45,9 +45,12 @@ const expanded = defineModel<NonNullable<LineClampProps["expanded"]>>("expanded"
 });
 const emit = defineEmits<Omit<ClampEmits, "update:expanded">>();
 const slots = defineSlots<LineClampSlots>();
+const attrs = useAttrs();
 
-const textRef = useTemplateRef("textElement");
+const textRef = shallowRef<HTMLElement | null>(null);
 const visibleText = shallowRef(text);
+const multilineBodyStyle: CSSProperties = { position: "relative" };
+const overflowHiddenRootStyle: CSSProperties = { overflow: "hidden" };
 let lastTextClamp: TextClampResult | null = null;
 
 const lineLimit = computed(() => normalizeLineLimit(maxLines));
@@ -70,7 +73,8 @@ const {
     emit("clampchange", value);
   },
   recompute: async (expanded): Promise<void> => {
-    if (expanded.value || text.length === 0 || !hasClampLimit()) {
+    const currentLineLimit = lineLimit.value;
+    if (expanded.value || text.length === 0 || !hasClampLimit(currentLineLimit)) {
       // Expanded, empty, and unlimited states should expose the source text
       // directly so the DOM stays simple when no truncation is needed.
       await resetClamp();
@@ -88,7 +92,7 @@ const {
       return;
     }
 
-    const nativeMode = getNativeMode(afterRef.value !== null);
+    const nativeMode = getNativeMode(afterRef.value !== null, currentLineLimit);
 
     if (nativeMode) {
       // Browser native clamping is cheaper and more faithful for exact subsets
@@ -105,7 +109,7 @@ const {
       content: contentElement,
       ellipsis,
       hint: lastTextClamp,
-      lineLimit: lineLimit.value,
+      lineLimit: currentLineLimit,
       maxHeight,
       prepared,
       ratio: normalizeLocationRatio(location),
@@ -123,37 +127,6 @@ const {
     lastTextClamp = nextResult;
     await applyTextState(nextResult.text, nextResult.text !== prepared.text);
   },
-});
-
-const slotProps = computed<LineClampSlotProps>(() => ({
-  expand,
-  collapse,
-  toggle,
-  clamped: isClamped.value,
-  expanded: expanded.value,
-}));
-
-// Use the rendered after wrapper rather than `slots.after`: filtered or dynamic
-// slots can be declared while producing no DOM, and native clamp remains valid.
-const nativeMode = computed(() => getNativeMode(afterRef.value !== null));
-const rootStyle = computed<CSSProperties>(() => ({
-  maxHeight: !expanded.value ? cssLength(maxHeight) : undefined,
-  overflow: "hidden",
-}));
-const contentStyle = computed(() => getNativeContentStyle(nativeMode.value, lineLimit.value));
-const affixSlotStyle = computed(() =>
-  nativeMode.value === "single-line" ? multilineNativeSlotStyle : multilineSlotStyle,
-);
-const needsAccessibleSourceText = computed(
-  () => !nativeMode.value && visibleText.value !== text && hasClampLimit() && !expanded.value,
-);
-const bodyStyle = computed<CSSProperties>(() =>
-  nativeMode.value === "single-line" ? nativeBodyStyle : { position: "relative" },
-);
-const renderedText = computed(() => {
-  const shouldRenderFullText =
-    nativeMode.value || expanded.value || visibleText.value.length === 0 || !hasClampLimit();
-  return shouldRenderFullText ? text : visibleText.value;
 });
 
 async function applyTextState(nextText: string, nextClamped: boolean): Promise<void> {
@@ -174,23 +147,29 @@ async function resetClamp(): Promise<void> {
   return applyTextState(text, false);
 }
 
-function hasClampLimit(): boolean {
-  return lineLimit.value !== undefined || maxHeight !== undefined;
+function hasClampLimit(currentLineLimit = lineLimit.value): boolean {
+  return currentLineLimit !== undefined || maxHeight !== undefined;
 }
 
-function getNativeMode(hasAfterSlot: boolean): NativeClampMode | null {
+function getNativeMode(
+  hasAfterSlot: boolean,
+  currentLineLimit = lineLimit.value,
+): NativeClampMode | null {
   return resolveNativeMode({
     boundary,
     ellipsis,
     expanded: expanded.value,
     hasAfterSlot,
-    lineLimit: lineLimit.value,
+    lineLimit: currentLineLimit,
     locationRatio: normalizeLocationRatio(location),
     maxHeight,
   });
 }
 
-function setAffixElement(target: typeof beforeRef, element: Element | null): void {
+function setAffixElement(
+  target: typeof beforeRef,
+  element: ComponentPublicInstance | Element | null,
+): void {
   const nextElement = element instanceof HTMLElement ? element : null;
   if (target.value === nextElement) {
     return;
@@ -202,13 +181,112 @@ function setAffixElement(target: typeof beforeRef, element: Element | null): voi
   void nextTick(requestRecompute);
 }
 
-function setBeforeElement(element: Element | null): void {
+function setBeforeElement(element: ComponentPublicInstance | Element | null): void {
   setAffixElement(beforeRef, element);
 }
 
-function setAfterElement(element: Element | null): void {
+function setAfterElement(element: ComponentPublicInstance | Element | null): void {
   setAffixElement(afterRef, element);
 }
+
+function renderAffixSlot(part: "before" | "after", slotStyle: CSSProperties): VNodeChild | null {
+  const slot = part === "before" ? slots.before : slots.after;
+  if (!slot) {
+    return null;
+  }
+
+  return renderMultilineAffixSlot({
+    part,
+    render: slot,
+    setRef: part === "before" ? setBeforeElement : setAfterElement,
+    slotProps: {
+      expand,
+      collapse,
+      toggle,
+      clamped: isClamped.value,
+      expanded: expanded.value,
+    } satisfies LineClampSlotProps,
+    slotStyle,
+  });
+}
+
+function renderBody(
+  renderedText: string,
+  sourceIsHidden: boolean,
+  nativeMode: NativeClampMode | null,
+): VNodeChild {
+  const textNode = h(
+    "span",
+    {
+      "aria-hidden": trueOrUndefined(sourceIsHidden),
+      key: "text",
+      ref: textRef,
+      style: nativeMode === "single-line" ? nativeTextStyle : undefined,
+    },
+    renderedText,
+  );
+
+  return h(
+    "span",
+    {
+      "data-part": "body",
+      ref: bodyRef,
+      style: nativeMode === "single-line" ? nativeBodyStyle : multilineBodyStyle,
+    },
+    sourceIsHidden ? [h("span", { style: visuallyHiddenTextStyle }, text), textNode] : textNode,
+  );
+}
+
+function render(): VNodeChild {
+  // Use the rendered after wrapper rather than `slots.after`: filtered or
+  // dynamic slots can be declared while producing no DOM, and native clamp
+  // remains valid.
+  const lineLimitValue = lineLimit.value;
+  const nativeMode = getNativeMode(afterRef.value !== null, lineLimitValue);
+  const slotStyle = nativeMode === "single-line" ? multilineNativeSlotStyle : multilineSlotStyle;
+  const hasLimit = hasClampLimit(lineLimitValue);
+  const sourceIsHidden = !nativeMode && visibleText.value !== text && hasLimit && !expanded.value;
+  const rendersSourceText =
+    nativeMode || expanded.value || visibleText.value.length === 0 || !hasLimit;
+  const renderedText = rendersSourceText ? text : visibleText.value;
+  const collapsedMaxHeight = !expanded.value ? cssLength(maxHeight) : undefined;
+  const rootStyle =
+    collapsedMaxHeight === undefined
+      ? overflowHiddenRootStyle
+      : { maxHeight: collapsedMaxHeight, overflow: "hidden" };
+  const children: VNodeChild[] = [];
+  const beforeSlot = renderAffixSlot("before", slotStyle);
+  if (beforeSlot) {
+    children.push(beforeSlot);
+  }
+
+  children.push(renderBody(renderedText, sourceIsHidden, nativeMode));
+
+  const afterSlot = renderAffixSlot("after", slotStyle);
+  if (afterSlot) {
+    children.push(afterSlot);
+  }
+
+  return h(
+    rootTag,
+    mergeProps(attrs, {
+      "data-part": "root",
+      ref: rootRef,
+      style: rootStyle,
+    }),
+    h(
+      "span",
+      {
+        "data-part": "content",
+        ref: contentRef,
+        style: getNativeContentStyle(nativeMode, lineLimitValue),
+      },
+      children,
+    ),
+  );
+}
+
+defineRender(render);
 
 watch(
   [() => text, () => maxLines, () => maxHeight, () => ellipsis, () => location, () => boundary],
@@ -233,39 +311,3 @@ defineExpose({
   },
 } satisfies LineClampExposed);
 </script>
-
-<template>
-  <component :is="rootTag" v-bind="$attrs" data-part="root" ref="rootRef" :style="rootStyle">
-    <span data-part="content" ref="contentRef" :style="contentStyle">
-      <MultilineAffixSlot
-        part="before"
-        :render="slots.before"
-        :setRef="setBeforeElement"
-        :slotProps="slotProps"
-        :slotStyle="affixSlotStyle"
-      />
-
-      <span data-part="body" ref="bodyRef" :style="bodyStyle">
-        <span v-if="needsAccessibleSourceText" :style="visuallyHiddenTextStyle">
-          {{ text }}
-        </span>
-        <span
-          ref="textElement"
-          key="text"
-          :aria-hidden="trueOrUndefined(needsAccessibleSourceText)"
-          :style="nativeMode === 'single-line' ? nativeTextStyle : undefined"
-        >
-          {{ renderedText }}
-        </span>
-      </span>
-
-      <MultilineAffixSlot
-        part="after"
-        :render="slots.after"
-        :setRef="setAfterElement"
-        :slotProps="slotProps"
-        :slotStyle="affixSlotStyle"
-      />
-    </span>
-  </component>
-</template>

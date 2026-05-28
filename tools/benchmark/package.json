@@ -1,0 +1,19 @@
+{
+  "name": "benchmark",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "package": "node scripts/benchmark-package.mjs",
+    "report": "node scripts/render-matrix-report.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "@vitejs/plugin-vue": "catalog:",
+    "playwright": "catalog:",
+    "typescript": "catalog:",
+    "vite": "catalog:",
+    "vite-plus": "catalog:",
+    "vue": "catalog:"
+  }
+}

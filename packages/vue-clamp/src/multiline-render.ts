@@ -4,21 +4,23 @@ import { hasSlotContent } from "./slot.ts";
 import type { ComponentPublicInstance, CSSProperties, VNodeChild } from "vue";
 import type { ClampSlotRender } from "./types.ts";
 
-type MultilineAffixSlotProps<Props> = {
+type MultilineElementRef = (element: ComponentPublicInstance | Element | null) => void;
+
+type MultilineAffixSlotOptions<Props> = {
   part: "before" | "after";
   render?: ClampSlotRender<Props> | undefined;
-  setRef: (element: Element | null) => void;
+  setRef: MultilineElementRef;
   slotProps: Props;
   slotStyle: CSSProperties;
 };
 
-export function MultilineAffixSlot<Props>({
+export function renderMultilineAffixSlot<Props>({
   part,
   render,
   setRef,
   slotProps,
   slotStyle,
-}: MultilineAffixSlotProps<Props>): VNodeChild {
+}: MultilineAffixSlotOptions<Props>): VNodeChild {
   const content = render?.(slotProps);
   if (!hasSlotContent(content)) {
     return null;
@@ -28,9 +30,7 @@ export function MultilineAffixSlot<Props>({
     "span",
     {
       "data-part": part,
-      ref(element: ComponentPublicInstance | Element | null) {
-        setRef(element instanceof Element ? element : null);
-      },
+      ref: setRef,
       style: slotStyle,
     },
     content,

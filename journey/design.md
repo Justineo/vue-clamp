@@ -104,19 +104,20 @@
   - `WrapClampProps`
 - Root package type exports intentionally exclude component macro plumbing, emits maps, solver
   state, measurement/probe state, render-state, benchmark fixture, and helper-module internals.
-- `LineClamp` and `RichLineClamp` declare their slot maps with Vue `SlotsType`; `WrapClamp` declares
-  its slot map with `defineSlots`. Slot maps are public because wrapper components and render
-  functions may need to spell the named slot surface directly.
+- Component SFCs declare their slot maps with `defineSlots`. Slot maps are public because wrapper
+  components and render functions may need to spell the named slot surface directly.
 - `WrapClamp` is an SFC using `<script setup lang="ts" generic="T = unknown">` so the item type
   flows from `items` into the `item`, `before`, and `after` slot props.
 - `LineClamp`, `RichLineClamp`, and `InlineClamp` are also SFCs. Their component shells use
-  `<script setup lang="ts">`, type-based `defineProps`, `defineOptions`, and template refs; the
-  multiline components use `defineModel`, `defineEmits`, `defineSlots`, and `defineExpose` for the
-  same public shell pattern as `WrapClamp`.
-- SFCs with dynamic root `<component :is="rootTag">` keep root refs typed as `HTMLElement` for
-  measurement. Static child refs continue to rely on Vue template inference. The public `as` prop
-  remains a simple `string`; root element typing is not exposed as a polymorphic public API because
-  components do not expose the root element and only use generic HTML measurement APIs internally.
+  `<script setup lang="ts">`, type-based `defineProps`, `defineOptions`, and component-local macro
+  declarations. The multiline components use setup-local render functions bound through
+  `defineRender(render)`; `InlineClamp` keeps an authored template because its static single-line
+  structure benefits from Vue's template compiler output.
+- Render-only SFCs with dynamic roots use direct shallow refs for stable measured element nodes and
+  function refs only where ref changes need side effects, such as affix wrapper appearance triggering
+  a reclamp. The public `as` prop remains a simple `string`; root element typing is not exposed as a
+  polymorphic public API because components do not expose the root element and only use generic HTML
+  measurement APIs internally.
 - SFC macro declarations are the prop/emit source of truth; there are no standalone shared runtime
   prop or emit declaration helper modules.
 - Component-local `computed` values are reserved for meaningful reactive boundaries: expensive
@@ -138,13 +139,14 @@
 - `WrapClamp` uses the public `WrapClampProps<T>` and `WrapClampSlots<T>` contracts directly in the
   SFC macro declarations. The props macro uses `Omit<WrapClampProps<T>, "expanded">` because
   `expanded` is declared through `defineModel`.
-- `WrapClamp` intentionally has no authored `<template>` block. The SFC remains the macro and
-  generic type surface, while the setup-local `render()` function is the runtime render entry and
-  `wrap/render.ts` owns the root/content/item structure. This avoids keeping a template and a
-  hand-render helper in sync.
-- `WrapClamp` binds that setup-local render entry through Vue Macros `defineRender(render)`. This
-  keeps the render-only SFC source explicit without carrying a local marker-template plugin or
-  custom template compiler.
+- `LineClamp`, `RichLineClamp`, and `WrapClamp` intentionally have no authored `<template>` block.
+  Each remains the macro and type surface, while a setup-local `render()` function is the runtime
+  render entry. `WrapClamp` delegates root/content/item structure to `wrap/render.ts`; `LineClamp`
+  and `RichLineClamp` assemble affix wrappers only when the corresponding slot exists and produces
+  content.
+- Render-only component SFCs bind their setup-local render entry through Vue Macros
+  `defineRender(render)`. This keeps render-only SFC sources explicit without carrying local
+  marker-template plugins or a custom template compiler.
 - `@vue-macros/define-render` is a build-time dependency only. The package runtime output contains
   the returned render function and does not expose Vue Macros as public API.
 - The package now requires Vue `^3.5.0` because `WrapClamp` depends on the modern SFC macro and
@@ -655,10 +657,101 @@
   - scripts:
     - `vp run benchmark:wrap`
     - `vp run benchmark:rich`
+    - `vp run benchmark:source`
   - scope:
     - current `WrapClamp` workloads
     - current rich clamp workloads
   - method: repeated browser runs with stable-state timing
+- Release-facing cross-version benchmarks live in the private `tools/benchmark` workspace package:
+  - the package owns its Vue / Vite+ browser benchmark tooling and intentionally does not declare a
+    `vue-clamp` dependency
+  - `vp run benchmark:package -- <target>` installs or resolves the target package, aliases the
+    exact `vue-clamp` import to that target entry, and runs browser benchmarks from
+    `tools/benchmark/src`
+  - external package targets are installed into a system temporary directory instead of a path under
+    the repo, because Vite+ treats subdirectories inside this repo as part of the workspace
+  - package benchmark files call only public component APIs and must not import `packages/vue-clamp/src`
+    or other package internals
+  - native browser APIs are wrapped only as spies, then delegated to the original implementation, so
+    layout remains real browser layout while counters expose broad regression signals
+  - package timing uses schema v3 and keeps multiple signals:
+    `updateMs` measures the width change through Vue flush, `activeMs` measures through the last
+    root-local DOM mutation / ResizeObserver / Vue-flush activity, `totalMs` / `meanStepMs`
+    preserve the previous width-change-through-stable timing, and `quietMs` isolates the
+    conservative quiet-frame wait
+  - package benchmark sampling is adaptive rather than a fixed three-run smoke and does not treat
+    outer run count as the quality target. `VUE_CLAMP_BENCH_MODE=smoke` keeps quick local checks at
+    1 warmup / 3 measured runs. The default report mode uses 1 warmup, at least 3 measured samples,
+    at least 2 seconds of measured wall time per scenario, a 30-sample cap, and a 15s
+    per-scenario wall budget. Strict mode uses 2 warmups, at least 5 measured samples, at least 5s
+    measured wall time, a 50-sample cap, and a 30s per-scenario wall budget. This keeps the runtime
+    predictable while still giving each scenario enough repeated samples to expose standard
+    deviation. Override knobs are `VUE_CLAMP_BENCH_WARMUP_RUNS`, `VUE_CLAMP_BENCH_MIN_RUNS`,
+    `VUE_CLAMP_BENCH_MAX_RUNS`, `VUE_CLAMP_BENCH_MIN_SCENARIO_MS`, and
+    `VUE_CLAMP_BENCH_MAX_SCENARIO_MS`.
+  - each package scenario summary includes sample count, mean, standard deviation, standard error,
+    coefficient of variation, 95% margin of error, 95% relative margin of error, median absolute
+    deviation, accumulated
+    sampled active time, and sample wall time for numeric metrics. Median active time remains the
+    primary comparison value because browser timings are noisy, but the report surfaces precision so
+    a single red cell is not treated as a confirmed regression.
+  - each package scenario logs a concise `BENCH_SCENARIO` line when it finishes, including version,
+    component, scenario, sample count, measured wall time, accumulated active time, median/mean
+    active time, active standard deviation, active CV, and active RME. This makes long full-matrix
+    runs observable without waiting for the final JSON payload.
+  - PerformanceObserver / browser scheduling diagnostics are captured as secondary evidence:
+    long task count and duration, long animation frame count and duration when supported,
+    requestAnimationFrame interval summaries, dropped frame estimates, and requestIdleCallback
+    budget/opportunity counts
+  - the cross-version runner uses the full public component matrix instead of a few smoke scenarios:
+    LineClamp, InlineClamp, and RichLineClamp rows are chosen from user-facing shapes and stress
+    cases first, not from the current optimizer branch map. The matrix covers single-line titles,
+    multi-line summaries, CTA / metadata affixes, middle/start/end truncation, file-path split
+    truncation, word-boundary copy, height-constrained cards, custom ellipsis markers, rich inline
+    markup, fit/no-clamp cases, dense rich rows, and continuous/jitter/jump width changes. Some of
+    those public scenarios are naturally eligible for native CSS paths in newer versions, but native
+    eligibility is treated as an explanatory diagnostic outcome, not the sole reason a scenario
+    exists.
+  - InlineClamp 1.0 used a native text-overflow implementation and is not comparable to the
+    measured InlineClamp implementation introduced afterward. Package matrix InlineClamp rows
+    therefore start at the first version that supports the measured public behavior for that row,
+    with older versions rendered as `N/A`.
+  - WrapClamp covers the existing table/churn/no-affix/large-N/heavy-slot/before/after/maxHeight
+    matrix because those rows already represent realistic list/tag/table workloads and known
+    extremes.
+  - LineClamp, InlineClamp, and RichLineClamp package scenarios render realistic multi-instance
+    batches by default rather than a single isolated component. The regular batch size is 16
+    component instances sharing the same width churn, and the dense rich scenario renders 40
+    instances. This makes timing large enough to be meaningful and better represents application
+    screens where many clamped rows/cards update together.
+  - package scenario names include `batch` for those multi-instance LineClamp / InlineClamp /
+    RichLineClamp cases so new cross-version results are not mixed with historical single-instance
+    smoke data. If single-instance fixtures are useful later, keep them as local diagnostics rather
+    than release-facing comparison rows.
+  - settled timing waits on root-local DOM mutation activity plus ResizeObserver callback activity,
+    not serialized DOM snapshots or extra layout reads; settled time is preserved for end-to-end
+    comparison but active time and counters are the primary optimization/regression signals
+  - `vp run benchmark#report -- <log-dir> [output-dir] --versions <comma-list>` renders matrix
+    Markdown, SVG, and raw `.local.json` reports from package benchmark logs; the explicit version
+    list should cover the applicable Vue 3 release line, while unsupported features inside that line
+    are shown as `N/A`
+  - raw matrix JSON is generated with a `.local.json` suffix and ignored by Git; commit the
+    human-readable Markdown/SVG reports, not the large per-sample data artifact
+  - report rendering extracts the final `PACKAGE_MATRIX_BENCHMARK` payload by parsing the balanced
+    JSON object after the marker instead of relying on a single-line regex; Vitest can interleave
+    its own summary into very long browser console payloads, so the renderer tolerates those summary
+    lines when reconstructing package benchmark logs
+  - generated reports include both full-version absolute active-time matrices and adjacent-release
+    delta summaries, so the output is not anchored only on the latest release pair
+  - reports must distinguish speed from correctness coverage: when a release fixed missing reclamp
+    triggers or incorrect output, older-version lower cost is not treated as a pure performance win;
+    the Markdown report carries adjacent-release caveats for those behavior changes
+  - adjacent-release SVG cells mark low-confidence timing deltas with `~` only when either side has
+    active-time CV above 10%;
+    those cells keep the normal direction color and add a top-right triangle marker because they are
+    not strong evidence of an algorithmic regression or optimization by themselves
+  - source-level direct-helper benchmarks remain under `packages/vue-clamp/tests` and are local
+    diagnostics only, not cross-version comparison fixtures
 
 ## Repo Standards
 

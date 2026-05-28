@@ -3,10 +3,10 @@ import { trueOrUndefined } from "../attributes.ts";
 import { hasSlotContent } from "../slot.ts";
 import { contentStyle, hiddenItemStyle, itemStyle } from "./styles.ts";
 
-import type { ComponentPublicInstance, CSSProperties, VNodeChild } from "vue";
+import type { CSSProperties, Ref, VNodeChild } from "vue";
 import type { WrapClampItemKey, WrapClampItemSlotProps, WrapClampSlotProps } from "./types.ts";
 
-type ElementRef = (element: Element | ComponentPublicInstance | null) => void;
+type ElementRef = Ref<HTMLElement | null>;
 
 type AffixPart = "before" | "after";
 type AffixSlot<T> = ((props: WrapClampSlotProps<T>) => VNodeChild) | undefined;
@@ -22,15 +22,15 @@ type ItemsOptions<T> = {
 
 type RootOptions<T> = ItemsOptions<T> & {
   affixSlotProps: WrapClampSlotProps<T> | undefined;
+  afterRef: ElementRef;
   afterSlot: AffixSlot<T>;
   attrs: Record<string, unknown>;
+  beforeRef: ElementRef;
   beforeSlot: AffixSlot<T>;
+  contentRef: ElementRef;
+  rootRef: ElementRef;
   rootStyle: CSSProperties;
   rootTag: string;
-  setAfterRef: ElementRef;
-  setBeforeRef: ElementRef;
-  setContentRef: ElementRef;
-  setRootRef: ElementRef;
 };
 
 function resolveItemKey<T>(
@@ -121,24 +121,24 @@ function appendItems<T>(
 
 export function renderRoot<T>({
   affixSlotProps,
+  afterRef,
   afterSlot,
   attrs,
+  beforeRef,
   beforeSlot,
+  contentRef,
   itemKey,
   items,
   itemSlot,
   renderedItemCount,
+  rootRef,
   rootStyle,
   rootTag,
-  setAfterRef,
-  setBeforeRef,
-  setContentRef,
-  setRootRef,
   visibleItemCount,
 }: RootOptions<T>): VNodeChild {
   const children: VNodeChild[] = [];
 
-  appendAffixSlot(children, "before", beforeSlot, setBeforeRef, affixSlotProps);
+  appendAffixSlot(children, "before", beforeSlot, beforeRef, affixSlotProps);
   appendItems(children, {
     itemKey,
     items,
@@ -146,20 +146,20 @@ export function renderRoot<T>({
     renderedItemCount,
     visibleItemCount,
   });
-  appendAffixSlot(children, "after", afterSlot, setAfterRef, affixSlotProps);
+  appendAffixSlot(children, "after", afterSlot, afterRef, affixSlotProps);
 
   return h(
     rootTag,
     mergeProps(attrs, {
       "data-part": "root",
-      ref: setRootRef,
+      ref: rootRef,
       style: rootStyle,
     }),
     h(
       "span",
       {
         "data-part": "content",
-        ref: setContentRef,
+        ref: contentRef,
         style: contentStyle,
       },
       children,

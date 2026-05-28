@@ -32,7 +32,7 @@ import {
 } from "./flow.ts";
 import { renderRoot } from "./render.ts";
 
-import type { ComponentPublicInstance, VNodeChild } from "vue";
+import type { VNodeChild } from "vue";
 import type { ClampEmits } from "../types.ts";
 import type { ClampLimits, SequenceMeasurement } from "./types.ts";
 import type {
@@ -528,43 +528,27 @@ function render(): VNodeChild {
 
   return renderRoot({
     affixSlotProps: getAffixSlotProps(visibleItemCount, expandedValue),
+    afterRef,
     afterSlot: slots.after,
     attrs,
+    beforeRef,
     beforeSlot: slots.before,
+    contentRef,
     itemKey,
     itemSlot: slots.item,
     items,
     renderedItemCount,
+    rootRef,
     rootStyle: {
       maxHeight: !expandedValue ? cssLength(maxHeight) : undefined,
       overflow: "hidden",
     },
     rootTag,
-    setAfterRef: setAfterElement,
-    setBeforeRef: setBeforeElement,
-    setContentRef: setContentElement,
-    setRootRef: setRootElement,
     visibleItemCount,
   });
 }
 
 defineRender(render);
-
-function setRootElement(element: ComponentPublicInstance | Element | null): void {
-  rootRef.value = element instanceof HTMLElement ? element : null;
-}
-
-function setContentElement(element: ComponentPublicInstance | Element | null): void {
-  contentRef.value = element instanceof HTMLElement ? element : null;
-}
-
-function setBeforeElement(element: ComponentPublicInstance | Element | null): void {
-  beforeRef.value = element instanceof HTMLElement ? element : null;
-}
-
-function setAfterElement(element: ComponentPublicInstance | Element | null): void {
-  afterRef.value = element instanceof HTMLElement ? element : null;
-}
 
 watch(
   expanded,

@@ -1,13 +1,13 @@
 <script setup lang="ts">
-import { computed, nextTick, shallowRef, useTemplateRef, watch } from "vue";
+import { computed, h, mergeProps, nextTick, shallowRef, useAttrs, watch } from "vue";
 import { cssLength, normalizeLineLimit } from "../layout.ts";
 import { useMultilineClamp } from "../multiline.ts";
-import { MultilineAffixSlot } from "../multiline-render.ts";
+import { renderMultilineAffixSlot } from "../multiline-render.ts";
 import { multilineSlotStyle } from "../multiline-styles.ts";
 import { clampRich, patchRich, prepareRich } from "../rich.ts";
 import { richProbeStyle } from "./styles.ts";
 
-import type { CSSProperties } from "vue";
+import type { ComponentPublicInstance, VNodeChild } from "vue";
 import type { ClampEmits } from "../types.ts";
 import type { PreparedRich, RichState } from "../rich.ts";
 import type {
@@ -43,8 +43,9 @@ const expanded = defineModel<NonNullable<RichLineClampProps["expanded"]>>("expan
 });
 const emit = defineEmits<Omit<ClampEmits, "update:expanded">>();
 const slots = defineSlots<RichLineClampSlots>();
+const attrs = useAttrs();
 
-const probeRef = useTemplateRef("probe");
+const probeRef = shallowRef<HTMLElement | null>(null);
 const isFallback = shallowRef(false);
 
 const preparedHtml = computed(() => prepareRich(html, boundary));
@@ -131,23 +132,6 @@ const {
     patchVisible(prepared, result.state);
     await applyStatus(result.state.kind === "clamped", result.fallback);
   },
-});
-
-const slotProps = computed<RichLineClampSlotProps>(() => ({
-  expand,
-  collapse,
-  toggle,
-  clamped: isClamped.value,
-  expanded: expanded.value,
-}));
-const rootStyle = computed<CSSProperties>(() => {
-  const collapsedMaxHeight =
-    !expanded.value && !isFallback.value ? cssLength(maxHeight) : undefined;
-
-  return {
-    maxHeight: collapsedMaxHeight,
-    overflow: collapsedMaxHeight ? "hidden" : undefined,
-  };
 });
 
 function createProbe(): ProbeElements {
@@ -251,7 +235,10 @@ function prepareProbe(): {
   };
 }
 
-function setAffixElement(target: typeof beforeRef, element: Element | null): void {
+function setAffixElement(
+  target: typeof beforeRef,
+  element: ComponentPublicInstance | Element | null,
+): void {
   const nextElement = element instanceof HTMLElement ? element : null;
   if (target.value === nextElement) {
     return;
@@ -263,13 +250,86 @@ function setAffixElement(target: typeof beforeRef, element: Element | null): voi
   void nextTick(requestRecompute);
 }
 
-function setBeforeElement(element: Element | null): void {
+function setBeforeElement(element: ComponentPublicInstance | Element | null): void {
   setAffixElement(beforeRef, element);
 }
 
-function setAfterElement(element: Element | null): void {
+function setAfterElement(element: ComponentPublicInstance | Element | null): void {
   setAffixElement(afterRef, element);
 }
+
+function renderAffixSlot(part: "before" | "after"): VNodeChild | null {
+  const slot = part === "before" ? slots.before : slots.after;
+  if (!slot) {
+    return null;
+  }
+
+  return renderMultilineAffixSlot({
+    part,
+    render: slot,
+    setRef: part === "before" ? setBeforeElement : setAfterElement,
+    slotProps: {
+      expand,
+      collapse,
+      toggle,
+      clamped: isClamped.value,
+      expanded: expanded.value,
+    } satisfies RichLineClampSlotProps,
+    slotStyle: multilineSlotStyle,
+  });
+}
+
+function render(): VNodeChild {
+  const collapsedMaxHeight =
+    !expanded.value && !isFallback.value ? cssLength(maxHeight) : undefined;
+  const children: VNodeChild[] = [];
+  const beforeSlot = renderAffixSlot("before");
+  if (beforeSlot) {
+    children.push(beforeSlot);
+  }
+
+  children.push(
+    h("span", {
+      "data-part": "body",
+      innerHTML: html,
+      ref: bodyRef,
+    }),
+  );
+
+  const afterSlot = renderAffixSlot("after");
+  if (afterSlot) {
+    children.push(afterSlot);
+  }
+
+  return h(
+    rootTag,
+    mergeProps(attrs, {
+      "data-part": "root",
+      ref: rootRef,
+      style: {
+        maxHeight: collapsedMaxHeight,
+        overflow: collapsedMaxHeight ? "hidden" : undefined,
+      },
+    }),
+    [
+      h(
+        "span",
+        {
+          "data-part": "content",
+          ref: contentRef,
+        },
+        children,
+      ),
+      h("span", {
+        "aria-hidden": "true",
+        ref: probeRef,
+        style: richProbeStyle,
+      }),
+    ],
+  );
+}
+
+defineRender(render);
 
 watch(
   [() => html, () => maxLines, () => maxHeight, () => ellipsis, () => boundary],
@@ -295,29 +355,3 @@ defineExpose({
   },
 } satisfies RichLineClampExposed);
 </script>
-
-<template>
-  <component :is="rootTag" v-bind="$attrs" data-part="root" ref="rootRef" :style="rootStyle">
-    <span data-part="content" ref="contentRef">
-      <MultilineAffixSlot
-        part="before"
-        :render="slots.before"
-        :setRef="setBeforeElement"
-        :slotProps="slotProps"
-        :slotStyle="multilineSlotStyle"
-      />
-
-      <span data-part="body" ref="bodyRef" v-html="html" />
-
-      <MultilineAffixSlot
-        part="after"
-        :render="slots.after"
-        :setRef="setAfterElement"
-        :slotProps="slotProps"
-        :slotStyle="multilineSlotStyle"
-      />
-    </span>
-
-    <span aria-hidden="true" ref="probe" :style="richProbeStyle" />
-  </component>
-</template>
