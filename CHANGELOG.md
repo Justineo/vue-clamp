@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.5.1]
+
+Patch release focused on performance improvements. No API changes are required.
+
+### Improved
+
+- Improved performance for some `<LineClamp>` and `<RichLineClamp>` resize-heavy scenarios,
+  especially when many clamped components are rendered together.
+- Slightly reduced update overhead for `<WrapClamp>`.
+
 ## [1.5.0]
 
 Minor release focused on making the published Vue components and TypeScript declarations line up

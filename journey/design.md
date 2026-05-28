@@ -926,6 +926,9 @@
     through `releaselog`, `vp check`, `vp test`, browser tests, and build steps
 - Release documentation now lives in:
   - `CHANGELOG.md` for versioned release notes
+  - changelog entries are written from the library user's point of view: observable behavior,
+    compatibility, upgrade cost, performance, or reliability only; internal mechanics and benchmark
+    tooling stay out unless users must act on them
   - `MIGRATION.md` for `0.x` -> `1.x` migration guidance
   - `packages/vue-clamp/README.md` as a brief npm-facing entry point that sends users to the
     website for full docs and demos

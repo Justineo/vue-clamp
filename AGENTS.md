@@ -42,8 +42,12 @@ For any new project, planning-focused request, or sufficiently complex non-trivi
 ## Release writing preferences
 
 - Use conventional commits for new commit messages, e.g. `feat: ...`, `fix: ...`, `docs: ...`, `refactor: ...`, `style: ...`, or `perf: ...`.
-- Keep changelog entries simple and user-facing. Write from first principles: what should a library user know to upgrade, adopt, or use the release.
-- Do not expose implementation details in changelog entries unless they create a direct user-visible requirement or migration step.
+- Write changelog entries from the library user's point of view: observable behavior,
+  compatibility, upgrade cost, performance, or reliability.
+- Omit internal mechanics, file names, tests, benchmark tooling, and investigation history unless
+  users must act on them.
+- Keep entries short. For performance notes, name the affected component/scenario and include
+  numbers only when they clarify user impact.
 - Use sentence case for changelog headings.
 
 ## Pull request writing preferences
