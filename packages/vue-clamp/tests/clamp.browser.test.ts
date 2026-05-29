@@ -806,10 +806,14 @@ describe("LineClamp browser contract", () => {
   });
 
   it("recovers full rich html after a small width grow from a clamped state", async () => {
+    const sourceText = "Alpha beta gamma delta epsilon zeta";
     const sourceHtml = "<strong>Alpha beta</strong> gamma delta epsilon zeta";
+    const textStyle = "font:16px Menlo,monospace;line-height:20px";
+    const twoLineFitWidth = measuredTextWidth(sourceText, textStyle) / 2;
     const mounted = mountRichClamp({
       html: sourceHtml,
-      width: 128,
+      style: textStyle,
+      width: Math.floor(twoLineFitWidth - 16),
       props: {
         maxLines: 2,
       },
@@ -822,7 +826,7 @@ describe("LineClamp browser contract", () => {
     expect(richContentElement(root).textContent).toContain("…");
     expect((mounted.exposed.value as RichLineClampExposed).clamped).toBe(true);
 
-    mounted.width.value = 160;
+    mounted.width.value = Math.ceil(twoLineFitWidth + 48);
     await settle(4);
 
     expect(richContentElement(root).innerHTML).toBe(sourceHtml);
