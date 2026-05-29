@@ -61,6 +61,7 @@ type MountedHost = {
   root: HTMLElement;
   setWidth: (width: number) => void;
   state: RichState | null;
+  width: number;
 };
 
 type ComponentHost = {
@@ -234,6 +235,7 @@ function mountHost(html: string, width: number): MountedHost {
   const container = document.createElement("div");
   container.style.cssText = "display:block;padding:0;margin:0;";
   document.body.append(container);
+  let currentWidth = width;
 
   const root = document.createElement("div");
   root.dataset.part = "root";
@@ -258,9 +260,13 @@ function mountHost(html: string, width: number): MountedHost {
     },
     root,
     setWidth: (nextWidth) => {
+      currentWidth = nextWidth;
       root.style.width = `${nextWidth}px`;
     },
     state: null,
+    get width() {
+      return currentWidth;
+    },
   };
 }
 

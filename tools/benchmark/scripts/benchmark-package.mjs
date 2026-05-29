@@ -11,17 +11,12 @@ import { fileURLToPath } from "node:url";
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const workspaceRoot = resolve(packageRoot, "../..");
 const rawArgs = process.argv.slice(2);
-const normalizedArgs = rawArgs[0] === "--" ? rawArgs.slice(1) : rawArgs;
-const separatorIndex = normalizedArgs.indexOf("--");
-const targetArgs =
-  separatorIndex >= 0 ? normalizedArgs.slice(0, separatorIndex) : normalizedArgs.slice(0, 1);
-const passthroughArgs =
-  separatorIndex >= 0 ? normalizedArgs.slice(separatorIndex + 1) : normalizedArgs.slice(1);
-const targetSpecifier = targetArgs[0] ?? "current";
+const { passthroughArgs, targetArgs } = splitCliArgs(rawArgs);
+const { positionalTargets, targetSpecifiers } = parseTargetArgs(targetArgs);
 
-if (targetArgs.length > 1) {
+if (positionalTargets.length > 1) {
   throw new Error(
-    `Expected at most one vue-clamp target before "--", received: ${targetArgs.join(" ")}`,
+    `Expected at most one vue-clamp target, received: ${positionalTargets.join(" ")}`,
   );
 }
 
@@ -66,6 +61,61 @@ function run(command, args, options = {}) {
       );
     });
   });
+}
+
+function splitCliArgs(args) {
+  const normalizedArgs = args[0] === "--" ? args.slice(1) : args;
+  const separatorIndex = normalizedArgs.indexOf("--");
+
+  if (separatorIndex >= 0) {
+    return {
+      passthroughArgs: normalizedArgs.slice(separatorIndex + 1),
+      targetArgs: normalizedArgs.slice(0, separatorIndex),
+    };
+  }
+
+  const targetArgCount = normalizedArgs[0] === "--targets" ? 2 : 1;
+
+  return {
+    passthroughArgs: normalizedArgs.slice(targetArgCount),
+    targetArgs: normalizedArgs.slice(0, targetArgCount),
+  };
+}
+
+function parseTargetArgs(args) {
+  const positionalTargets = [];
+  let targetSpecifiers = null;
+
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+
+    if (arg === "--targets") {
+      const value = args[index + 1];
+      if (!value) {
+        throw new Error("--targets expects a comma-separated vue-clamp target list.");
+      }
+
+      targetSpecifiers = value
+        .split(",")
+        .map((item) => item.trim())
+        .filter(Boolean);
+      index += 1;
+      continue;
+    }
+
+    positionalTargets.push(arg);
+  }
+
+  if (targetSpecifiers && positionalTargets.length > 0) {
+    throw new Error("--targets cannot be combined with a positional vue-clamp target.");
+  }
+
+  return {
+    positionalTargets,
+    targetSpecifiers: targetSpecifiers?.length
+      ? targetSpecifiers
+      : [positionalTargets[0] ?? "current"],
+  };
 }
 
 function dependencyForSpecifier(specifier) {
@@ -156,7 +206,9 @@ async function installedTarget(specifier) {
     )}\n`,
   );
 
-  await run("vp", ["install", "--lockfile=false", "--ignore-scripts"], { cwd: targetDir });
+  await run("vp", ["install", "--", "--lockfile=false", "--ignore-scripts", "--force"], {
+    cwd: targetDir,
+  });
 
   const requireFromTarget = createRequire(resolve(targetDir, "package.json"));
   const entry = requireFromTarget.resolve("vue-clamp");
@@ -169,13 +221,23 @@ async function installedTarget(specifier) {
   };
 }
 
-const target =
-  targetSpecifier === "current" ? await currentTarget() : await installedTarget(targetSpecifier);
+const targets = [];
+const targetBySpecifier = new Map();
+for (const specifier of targetSpecifiers) {
+  let target = targetBySpecifier.get(specifier);
+  if (!target) {
+    target = specifier === "current" ? await currentTarget() : await installedTarget(specifier);
+    targetBySpecifier.set(specifier, target);
+  }
+
+  targets.push(target);
+}
 
 await run("vp", ["test", "-c", "tools/benchmark/vite.package.config.ts", ...passthroughArgs], {
   env: {
-    VUE_CLAMP_BENCH_ENTRY: target.entry,
-    VUE_CLAMP_BENCH_SPECIFIER: target.specifier,
-    VUE_CLAMP_BENCH_VERSION: target.version,
+    VUE_CLAMP_BENCH_ENTRY: targets[0].entry,
+    VUE_CLAMP_BENCH_SPECIFIER: targets[0].specifier,
+    VUE_CLAMP_BENCH_TARGETS: JSON.stringify(targets),
+    VUE_CLAMP_BENCH_VERSION: targets[0].version,
   },
 });

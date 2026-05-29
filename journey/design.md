@@ -165,6 +165,9 @@
 - `TextClampSpacing`, `PreparedText`, `TextClampHint`, `TextClampResult`, `TextClampFitInput`, and
   `TextClampLayoutInput` are text-helper contracts owned by `text.ts`; they are intentionally not
   root package exports.
+- `MultilineFrameRefs`, `MultilineAffixRefSetter`, `MultilineShellOptions`, and `MultilineShell`
+  are multiline shell contracts owned by `multiline.ts`; they are intentionally not root package
+  exports.
 - `RichBoundaryPoint`, `PreparedRichTextNode`, `PreparedRichElementNode`, `PreparedRichNode`,
   `PreparedRich`, `RichState`, `RichClampProbe`, `RichClampOptions`, and `RichClampResult` are
   rich-helper contracts owned by `rich.ts`; they are intentionally not root package exports.
@@ -246,15 +249,23 @@
   - `packages/vue-clamp/src/{inline,rich-line,wrap}/styles.ts` for component-family static style
     contracts that affect measurement or hidden probe behavior
   - `packages/vue-clamp/src/layout.ts` for the remaining shared primitives worth centralizing:
-    line-limit normalization, CSS length normalization, combined size signatures, and fit checks
+    line-limit normalization, CSS length normalization, subpixel border-box signatures,
+    ResizeObserver entry-signature comparison, and fit checks
 - `packages/vue-clamp/src/line/LineClamp.vue` now owns only text behavior:
-  - reactive `visibleText`
+  - a shallow visible-text snapshot that lets measured clamped-to-clamped passes patch text DOM
+    directly without forcing a Vue render, while still re-rendering when the accessibility structure
+    or clamped state changes
   - text preparation and native one-line fast path dispatch
   - text accessibility handling for rewritten visible output
+  - guarded measured-path reuse of the last text clamp result and root width so warm resize passes
+    can skip the full-text fit probe only when the previous result was clamped, the prepared
+    boundary offsets still match, and the root has not grown beyond the small local search window
 - `packages/vue-clamp/src/rich-line/RichLineClamp.vue` now owns only rich-html behavior:
   - visible/probe rich DOM decisions and rich fallback state
   - hidden probe setup for rich measurement
   - the visible rich HTML is patched directly into the shared `body` part
+  - persistent hidden-probe scaffolding, including a stable content/body pair and cached cloned
+    affix boxes keyed by source wrapper identity plus measured geometry signature
   - no image-load settlement; inline rich images must provide stable layout dimensions up front
 - Shared code stays in small helpers instead of a large base shell.
 - Internal helper contracts use named input objects once a call would otherwise require several
@@ -262,13 +273,39 @@
 - `LineClamp` and `RichLineClamp` now share one narrow internal shell helper rather than
   duplicating the same lifecycle shell:
   - root/content/body/before/after refs
+  - shell-provided shared affix ref setters that normalize Vue ref payloads to
+    `HTMLElement | null`, ignore unchanged wrapper refs, and schedule the follow-up reclamp after
+    Vue commits filtered slot DOM
+  - shared affix slot-control payload creation for before/after slots
   - controlled `expanded` syncing and `clamped` emission
   - queued recomputes
   - resize/font invalidation
   - same-flush `onUpdated` invalidation
-  - recompute callbacks receive only the shared expanded ref; component-specific refs remain local
-    to each component closure
+  - recompute callbacks receive the shared expanded ref plus an optional root-width snapshot when
+    the shell already measured one; component-specific refs remain local to each component closure
   - the actual clamp logic still stays local to each component
+  - the shell observes root/content/before/after border-box changes; the body ref stays available
+    to components, but content already captures body geometry for shell invalidation
+  - Line/Rich layout signatures use subpixel border-box measurements rather than integer
+    `offsetWidth` / `offsetHeight`, because fractional width changes can affect text wrapping
+  - those subpixel signatures are quantized to 1/1000 CSS px keys to avoid float-string formatting
+    while preserving fractional-size sensitivity
+  - ResizeObserver callbacks observe the border box and compare reported subpixel border-box sizes
+    for the signature elements against the last synchronous layout signature, so settled
+    self-notifications do not need fresh layout reads while external container and slot-size changes
+    still schedule reclamps
+  - ResizeObserver entries refresh the shell's cached border-box signatures before scheduling a
+    reclamp; RichLineClamp reuses those observed affix signatures for hidden-probe clone validation
+    instead of rereading affix wrapper bounding rects on every width-only pass
+  - when `onUpdated` or a root ResizeObserver entry already provides the current subpixel root
+    width, the shell passes that width into Line/Rich recompute callbacks so the clamp pass does not
+    reread the same root bounding rect; recompute paths without a fresh snapshot still measure the
+    root directly
+  - for Line/Rich updates where the root border-box signature changed, the shell schedules the
+    same-flush reclamp from the root snapshot and defers content signature refresh to the
+    post-recompute settled snapshot; RichLineClamp opts into same-flush affix signature refresh
+    because its hidden-probe clone cache validates affix boxes, while LineClamp does not need those
+    affix signatures before recompute
 - `LineClamp` native clamping is represented internally as single-line versus multi-line modes
   rather than a boolean or CSS-mechanism-specific strings:
   - `"single-line"` for the exact one-line end/grapheme/default-ellipsis subset
@@ -277,6 +314,13 @@
   - `null` for measured DOM clamping
 - Native CSS clamp eligibility and style details stay outside `LineClamp.vue`; the component only
   resolves the mode for the current render/recompute and applies the resulting text state.
+- Native LineClamp overflow measurement avoids extra root `getBoundingClientRect()` reads. Native
+  multiline reuses the shell's fresh subpixel root width as the unmeasurable-layout guard when that
+  snapshot is available, then compares scroll height against client height. Native single-line still
+  reads the text cell's own client width because affix slots can make it narrower than the root.
+- Native multiline content styles are cached per normalized line limit so repeated native width
+  sweeps keep stable style object identity instead of asking Vue to diff an equivalent freshly
+  allocated style object on every render.
 - Multiline native `line-clamp` allows `before` slot content because it is a prefix inside the same
   formatting context. It excludes `after` slot content because native CSS cannot reserve suffix
   space while clamping the body.
@@ -287,12 +331,27 @@
     content
   - `location` shares the `LineClamp` keyword/ratio semantics and applies only inside the
     rewritten `body`; split `start` and `end` segments remain fixed
-  - each clamp pass restores the full body text before reading the root width, so a previously
-    shortened inline-block root does not become the stale width limit when the parent grows
+  - content-sized clamp passes restore the full body text before reading the root width, so a
+    previously shortened inline-block root does not become the stale width limit when the parent
+    grows; when the root has an inline content-independent `width`, warm clamped passes can trust
+    the current subpixel border-box width and avoid that extra full-body mutation
   - custom `ellipsis` is inserted by JS, so the rewritten body can shrink to only the ellipsis
   - segment text stays in normal inline flow, so spaces follow standard browser whitespace
     collapsing instead of a component-specific preservation path
+  - clamp search writes the final body text into the live DOM node, and a shallow visible-body
+    snapshot triggers Vue only when the hidden full-text accessibility structure must appear or
+    disappear; clamped-to-clamped width churn therefore avoids a second Vue text patch
+  - warm clamped resize passes may skip the separate full-body `scrollWidth` probe when the
+    previous body clamp used the same boundary offsets and the root has not grown beyond the small
+    local-search window; the full body still participates as a candidate inside the warm search, so
+    small grows can recover the source text
+  - inline candidate probes route body text writes through a small local guard, matching the shared
+    text helper's behavior and avoiding no-op `textContent` mutations when the current candidate is
+    already rendered
   - `ResizeObserver` and font-load invalidation keep the measured result current
+  - parent/root layout invalidation uses subpixel border-box signatures, and ResizeObserver
+    callbacks compare `borderBoxSize` entries against the last settled signature so fractional
+    width changes are not lost to integer offset rounding
   - width-only reclamps reuse the shared boundary-aware warm-start search helper
   - no slots or exposed instance API
 - `WrapClamp` is item-driven and browser-aligned:
@@ -337,6 +396,8 @@
   - prepares clamp boundary offsets once per source text and reuses them across width/slot/font
     reclamps
   - measures the live content width from the rendered root
+  - passes that measured root width into the text layout helper, so helper-level direct probes do
+    not perform their own root bounding-rect read
   - normalizes `maxLines` and `maxHeight`
   - refreshes the visible root clip box during each `maxHeight` fit probe so reactive height increases can expand the visible text correctly
   - uses a native CSS overflow fast path for the collapsed single-line end case when `boundary` is
@@ -347,6 +408,22 @@
     offsets still match, then do a bounded local expansion before binary searching, so continuous
     resize does not always restart from the middle of the whole text while large jumps stay close to
     cold-search cost
+  - measured text results carry the root width that produced them, so later layout passes can ignore
+    a stale warm hint after large width jumps without the component keeping a parallel width cache
+  - warm resize passes that are still clearly clamped may skip the separate full-source fit probe
+    and let the candidate search include the full-source candidate instead; this removes one
+    visible text mutation and one fit read from stable affix scenarios without changing the cold
+    path or full-fit detection for large grows
+  - measured clamped-to-clamped commits leave the final text mutation from the search pass in place
+    and update only a non-triggering shallow snapshot, so width churn does not call affix slots or
+    patch the component tree again unless the hidden-source accessibility wrapper or clamped slot
+    state must change
+  - text and rich fit probes can use a rect-count shortcut when only `maxLines` is active: if the
+    content fragment count is already no larger than the line limit, the candidate fits without
+    allocating and comparing grouped line boxes
+  - `maxHeight` fit probes measure the root's viewport top once per clamp pass and reuse it across
+    candidate checks; each candidate still reads the current root client height so shrinking
+    candidates remain accurate without paying a root bounding-rect read per probe
   - fit probes avoid collecting all line rects when an early max-height or line-count failure is
     already known
 - The rich clamp pass in `RichLineClamp`:
@@ -373,13 +450,37 @@
       reuses it across width, slot, and font reclamps for that instance
     - rich preparation no longer carries its own support flag; support is decided only from the
       rendered layout at clamp time
-    - unchanged content still validates the rendered rich layout, but now exits before logical-run
-      construction when the full source already fits
+    - unchanged content exits before rendered-layout inspection and logical-run construction when
+      the full source already fits, because no searchable rich layout model is needed for an
+      unclamped result
     - fit probes now patch a persistent hidden probe tree instead of mutating the visible rich body
+    - the hidden probe keeps its root/content/body structure mounted across candidates and
+      reclamps, and only rebuilds the content child list when affix presence or clone identity
+      changes
+    - the component sizes the hidden probe from a subpixel visible-root width, reusing the
+      multiline shell's fresh root snapshot when available and measuring directly otherwise, so
+      fractional root widths do not get rounded before rich measurement
+    - the probe snapshot includes the measured width, so `clampRich` can reject unmeasurable probes
+      without reading the probe root bounding rect
+    - probe affix clones are reused while both the slot wrapper identity and measured size signature
+      stay stable; size changes intentionally invalidate the clone, while same-size slot-content
+      changes can keep the old hidden clone because rich fit only depends on the affix box
+    - affix clone signatures come from the multiline shell's observed subpixel border-box cache, so
+      stable affix boxes do not require a fresh synchronous bounding-rect read during each probe
+      rebuild
+    - warm resize passes that were already clamped may skip the separate full-rich fit probe when
+      the probe width has not grown beyond the local-search window; the coarse search then includes
+      the full state as a candidate so small grows can still recover the unclamped source
+    - rich candidate checks share the text helper's conservative rect-count fit shortcut when
+      `maxHeight` is absent; `maxHeight` still uses the full visible-bounds path
     - width-only visible commits patch a prefix-preserving suffix from the prepared source instead
       of using `innerHTML`
     - structural patches clone only the changed suffix under the shared patch anchor, so unchanged
       prefix descendants such as images are not recreated during width-only reclamps
+    - when a structural rich patch moves between two clamped cuts in the same source text node and
+      the target text does not need trailing-whitespace normalization, the live text node is updated
+      in place instead of rebuilding the same suffix; this path is guarded so the root-level
+      ellipsis appended by the clamp algorithm is never mistaken for a source text node
     - hidden-probe images use an inert data URI source while preserving sizing attributes/styles, so
       probe-only candidate churn does not repeatedly fetch remote image URLs
     - inline rich images must have a deterministic layout size before loading; responsive
@@ -388,6 +489,18 @@
     - rich search now derives warm-start hints from the previous structural decision for nearby
       width changes; the hidden probe's current patch state and the search hint are separate so
       large width jumps can cold-search without resetting or repainting the visible tree
+    - when affix geometry is unchanged and the previous rich boundary was inside a searchable text
+      run, RichLineClamp first refines inside that same run before falling back to the normal coarse
+      run search; it returns early only when an internal same-run cut proves the next cut fails, or
+      when the run end is already final because there is no later run or the next unsliceable atomic
+      run fails, so stable metadata-affix resize paths avoid redundant probes without trusting the
+      shortcut across slot-size changes
+    - direct helper callers that pass the same structural state as both `from` and `hint` get the
+      same text-run refinement by default; RichLineClamp still passes an explicit guarded boolean so
+      affix geometry changes cannot accidentally inherit that shortcut
+    - RichLineClamp uses a slightly wider local warm-search expansion window than the shared text
+      helper because logical runs are coarser than text boundaries; the shared helper default stays
+      narrower for LineClamp, InlineClamp, and WrapClamp
   - sanitization stays the caller's responsibility
   - the runtime measures rich candidates in a connected hidden probe so the visible rich subtree is
     not mutated during binary search
@@ -451,6 +564,16 @@
       or a dynamic-after starting hint
     - materialized DOM search and dynamic-after estimation share the same largest-fitting-candidate
       binary-search helper
+  - uniform-width grow hints are allowed only for no-`after`, no-`maxHeight`, `maxLines` solves:
+    - the fallback width is derived from already measured live item boxes only when at least two
+      positive finite widths exist and their spread stays within layout tolerance
+    - mixed-width rows therefore keep the older measured-width-only behavior instead of inventing a
+      hidden-item width
+    - no-affix grow can use the uniform fallback before materialized grow, while before-only grow
+      first measures the current `before` box and includes its width in the same static-flow
+      estimate
+    - both paths are hints, not proofs: final acceptance still goes through the existing
+      materialized/live DOM settlement and verification
   - stable `before` grow is now included in the materialized grow path when `after` is absent:
     - stable means observed-stable inside the current solve, not inferred-static as a public
       contract; without a user hint the component cannot know a slot is generally static
@@ -535,6 +658,13 @@
       by block-overlap row detection instead of top-equality grouping
     - reactive item width changes with the same `items` array settle through ResizeObserver,
       same-flush updates, and live DOM verification; no item-array identity cache is trusted
+  - root/content/before/after layout invalidation uses the same subpixel border-box signature
+    strategy as Line/Rich/Inline:
+    - synchronous layout signatures use `getBoundingClientRect()` quantized to 1/1000 CSS px
+    - ResizeObserver watches the border box and compares entry `borderBoxSize` against the last
+      settled signature without fresh offset reads
+    - same-flush Vue updates with unchanged geometry still invalidate measured item-width caches,
+      while pure external fractional resizes are left to the observer path
   - vertical/sideways writing mode is deliberately outside WrapClamp's supported contract:
     - `maxLines` and `maxHeight` are defined for horizontal wrapping rows and the root's vertical
       clip box
@@ -586,6 +716,8 @@
   still uses the same queued-task helper directly.
 - `WrapClamp` still deduplicates observer-driven work against the last settled observed-geometry
   signature.
+- Production clamp code no longer uses `offsetWidth` / `offsetHeight` for layout signatures; those
+  integer box reads remain only as benchmark counters and benchmark scenario sampling.
 - `LineClamp`, `RichLineClamp`, and `WrapClamp` now treat `ResizeObserver` as part of the required browser baseline instead of carrying runtime existence fallbacks.
 - Removing that settled-signature guard was measured and rejected:
   - single-line benchmark:
@@ -668,12 +800,22 @@
   - `vp run benchmark:package -- <target>` installs or resolves the target package, aliases the
     exact `vue-clamp` import to that target entry, and runs browser benchmarks from
     `tools/benchmark/src`
+  - `vp run benchmark:package -- --targets <target-a>,<target-b>[,...]` resolves multiple targets
+    up front and runs them in one browser benchmark process; for each public scenario, measured
+    runs are interleaved by target so local optimization comparisons are less exposed to
+    cross-process browser drift. Single-target runs keep the original schema v3 payload.
+  - duplicate target specifiers in a multi-target run are resolved once and then repeated in the
+    browser target list. This keeps same-version noise checks such as `--targets current,current`
+    from rebuilding or reinstalling the same package twice while preserving two report columns.
   - external package targets are installed into a system temporary directory instead of a path under
     the repo, because Vite+ treats subdirectories inside this repo as part of the workspace
   - package benchmark files call only public component APIs and must not import `packages/vue-clamp/src`
     or other package internals
   - native browser APIs are wrapped only as spies, then delegated to the original implementation, so
     layout remains real browser layout while counters expose broad regression signals
+  - benchmark layout-read counters distinguish bounding rects, client rects, client box getters,
+    and offset box getters; `offsetWidth` / `offsetHeight` are tracked explicitly because
+    signature-style invalidation can otherwise hide a large amount of synchronous layout work
   - package timing uses schema v3 and keeps multiple signals:
     `updateMs` measures the width change through Vue flush, `activeMs` measures through the last
     root-local DOM mutation / ResizeObserver / Vue-flush activity, `totalMs` / `meanStepMs`
@@ -696,9 +838,9 @@
     primary comparison value because browser timings are noisy, but the report surfaces precision so
     a single red cell is not treated as a confirmed regression.
   - each package scenario logs a concise `BENCH_SCENARIO` line when it finishes, including version,
-    component, scenario, sample count, measured wall time, accumulated active time, median/mean
-    active time, active standard deviation, active CV, and active RME. This makes long full-matrix
-    runs observable without waiting for the final JSON payload.
+    target specifier, component, scenario, sample count, measured wall time, accumulated active time,
+    median/mean active time, active standard deviation, active CV, and active RME. This makes long
+    full-matrix and same-version A/B runs observable without waiting for the final JSON payload.
   - PerformanceObserver / browser scheduling diagnostics are captured as secondary evidence:
     long task count and duration, long animation frame count and duration when supported,
     requestAnimationFrame interval summaries, dropped frame estimates, and requestIdleCallback
@@ -741,6 +883,17 @@
     JSON object after the marker instead of relying on a single-line regex; Vitest can interleave
     its own summary into very long browser console payloads, so the renderer tolerates those summary
     lines when reconstructing package benchmark logs
+  - report rendering also accepts schema v4 multi-target payloads emitted by same-process
+    `--targets` runs; those payloads contain normal schema v3 report objects under `reports`, and
+    the renderer flattens them before building the matrix. When multiple targets report the same
+    package version, matrix columns use compact target labels instead of version-only keys so
+    same-version A/B reports do not collapse distinct targets into one cell.
+  - report rendering ignores unrelated `.log` files in the chosen log directory that do not contain
+    a package benchmark marker, while still failing on malformed benchmark payloads. This lets local
+    runs write renderer stdout/stderr next to benchmark logs without breaking report generation.
+  - `VUE_CLAMP_BENCH_SCENARIOS` can filter package runs by exact scenario name, scenario group
+    (`line`, `inline`, `rich`, or `wrap`), or component name; this is local optimization tooling for
+    repeated hotspot loops and keeps full release-facing reports unfiltered by default
   - generated reports include both full-version absolute active-time matrices and adjacent-release
     delta summaries, so the output is not anchored only on the latest release pair
   - reports must distinguish speed from correctness coverage: when a release fixed missing reclamp

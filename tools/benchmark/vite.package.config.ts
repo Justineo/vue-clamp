@@ -9,10 +9,21 @@ const targetSpecifier = process.env.VUE_CLAMP_BENCH_SPECIFIER ?? "unknown";
 const targetVersion = process.env.VUE_CLAMP_BENCH_VERSION ?? "unknown";
 const vueEntry = require.resolve("vue/dist/vue.runtime.esm-bundler.js");
 const testTimeout = numericEnv("VUE_CLAMP_BENCH_TEST_TIMEOUT") ?? 1_800_000;
+const virtualTargetsModuleId = "vue-clamp-benchmark-targets";
+const resolvedVirtualTargetsModuleId = `\0${virtualTargetsModuleId}`;
 
 if (!targetEntry) {
   throw new Error("Missing VUE_CLAMP_BENCH_ENTRY. Run this config through benchmark#package.");
 }
+
+const benchmarkTargets = parseBenchmarkTargets();
+const benchmarkScenarioFilter = parseScenarioFilter();
+
+type BenchmarkTargetConfig = {
+  entry: string;
+  specifier: string;
+  version: string;
+};
 
 export default {
   define: {
@@ -27,13 +38,15 @@ export default {
       mode: process.env.VUE_CLAMP_BENCH_MODE,
       warmupRuns: numericEnv("VUE_CLAMP_BENCH_WARMUP_RUNS"),
     }),
+    __VUE_CLAMP_BENCH_SCENARIOS__: JSON.stringify(benchmarkScenarioFilter),
     __VUE_CLAMP_BENCH_TARGET__: JSON.stringify({
       entry: targetEntry,
       specifier: targetSpecifier,
       version: targetVersion,
     }),
+    __VUE_CLAMP_BENCH_TARGETS__: JSON.stringify(benchmarkTargets),
   },
-  plugins: [browserLogFilter, vue()],
+  plugins: [benchmarkTargetsPlugin(), browserLogFilter, vue()],
   resolve: {
     alias: [
       {
@@ -65,6 +78,86 @@ export default {
     },
   },
 };
+
+function isBenchmarkTargetConfig(value: unknown): value is BenchmarkTargetConfig {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const target = value as Record<string, unknown>;
+
+  return (
+    typeof target.entry === "string" &&
+    typeof target.specifier === "string" &&
+    typeof target.version === "string"
+  );
+}
+
+function parseBenchmarkTargets(): BenchmarkTargetConfig[] {
+  const targets = process.env.VUE_CLAMP_BENCH_TARGETS;
+  if (!targets) {
+    return [
+      {
+        entry: targetEntry!,
+        specifier: targetSpecifier,
+        version: targetVersion,
+      },
+    ];
+  }
+
+  const parsed = JSON.parse(targets) as unknown;
+  if (!Array.isArray(parsed) || parsed.length === 0) {
+    throw new Error("VUE_CLAMP_BENCH_TARGETS must be a non-empty JSON array.");
+  }
+
+  return parsed.map((target, index) => {
+    if (!isBenchmarkTargetConfig(target)) {
+      throw new Error(`Invalid VUE_CLAMP_BENCH_TARGETS entry at index ${index}.`);
+    }
+
+    return target;
+  });
+}
+
+function parseScenarioFilter(): string[] {
+  const value = process.env.VUE_CLAMP_BENCH_SCENARIOS;
+  if (!value) {
+    return [];
+  }
+
+  return value
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function benchmarkTargetsPlugin() {
+  return {
+    name: "vue-clamp-benchmark-targets",
+    resolveId(id: string) {
+      return id === virtualTargetsModuleId ? resolvedVirtualTargetsModuleId : null;
+    },
+    load(id: string) {
+      if (id !== resolvedVirtualTargetsModuleId) {
+        return null;
+      }
+
+      const imports = benchmarkTargets
+        .map((target, index) => `import * as target${index} from ${JSON.stringify(target.entry)};`)
+        .join("\n");
+      const entries = benchmarkTargets
+        .map(
+          (target, index) =>
+            `{ entry: ${JSON.stringify(target.entry)}, specifier: ${JSON.stringify(
+              target.specifier,
+            )}, version: ${JSON.stringify(target.version)}, module: target${index} }`,
+        )
+        .join(",\n");
+
+      return `${imports}\nexport const benchmarkTargets = [${entries}];\n`;
+    },
+  };
+}
 
 function numericEnv(name: string): number | undefined {
   const value = process.env[name];

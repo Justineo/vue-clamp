@@ -1,4 +1,4 @@
-import { fitsContent } from "./layout.ts";
+import { fitsContent, visibleRootTop } from "./layout.ts";
 import { findLastFittingIndex } from "./search.ts";
 import { prepareText } from "./text.ts";
 
@@ -30,17 +30,19 @@ export type PreparedRichElementNode = {
 
 export type PreparedRichNode = PreparedRichTextNode | PreparedRichElementNode;
 
-type LogicalRun =
-  | {
-      kind: "text";
-      endPoint: BoundaryPoint;
-      textCuts: readonly BoundaryPoint[];
-      fallbackTextCuts?: readonly BoundaryPoint[];
-    }
-  | {
-      kind: "atomic";
-      endPoint: BoundaryPoint;
-    };
+type TextLogicalRun = {
+  kind: "text";
+  endPoint: BoundaryPoint;
+  textCuts: readonly BoundaryPoint[];
+  fallbackTextCuts?: readonly BoundaryPoint[];
+};
+
+type AtomicLogicalRun = {
+  kind: "atomic";
+  endPoint: BoundaryPoint;
+};
+
+type LogicalRun = TextLogicalRun | AtomicLogicalRun;
 
 export type PreparedRich = {
   readonly root: HTMLElement;
@@ -72,6 +74,7 @@ export type RichClampProbe = {
   readonly body: HTMLElement;
   readonly content: HTMLElement;
   readonly root: HTMLElement;
+  readonly width: number;
 };
 
 export type RichClampOptions = {
@@ -81,7 +84,9 @@ export type RichClampOptions = {
   readonly lineLimit: number | undefined;
   readonly maxHeight: ClampLength | undefined;
   readonly prepared: PreparedRich;
+  readonly preferHintedTextRun?: boolean;
   readonly probe: RichClampProbe;
+  readonly skipFullFit?: boolean;
 };
 
 export type RichClampResult = {
@@ -94,12 +99,20 @@ const ROOT_START_POINT: BoundaryPoint = {
   path: ROOT_PATH,
   offset: 0,
 };
+const FULL_STATE: RichState = {
+  kind: "full",
+};
+// Rich logical runs are coarser than text boundaries, so one extra local probe
+// reduces continuous-resize churn without changing the shared text default.
+const richWarmExpansionLimit = 3;
 // Probe images only need layout boxes. Replacing network sources prevents binary
 // search candidate churn from triggering repeated image fetches.
 const PROBE_IMAGE_SRC = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==";
+const trailingWhitespace = /[\t\n\f\r ]+$/u;
+const trailingWhitespaceEdge = /[\t\n\f\r ]$/u;
 
 function tagNameFor(element: Element): string {
-  return element.tagName.toLowerCase();
+  return element.localName;
 }
 
 function pathKey(path: readonly number[]): string {
@@ -205,6 +218,22 @@ function endPointForChild(path: readonly number[]): BoundaryPoint {
   };
 }
 
+function boundaryPointsForOffsets(
+  offsets: readonly number[],
+  path: readonly number[],
+): BoundaryPoint[] {
+  const points: BoundaryPoint[] = [];
+
+  for (let index = 1; index < offsets.length; index += 1) {
+    points.push({
+      path,
+      offset: offsets[index]!,
+    });
+  }
+
+  return points;
+}
+
 function buildPreparedRichNodes(
   container: ParentNode & Node,
   path: readonly number[],
@@ -226,28 +255,14 @@ function buildPreparedRichNodes(
       // fallback cuts so word mode can recover inside a single long word.
       const preparedText = prepareText(child.textContent ?? "", boundary);
       const { boundaryOffsets, text } = preparedText;
-
       if (boundaryOffsets.length <= 1) {
         continue;
       }
 
-      const textCuts: BoundaryPoint[] = [];
-      for (let boundaryIndex = 1; boundaryIndex < boundaryOffsets.length; boundaryIndex += 1) {
-        const offset = boundaryOffsets[boundaryIndex];
-        if (offset === undefined) {
-          continue;
-        }
-
-        textCuts.push({
-          path: childPath,
-          offset,
-        });
-      }
-
-      const fallbackTextCuts = preparedText.fallbackBoundaryOffsets?.slice(1).map((offset) => ({
-        path: childPath,
-        offset,
-      }));
+      const textCuts = boundaryPointsForOffsets(boundaryOffsets, childPath);
+      const fallbackTextCuts = preparedText.fallbackBoundaryOffsets
+        ? boundaryPointsForOffsets(preparedText.fallbackBoundaryOffsets, childPath)
+        : undefined;
 
       nodes.push({
         kind: "text",
@@ -300,8 +315,11 @@ function buildLogicalRuns(
         textCuts.push(cut);
       }
 
-      for (const cut of textNode.fallbackTextCuts ?? []) {
-        fallbackTextCuts.push(cut);
+      const fallbackCuts = textNode.fallbackTextCuts;
+      if (fallbackCuts) {
+        for (const cut of fallbackCuts) {
+          fallbackTextCuts.push(cut);
+        }
       }
     }
 
@@ -488,7 +506,7 @@ function trimTrailingWhitespace(root: Node): void {
     if (leaf instanceof Text) {
       // The ellipsis is appended at the rich body root. Trimming the fragment
       // keeps it visually adjacent without inserting it inside inline markup.
-      const nextText = leaf.data.replace(/[\t\n\f\r ]+$/u, "");
+      const nextText = leaf.data.replace(trailingWhitespace, "");
       if (nextText === leaf.data) {
         return;
       }
@@ -502,7 +520,7 @@ function trimTrailingWhitespace(root: Node): void {
       continue;
     }
 
-    if (leaf instanceof Element && leaf.tagName.toLowerCase() === "wbr") {
+    if (leaf instanceof Element && tagNameFor(leaf) === "wbr") {
       leaf.remove();
       continue;
     }
@@ -601,6 +619,20 @@ function childIndexInAncestor(position: BoundaryPosition, ancestorPath: readonly
     : (position.containerPath[ancestorPath.length] ?? 0);
 }
 
+function samePath(left: readonly number[], right: readonly number[]): boolean {
+  if (left.length !== right.length) {
+    return false;
+  }
+
+  for (let index = 0; index < left.length; index += 1) {
+    if (left[index] !== right[index]) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
 function patchAnchorFor(
   root: HTMLElement,
   currentPoint: BoundaryPoint,
@@ -619,7 +651,7 @@ function patchAnchorFor(
 }
 
 function sameBoundaryPoint(left: BoundaryPoint, right: BoundaryPoint): boolean {
-  return left.offset === right.offset && pathKey(left.path) === pathKey(right.path);
+  return left.offset === right.offset && samePath(left.path, right.path);
 }
 
 function sameState(left: RichState | null, right: RichState): boolean {
@@ -632,6 +664,48 @@ function sameState(left: RichState | null, right: RichState): boolean {
   }
 
   return right.kind === "clamped" && sameBoundaryPoint(left.point, right.point);
+}
+
+function textPrefixForPoint(root: HTMLElement, point: BoundaryPoint): string | null {
+  const node = resolvePath(root, point.path);
+  if (node?.nodeType !== Node.TEXT_NODE) {
+    return null;
+  }
+
+  const text = (node.textContent ?? "").slice(0, point.offset);
+
+  // Generic structural patching trims trailing whitespace before appending the
+  // root ellipsis. Keep that path for candidates whose text would be normalized.
+  return text.length > 0 && !trailingWhitespaceEdge.test(text) ? text : null;
+}
+
+function patchSameTextCut(
+  prepared: PreparedRich,
+  target: HTMLElement,
+  from: RichState | null,
+  to: RichState,
+  ellipsis: string,
+): boolean {
+  if (
+    from?.kind !== "clamped" ||
+    to.kind !== "clamped" ||
+    !samePath(from.point.path, to.point.path)
+  ) {
+    return false;
+  }
+
+  const text = textPrefixForPoint(prepared.root, to.point);
+  if (text === null) {
+    return false;
+  }
+
+  const liveNode = resolvePath(target, to.point.path);
+  if (!(liveNode instanceof Text) || (ellipsis !== "" && liveNode === target.lastChild)) {
+    return false;
+  }
+
+  liveNode.data = text;
+  return true;
 }
 
 function removeChildrenFrom(container: Node, startIndex: number): void {
@@ -650,6 +724,10 @@ export function patchRich(
 ): RichState {
   if (sameState(from, to)) {
     // Avoid touching DOM when the search probes the same structural point again.
+    return to;
+  }
+
+  if (patchSameTextCut(prepared, target, from, to, ellipsis)) {
     return to;
   }
 
@@ -711,6 +789,16 @@ function boundaryPointIndex(points: readonly BoundaryPoint[], point: BoundaryPoi
   return null;
 }
 
+function textRunContainsPoint(run: TextLogicalRun, point: BoundaryPoint): boolean {
+  if (boundaryPointIndex(run.textCuts, point) !== null) {
+    return true;
+  }
+
+  return (
+    run.fallbackTextCuts !== undefined && boundaryPointIndex(run.fallbackTextCuts, point) !== null
+  );
+}
+
 function runHintForState(runs: readonly LogicalRun[], state: RichState | null): number | null {
   if (!state) {
     return null;
@@ -731,14 +819,22 @@ function runHintForState(runs: readonly LogicalRun[], state: RichState | null): 
       return index;
     }
 
-    if (
-      run.kind === "text" &&
-      (boundaryPointIndex(run.textCuts, point) !== null ||
-        boundaryPointIndex(run.fallbackTextCuts ?? [], point) !== null)
-    ) {
+    if (run.kind === "text" && textRunContainsPoint(run, point)) {
       // A cut inside this text run means the coarse run search should restart
       // from the previous complete run end.
       return Math.max(0, index - 1);
+    }
+  }
+
+  return null;
+}
+
+function textRunIndexForPoint(runs: readonly LogicalRun[], point: BoundaryPoint): number | null {
+  for (let index = 0; index < runs.length; index += 1) {
+    const run = runs[index]!;
+
+    if (run.kind === "text" && textRunContainsPoint(run, point)) {
+      return index;
     }
   }
 
@@ -752,12 +848,14 @@ export function clampRich({
   lineLimit,
   maxHeight,
   prepared,
+  preferHintedTextRun,
   probe,
+  skipFullFit = false,
 }: RichClampOptions): RichClampResult {
   const { nodes } = prepared;
-  const { body, content, root } = probe;
+  const { body, content, root, width } = probe;
 
-  if (root.getBoundingClientRect().width <= 0) {
+  if (width <= 0) {
     // An unmeasurable probe cannot produce a trustworthy structural state.
     return {
       state: null,
@@ -765,7 +863,11 @@ export function clampRich({
     };
   }
 
-  let state = patchRich(prepared, body, from, { kind: "full" }, ellipsis, PROBE_IMAGE_SRC);
+  let state = patchRich(prepared, body, from, FULL_STATE, ellipsis, PROBE_IMAGE_SRC);
+
+  function applyFullCandidate(): void {
+    state = patchRich(prepared, body, state, FULL_STATE, ellipsis, PROBE_IMAGE_SRC);
+  }
 
   function applyCandidate(point: BoundaryPoint): void {
     state = patchRich(
@@ -781,9 +883,15 @@ export function clampRich({
     );
   }
 
-  function fitsCandidate(endPoint: BoundaryPoint): boolean {
-    applyCandidate(endPoint);
-    return fitsContent(root, content, lineLimit, maxHeight);
+  const cachedVisibleTop = maxHeight === undefined ? undefined : visibleRootTop(root);
+
+  if (!skipFullFit && fitsContent(root, content, lineLimit, maxHeight, true, cachedVisibleTop)) {
+    // The full rich tree fits; exit before layout inspection because no
+    // searchable candidate is needed.
+    return {
+      state,
+      fallback: false,
+    };
   }
 
   const layout = inspectLayout(body);
@@ -796,13 +904,9 @@ export function clampRich({
     };
   }
 
-  if (fitsContent(root, content, lineLimit, maxHeight)) {
-    // The full rich tree fits; exit before logical-run construction because no
-    // searchable candidate is needed.
-    return {
-      state,
-      fallback: false,
-    };
+  function fitsCandidate(endPoint: BoundaryPoint): boolean {
+    applyCandidate(endPoint);
+    return fitsContent(root, content, lineLimit, maxHeight, true, cachedVisibleTop);
   }
 
   const runs = buildLogicalRuns(nodes, layout);
@@ -815,14 +919,112 @@ export function clampRich({
     };
   }
 
+  const useHintedTextRun = preferHintedTextRun !== undefined ? preferHintedTextRun : hint === from;
+
+  if (useHintedTextRun && hint?.kind === "clamped") {
+    const hintedRunIndex = textRunIndexForPoint(runs, hint.point);
+
+    if (hintedRunIndex !== null) {
+      const hintedRun = runs[hintedRunIndex]!;
+
+      if (hintedRun.kind === "text") {
+        const fineHint = boundaryPointIndex(hintedRun.textCuts, hint.point);
+        const runEndIndex = hintedRun.textCuts.length - 1;
+        const fineIndex = findLastFittingIndex(
+          hintedRun.textCuts.length,
+          (index) => fitsCandidate(hintedRun.textCuts[index]!),
+          fineHint,
+          richWarmExpansionLimit,
+        );
+
+        if (fineIndex >= 0 && fineIndex < runEndIndex) {
+          applyCandidate(hintedRun.textCuts[fineIndex]!);
+          return {
+            state,
+            fallback: false,
+          };
+        }
+
+        if (fineIndex === runEndIndex) {
+          const runEndPoint = hintedRun.textCuts[runEndIndex]!;
+          const nextRun = runs[hintedRunIndex + 1];
+
+          if (!nextRun) {
+            applyFullCandidate();
+            return {
+              state,
+              fallback: false,
+            };
+          }
+
+          // If the next unit is atomic and fails, the current run end is already
+          // the best legal boundary. Text runs still need their own fine search.
+          if (nextRun.kind === "atomic" && !fitsCandidate(nextRun.endPoint)) {
+            applyCandidate(runEndPoint);
+            return {
+              state,
+              fallback: false,
+            };
+          }
+        }
+
+        const fallbackTextCuts = hintedRun.fallbackTextCuts;
+        if (fineIndex < 0 && fallbackTextCuts) {
+          const fallbackHint = boundaryPointIndex(fallbackTextCuts, hint.point);
+          const fallbackIndex = findLastFittingIndex(
+            fallbackTextCuts.length,
+            (index) => fitsCandidate(fallbackTextCuts[index]!),
+            fallbackHint,
+            richWarmExpansionLimit,
+          );
+
+          if (fallbackIndex >= 0 && fallbackIndex < fallbackTextCuts.length - 1) {
+            applyCandidate(fallbackTextCuts[fallbackIndex]!);
+            return {
+              state,
+              fallback: false,
+            };
+          }
+        }
+
+        if (fineIndex < 0) {
+          const coarsePoint =
+            hintedRunIndex > 0 ? runs[hintedRunIndex - 1]!.endPoint : ROOT_START_POINT;
+          if (fitsCandidate(coarsePoint)) {
+            return {
+              state,
+              fallback: false,
+            };
+          }
+        }
+      }
+    }
+  }
+
   const coarseHint = runHintForState(runs, hint);
+  const coarseSearchCount = runs.length + (skipFullFit ? 1 : 0);
   // Coarse search skips over complete logical runs first so refinement only has
   // to slice the one text run that crosses the fit boundary.
   const coarseIndex = findLastFittingIndex(
-    runs.length,
-    (index) => fitsCandidate(runs[index]!.endPoint),
+    coarseSearchCount,
+    (index) => {
+      if (index === runs.length) {
+        applyFullCandidate();
+        return fitsContent(root, content, lineLimit, maxHeight, true, cachedVisibleTop);
+      }
+
+      return fitsCandidate(runs[index]!.endPoint);
+    },
     coarseHint,
+    richWarmExpansionLimit,
   );
+  if (coarseIndex === runs.length) {
+    return {
+      state,
+      fallback: false,
+    };
+  }
+
   const coarsePoint = coarseIndex >= 0 ? runs[coarseIndex]!.endPoint : ROOT_START_POINT;
   const nextRun = runs[coarseIndex + 1];
 
@@ -843,20 +1045,23 @@ export function clampRich({
     nextRun.textCuts.length,
     (index) => fitsCandidate(nextRun.textCuts[index]!),
     fineHint,
+    richWarmExpansionLimit,
   );
   let finePoint = fineIndex >= 0 ? nextRun.textCuts[fineIndex]! : coarsePoint;
 
-  if (fineIndex < 0 && nextRun.fallbackTextCuts) {
+  const fallbackTextCuts = nextRun.fallbackTextCuts;
+  if (fineIndex < 0 && fallbackTextCuts) {
     // Word boundary mode retries with grapheme cuts only when no whole-word cut
     // in the overflowing run can fit.
     const fallbackHint =
-      hint?.kind === "clamped" ? boundaryPointIndex(nextRun.fallbackTextCuts, hint.point) : null;
+      hint?.kind === "clamped" ? boundaryPointIndex(fallbackTextCuts, hint.point) : null;
     const fallbackIndex = findLastFittingIndex(
-      nextRun.fallbackTextCuts.length,
-      (index) => fitsCandidate(nextRun.fallbackTextCuts![index]!),
+      fallbackTextCuts.length,
+      (index) => fitsCandidate(fallbackTextCuts[index]!),
       fallbackHint,
+      richWarmExpansionLimit,
     );
-    finePoint = fallbackIndex >= 0 ? nextRun.fallbackTextCuts[fallbackIndex]! : coarsePoint;
+    finePoint = fallbackIndex >= 0 ? fallbackTextCuts[fallbackIndex]! : coarsePoint;
   }
 
   applyCandidate(finePoint);

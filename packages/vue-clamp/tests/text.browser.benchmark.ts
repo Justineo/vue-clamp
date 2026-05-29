@@ -44,6 +44,7 @@ type InlineHost = {
 
 type LineHost = InlineHost & {
   content: HTMLElement;
+  rootWidth: number;
   text: HTMLElement;
 };
 
@@ -62,8 +63,10 @@ type DirectScenarioSpec = {
 };
 
 type ComponentScenarioSpec = {
+  boundary?: "grapheme" | "word";
   kind: "inline" | "line";
   name: string;
+  text?: string;
   widths: readonly number[];
 };
 
@@ -101,6 +104,7 @@ const lineText = Array.from(
   (_, index) =>
     `Segment ${index + 1} keeps the clamp busy while layout changes by small increments.`,
 ).join(" ");
+const fallbackWordText = "supercalifragilisticexpialidocious".repeat(8);
 const inlineText =
   "/workspace/packages/vue-clamp/src/components/very-long-generated-artifact-name.browser.test.ts";
 
@@ -307,6 +311,7 @@ function clampTextToLayout(
     prepared,
     ratio,
     root: host.root,
+    rootWidth: host.rootWidth,
     target: host.text,
   });
 
@@ -333,6 +338,7 @@ function inlineStyle(width: number): string {
 function mountLineHost(width: number): LineHost {
   const container = document.createElement("div");
   document.body.append(container);
+  let currentWidth = width;
 
   const root = document.createElement("div");
   root.style.cssText = lineStyle(width);
@@ -353,9 +359,13 @@ function mountLineHost(width: number): LineHost {
     content,
     root,
     setWidth: (nextWidth) => {
+      currentWidth = nextWidth;
       root.style.width = `${nextWidth}px`;
     },
     text,
+    get rootWidth() {
+      return currentWidth;
+    },
   };
 }
 
@@ -504,18 +514,22 @@ async function mountComponentHost(spec: ComponentScenarioSpec): Promise<Componen
 
   const Host = defineComponent({
     setup() {
-      return () =>
-        spec.kind === "line"
-          ? h(LineClamp, {
-              maxLines: 3,
-              style: lineStyle(width.value),
-              text: lineText,
-            })
-          : h(InlineClamp, {
-              location: "middle",
-              style: inlineStyle(width.value),
-              text: inlineText,
-            });
+      return () => {
+        if (spec.kind === "inline") {
+          return h(InlineClamp, {
+            location: "middle",
+            style: inlineStyle(width.value),
+            text: inlineText,
+          });
+        }
+
+        return h(LineClamp, {
+          boundary: spec.boundary,
+          maxLines: 3,
+          style: lineStyle(width.value),
+          text: spec.text ?? lineText,
+        });
+      };
     },
   });
 
@@ -665,6 +679,13 @@ function componentScenarios(): ComponentScenarioSpec[] {
       kind: "line",
       name: "component-line-jumps",
       widths: componentWidthPatterns.lineJumps,
+    },
+    {
+      boundary: "word",
+      kind: "line",
+      name: "component-line-word-fallback-continuous",
+      text: fallbackWordText,
+      widths: componentWidthPatterns.lineContinuous,
     },
     {
       kind: "inline",

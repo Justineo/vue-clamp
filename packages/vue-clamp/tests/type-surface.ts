@@ -1,4 +1,4 @@
-import type { Ref } from "vue";
+import type { ComponentPublicInstance, Ref } from "vue";
 import type {
   ClampBoundary,
   ClampLength,
@@ -22,6 +22,7 @@ import type {
   WrapClampSlots,
 } from "../src/index.ts";
 import type {
+  MultilineAffixRefSetter,
   MultilineFrameRefs,
   MultilineShell,
   MultilineShellOptions,
@@ -62,6 +63,9 @@ import type { ClampEmits as RootClampEmits } from "../src/index.ts"; // eslint-d
 
 // @ts-expect-error Shared slot maps are implementation API, not package root API.
 import type { ClampSlots as RootClampSlots } from "../src/index.ts"; // eslint-disable-line no-unused-vars
+
+// @ts-expect-error Multiline helper contracts are source-module API, not package root API.
+import type { MultilineAffixRefSetter as RootMultilineAffixRefSetter } from "../src/index.ts"; // eslint-disable-line no-unused-vars
 
 type Equal<Left, Right> =
   (<Value>() => Value extends Left ? 1 : 2) extends <Value>() => Value extends Right ? 1 : 2
@@ -122,8 +126,11 @@ type _NativeHelperContracts = [
 ];
 
 type _MultilineHelperContracts = [
+  Expect<Equal<Parameters<MultilineAffixRefSetter>[0], ComponentPublicInstance | Element | null>>,
   Expect<Equal<MultilineFrameRefs["rootRef"], Ref<HTMLElement | null>>>,
   Expect<Equal<MultilineShellOptions["expanded"], Ref<boolean>>>,
-  Expect<Equal<MultilineShellOptions["recompute"], (expanded: Ref<boolean>) => Promise<void>>>,
+  Expect<Equal<Parameters<MultilineShellOptions["recompute"]>[0], Ref<boolean>>>,
+  Expect<Equal<Parameters<MultilineShellOptions["recompute"]>[1], number | undefined>>,
+  Expect<Equal<MultilineShellOptions["syncAffixSignaturesOnRootChange"], boolean | undefined>>,
   Expect<Equal<MultilineShell["requestRecompute"], () => void>>,
 ];

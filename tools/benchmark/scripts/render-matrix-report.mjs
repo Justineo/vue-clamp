@@ -112,6 +112,20 @@ function percentDelta(from, to) {
   return ((to - from) / from) * 100;
 }
 
+function offsetReads(metrics) {
+  if (!metrics) {
+    return null;
+  }
+
+  const height = metrics.medianOffsetHeightReads;
+  const width = metrics.medianOffsetWidthReads;
+  if (typeof height !== "number" && typeof width !== "number") {
+    return null;
+  }
+
+  return (height ?? 0) + (width ?? 0);
+}
+
 function median(values) {
   if (values.length === 0) {
     return null;
@@ -169,6 +183,8 @@ const workSignalKeys = [
   "medianImageCloneCalls",
   "medianItemSlotCalls",
   "medianMutationRecords",
+  "medianOffsetHeightReads",
+  "medianOffsetWidthReads",
   "medianReplaceChildrenCalls",
   "medianResizeObserverCallbacks",
   "medianScrollWidthReads",
@@ -416,15 +432,72 @@ function extractJsonObject(text) {
   return null;
 }
 
-async function readReport(file) {
-  const text = await readFile(resolve(logDir, file), "utf8");
-  const markerMatch = /PACKAGE_(?:MATRIX_)?BENCHMARK /.exec(text);
+function finalBenchmarkPayloadText(text) {
+  let markerMatch = null;
 
-  if (!markerMatch) {
-    throw new Error(`Missing package benchmark payload in ${file}`);
+  for (const match of text.matchAll(/PACKAGE_(?:MATRIX_)?BENCHMARK /g)) {
+    markerMatch = match;
   }
 
-  const payloadText = text.slice(markerMatch.index + markerMatch[0].length);
+  return markerMatch ? text.slice(markerMatch.index + markerMatch[0].length) : null;
+}
+
+function compactTargetSpecifier(specifier) {
+  if (!specifier) {
+    return "unknown";
+  }
+
+  if (specifier.startsWith("/") || specifier.startsWith(".")) {
+    return basename(specifier);
+  }
+
+  return specifier;
+}
+
+function reportColumnBaseLabel(report, versionCounts) {
+  const { specifier, version } = report.target;
+
+  if (specifier === "current") {
+    return "current";
+  }
+
+  if (versionCounts.get(version) === 1 || specifier === `vue-clamp@${version}`) {
+    return version;
+  }
+
+  return `${version} ${compactTargetSpecifier(specifier)}`;
+}
+
+function labeledReportColumns(nextReports) {
+  const versionCounts = new Map();
+  for (const report of nextReports) {
+    const version = report.target.version;
+    versionCounts.set(version, (versionCounts.get(version) ?? 0) + 1);
+  }
+
+  const labelCounts = new Map();
+  return nextReports.map((report, index) => {
+    const version = report.target.version;
+    const baseLabel = reportColumnBaseLabel(report, versionCounts);
+    const labelCount = (labelCounts.get(baseLabel) ?? 0) + 1;
+    labelCounts.set(baseLabel, labelCount);
+
+    return {
+      key: `${version}#${index}`,
+      label: labelCount === 1 ? baseLabel : `${baseLabel} #${labelCount}`,
+      report,
+    };
+  });
+}
+
+async function readReports(file) {
+  const text = await readFile(resolve(logDir, file), "utf8");
+  const payloadText = finalBenchmarkPayloadText(text);
+
+  if (payloadText === null) {
+    return [];
+  }
+
   const candidates = [payloadText, stripVitestSummaryNoise(payloadText)];
 
   for (const candidate of candidates) {
@@ -435,7 +508,9 @@ async function readReport(file) {
     }
 
     try {
-      return JSON.parse(payload);
+      const report = JSON.parse(payload);
+
+      return Array.isArray(report.reports) ? report.reports : [report];
     } catch {
       // Try the next candidate. Vitest can interleave its summary into very long
       // browser console payloads, splitting otherwise valid JSON across lines.
@@ -446,7 +521,10 @@ async function readReport(file) {
 }
 
 const files = (await readdir(logDir)).filter((file) => file.endsWith(".log")).sort();
-const loadedReports = await Promise.all(files.map(readReport));
+const loadedReports = (await Promise.all(files.map(readReports))).flat();
+if (files.length > 0 && loadedReports.length === 0) {
+  throw new Error(`No package benchmark payload was found in ${logDir}`);
+}
 const loadedReportVersions = new Set(loadedReports.map((report) => report.target.version));
 const placeholderVersions = requestedVersions
   .filter((version) => !loadedReportVersions.has(version))
@@ -467,6 +545,8 @@ const reports = [
 ].sort((left, right) =>
   left.target.version.localeCompare(right.target.version, undefined, { numeric: true }),
 );
+const reportColumns = labeledReportColumns(reports);
+const reportColumnByReport = new Map(reportColumns.map((column) => [column.report, column]));
 const scenarioIds = [
   ...new Set(reports.flatMap((report) => report.scenarios.map((scenario) => scenario.scenario))),
 ];
@@ -497,7 +577,10 @@ for (const report of reports) {
 const matrix = scenarioIds.map((scenarioId) => {
   const cells = reports.map((report) => {
     const scenario = report.scenarios.find((item) => item.scenario === scenarioId);
+    const column = reportColumnByReport.get(report);
     return {
+      key: column.key,
+      label: column.label,
       metrics: scenario?.status === "ok" ? scenario.summary : null,
       reason: scenario?.status === "unsupported" ? scenario.reason : null,
       status: scenario?.status ?? "missing",
@@ -511,7 +594,8 @@ const matrix = scenarioIds.map((scenarioId) => {
   };
 });
 
-function summarizeReport(report) {
+function summarizeReport(column) {
+  const { label, report } = column;
   const ok = report.scenarios.filter((scenario) => scenario.status === "ok");
   const total = (key) => ok.reduce((sum, scenario) => sum + (scenario.summary[key] ?? 0), 0);
   const activeRmes = ok
@@ -529,6 +613,9 @@ function summarizeReport(report) {
   const totalSampleActiveTimes = ok
     .map((scenario) => scenario.summary.sampleTotalActiveMs)
     .filter((value) => typeof value === "number");
+  const offsetReadTotals = ok
+    .map((scenario) => offsetReads(scenario.summary))
+    .filter((value) => typeof value === "number");
 
   return {
     activeMs: ok.length > 0 ? total("medianActiveMs") : null,
@@ -541,23 +628,30 @@ function summarizeReport(report) {
     medianTotalSampleActiveMs: median(totalSampleActiveTimes),
     itemSlotCalls: ok.length > 0 ? total("medianItemSlotCalls") : null,
     longTaskCount: ok.length > 0 ? total("medianLongTaskCount") : null,
+    offsetReads:
+      offsetReadTotals.length > 0 ? offsetReadTotals.reduce((sum, value) => sum + value, 0) : null,
     quietMs: ok.length > 0 ? total("medianQuietMs") : null,
-    rectReads: ok.length > 0 ? total("medianBoundingRectReads") : null,
+    bboxReads: ok.length > 0 ? total("medianBoundingRectReads") : null,
+    clientRectReads: ok.length > 0 ? total("medianClientRectReads") : null,
     scenarios: report.scenarios.length,
     settledMs: ok.length > 0 ? total("medianSettledMs") : null,
     supportedScenarios: ok.length,
-    version: report.target.version,
+    version: label,
   };
 }
 
-function cellMetrics(row, version) {
-  return row.cells.find((cell) => cell.version === version)?.metrics ?? null;
+function cellForKey(row, key) {
+  return row.cells.find((cell) => cell.key === key) ?? null;
 }
 
-const versionSummaries = reports.map(summarizeReport);
-const adjacentPairs = reports.slice(1).map((to, index) => ({
-  from: reports[index],
-  label: `${reports[index].target.version}>${to.target.version}`,
+function cellMetrics(row, key) {
+  return cellForKey(row, key)?.metrics ?? null;
+}
+
+const versionSummaries = reportColumns.map(summarizeReport);
+const adjacentPairs = reportColumns.slice(1).map((to, index) => ({
+  from: reportColumns[index],
+  label: `${reportColumns[index].label}>${to.label}`,
   to,
 }));
 
@@ -565,20 +659,24 @@ function summarizePair(pair) {
   const totals = {
     activeAfter: 0,
     activeBefore: 0,
+    bboxReadsAfter: 0,
+    bboxReadsBefore: 0,
+    clientRectReadsAfter: 0,
+    clientRectReadsBefore: 0,
     itemSlotCallsAfter: 0,
     itemSlotCallsBefore: 0,
     longTaskCountAfter: 0,
     longTaskCountBefore: 0,
-    rectReadsAfter: 0,
-    rectReadsBefore: 0,
+    offsetReadsAfter: 0,
+    offsetReadsBefore: 0,
     settledAfter: 0,
     settledBefore: 0,
   };
   let comparableScenarios = 0;
 
   for (const row of matrix) {
-    const before = cellMetrics(row, pair.from.target.version);
-    const after = cellMetrics(row, pair.to.target.version);
+    const before = cellMetrics(row, pair.from.key);
+    const after = cellMetrics(row, pair.to.key);
 
     if (!before || !after) {
       continue;
@@ -589,8 +687,12 @@ function summarizePair(pair) {
     totals.activeAfter += after.medianActiveMs ?? 0;
     totals.settledBefore += before.medianSettledMs ?? 0;
     totals.settledAfter += after.medianSettledMs ?? 0;
-    totals.rectReadsBefore += before.medianBoundingRectReads ?? 0;
-    totals.rectReadsAfter += after.medianBoundingRectReads ?? 0;
+    totals.bboxReadsBefore += before.medianBoundingRectReads ?? 0;
+    totals.bboxReadsAfter += after.medianBoundingRectReads ?? 0;
+    totals.clientRectReadsBefore += before.medianClientRectReads ?? 0;
+    totals.clientRectReadsAfter += after.medianClientRectReads ?? 0;
+    totals.offsetReadsBefore += offsetReads(before) ?? 0;
+    totals.offsetReadsAfter += offsetReads(after) ?? 0;
     totals.itemSlotCallsBefore += before.medianItemSlotCalls ?? 0;
     totals.itemSlotCallsAfter += after.medianItemSlotCalls ?? 0;
     totals.longTaskCountBefore += before.medianLongTaskCount ?? 0;
@@ -601,21 +703,23 @@ function summarizePair(pair) {
     activeDelta: percentDelta(totals.activeBefore, totals.activeAfter),
     activeMsAfter: comparableScenarios > 0 ? totals.activeAfter : null,
     activeMsBefore: comparableScenarios > 0 ? totals.activeBefore : null,
+    bboxReadsDelta: percentDelta(totals.bboxReadsBefore, totals.bboxReadsAfter),
+    clientRectReadsDelta: percentDelta(totals.clientRectReadsBefore, totals.clientRectReadsAfter),
     comparableScenarios,
-    from: pair.from.target.version,
+    from: pair.from.label,
     itemSlotCallsDelta: percentDelta(totals.itemSlotCallsBefore, totals.itemSlotCallsAfter),
     longTaskCountDelta: percentDelta(totals.longTaskCountBefore, totals.longTaskCountAfter),
-    rectReadsDelta: percentDelta(totals.rectReadsBefore, totals.rectReadsAfter),
+    offsetReadsDelta: percentDelta(totals.offsetReadsBefore, totals.offsetReadsAfter),
     settledDelta: percentDelta(totals.settledBefore, totals.settledAfter),
-    to: pair.to.target.version,
+    to: pair.to.label,
   };
 }
 
 function topMoversForPair(pair, limit = 8) {
   return matrix
     .map((row) => {
-      const before = cellMetrics(row, pair.from.target.version);
-      const after = cellMetrics(row, pair.to.target.version);
+      const before = cellMetrics(row, pair.from.key);
+      const after = cellMetrics(row, pair.to.key);
       const delta = percentDelta(before?.medianActiveMs, after?.medianActiveMs);
 
       return { after, before, delta, row };
@@ -667,10 +771,10 @@ markdown.push("");
 markdown.push("## Version summary");
 markdown.push("");
 markdown.push(
-  "| Version | Scenarios | Samples | Sample wall ms | Sample active ms | Median active CV | Max active CV | Median active RME | Max active RME | Active ms | Settled ms | Quiet ms | Rect reads | Item slot calls | Long tasks |",
+  "| Version | Scenarios | Samples | Sample wall ms | Sample active ms | Median active CV | Max active CV | Median active RME | Max active RME | Active ms | Settled ms | Quiet ms | BBox reads | Client rects | Offset reads | Item slot calls | Long tasks |",
 );
 markdown.push(
-  "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+  "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
 );
 
 for (const summary of versionSummaries) {
@@ -687,7 +791,10 @@ for (const summary of versionSummaries) {
     )} | ${formatNumber(
       summary.activeMs,
     )} | ${formatNumber(summary.settledMs)} | ${formatNumber(summary.quietMs)} | ${formatNumber(
-      summary.rectReads,
+      summary.bboxReads,
+      0,
+    )} | ${formatNumber(summary.clientRectReads, 0)} | ${formatNumber(
+      summary.offsetReads,
       0,
     )} | ${formatNumber(summary.itemSlotCalls, 0)} | ${formatNumber(summary.longTaskCount, 0)} |`,
   );
@@ -698,9 +805,9 @@ if (adjacentSummaries.length > 0) {
   markdown.push("## Adjacent release summary");
   markdown.push("");
   markdown.push(
-    "| From | To | Comparable scenarios | Active delta | Active ms | Rect delta | Slot delta | Settled delta | Long task delta |",
+    "| From | To | Comparable scenarios | Active delta | Active ms | BBox delta | Client rect delta | Offset delta | Slot delta | Settled delta | Long task delta |",
   );
-  markdown.push("| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |");
+  markdown.push("| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |");
 
   for (const summary of adjacentSummaries) {
     markdown.push(
@@ -708,7 +815,9 @@ if (adjacentSummaries.length > 0) {
         summary.activeDelta,
       )} | ${formatNumber(summary.activeMsBefore)} -> ${formatNumber(
         summary.activeMsAfter,
-      )} | ${formatPercent(summary.rectReadsDelta)} | ${formatPercent(
+      )} | ${formatPercent(summary.bboxReadsDelta)} | ${formatPercent(
+        summary.clientRectReadsDelta,
+      )} | ${formatPercent(summary.offsetReadsDelta)} | ${formatPercent(
         summary.itemSlotCallsDelta,
       )} | ${formatPercent(summary.settledDelta)} | ${formatPercent(summary.longTaskCountDelta)} |`,
     );
@@ -719,14 +828,14 @@ markdown.push("");
 markdown.push("## Active time matrix");
 markdown.push("");
 markdown.push(
-  "| Component | Scenario | " + reports.map((report) => report.target.version).join(" | ") + " |",
+  "| Component | Scenario | " + reportColumns.map((column) => column.label).join(" | ") + " |",
 );
-markdown.push("| --- | --- | " + reports.map(() => "---:").join(" | ") + " |");
+markdown.push("| --- | --- | " + reportColumns.map(() => "---:").join(" | ") + " |");
 
 for (const row of matrix) {
   markdown.push(
-    `| ${row.component} | ${row.scenario} | ${reports
-      .map((report) => formatNumber(cellMetrics(row, report.target.version)?.medianActiveMs))
+    `| ${row.component} | ${row.scenario} | ${reportColumns
+      .map((column) => formatNumber(cellMetrics(row, column.key)?.medianActiveMs))
       .join(" | ")} |`,
   );
 }
@@ -737,9 +846,7 @@ if (adjacentPairs.length > 0) {
   markdown.push("");
   markdown.push(
     "| Component | Scenario | " +
-      adjacentPairs
-        .map((pair) => `${pair.from.target.version} -> ${pair.to.target.version}`)
-        .join(" | ") +
+      adjacentPairs.map((pair) => `${pair.from.label} -> ${pair.to.label}`).join(" | ") +
       " |",
   );
   markdown.push("| --- | --- | " + adjacentPairs.map(() => "---:").join(" | ") + " |");
@@ -748,8 +855,8 @@ if (adjacentPairs.length > 0) {
     markdown.push(
       `| ${row.component} | ${row.scenario} | ${adjacentPairs
         .map((pair) => {
-          const before = cellMetrics(row, pair.from.target.version);
-          const after = cellMetrics(row, pair.to.target.version);
+          const before = cellMetrics(row, pair.from.key);
+          const after = cellMetrics(row, pair.to.key);
           const timingSignal = before && after ? adjacentTimingSignal(before, after) : null;
           const delta = timingSignal?.delta ?? null;
           return timingSignal?.lowConfidence ? `~${formatPercent(delta)}` : formatPercent(delta);
@@ -766,13 +873,15 @@ if (adjacentPairs.length > 0) {
   );
 
   for (const pair of adjacentPairs) {
-    const caveats = releaseCaveats.get(pair.label);
+    const caveats = releaseCaveats.get(
+      `${pair.from.report.target.version}>${pair.to.report.target.version}`,
+    );
     if (!caveats) {
       continue;
     }
 
     markdown.push("");
-    markdown.push(`### ${pair.from.target.version} -> ${pair.to.target.version}`);
+    markdown.push(`### ${pair.from.label} -> ${pair.to.label}`);
     markdown.push("");
 
     for (const caveat of caveats) {
@@ -790,12 +899,12 @@ if (adjacentPairs.length > 0) {
     }
 
     markdown.push("");
-    markdown.push(`### ${pair.from.target.version} -> ${pair.to.target.version}`);
+    markdown.push(`### ${pair.from.label} -> ${pair.to.label}`);
     markdown.push("");
     markdown.push(
-      "| Component | Scenario | Active delta | Active ms | Active RME | Confidence | Rect delta | Slot delta | Settled delta |",
+      "| Component | Scenario | Active delta | Active ms | Active RME | Confidence | BBox delta | Client rect delta | Offset delta | Slot delta | Settled delta |",
     );
-    markdown.push("| --- | --- | ---: | ---: | ---: | --- | ---: | ---: | ---: |");
+    markdown.push("| --- | --- | ---: | ---: | ---: | --- | ---: | ---: | ---: | ---: | ---: |");
 
     for (const { after, before, delta, row } of movers) {
       const timingSignal = adjacentTimingSignal(before, after);
@@ -812,6 +921,10 @@ if (adjacentPairs.length > 0) {
             : "normal"
         } | ${formatPercent(
           percentDelta(before.medianBoundingRectReads, after.medianBoundingRectReads),
+        )} | ${formatPercent(
+          percentDelta(before.medianClientRectReads, after.medianClientRectReads),
+        )} | ${formatPercent(
+          percentDelta(offsetReads(before), offsetReads(after)),
         )} | ${formatPercent(
           percentDelta(before.medianItemSlotCalls, after.medianItemSlotCalls),
         )} | ${formatPercent(percentDelta(before.medianSettledMs, after.medianSettledMs))} |`,
@@ -927,35 +1040,38 @@ function drawMatrixPanel({ cellForColumn, columns, description, title, top }) {
 
 drawMatrixPanel({
   cellForColumn(row, column) {
-    const metrics = cellMetrics(row, column.version);
+    const metrics = cellMetrics(row, column.key);
     const value = metrics?.medianActiveMs;
     const baseline = row.cells.find((cell) => cell.metrics)?.metrics?.medianActiveMs;
     const delta = percentDelta(baseline, value);
+    const cell = cellForKey(row, column.key);
 
     return {
       fill: metrics ? colorForDelta(delta) : "#e5e7eb",
       text: value === undefined ? "N/A" : formatNumber(value, 0),
       title:
         value === undefined
-          ? `${column.version} ${row.scenario}: N/A${
-              row.cells.find((cell) => cell.version === column.version)?.reason
-                ? `, ${row.cells.find((cell) => cell.version === column.version)?.reason}`
-                : ""
-            }`
-          : `${column.version} ${row.scenario}: active ${formatMs(
+          ? `${column.label} ${row.scenario}: N/A${cell?.reason ? `, ${cell.reason}` : ""}`
+          : `${column.label} ${row.scenario}: active ${formatMs(
               value,
             )}, delta ${formatPercent(delta)}, active RME ${formatUnsignedPercent(
               metrics.sampleRme95ActiveMs,
             )}, active CV ${formatUnsignedPercent(metrics.sampleCvActiveMs)}, active stddev ${formatMs(
               metrics.sampleStdDevActiveMs,
+            )}, bbox reads ${formatNumber(metrics.medianBoundingRectReads, 0)}, client rects ${formatNumber(
+              metrics.medianClientRectReads,
+              0,
+            )}, offset reads ${formatNumber(
+              offsetReads(metrics),
+              0,
             )}, mean active MOE ${formatMs(metrics.sampleMoe95MeanActiveMs)}, total sampled active ${formatMs(
               metrics.sampleTotalActiveMs,
             )}, sample wall ${formatMs(metrics.sampleWallMs)}, samples ${metrics.sampleCount ?? "N/A"}`,
     };
   },
-  columns: reports.map((report) => ({
-    label: report.target.version,
-    version: report.target.version,
+  columns: reportColumns.map((column) => ({
+    key: column.key,
+    label: column.label,
   })),
   description:
     "Cell text is median active ms; color is delta vs this scenario's first supported version.",
@@ -965,8 +1081,8 @@ drawMatrixPanel({
 
 drawMatrixPanel({
   cellForColumn(row, column) {
-    const before = cellMetrics(row, column.pair.from.target.version);
-    const after = cellMetrics(row, column.pair.to.target.version);
+    const before = cellMetrics(row, column.pair.from.key);
+    const after = cellMetrics(row, column.pair.to.key);
     const { delta, lowConfidence, lowConfidenceReasons, workDelta } = adjacentTimingSignal(
       before,
       after,
@@ -976,11 +1092,15 @@ drawMatrixPanel({
       cornerMarker: lowConfidence ? `Low confidence: ${lowConfidenceReasons.join("; ")}` : null,
       fill: before && after ? colorForDelta(delta) : "#e5e7eb",
       text: delta === null ? "N/A" : `${lowConfidence ? "~" : ""}${formatPercent(delta)}`,
-      title: `${column.pair.from.target.version} > ${column.pair.to.target.version} ${
+      title: `${column.pair.from.label} > ${column.pair.to.label} ${
         row.scenario
       }: active ${formatMs(before?.medianActiveMs)} -> ${formatMs(
         after?.medianActiveMs,
-      )}, delta ${formatPercent(delta)}${
+      )}, delta ${formatPercent(delta)}, bbox ${formatPercent(
+        percentDelta(before?.medianBoundingRectReads, after?.medianBoundingRectReads),
+      )}, client rect ${formatPercent(
+        percentDelta(before?.medianClientRectReads, after?.medianClientRectReads),
+      )}, offset ${formatPercent(percentDelta(offsetReads(before), offsetReads(after)))}${
         lowConfidence
           ? `, low confidence: ${lowConfidenceReasons.join("; ")}`
           : typeof workDelta === "number"

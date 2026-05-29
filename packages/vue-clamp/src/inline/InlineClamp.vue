@@ -10,15 +10,23 @@ import {
   watchPostEffect,
 } from "vue";
 import { trueOrUndefined } from "../attributes.ts";
-import { combinedSizeSignature, createCoalescingRunner, listenForFontLoads } from "../layout.ts";
+import {
+  borderBoxObserverOptions,
+  borderBoxSizeSignature,
+  createCoalescingRunner,
+  hasBorderBoxEntrySignatureChange,
+  listenForFontLoads,
+} from "../layout.ts";
 import { visuallyHiddenTextStyle } from "../styles.ts";
 import { clampTextToFit, normalizeLocationRatio, prepareText } from "../text.ts";
 import { inlineClampRootStyle } from "./styles.ts";
 
 import type { InlineClampProps } from "./types.ts";
-import type { TextClampResult } from "../text.ts";
+import type { PreparedText, TextClampResult } from "../text.ts";
 
 const fitTolerance = 0.5;
+const fullFitSkipGrowLimit = 24;
+const contentIndependentWidth = /^(?:-?(?:\d|\.\d)|calc\(|clamp\(|max\(|min\()/u;
 
 defineOptions({
   name: "InlineClamp",
@@ -38,18 +46,39 @@ const rootRef = useTemplateRef<HTMLElement>("root");
 const bodyRef = useTemplateRef("body");
 const parts = computed(() => split?.(text) ?? { body: text });
 const preparedBody = computed(() => prepareText(parts.value.body, boundary));
-const visibleBody = shallowRef(parts.value.body);
-const isRewritten = computed(() => visibleBody.value !== parts.value.body);
+// Search writes the final candidate into the live body node; this snapshot
+// only triggers Vue when the accessibility structure must change.
+const visibleBody = shallowRef({ text: parts.value.body });
+const isRewritten = computed(() => visibleBody.value.text !== parts.value.body);
 
 let resizeObserver: ResizeObserver | null = null;
 let stopFonts = () => {};
 let lastLayoutSignature: string | null = null;
 let lastTextClamp: TextClampResult | null = null;
+let lastParentSizeSignature = "0x0";
+let lastRootSizeSignature = "0x0";
 
 function layoutSignature(): string {
   // The parent controls available inline width while the root records the
   // rendered result; observing both catches shrink and grow transitions.
-  return combinedSizeSignature(rootRef.value?.parentElement ?? null, rootRef.value);
+  lastParentSizeSignature = borderBoxSizeSignature(rootRef.value?.parentElement ?? null);
+  lastRootSizeSignature = borderBoxSizeSignature(rootRef.value);
+
+  return lastParentSizeSignature + "|" + lastRootSizeSignature;
+}
+
+function lastObservedSignature(element: Element): string | null {
+  const rootElement = rootRef.value;
+
+  if (element === rootElement?.parentElement) {
+    return lastParentSizeSignature;
+  }
+
+  if (element === rootElement) {
+    return lastRootSizeSignature;
+  }
+
+  return null;
 }
 
 function clampBody(): string | null {
@@ -61,39 +90,59 @@ function clampBody(): string | null {
     return body;
   }
 
-  // Always restore the full body before measuring. Otherwise a previously
-  // shortened inline-block could become the stale width limit after growth.
-  bodyElement.textContent = body;
+  let currentBody = bodyElement.textContent ?? "";
+
+  function applyBodyText(nextBody: string): void {
+    if (nextBody !== currentBody) {
+      bodyElement.textContent = nextBody;
+      currentBody = nextBody;
+    }
+  }
+
+  const canMeasureCurrentWidth = currentBody !== body && canTrustCurrentRootWidth(rootElement);
+  if (!canMeasureCurrentWidth) {
+    // Content-sized inline-blocks need the full body before measurement.
+    // Otherwise a shortened previous result becomes the stale width limit.
+    applyBodyText(body);
+  }
 
   const limit = rootElement.getBoundingClientRect().width;
 
   if (limit <= 0) {
     // Do not replace visible text with a zero-width guess during mount or hidden
     // layout states.
+    applyBodyText(body);
     return null;
   }
 
   const fitsCurrentBody = () => rootElement.scrollWidth <= limit + fitTolerance;
   const prepared = preparedBody.value;
+  const skipFullFit = canSkipFullBodyFit(prepared, limit);
 
-  if (fitsCurrentBody()) {
-    // Store the full body as the next warm-start point so a following shrink
-    // starts from the real upper bound.
-    lastTextClamp = {
-      boundaryOffsets: prepared.boundaryOffsets,
-      kept: prepared.boundaryOffsets.length - 1,
-      text: body,
-    };
-    return body;
+  if (!skipFullFit) {
+    applyBodyText(body);
+
+    if (fitsCurrentBody()) {
+      // Store the full body as the next warm-start point so a following shrink
+      // starts from the real upper bound.
+      lastTextClamp = {
+        boundaryOffsets: prepared.boundaryOffsets,
+        kept: prepared.boundaryOffsets.length - 1,
+        rootWidth: limit,
+        text: body,
+      };
+      return body;
+    }
   }
 
   const nextResult = clampTextToFit({
     ellipsis,
     fits(candidate) {
-      bodyElement.textContent = candidate;
+      applyBodyText(candidate);
       return fitsCurrentBody();
     },
     hint: lastTextClamp,
+    includeFullCandidate: skipFullFit,
     prepared,
     ratio: normalizeLocationRatio(location),
     // Split affixes already own the outer spacing; preserve spaces at the body
@@ -101,17 +150,49 @@ function clampBody(): string | null {
     spacing: "preserve-outer",
   });
   const nextBody = nextResult.text;
-  bodyElement.textContent = nextBody;
-  lastTextClamp = nextResult;
+  applyBodyText(nextBody);
+  lastTextClamp = {
+    ...nextResult,
+    rootWidth: limit,
+  };
 
   return nextBody;
+}
+
+function canTrustCurrentRootWidth(element: HTMLElement): boolean {
+  return contentIndependentWidth.test(element.style.width.trim());
+}
+
+function canSkipFullBodyFit(prepared: PreparedText, rootWidth: number): boolean {
+  if (lastTextClamp === null) {
+    return false;
+  }
+
+  const boundaryCount = prepared.boundaryOffsets.length - 1;
+  return (
+    lastTextClamp.boundaryOffsets === prepared.boundaryOffsets &&
+    lastTextClamp.kept < boundaryCount &&
+    lastTextClamp.rootWidth !== undefined &&
+    rootWidth <= lastTextClamp.rootWidth + fullFitSkipGrowLimit
+  );
+}
+
+function applyVisibleBody(nextBody: string): void {
+  const body = parts.value.body;
+  const sourceHiddenChanged = (visibleBody.value.text !== body) !== (nextBody !== body);
+
+  if (sourceHiddenChanged) {
+    visibleBody.value = { text: nextBody };
+  } else {
+    visibleBody.value.text = nextBody;
+  }
 }
 
 const requestRecompute = createCoalescingRunner(async () => {
   const nextBody = clampBody();
 
-  if (nextBody !== null && visibleBody.value !== nextBody) {
-    visibleBody.value = nextBody;
+  if (nextBody !== null && visibleBody.value.text !== nextBody) {
+    applyVisibleBody(nextBody);
   }
 
   lastLayoutSignature = layoutSignature();
@@ -123,7 +204,7 @@ watch(
     // A split or semantic prop change means the previous boundary hint may
     // refer to a different body string.
     lastTextClamp = null;
-    visibleBody.value = parts.value.body;
+    visibleBody.value = { text: parts.value.body };
     requestRecompute();
   },
   { flush: "post" },
@@ -140,8 +221,8 @@ watchPostEffect((onCleanup) => {
     (element): element is HTMLElement => element instanceof HTMLElement,
   );
 
-  resizeObserver ??= new ResizeObserver(() => {
-    if (layoutSignature() !== lastLayoutSignature) {
+  resizeObserver ??= new ResizeObserver((entries) => {
+    if (hasBorderBoxEntrySignatureChange(entries, lastObservedSignature)) {
       // Width-only changes are the hot path, so recompute only when the coarse
       // dimensions actually changed.
       requestRecompute();
@@ -149,7 +230,7 @@ watchPostEffect((onCleanup) => {
   });
 
   for (const element of observed) {
-    resizeObserver.observe(element);
+    resizeObserver.observe(element, borderBoxObserverOptions);
   }
 
   onCleanup(() => {
@@ -195,7 +276,7 @@ onBeforeUnmount(() => {
     </span>
 
     <span ref="body" :aria-hidden="trueOrUndefined(isRewritten)" data-part="body">
-      {{ visibleBody }}
+      {{ visibleBody.text }}
     </span>
 
     <span v-if="parts.end" :aria-hidden="trueOrUndefined(isRewritten)" data-part="end">

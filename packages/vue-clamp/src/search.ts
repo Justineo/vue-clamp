@@ -1,6 +1,6 @@
-// Two local expansion steps capture normal resize deltas while bounding the
-// penalty when a previous answer is far from the new fit boundary.
-const warmExpansionLimit = 2;
+// Two default local expansion steps capture normal resize deltas while bounding
+// the penalty when a previous answer is far from the new fit boundary.
+const defaultWarmExpansionLimit = 2;
 
 // The clamp predicates are monotonic: once an index stops fitting, larger
 // indexes cannot fit. The helper searches for the highest index that still fits.
@@ -53,6 +53,7 @@ export function findLastFittingIndex(
   count: number,
   fits: (index: number) => boolean,
   hint?: number | null,
+  expansionLimit = defaultWarmExpansionLimit,
 ): number {
   if (count <= 0) {
     return -1;
@@ -82,7 +83,7 @@ export function findLastFittingIndex(
 
       fit = probe;
       expansions += 1;
-      if (expansions >= warmExpansionLimit) {
+      if (expansions >= expansionLimit) {
         return binarySearchLastFit(fit + 1, maxIndex, fits, fit);
       }
 
@@ -107,7 +108,7 @@ export function findLastFittingIndex(
 
     failed = probe;
     expansions += 1;
-    if (expansions >= warmExpansionLimit) {
+    if (expansions >= expansionLimit) {
       return binarySearchLastFit(0, failed - 1, fits);
     }
 

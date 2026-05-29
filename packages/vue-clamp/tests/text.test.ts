@@ -112,4 +112,25 @@ describe("text helpers", () => {
     expect(probes[0]).toBe(43);
     expect(probes).toContain(37);
   });
+
+  it("can include the full text as a warm search candidate", () => {
+    const prepared = prepareText("abcdef");
+    const result = clampTextToFit({
+      ellipsis: "…",
+      fits: (text) => text.length <= prepared.text.length,
+      hint: {
+        boundaryOffsets: prepared.boundaryOffsets,
+        kept: 4,
+      },
+      includeFullCandidate: true,
+      prepared,
+      ratio: 1,
+    });
+
+    expect(result).toEqual({
+      boundaryOffsets: prepared.boundaryOffsets,
+      kept: 6,
+      text: "abcdef",
+    });
+  });
 });

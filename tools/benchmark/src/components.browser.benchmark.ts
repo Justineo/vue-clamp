@@ -1,5 +1,6 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vite-plus/test";
 import { createApp, defineComponent, h, ref, version as vueVersion } from "vue";
+import { benchmarkTargets } from "vue-clamp-benchmark-targets";
 import {
   beginTracking,
   createActivityTracker,
@@ -20,6 +21,13 @@ import type { App, Component, Ref, VNodeChild } from "vue";
 type ComponentName = "InlineClamp" | "LineClamp" | "RichLineClamp" | "WrapClamp";
 
 type VueClampModule = Partial<Record<ComponentName, Component>>;
+
+type BenchmarkTarget = {
+  entry: string;
+  module: VueClampModule;
+  specifier: string;
+  version: string;
+};
 
 type Counter = {
   increment: () => void;
@@ -120,7 +128,7 @@ const lineBatchSize = 16;
 const inlineBatchSize = 16;
 const richBatchSize = 16;
 
-let vueClamp: VueClampModule = {};
+const targets = benchmarkTargets as BenchmarkTarget[];
 
 function integerSamplingValue(name: keyof typeof __VUE_CLAMP_BENCH_SAMPLING__): number | null {
   const value = __VUE_CLAMP_BENCH_SAMPLING__[name];
@@ -245,11 +253,11 @@ function compareVersions(left: string, right: string): number {
   return 0;
 }
 
-function unsupportedScenarioReason(scenario: PublicScenario): string | null {
-  if (
-    scenario.minVersion &&
-    compareVersions(__VUE_CLAMP_BENCH_TARGET__.version, scenario.minVersion) < 0
-  ) {
+function unsupportedScenarioReason(
+  scenario: PublicScenario,
+  target: Pick<BenchmarkTarget, "version">,
+): string | null {
+  if (scenario.minVersion && compareVersions(target.version, scenario.minVersion) < 0) {
     return (
       scenario.unsupportedReason ??
       `${scenario.name} requires vue-clamp ${scenario.minVersion} or newer.`
@@ -1463,6 +1471,29 @@ function scenarios(): PublicScenario[] {
   ];
 }
 
+function matchesScenarioFilter(scenario: PublicScenario, filter: ReadonlySet<string>): boolean {
+  return filter.has(scenario.name) || filter.has(scenario.group) || filter.has(scenario.component);
+}
+
+function selectedScenarios(): PublicScenario[] {
+  const allScenarios = scenarios();
+  const filter = new Set(__VUE_CLAMP_BENCH_SCENARIOS__);
+  if (filter.size === 0) {
+    return allScenarios;
+  }
+
+  const selected = allScenarios.filter((scenario) => matchesScenarioFilter(scenario, filter));
+  if (selected.length === 0) {
+    throw new Error(
+      `VUE_CLAMP_BENCH_SCENARIOS did not match any scenario name, group, or component: ${[
+        ...filter,
+      ].join(", ")}`,
+    );
+  }
+
+  return selected;
+}
+
 function emptyStepDiagnostics(): StepDiagnostics {
   return {
     activeMs: 0,
@@ -1611,36 +1642,115 @@ async function runBenchmark(
     runs.push(run);
 
     if (runs.length >= benchmarkSamplingConfig.minRuns) {
-      summary = summarizeRuns(runs);
-      summary.sampleTotalActiveMs = runs.reduce((total, item) => total + (item.activeMs ?? 0), 0);
-      summary.sampleWallMs = performance.now() - measuredStartedAt;
+      const sampleWallMs = performance.now() - measuredStartedAt;
+      summary = benchmarkSummary(runs, sampleWallMs);
 
       if (
-        summary.sampleWallMs >= benchmarkSamplingConfig.minScenarioMs ||
-        summary.sampleWallMs >= benchmarkSamplingConfig.maxScenarioMs
+        sampleWallMs >= benchmarkSamplingConfig.minScenarioMs ||
+        sampleWallMs >= benchmarkSamplingConfig.maxScenarioMs
       ) {
         break;
       }
     }
   }
 
-  const finalSummary = summary ?? summarizeRuns(runs);
-  finalSummary.sampleTotalActiveMs = runs.reduce((total, item) => total + (item.activeMs ?? 0), 0);
-  finalSummary.sampleWallMs = performance.now() - measuredStartedAt;
+  return summary ?? benchmarkSummary(runs, performance.now() - measuredStartedAt);
+}
 
-  return finalSummary;
+type BenchmarkTargetInput = {
+  component: Component;
+  target: BenchmarkTarget;
+};
+
+type BenchmarkTargetState = BenchmarkTargetInput & {
+  done: boolean;
+  runs: BenchmarkRun[];
+  sampleWallMs: number;
+  summary: BenchmarkSummary | null;
+};
+
+function benchmarkSummary(runs: BenchmarkRun[], sampleWallMs: number): BenchmarkSummary {
+  const summary = summarizeRuns(runs);
+  summary.sampleTotalActiveMs = runs.reduce((total, item) => total + (item.activeMs ?? 0), 0);
+  summary.sampleWallMs = sampleWallMs;
+
+  return summary;
+}
+
+async function runTargetBenchmarks(
+  scenario: PublicScenario,
+  inputs: readonly BenchmarkTargetInput[],
+): Promise<{ summary: BenchmarkSummary; target: BenchmarkTarget }[]> {
+  if (inputs.length === 1) {
+    const input = inputs[0]!;
+    return [
+      {
+        summary: await runBenchmark(scenario, input.component),
+        target: input.target,
+      },
+    ];
+  }
+
+  for (let index = 0; index < benchmarkSamplingConfig.warmupRuns; index += 1) {
+    for (const input of inputs) {
+      await runScenarioOnce(scenario, input.component);
+    }
+  }
+
+  const states: BenchmarkTargetState[] = inputs.map((input) => ({
+    ...input,
+    done: false,
+    runs: [],
+    sampleWallMs: 0,
+    summary: null,
+  }));
+
+  let remaining = states.length;
+  while (remaining > 0) {
+    for (const state of states) {
+      if (state.done) {
+        continue;
+      }
+
+      const startedAt = performance.now();
+      const run = await runScenarioOnce(scenario, state.component);
+      state.sampleWallMs += performance.now() - startedAt;
+      state.runs.push(run);
+
+      if (state.runs.length < benchmarkSamplingConfig.minRuns) {
+        continue;
+      }
+
+      state.summary = benchmarkSummary(state.runs, state.sampleWallMs);
+
+      if (
+        state.sampleWallMs >= benchmarkSamplingConfig.minScenarioMs ||
+        state.sampleWallMs >= benchmarkSamplingConfig.maxScenarioMs ||
+        state.runs.length >= benchmarkSamplingConfig.maxRuns
+      ) {
+        state.done = true;
+        remaining -= 1;
+      }
+    }
+  }
+
+  return states.map((state) => ({
+    summary: state.summary ?? benchmarkSummary(state.runs, state.sampleWallMs),
+    target: state.target,
+  }));
 }
 
 function formatMetric(value: unknown, digits = 1): string {
   return typeof value === "number" ? value.toFixed(digits) : "N/A";
 }
 
-function logScenarioResult(result: ScenarioResult): void {
+function logScenarioResult(target: BenchmarkTarget, result: ScenarioResult): void {
   if (result.status === "unsupported") {
     console.error(
       [
         "BENCH_SCENARIO",
-        `version=${__VUE_CLAMP_BENCH_TARGET__.version}`,
+        `version=${target.version}`,
+        `target=${JSON.stringify(target.specifier)}`,
         `component=${result.component}`,
         `scenario=${result.scenario}`,
         "status=unsupported",
@@ -1654,7 +1764,8 @@ function logScenarioResult(result: ScenarioResult): void {
   console.error(
     [
       "BENCH_SCENARIO",
-      `version=${__VUE_CLAMP_BENCH_TARGET__.version}`,
+      `version=${target.version}`,
+      `target=${JSON.stringify(target.specifier)}`,
       `component=${result.component}`,
       `scenario=${result.scenario}`,
       "status=ok",
@@ -1672,7 +1783,6 @@ function logScenarioResult(result: ScenarioResult): void {
 
 beforeAll(async () => {
   installBenchmarkSpies();
-  vueClamp = (await import("vue-clamp")) as VueClampModule;
 });
 
 afterEach(() => {
@@ -1685,53 +1795,71 @@ afterAll(() => {
 
 describe("vue-clamp package benchmark", () => {
   it("reports public component workloads", async () => {
-    const results: ScenarioResult[] = [];
+    const resultsByTarget = new Map<BenchmarkTarget, ScenarioResult[]>(
+      targets.map((target) => [target, []]),
+    );
 
-    for (const scenario of scenarios()) {
-      const unsupportedReason = unsupportedScenarioReason(scenario);
-      if (unsupportedReason) {
+    for (const scenario of selectedScenarios()) {
+      const runnable: BenchmarkTargetInput[] = [];
+
+      for (const target of targets) {
+        const unsupportedReason = unsupportedScenarioReason(scenario, target);
+        const targetResults = resultsByTarget.get(target)!;
+
+        if (unsupportedReason) {
+          const result: ScenarioResult = {
+            component: scenario.component,
+            group: scenario.group,
+            reason: unsupportedReason,
+            scenario: scenario.name,
+            status: "unsupported",
+          };
+          targetResults.push(result);
+          logScenarioResult(target, result);
+          continue;
+        }
+
+        const component = target.module[scenario.component];
+
+        if (!component) {
+          const result: ScenarioResult = {
+            component: scenario.component,
+            group: scenario.group,
+            reason: `${scenario.component} is not exported by this target.`,
+            scenario: scenario.name,
+            status: "unsupported",
+          };
+          targetResults.push(result);
+          logScenarioResult(target, result);
+          continue;
+        }
+
+        runnable.push({
+          component,
+          target,
+        });
+      }
+
+      const summaries = await runTargetBenchmarks(scenario, runnable);
+
+      for (const { summary, target } of summaries) {
         const result: ScenarioResult = {
           component: scenario.component,
           group: scenario.group,
-          reason: unsupportedReason,
           scenario: scenario.name,
-          status: "unsupported",
+          status: "ok",
+          summary,
         };
-        results.push(result);
-        logScenarioResult(result);
-        continue;
+        resultsByTarget.get(target)!.push(result);
+        logScenarioResult(target, result);
       }
-
-      const component = vueClamp[scenario.component];
-
-      if (!component) {
-        const result: ScenarioResult = {
-          component: scenario.component,
-          group: scenario.group,
-          reason: `${scenario.component} is not exported by this target.`,
-          scenario: scenario.name,
-          status: "unsupported",
-        };
-        results.push(result);
-        logScenarioResult(result);
-        continue;
-      }
-
-      const result: ScenarioResult = {
-        component: scenario.component,
-        group: scenario.group,
-        scenario: scenario.name,
-        status: "ok",
-        summary: await runBenchmark(scenario, component),
-      };
-      results.push(result);
-      logScenarioResult(result);
     }
 
-    const report = {
+    const reports = targets.map((target) => ({
       environment: {
         browser: "chromium",
         sampling: benchmarkSamplingConfig,
+        scenarioFilter: __VUE_CLAMP_BENCH_SCENARIOS__,
         viewport: {
           height: 900,
           width: 1280,
@@ -1739,17 +1867,36 @@ describe("vue-clamp package benchmark", () => {
         vueVersion,
       },
       schemaVersion: 3,
-      scenarios: results,
-      target: __VUE_CLAMP_BENCH_TARGET__,
-    };
+      scenarios: resultsByTarget.get(target)!,
+      target: {
+        entry: target.entry,
+        specifier: target.specifier,
+        version: target.version,
+      },
+    }));
+    const report =
+      reports.length === 1
+        ? reports[0]
+        : {
+            reports,
+            schemaVersion: 4,
+          };
 
     console.error(`PACKAGE_MATRIX_BENCHMARK ${JSON.stringify(report)}`);
 
-    expect(results.some((result) => result.status === "ok")).toBe(true);
-    for (const result of results) {
-      if (result.status === "ok") {
-        expect(result.summary.runs.length).toBeGreaterThanOrEqual(benchmarkSamplingConfig.minRuns);
-        expect(result.summary.runs.length).toBeLessThanOrEqual(benchmarkSamplingConfig.maxRuns);
+    expect(
+      [...resultsByTarget.values()].some((results) =>
+        results.some((result) => result.status === "ok"),
+      ),
+    ).toBe(true);
+    for (const results of resultsByTarget.values()) {
+      for (const result of results) {
+        if (result.status === "ok") {
+          expect(result.summary.runs.length).toBeGreaterThanOrEqual(
+            benchmarkSamplingConfig.minRuns,
+          );
+          expect(result.summary.runs.length).toBeLessThanOrEqual(benchmarkSamplingConfig.maxRuns);
+        }
       }
     }
   });

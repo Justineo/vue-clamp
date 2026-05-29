@@ -1,25 +1,35 @@
 <script setup lang="ts">
 import { computed, h, mergeProps, nextTick, shallowRef, useAttrs, watch } from "vue";
-import { cssLength, normalizeLineLimit } from "../layout.ts";
+import { borderBoxWidth, cssLength, normalizeLineLimit } from "../layout.ts";
 import { useMultilineClamp } from "../multiline.ts";
 import { renderMultilineAffixSlot } from "../multiline-render.ts";
 import { multilineSlotStyle } from "../multiline-styles.ts";
 import { clampRich, patchRich, prepareRich } from "../rich.ts";
 import { richProbeStyle } from "./styles.ts";
 
-import type { ComponentPublicInstance, VNodeChild } from "vue";
+import type { VNodeChild } from "vue";
 import type { ClampEmits } from "../types.ts";
-import type { PreparedRich, RichState } from "../rich.ts";
-import type {
-  RichLineClampExposed,
-  RichLineClampProps,
-  RichLineClampSlotProps,
-  RichLineClampSlots,
-} from "./types.ts";
+import type { PreparedRich, RichClampProbe, RichState } from "../rich.ts";
+import type { RichLineClampExposed, RichLineClampProps, RichLineClampSlots } from "./types.ts";
 
 type ProbeElements = {
+  affixes: {
+    after: ProbeAffixState;
+    before: ProbeAffixState;
+  };
   body: HTMLElement;
   content: HTMLElement;
+};
+
+type ProbeAffixState = {
+  clone: HTMLElement | null;
+  signature: string | null;
+  source: HTMLElement | null;
+};
+
+type PreparedProbe = {
+  affixSignature: string;
+  probe: RichClampProbe;
 };
 
 // Large width jumps are cheaper as cold search than as repeated local expansion.
@@ -56,6 +66,7 @@ const preparedHtml = computed(() => prepareRich(html, boundary));
 let visibleState: RichState | null = null;
 let probeState: RichState | null = null;
 let probeElements: ProbeElements | null = null;
+let probeStateAffixSignature: string | null = null;
 let probeStateWidth: number | null = null;
 
 const {
@@ -68,13 +79,18 @@ const {
   expand,
   collapse,
   toggle,
+  observedSizeSignature,
+  affixSlotProps,
+  setBeforeElement,
+  setAfterElement,
   requestRecompute,
 } = useMultilineClamp({
   expanded,
   onClampedChange: (value) => {
     emit("clampchange", value);
   },
-  recompute: async (expanded): Promise<void> => {
+  syncAffixSignaturesOnRootChange: true,
+  recompute: async (expanded, rootWidthSnapshot): Promise<void> => {
     const lineLimit = normalizeLineLimit(maxLines);
 
     if (
@@ -97,16 +113,21 @@ const {
       return;
     }
 
-    const probe = prepareProbe();
-    if (!probe) {
+    const preparedProbe = prepareProbe(rootWidthSnapshot);
+    if (!preparedProbe) {
       await resetClamp();
       return;
     }
 
+    const { affixSignature, probe } = preparedProbe;
     const searchHint =
       probeStateWidth === null || Math.abs(probe.width - probeStateWidth) <= warmSearchWidthDelta
         ? probeState
         : null;
+    const preferHintedTextRun =
+      searchHint?.kind === "clamped" &&
+      probeStateWidth !== null &&
+      affixSignature === probeStateAffixSignature;
     // Search hints help nearby resizes but can cost more on large jumps. The
     // current probe state is still passed separately so patching remains correct
     // even when the search starts cold.
@@ -117,9 +138,12 @@ const {
       lineLimit,
       maxHeight,
       prepared,
+      preferHintedTextRun,
       probe,
+      skipFullFit: canSkipFullRichFit(probe.width),
     });
     probeState = result.state;
+    probeStateAffixSignature = affixSignature;
     probeStateWidth = probe.width;
 
     if (!result.state) {
@@ -137,17 +161,121 @@ const {
 function createProbe(): ProbeElements {
   const content = document.createElement("span");
   const body = document.createElement("span");
+  content.appendChild(body);
 
   return {
+    affixes: {
+      after: createProbeAffixState(),
+      before: createProbeAffixState(),
+    },
     body,
     content,
   };
 }
 
+function createProbeAffixState(): ProbeAffixState {
+  return {
+    clone: null,
+    signature: null,
+    source: null,
+  };
+}
+
+function ensureProbeRoot(probeRoot: HTMLElement, content: HTMLElement): void {
+  if (content.parentNode === probeRoot && probeRoot.childNodes.length === 1) {
+    return;
+  }
+
+  probeRoot.replaceChildren(content);
+}
+
+function syncProbeContent(
+  elements: ProbeElements,
+  beforeElement: HTMLElement | null,
+  afterElement: HTMLElement | null,
+): void {
+  const { body, content } = elements;
+  const beforeClone = syncProbeAffixClone(
+    elements.affixes.before,
+    beforeElement,
+    observedSizeSignature(beforeElement),
+  );
+  const afterClone = syncProbeAffixClone(
+    elements.affixes.after,
+    afterElement,
+    observedSizeSignature(afterElement),
+  );
+
+  if (!beforeClone && !afterClone) {
+    if (body.parentNode !== content || content.childNodes.length !== 1) {
+      content.replaceChildren(body);
+    }
+
+    return;
+  }
+
+  const nextChildren: HTMLElement[] = [];
+  if (beforeClone) {
+    nextChildren.push(beforeClone);
+  }
+
+  nextChildren.push(body);
+
+  if (afterClone) {
+    nextChildren.push(afterClone);
+  }
+
+  const currentChildren = content.childNodes;
+  let structureChanged = currentChildren.length !== nextChildren.length;
+  for (let index = 0; !structureChanged && index < nextChildren.length; index += 1) {
+    structureChanged = currentChildren[index] !== nextChildren[index];
+  }
+
+  if (structureChanged) {
+    content.replaceChildren(...nextChildren);
+  }
+}
+
+function syncProbeAffixClone(
+  affixState: ProbeAffixState,
+  source: HTMLElement | null,
+  nextSignature: string,
+): HTMLElement | null {
+  if (!source) {
+    affixState.clone = null;
+    affixState.signature = null;
+    affixState.source = null;
+    return null;
+  }
+
+  if (affixState.clone && affixState.source === source && affixState.signature === nextSignature) {
+    return affixState.clone;
+  }
+
+  // Slot content affects fit but should not be mutated by rich candidate
+  // patches, so the probe receives cloned slot boxes.
+  const clone = source.cloneNode(true) as HTMLElement;
+  affixState.clone = clone;
+  affixState.signature = nextSignature;
+  affixState.source = source;
+
+  return clone;
+}
+
 function resetStates(): void {
   visibleState = null;
   probeState = null;
+  probeStateAffixSignature = null;
   probeStateWidth = null;
+}
+
+function canSkipFullRichFit(width: number): boolean {
+  const state = probeState;
+  const stateWidth = probeStateWidth;
+
+  return (
+    state?.kind === "clamped" && stateWidth !== null && width <= stateWidth + warmSearchWidthDelta
+  );
 }
 
 function patchVisible(prepared: PreparedRich, state: RichState): void {
@@ -189,12 +317,11 @@ async function resetClamp(): Promise<void> {
   await applyStatus(false, false);
 }
 
-function prepareProbe(): {
-  body: HTMLElement;
-  content: HTMLElement;
-  root: HTMLElement;
-  width: number;
-} | null {
+function probeAffixSignature(elements: ProbeElements): string {
+  return `${elements.affixes.before.signature ?? ""}|${elements.affixes.after.signature ?? ""}`;
+}
+
+function prepareProbe(rootWidth?: number): PreparedProbe | null {
   const rootElement = rootRef.value;
   const probeRoot = probeRef.value;
   if (!rootElement || !probeRoot) {
@@ -203,59 +330,27 @@ function prepareProbe(): {
 
   const elements = (probeElements ??= createProbe());
   const normalizedMaxHeight = cssLength(maxHeight);
-  const width = rootElement.getBoundingClientRect().width;
+  const width = rootWidth ?? borderBoxWidth(rootElement);
 
   probeRoot.style.width = `${width}px`;
-  probeRoot.style.maxHeight = normalizedMaxHeight === undefined ? "" : String(normalizedMaxHeight);
+  probeRoot.style.maxHeight = normalizedMaxHeight ?? "";
   probeRoot.style.overflow = normalizedMaxHeight === undefined ? "visible" : "hidden";
 
-  elements.content.replaceChildren();
-
   const beforeElement = beforeRef.value;
-  if (beforeElement) {
-    // Slot content affects fit but should not be mutated by rich candidate
-    // patches, so the probe receives cloned slot boxes.
-    elements.content.appendChild(beforeElement.cloneNode(true));
-  }
-
-  elements.content.appendChild(elements.body);
-
   const afterElement = afterRef.value;
-  if (afterElement) {
-    elements.content.appendChild(afterElement.cloneNode(true));
-  }
 
-  probeRoot.replaceChildren(elements.content);
+  syncProbeContent(elements, beforeElement, afterElement);
+  ensureProbeRoot(probeRoot, elements.content);
 
   return {
-    body: elements.body,
-    content: elements.content,
-    root: probeRoot,
-    width,
+    affixSignature: probeAffixSignature(elements),
+    probe: {
+      body: elements.body,
+      content: elements.content,
+      root: probeRoot,
+      width,
+    },
   };
-}
-
-function setAffixElement(
-  target: typeof beforeRef,
-  element: ComponentPublicInstance | Element | null,
-): void {
-  const nextElement = element instanceof HTMLElement ? element : null;
-  if (target.value === nextElement) {
-    return;
-  }
-
-  target.value = nextElement;
-  // The hidden probe clones affix wrappers, so wait until Vue has committed the
-  // latest slot DOM before triggering another measurement pass.
-  void nextTick(requestRecompute);
-}
-
-function setBeforeElement(element: ComponentPublicInstance | Element | null): void {
-  setAffixElement(beforeRef, element);
-}
-
-function setAfterElement(element: ComponentPublicInstance | Element | null): void {
-  setAffixElement(afterRef, element);
 }
 
 function renderAffixSlot(part: "before" | "after"): VNodeChild | null {
@@ -268,13 +363,7 @@ function renderAffixSlot(part: "before" | "after"): VNodeChild | null {
     part,
     render: slot,
     setRef: part === "before" ? setBeforeElement : setAfterElement,
-    slotProps: {
-      expand,
-      collapse,
-      toggle,
-      clamped: isClamped.value,
-      expanded: expanded.value,
-    } satisfies RichLineClampSlotProps,
+    slotProps: affixSlotProps(),
     slotStyle: multilineSlotStyle,
   });
 }
@@ -282,6 +371,13 @@ function renderAffixSlot(part: "before" | "after"): VNodeChild | null {
 function render(): VNodeChild {
   const collapsedMaxHeight =
     !expanded.value && !isFallback.value ? cssLength(maxHeight) : undefined;
+  const rootStyle =
+    collapsedMaxHeight === undefined
+      ? undefined
+      : {
+          maxHeight: collapsedMaxHeight,
+          overflow: "hidden",
+        };
   const children: VNodeChild[] = [];
   const beforeSlot = renderAffixSlot("before");
   if (beforeSlot) {
@@ -306,10 +402,7 @@ function render(): VNodeChild {
     mergeProps(attrs, {
       "data-part": "root",
       ref: rootRef,
-      style: {
-        maxHeight: collapsedMaxHeight,
-        overflow: collapsedMaxHeight ? "hidden" : undefined,
-      },
+      style: rootStyle,
     }),
     [
       h(

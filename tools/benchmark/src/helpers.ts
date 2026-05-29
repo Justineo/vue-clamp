@@ -10,6 +10,8 @@ export type BenchmarkMetrics = {
   imageCloneCalls: number;
   mutationCallbacks: number;
   mutationRecords: number;
+  offsetHeightReads: number;
+  offsetWidthReads: number;
   replaceChildrenCalls: number;
   resizeObserverCallbacks: number;
   scrollWidthReads: number;
@@ -49,6 +51,8 @@ type GetterMetric =
   | "clientHeightReads"
   | "clientTopReads"
   | "clientWidthReads"
+  | "offsetHeightReads"
+  | "offsetWidthReads"
   | "scrollWidthReads";
 
 type GetterPatch = {
@@ -125,6 +129,8 @@ function emptyMetrics(): BenchmarkMetrics {
     imageCloneCalls: 0,
     mutationCallbacks: 0,
     mutationRecords: 0,
+    offsetHeightReads: 0,
+    offsetWidthReads: 0,
     replaceChildrenCalls: 0,
     resizeObserverCallbacks: 0,
     scrollWidthReads: 0,
@@ -313,6 +319,8 @@ export function installBenchmarkSpies(): void {
   patchGetter("clientHeight", "clientHeightReads");
   patchGetter("clientTop", "clientTopReads");
   patchGetter("clientWidth", "clientWidthReads");
+  patchGetter("offsetHeight", "offsetHeightReads");
+  patchGetter("offsetWidth", "offsetWidthReads");
   patchGetter("scrollWidth", "scrollWidthReads");
   patchReplaceChildren();
   patchCloneNode();

@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "vite-plus/test";
 import { Comment, createApp, defineComponent, h, nextTick, ref } from "vue";
-import { LineClamp } from "../src/index.ts";
+import { InlineClamp, LineClamp } from "../src/index.ts";
+import { patchRich, prepareRich } from "../src/rich.ts";
 import {
   accessibleTextElement,
   afterElement,
@@ -19,6 +20,7 @@ import {
 } from "./browser.ts";
 
 import type { LineClampExposed, RichLineClampExposed } from "../src/index.ts";
+import type { RichState } from "../src/rich.ts";
 
 const DEMO_TEXT =
   "Vue (pronounced /vjuː/, like view) is a progressive framework for building user interfaces. Unlike other monolithic frameworks, Vue is designed from the ground up to be incrementally adoptable. The core library is focused on the view layer only, and is easy to pick up and integrate with other libraries or existing projects. On the other hand, Vue is also perfectly capable of powering sophisticated Single-Page Applications when used in combination with modern tooling and supporting libraries.";
@@ -61,6 +63,28 @@ function lineContentElement(root: HTMLElement): HTMLElement {
   }
 
   return content;
+}
+
+function inlineBodyElement(root: HTMLElement): HTMLElement {
+  const body = root.querySelector('[data-part="body"]');
+  if (!(body instanceof HTMLElement)) {
+    throw new Error("Expected inline clamp body element.");
+  }
+
+  return body;
+}
+
+function measuredTextWidth(text: string, style: string): number {
+  const span = document.createElement("span");
+  span.style.cssText = `${style};position:absolute;visibility:hidden;white-space:nowrap`;
+  span.textContent = text;
+  document.body.append(span);
+
+  try {
+    return span.getBoundingClientRect().width;
+  } finally {
+    span.remove();
+  }
 }
 
 describe("LineClamp browser contract", () => {
@@ -424,6 +448,68 @@ describe("LineClamp browser contract", () => {
     expect(await sampleVisibleLineCounts(root)).toEqual([3, 3, 3]);
   });
 
+  it("reclamps measured text across repeated external container resizes", async () => {
+    const sourceText = "Alpha beta gamma delta epsilon zeta eta theta iota kappa";
+    const mounted = mountClamp({
+      text: sourceText,
+      applyWidthToComponent: false,
+      containerStyle: "width:128px",
+      style: "line-height:20px",
+      props: {
+        maxLines: 2,
+      },
+      after: () => h("button", { type: "button" }, "More"),
+    });
+
+    const root = rootElement(mounted.container);
+    await waitUntilVisible(root);
+    await settle(4);
+
+    expect(textElement(root).textContent).toContain("…");
+    expect((mounted.exposed.value as LineClampExposed).clamped).toBe(true);
+
+    mounted.container.style.width = "760px";
+    await settle(4);
+
+    expect(textElement(root).textContent).toBe(sourceText);
+    expect((mounted.exposed.value as LineClampExposed).clamped).toBe(false);
+
+    mounted.container.style.width = "128px";
+    await settle(4);
+
+    expect(textElement(root).textContent).toContain("…");
+    expect((mounted.exposed.value as LineClampExposed).clamped).toBe(true);
+    expect(await sampleVisibleLineCounts(root)).toEqual([2, 2, 2]);
+  });
+
+  it("recovers full measured text after a large width grow", async () => {
+    const sourceText = "Alpha beta gamma delta epsilon zeta eta theta iota kappa";
+    const mounted = mountClamp({
+      text: sourceText,
+      width: 128,
+      style: "line-height:20px",
+      props: {
+        maxLines: 2,
+      },
+      after: () => h("button", { type: "button" }, "More"),
+    });
+
+    const root = rootElement(mounted.container);
+    await waitUntilVisible(root);
+    await settle(4);
+
+    expect(textElement(root).textContent).toContain("…");
+    expect((mounted.exposed.value as LineClampExposed).clamped).toBe(true);
+
+    mounted.width.value = 760;
+    await settle(4);
+
+    expect(textElement(root).textContent).toBe(sourceText);
+    expect(accessibleTextElement(root)).toBeNull();
+    expect((mounted.exposed.value as LineClampExposed).clamped).toBe(false);
+    expect((await sampleVisibleLineCounts(root)).every((count) => count <= 2)).toBe(true);
+  });
+
   it("keeps updates within the requested line limit after a text swap", async () => {
     const nextText = "0123456789abcdefghijklmnopqrstuvwxyz";
     const mounted = mountClamp({
@@ -584,6 +670,97 @@ describe("LineClamp browser contract", () => {
     expect(accessibleTextElement(root)?.textContent).toBe(sourceText);
   });
 
+  it("updates rewritten visible and accessible text when the source text changes", async () => {
+    const nextText = "Omega beta gamma delta epsilon zeta eta theta iota kappa lambda";
+    const mounted = mountClamp({
+      text: "Alpha beta gamma delta epsilon zeta eta theta iota kappa lambda",
+      width: 170,
+      props: {
+        ellipsis: "...",
+        maxLines: 1,
+      },
+      after: () => h("button", { type: "button" }, "More"),
+    });
+
+    const root = rootElement(mounted.container);
+    await waitUntilVisible(root);
+    await settle(4);
+
+    expect(textElement(root).textContent).toContain("Alpha");
+    expect(accessibleTextElement(root)?.textContent).toContain("Alpha");
+
+    mounted.text.value = nextText;
+    await settle(4);
+
+    expect(textElement(root).textContent).toContain("Omega");
+    expect(textElement(root).textContent).not.toContain("Alpha");
+    expect(accessibleTextElement(root)?.textContent).toBe(nextText);
+    expect((mounted.exposed.value as LineClampExposed).clamped).toBe(true);
+  });
+
+  it("restores full inline text after a small width grow", async () => {
+    const sourceText = "abcdefghijklmnopqrstuvwxyz";
+    const textStyle = "font:16px Menlo,monospace;line-height:20px";
+    const fullWidth = measuredTextWidth(sourceText, textStyle);
+    const width = ref(Math.ceil(fullWidth - 8));
+    const container = document.createElement("div");
+    document.body.append(container);
+
+    const Host = defineComponent({
+      setup() {
+        return () =>
+          h(InlineClamp, {
+            location: "middle",
+            style: `width:${width.value}px;${textStyle}`,
+            text: sourceText,
+          });
+      },
+    });
+
+    const app = createApp(Host);
+    app.mount(container);
+
+    try {
+      const root = rootElement(container);
+      await settle(4);
+
+      expect(inlineBodyElement(root).textContent).not.toBe(sourceText);
+      expect(inlineBodyElement(root).getAttribute("aria-hidden")).toBe("true");
+
+      width.value = Math.ceil(fullWidth + 2);
+      await settle(4);
+
+      expect(inlineBodyElement(root).textContent).toBe(sourceText);
+      expect(inlineBodyElement(root).getAttribute("aria-hidden")).toBeNull();
+    } finally {
+      app.unmount();
+      container.remove();
+    }
+  });
+
+  it("keeps the rich root ellipsis when reclamping from a trimmed root text cut", () => {
+    const prepared = prepareRich("<span></span> abc");
+    if (!prepared) {
+      throw new Error("Expected rich preparation to be available.");
+    }
+
+    const target = document.createElement("span");
+    let state: RichState | null = null;
+
+    state = patchRich(
+      prepared,
+      target,
+      state,
+      { kind: "clamped", point: { path: [1], offset: 1 } },
+      "…",
+    );
+    expect(target.textContent).toBe("…");
+
+    patchRich(prepared, target, state, { kind: "clamped", point: { path: [1], offset: 2 } }, "…");
+
+    expect([...target.childNodes].map((node) => node.textContent)).toEqual(["", " a", "…"]);
+  });
+
   it("clamps supported inline html while preserving rich markup", async () => {
     const mounted = mountRichClamp({
       html: RICH_TEXT_HTML,
@@ -606,6 +783,107 @@ describe("LineClamp browser contract", () => {
     expect(accessibleTextElement(root)).toBeNull();
     expect((mounted.exposed.value as RichLineClampExposed).clamped).toBe(true);
     expect(await sampleVisibleLineCounts(root)).toEqual([2, 2, 2]);
+  });
+
+  it("keeps supported rich html within the line limit at fractional widths", async () => {
+    const mounted = mountRichClamp({
+      html: RICH_TEXT_HTML,
+      width: 170.671875,
+      props: {
+        maxLines: 2,
+      },
+    });
+
+    const root = rootElement(mounted.container);
+    await waitUntilVisible(root);
+    await settle(4);
+
+    expect((mounted.exposed.value as RichLineClampExposed).clamped).toBe(true);
+    expect(
+      Number.parseFloat((root.lastElementChild as HTMLElement | null)?.style.width ?? ""),
+    ).toBeCloseTo(170.671875, 3);
+    expect(await sampleVisibleLineCounts(root)).toEqual([2, 2, 2]);
+  });
+
+  it("recovers full rich html after a small width grow from a clamped state", async () => {
+    const sourceHtml = "<strong>Alpha beta</strong> gamma delta epsilon zeta";
+    const mounted = mountRichClamp({
+      html: sourceHtml,
+      width: 128,
+      props: {
+        maxLines: 2,
+      },
+    });
+
+    const root = rootElement(mounted.container);
+    await waitUntilVisible(root);
+    await settle(4);
+
+    expect(richContentElement(root).textContent).toContain("…");
+    expect((mounted.exposed.value as RichLineClampExposed).clamped).toBe(true);
+
+    mounted.width.value = 160;
+    await settle(4);
+
+    expect(richContentElement(root).innerHTML).toBe(sourceHtml);
+    expect((mounted.exposed.value as RichLineClampExposed).clamped).toBe(false);
+    expect(await sampleVisibleLineCounts(root)).toEqual([2, 2, 2]);
+  });
+
+  it("reclamps rich html when an affix wrapper keeps identity but changes size", async () => {
+    const afterWidth = ref(20);
+    const mounted = mountRichClamp({
+      after: () =>
+        h("span", {
+          style: `display:inline-block;width:${afterWidth.value}px`,
+        }),
+      html: RICH_TEXT_HTML,
+      width: 170,
+      props: {
+        maxLines: 2,
+      },
+    });
+
+    const root = rootElement(mounted.container);
+    await waitUntilVisible(root);
+    await settle(4);
+
+    const initialText = richContentElement(root).textContent ?? "";
+    expect(initialText).toContain("…");
+    expect(await sampleVisibleLineCounts(root)).toEqual([2, 2, 2]);
+
+    afterWidth.value = 120;
+    await settle(8);
+
+    const renderedAfter = afterElement(root)?.firstElementChild as HTMLElement | null;
+    expect(renderedAfter?.getBoundingClientRect().width).toBeCloseTo(120, 3);
+    expect(richContentElement(root).textContent?.length ?? 0).toBeLessThan(initialText.length);
+    expect((mounted.exposed.value as RichLineClampExposed).clamped).toBe(true);
+    expect(await sampleVisibleLineCounts(root)).toEqual([2, 2, 2]);
+  });
+
+  it("replaces clamped rich html when the source changes to a fitting value", async () => {
+    const shortHtml = "<em>Short rich text</em>";
+    const mounted = mountRichClamp({
+      html: "<strong>Alpha beta gamma delta epsilon zeta eta theta iota kappa</strong>",
+      width: 130,
+      props: {
+        maxLines: 1,
+      },
+    });
+
+    const root = rootElement(mounted.container);
+    await waitUntilVisible(root);
+    await settle(4);
+
+    expect(richContentElement(root).textContent).toContain("…");
+    expect((mounted.exposed.value as RichLineClampExposed).clamped).toBe(true);
+
+    mounted.html.value = shortHtml;
+    await settle(4);
+
+    expect(richContentElement(root).innerHTML).toBe(shortHtml);
+    expect((mounted.exposed.value as RichLineClampExposed).clamped).toBe(false);
   });
 
   it("can clamp supported rich text at word boundaries", async () => {

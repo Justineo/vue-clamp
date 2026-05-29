@@ -1,4 +1,4 @@
-import { fitsContent } from "./layout.ts";
+import { fitsContent, visibleRootTop } from "./layout.ts";
 import { findLastFittingIndex } from "./search.ts";
 
 import type { ClampBoundary, ClampLength, LineClampLocation } from "./types.ts";
@@ -23,6 +23,7 @@ export interface PreparedText {
 export interface TextClampHint {
   readonly boundaryOffsets: readonly number[];
   readonly kept: number;
+  readonly rootWidth?: number;
 }
 
 export interface TextClampResult extends TextClampHint {
@@ -31,12 +32,17 @@ export interface TextClampResult extends TextClampHint {
 
 type MaybeTextClampHint = TextClampHint | null | undefined;
 
+// Nearby width changes benefit from warm search; large jumps are cheaper as
+// cold search than as repeated local expansion from a stale answer.
+const layoutHintMaxWidthDelta = 32;
+
 export type TextClampSpacing = "trim" | "preserve-outer";
 
 export type TextClampFitInput = {
   readonly ellipsis: string;
   readonly fits: (text: string) => boolean;
   readonly hint?: MaybeTextClampHint;
+  readonly includeFullCandidate?: boolean;
   readonly prepared: PreparedText;
   readonly ratio: number;
   readonly spacing?: TextClampSpacing;
@@ -51,6 +57,8 @@ export type TextClampLayoutInput = {
   readonly prepared: PreparedText;
   readonly ratio: number;
   readonly root: HTMLElement;
+  readonly rootWidth: number;
+  readonly skipFullFit?: boolean;
   readonly target: HTMLElement;
 };
 
@@ -69,7 +77,12 @@ function graphemeBoundaryOffsets(text: string, asciiSafe = isAsciiSafe(text)): n
   if (asciiSafe) {
     // ASCII has one UTF-16 code unit per grapheme in the range we accept here,
     // so this hot path avoids Intl.Segmenter for common English/code strings.
-    return Array.from({ length: text.length + 1 }, (_, index) => index);
+    const offsets: number[] = [];
+    for (let index = 0; index <= text.length; index += 1) {
+      offsets.push(index);
+    }
+
+    return offsets;
   }
 
   const boundaryOffsets = [0];
@@ -154,18 +167,23 @@ export function displayTextForKeptCount(
   // share the same search over a single candidate count.
   const prefix = Math.floor(kept * ratio);
   const suffix = kept - prefix;
-  const prefixText = text.slice(0, boundaryOffsets[prefix]);
-  const suffixText = text.slice(boundaryOffsets[boundaryCount - suffix]);
-  const trimPrefix = spacing === "preserve-outer" ? prefixText.trimEnd() : prefixText.trim();
-  const trimSuffix = spacing === "preserve-outer" ? suffixText.trimStart() : suffixText.trim();
 
   if (prefix <= 0) {
+    const suffixText = text.slice(boundaryOffsets[boundaryCount - suffix]);
+    const trimSuffix = spacing === "preserve-outer" ? suffixText.trimStart() : suffixText.trim();
+
     return `${ellipsis}${trimSuffix}`;
   }
+
+  const prefixText = text.slice(0, boundaryOffsets[prefix]);
+  const trimPrefix = spacing === "preserve-outer" ? prefixText.trimEnd() : prefixText.trim();
 
   if (suffix <= 0) {
     return `${trimPrefix}${ellipsis}`;
   }
+
+  const suffixText = text.slice(boundaryOffsets[boundaryCount - suffix]);
+  const trimSuffix = spacing === "preserve-outer" ? suffixText.trimStart() : suffixText.trim();
 
   return `${trimPrefix}${ellipsis}${trimSuffix}`;
 }
@@ -190,18 +208,20 @@ export function clampTextToFit({
   ellipsis,
   fits,
   hint,
+  includeFullCandidate = false,
   prepared,
   ratio,
   spacing = "trim",
 }: TextClampFitInput): TextClampResult {
   const boundaryCount = prepared.boundaryOffsets.length - 1;
+  const searchCount = Math.max(1, boundaryCount + (includeFullCandidate ? 1 : 0));
 
   // The search helper works over indexes. For text, the index is the number of
   // boundary units kept, with at least the zero-kept ellipsis candidate present.
   const best = Math.max(
     0,
     findLastFittingIndex(
-      Math.max(1, boundaryCount),
+      searchCount,
       (kept) => fits(displayTextForKeptCount(prepared, ratio, ellipsis, kept, spacing)),
       hint?.boundaryOffsets === prepared.boundaryOffsets ? hint.kept : null,
     ),
@@ -214,6 +234,7 @@ export function clampTextToFit({
       ellipsis,
       fits,
       hint,
+      includeFullCandidate,
       prepared: {
         text: prepared.text,
         boundary: "grapheme",
@@ -242,14 +263,22 @@ export function clampTextToLayout({
   prepared,
   ratio,
   root,
+  rootWidth,
+  skipFullFit = false,
   target,
 }: TextClampLayoutInput): TextClampResult | null {
-  if (root.getBoundingClientRect().width <= 0) {
+  if (rootWidth <= 0) {
     // Measuring against an unlaid-out root would only cache a bogus clamp.
     return null;
   }
 
   const { text } = prepared;
+  const cachedVisibleTop = maxHeight === undefined ? undefined : visibleRootTop(root);
+  const hintRootWidth = hint?.rootWidth;
+  const searchHint =
+    hintRootWidth === undefined || Math.abs(rootWidth - hintRootWidth) <= layoutHintMaxWidthDelta
+      ? hint
+      : null;
   let currentText = target.textContent ?? "";
 
   function applyText(nextText: string): void {
@@ -259,28 +288,35 @@ export function clampTextToLayout({
     }
   }
 
-  applyText(text);
-  if (fitsContent(root, content, lineLimit, maxHeight)) {
-    // The full source is the cheapest and most correct answer when it fits.
-    // Store it as a warm-start hint so later shrink passes begin from full text.
-    return {
-      boundaryOffsets: prepared.boundaryOffsets,
-      kept: prepared.boundaryOffsets.length - 1,
-      text,
-    };
+  if (!skipFullFit) {
+    applyText(text);
+    if (fitsContent(root, content, lineLimit, maxHeight, true, cachedVisibleTop)) {
+      // The full source is the cheapest and most correct answer when it fits.
+      // Store it as a warm-start hint so later shrink passes begin from full text.
+      return {
+        boundaryOffsets: prepared.boundaryOffsets,
+        kept: prepared.boundaryOffsets.length - 1,
+        rootWidth,
+        text,
+      };
+    }
   }
 
   const result = clampTextToFit({
     ellipsis,
     fits(candidate) {
       applyText(candidate);
-      return fitsContent(root, content, lineLimit, maxHeight);
+      return fitsContent(root, content, lineLimit, maxHeight, true, cachedVisibleTop);
     },
-    hint,
+    hint: searchHint,
+    includeFullCandidate: skipFullFit,
     prepared,
     ratio,
   });
   applyText(result.text);
 
-  return result;
+  return {
+    ...result,
+    rootWidth,
+  };
 }
