@@ -5,11 +5,17 @@ import { useMultilineClamp } from "../multiline.ts";
 import { renderMultilineAffixSlot } from "../multiline-render.ts";
 import { multilineSlotStyle } from "../multiline-styles.ts";
 import { clampRich, patchRich, prepareRich } from "../rich.ts";
+import {
+  binarySearchProbeCount,
+  warmSearchLocalCoverage,
+  warmSearchProbeCount,
+  warmSearchRankMoveBudget,
+} from "../search.ts";
 import { richProbeStyle } from "./styles.ts";
 
 import type { VNodeChild } from "vue";
 import type { ClampEmits } from "../types.ts";
-import type { PreparedRich, RichClampProbe, RichState } from "../rich.ts";
+import type { PreparedRich, RichClampProbe, RichClampResult, RichState } from "../rich.ts";
 import type { RichLineClampExposed, RichLineClampProps, RichLineClampSlots } from "./types.ts";
 
 type ProbeElements = {
@@ -32,8 +38,16 @@ type PreparedProbe = {
   probe: RichClampProbe;
 };
 
-// Large width jumps are cheaper as cold search than as repeated local expansion.
-const warmSearchWidthDelta = 32;
+type RichRankHint = {
+  rank: number;
+  rankCount: number;
+  rankMoveError: number;
+  rankPerPx: number;
+  width: number;
+};
+
+const richWarmSearchExpansionLimit = 3;
+const richRankPerPxEmaWeight = 0.35;
 
 defineOptions({
   name: "RichLineClamp",
@@ -68,6 +82,7 @@ let probeState: RichState | null = null;
 let probeElements: ProbeElements | null = null;
 let probeStateAffixSignature: string | null = null;
 let probeStateWidth: number | null = null;
+let probeRankHint: RichRankHint | null = null;
 
 const {
   rootRef,
@@ -120,10 +135,7 @@ const {
     }
 
     const { affixSignature, probe } = preparedProbe;
-    const searchHint =
-      probeStateWidth === null || Math.abs(probe.width - probeStateWidth) <= warmSearchWidthDelta
-        ? probeState
-        : null;
+    const searchHint = canUseRichSearchHint(probe.width) ? probeState : null;
     const preferHintedTextRun =
       searchHint?.kind === "clamped" &&
       probeStateWidth !== null &&
@@ -145,6 +157,7 @@ const {
     probeState = result.state;
     probeStateAffixSignature = affixSignature;
     probeStateWidth = probe.width;
+    updateProbeRankHint(result, probe.width);
 
     if (!result.state) {
       // A zero-width probe should not replace visible content with a guessed rich
@@ -267,15 +280,155 @@ function resetStates(): void {
   probeState = null;
   probeStateAffixSignature = null;
   probeStateWidth = null;
+  probeRankHint = null;
 }
 
 function canSkipFullRichFit(width: number): boolean {
   const state = probeState;
-  const stateWidth = probeStateWidth;
+  const rankHint = probeRankHint;
+
+  if (state?.kind !== "clamped" || !rankHint) {
+    return false;
+  }
+
+  const deltaWidth = width - rankHint.width;
+  if (deltaWidth <= 0) {
+    return true;
+  }
+
+  const hiddenRank = rankHint.rankCount - rankHint.rank;
+  const searchCount = richSearchCount(rankHint, true);
+  const estimatedGain = deltaWidth * rankHint.rankPerPx;
+
+  if (rankHint.rank + Math.ceil(estimatedGain) >= rankHint.rankCount) {
+    return false;
+  }
 
   return (
-    state?.kind === "clamped" && stateWidth !== null && width <= stateWidth + warmSearchWidthDelta
+    deltaWidth <= richFullFitSkipWidthBudget(rankHint.width, searchCount) &&
+    estimatedGain < hiddenRank &&
+    estimatedBestRichSearchProbeCount(width, true) <=
+      1 + estimatedBestRichSearchProbeCount(width, false)
   );
+}
+
+function canUseRichSearchHint(width: number): boolean {
+  const rankHint = probeRankHint;
+
+  if (!probeState || !rankHint) {
+    return false;
+  }
+
+  const searchCount = richSearchCount(rankHint, true);
+  const estimatedRankMove = Math.abs(width - rankHint.width) * rankHint.rankPerPx;
+  const localCoverage = warmSearchLocalCoverage(richWarmSearchExpansionLimit);
+  // Local expansion already absorbs small layout quantization errors; only
+  // prediction misses beyond that local window should make a hint cold.
+  const excessPredictionError =
+    estimatedRankMove <= localCoverage ? 0 : Math.max(0, rankHint.rankMoveError - localCoverage);
+  const rankMoveBudget = richWarmSearchRankBudget(searchCount);
+
+  return estimatedRankMove + excessPredictionError <= rankMoveBudget;
+}
+
+function richSearchCount(rankHint: RichRankHint, includeFullCandidate: boolean): number {
+  return rankHint.rankCount + (includeFullCandidate ? 1 : 0);
+}
+
+function richWarmSearchRankBudget(searchCount: number): number {
+  return warmSearchRankMoveBudget(searchCount, richWarmSearchExpansionLimit);
+}
+
+function richFullFitSkipWidthBudget(width: number, searchCount: number): number {
+  return width / binarySearchProbeCount(searchCount);
+}
+
+function estimatedRichTargetRank(width: number, includeFullCandidate: boolean): number {
+  const rankHint = probeRankHint;
+  if (!rankHint) {
+    return 0;
+  }
+
+  const maxRank = richSearchCount(rankHint, includeFullCandidate) - 1;
+  const deltaWidth = width - rankHint.width;
+  const rankMove = Math.abs(deltaWidth) * rankHint.rankPerPx + Math.max(0, rankHint.rankMoveError);
+  const target =
+    Math.max(0, Math.min(maxRank, rankHint.rank)) + Math.sign(deltaWidth) * Math.ceil(rankMove);
+
+  return Math.max(0, Math.min(maxRank, target));
+}
+
+function estimatedBestRichSearchProbeCount(width: number, includeFullCandidate: boolean): number {
+  const rankHint = probeRankHint;
+  if (!rankHint) {
+    return 0;
+  }
+
+  const searchCount = richSearchCount(rankHint, includeFullCandidate);
+  const target = estimatedRichTargetRank(width, includeFullCandidate);
+
+  return Math.min(
+    warmSearchProbeCount(searchCount, rankHint.rank, target, richWarmSearchExpansionLimit),
+    binarySearchProbeCount(searchCount),
+  );
+}
+
+function initialRichRankPerPx(rank: number, width: number): number {
+  return Math.max(1 / width, rank / width);
+}
+
+function nextRichRankPerPx(result: RichClampResult, width: number): number {
+  const rank = result.rank ?? 0;
+  const previous = probeRankHint;
+  if (!previous || previous.rankCount !== result.rankCount) {
+    return initialRichRankPerPx(rank, width);
+  }
+
+  const deltaWidth = Math.abs(width - previous.width);
+  if (deltaWidth === 0) {
+    return previous.rankPerPx;
+  }
+
+  const observed = Math.abs(rank - previous.rank) / deltaWidth;
+  if (!Number.isFinite(observed) || observed <= 0) {
+    return previous.rankPerPx;
+  }
+
+  return previous.rankPerPx * (1 - richRankPerPxEmaWeight) + observed * richRankPerPxEmaWeight;
+}
+
+function nextRichRankMoveError(result: RichClampResult, width: number): number {
+  const rank = result.rank ?? 0;
+  const previous = probeRankHint;
+  if (!previous || previous.rankCount !== result.rankCount) {
+    return 0;
+  }
+
+  const deltaWidth = Math.abs(width - previous.width);
+  if (deltaWidth === 0) {
+    return previous.rankMoveError;
+  }
+
+  const observed = Math.abs(rank - previous.rank);
+  const predicted = deltaWidth * previous.rankPerPx;
+  const error = Math.abs(observed - predicted);
+
+  return Math.max(error, previous.rankMoveError * (1 - richRankPerPxEmaWeight));
+}
+
+function updateProbeRankHint(result: RichClampResult, width: number): void {
+  if (result.rank === undefined || result.rankCount === undefined || result.rankCount <= 0) {
+    probeRankHint = null;
+    return;
+  }
+
+  probeRankHint = {
+    rank: result.rank,
+    rankCount: result.rankCount,
+    rankMoveError: nextRichRankMoveError(result, width),
+    rankPerPx: nextRichRankPerPx(result, width),
+    width,
+  };
 }
 
 function patchVisible(prepared: PreparedRich, state: RichState): void {

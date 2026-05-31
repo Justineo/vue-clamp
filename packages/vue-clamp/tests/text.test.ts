@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vite-plus/test";
-import { displayTextForKeptCount, prepareText, clampTextToFit } from "../src/text.ts";
+import {
+  canSkipFullTextFit,
+  canUseTextLayoutHint,
+  clampTextToFit,
+  displayTextForKeptCount,
+  prepareText,
+} from "../src/text.ts";
 
 describe("text helpers", () => {
   it("prepares ascii text as single-code-unit grapheme boundaries", () => {
@@ -132,5 +138,51 @@ describe("text helpers", () => {
       kept: 6,
       text: "abcdef",
     });
+  });
+
+  it("scales layout hint reuse by estimated boundary movement", () => {
+    const dense = prepareText("x".repeat(2800));
+    const wide = prepareText("wide ".repeat(108));
+
+    expect(
+      canUseTextLayoutHint(
+        {
+          boundaryOffsets: dense.boundaryOffsets,
+          kept: 1000,
+          rankPerPx: 1.6,
+          rootWidth: 720,
+        },
+        688,
+        8,
+      ),
+    ).toBe(false);
+    expect(
+      canUseTextLayoutHint(
+        {
+          boundaryOffsets: wide.boundaryOffsets,
+          kept: 48,
+          rankPerPx: 0.04,
+          rootWidth: 760,
+        },
+        712,
+        3,
+      ),
+    ).toBe(true);
+  });
+
+  it("skips full text fit based on remaining hidden boundary capacity", () => {
+    const prepared = prepareText("x".repeat(100));
+    const hint = {
+      boundaryOffsets: prepared.boundaryOffsets,
+      kept: 60,
+      rankPerPx: 0.1,
+      rootWidth: 200,
+    };
+
+    expect(canSkipFullTextFit(prepared, hint, 220, 3)).toBe(true);
+    expect(canSkipFullTextFit(prepared, hint, 240, 3)).toBe(false);
+    expect(canSkipFullTextFit(prepared, hint, 360, 3)).toBe(false);
+    expect(canSkipFullTextFit(prepared, hint, 620, 3)).toBe(false);
+    expect(canSkipFullTextFit(prepared, hint, 180, 3)).toBe(true);
   });
 });

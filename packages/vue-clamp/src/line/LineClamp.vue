@@ -13,13 +13,18 @@ import {
   resolveNativeMode,
 } from "../native.ts";
 import { visuallyHiddenTextStyle } from "../styles.ts";
-import { clampTextToLayout, normalizeLocationRatio, prepareText } from "../text.ts";
+import {
+  canSkipFullTextFit,
+  clampTextToLayout,
+  normalizeLocationRatio,
+  prepareText,
+} from "../text.ts";
 
 import type { CSSProperties, VNodeChild } from "vue";
 import type { ClampEmits } from "../types.ts";
 import type { LineClampExposed, LineClampProps, LineClampSlots } from "./types.ts";
 import type { NativeClampMode } from "../native.ts";
-import type { PreparedText, TextClampResult } from "../text.ts";
+import type { TextClampResult } from "../text.ts";
 
 defineOptions({
   name: "LineClamp",
@@ -49,7 +54,6 @@ const visibleText = shallowRef({ text });
 const multilineBodyStyle: CSSProperties = { position: "relative" };
 const overflowHiddenRootStyle: CSSProperties = { overflow: "hidden" };
 let lastTextClamp: TextClampResult | null = null;
-const fullFitSkipGrowLimit = 24;
 
 const lineLimit = computed(() => normalizeLineLimit(maxLines));
 const preparedText = computed(() => prepareText(text, boundary));
@@ -122,7 +126,7 @@ const {
       ratio: locationRatio,
       root: rootElement,
       rootWidth,
-      skipFullFit: canSkipFullTextFit(prepared, rootWidth),
+      skipFullFit: canSkipFullTextFit(prepared, lastTextClamp, rootWidth, currentLineLimit),
       target: textElement,
     });
 
@@ -165,21 +169,6 @@ async function resetClamp(): Promise<void> {
 
 function resetTextClampHint(): void {
   lastTextClamp = null;
-}
-
-function canSkipFullTextFit(prepared: PreparedText, rootWidth: number): boolean {
-  const last = lastTextClamp;
-  if (last === null) {
-    return false;
-  }
-
-  const boundaryCount = prepared.boundaryOffsets.length - 1;
-  return (
-    last.boundaryOffsets === prepared.boundaryOffsets &&
-    last.kept < boundaryCount &&
-    last.rootWidth !== undefined &&
-    rootWidth <= last.rootWidth + fullFitSkipGrowLimit
-  );
 }
 
 function hasClampLimit(currentLineLimit: number | undefined): boolean {

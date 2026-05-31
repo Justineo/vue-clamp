@@ -18,14 +18,19 @@ import {
   listenForFontLoads,
 } from "../layout.ts";
 import { visuallyHiddenTextStyle } from "../styles.ts";
-import { clampTextToFit, normalizeLocationRatio, prepareText } from "../text.ts";
+import {
+  canSkipFullTextFit,
+  clampTextToFit,
+  normalizeLocationRatio,
+  prepareText,
+  withTextClampMetrics,
+} from "../text.ts";
 import { inlineClampRootStyle } from "./styles.ts";
 
 import type { InlineClampProps } from "./types.ts";
 import type { PreparedText, TextClampResult } from "../text.ts";
 
 const fitTolerance = 0.5;
-const fullFitSkipGrowLimit = 24;
 const contentIndependentWidth = /^(?:-?(?:\d|\.\d)|calc\(|clamp\(|max\(|min\()/u;
 
 defineOptions({
@@ -125,12 +130,16 @@ function clampBody(): string | null {
     if (fitsCurrentBody()) {
       // Store the full body as the next warm-start point so a following shrink
       // starts from the real upper bound.
-      lastTextClamp = {
-        boundaryOffsets: prepared.boundaryOffsets,
-        kept: prepared.boundaryOffsets.length - 1,
-        rootWidth: limit,
-        text: body,
-      };
+      lastTextClamp = withTextClampMetrics(
+        {
+          boundaryOffsets: prepared.boundaryOffsets,
+          kept: prepared.boundaryOffsets.length - 1,
+          text: body,
+        },
+        lastTextClamp,
+        limit,
+        1,
+      );
       return body;
     }
   }
@@ -151,10 +160,7 @@ function clampBody(): string | null {
   });
   const nextBody = nextResult.text;
   applyBodyText(nextBody);
-  lastTextClamp = {
-    ...nextResult,
-    rootWidth: limit,
-  };
+  lastTextClamp = withTextClampMetrics(nextResult, lastTextClamp, limit, 1);
 
   return nextBody;
 }
@@ -164,17 +170,7 @@ function canTrustCurrentRootWidth(element: HTMLElement): boolean {
 }
 
 function canSkipFullBodyFit(prepared: PreparedText, rootWidth: number): boolean {
-  if (lastTextClamp === null) {
-    return false;
-  }
-
-  const boundaryCount = prepared.boundaryOffsets.length - 1;
-  return (
-    lastTextClamp.boundaryOffsets === prepared.boundaryOffsets &&
-    lastTextClamp.kept < boundaryCount &&
-    lastTextClamp.rootWidth !== undefined &&
-    rootWidth <= lastTextClamp.rootWidth + fullFitSkipGrowLimit
-  );
+  return canSkipFullTextFit(prepared, lastTextClamp, rootWidth, 1);
 }
 
 function applyVisibleBody(nextBody: string): void {
