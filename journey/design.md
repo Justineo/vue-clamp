@@ -408,6 +408,10 @@
     offsets still match, then do a bounded local expansion before binary searching, so continuous
     resize does not always restart from the middle of the whole text while large jumps stay close to
     cold-search cost
+  - for `boundary="word"`, width jumps outside the fixed local window may still reuse the warm hint
+    after one observed resize establishes the current rank-per-pixel slope and the predicted target
+    remains inside the warm-search local rank coverage; grapheme searches keep the fixed window
+    because their denser rank space did not need the wider dynamic path in package benchmarks
   - measured text results carry the root width that produced them, so later layout passes can ignore
     a stale warm hint after large width jumps without the component keeping a parallel width cache
   - warm resize passes that are still clearly clamped may skip the separate full-source fit probe
@@ -489,6 +493,10 @@
     - rich search now derives warm-start hints from the previous structural decision for nearby
       width changes; the hidden probe's current patch state and the search hint are separate so
       large width jumps can cold-search without resetting or repainting the visible tree
+    - `boundary="word"` rich searches can extend warm-hint reuse beyond the fixed width window only
+      after a previous resize has measured the current structural rank-per-pixel slope and the next
+      predicted rank stays within RichLineClamp's local warm expansion coverage; default grapheme
+      rich searches keep the fixed window because broader rank-space reuse regressed dense inputs
     - when affix geometry is unchanged and the previous rich boundary was inside a searchable text
       run, RichLineClamp first refines inside that same run before falling back to the normal coarse
       run search; it returns early only when an internal same-run cut proves the next cut fails, or

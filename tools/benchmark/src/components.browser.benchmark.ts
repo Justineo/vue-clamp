@@ -87,6 +87,10 @@ const text =
   "Release dashboards often need compact summaries that keep important operational context visible while the container width changes.";
 const wordBoundaryText =
   "International operations teams summarize customer-facing incidents, regional mitigations, and follow-up ownership without breaking words awkwardly.";
+const longTokenWordBoundaryText = Array.from(
+  { length: 36 },
+  (_, index) => `observabilityPlatform${index + 1}`,
+).join(" ");
 const inlineText =
   "/workspace/vue-clamp/packages/components/long-generated-file-name.browser.benchmark.ts";
 const inlineSentence =
@@ -97,6 +101,10 @@ const articleHtml =
   '<strong>Design systems</strong> need <a href="/guides"><em>predictable</em> truncation</a> when inline badges, <code>code</code>, and <span style="white-space:nowrap">non-breaking phrases</span> share the same paragraph.';
 const richWordHtml =
   "<strong>International response</strong> keeps regional mitigations, customer communications, and ownership notes readable without cutting important words in half.";
+const richLongTokenHtml = `<strong>Telemetry</strong> ${Array.from(
+  { length: 28 },
+  (_, index) => `<span>observabilityPlatform${index + 1}</span>`,
+).join(" ")}`;
 const denseRichHtmls = Array.from(
   { length: 40 },
   (_, index) =>
@@ -122,8 +130,10 @@ const wrapWideContainerGrowWidths = [120, 760, 120, 760];
 const wrapTinyItemWideGrowWidths = [120, 960, 120, 960];
 const wrapMixedItemGrowWidths = [120, 680, 120, 680];
 const lineFeatureWidths = repeatedWidths([520, 260, 500, 280, 460, 240, 520], 3);
+const lineLongTokenWidths = repeatedWidths([640, 560, 620, 540, 600, 520, 640], 5);
 const inlineFeatureWidths = repeatedWidths([340, 110, 320, 140, 280, 100, 340], 3);
 const richFeatureWidths = repeatedWidths([400, 160, 380, 180, 340, 140, 400], 3);
+const richLongTokenWidths = repeatedWidths([640, 560, 620, 540, 600, 520, 640], 5);
 const lineBatchSize = 16;
 const inlineBatchSize = 16;
 const richBatchSize = 16;
@@ -982,6 +992,19 @@ function scenarios(): PublicScenario[] {
     {
       component: "LineClamp",
       group: "line",
+      minVersion: "1.3.0",
+      mount: lineClampBatch({
+        boundary: "word",
+        maxLines: 3,
+        text: longTokenWordBoundaryText,
+      }),
+      name: "line-word-long-token-batch-jumps",
+      unsupportedReason: 'LineClamp boundary="word" was added in vue-clamp 1.3.0.',
+      widths: lineLongTokenWidths,
+    },
+    {
+      component: "LineClamp",
+      group: "line",
       mount: lineClampBatch({ maxHeight: "48px" }),
       name: "line-height-card-batch-jumps",
       widths: lineFeatureWidths,
@@ -1125,6 +1148,19 @@ function scenarios(): PublicScenario[] {
       name: "rich-word-copy-batch-jumps",
       unsupportedReason: 'RichLineClamp boundary="word" was added in vue-clamp 1.3.0.',
       widths: richFeatureWidths,
+    },
+    {
+      component: "RichLineClamp",
+      group: "rich",
+      minVersion: "1.3.0",
+      mount: richLineClampBatch({
+        boundary: "word",
+        html: richLongTokenHtml,
+        maxLines: 2,
+      }),
+      name: "rich-word-long-token-batch-jumps",
+      unsupportedReason: 'RichLineClamp boundary="word" was added in vue-clamp 1.3.0.',
+      widths: richLongTokenWidths,
     },
     {
       component: "RichLineClamp",

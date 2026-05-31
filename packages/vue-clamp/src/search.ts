@@ -1,6 +1,6 @@
 // Two default local expansion steps capture normal resize deltas while bounding
 // the penalty when a previous answer is far from the new fit boundary.
-const defaultWarmExpansionLimit = 2;
+export const defaultWarmExpansionLimit = 2;
 
 // The clamp predicates are monotonic: once an index stops fitting, larger
 // indexes cannot fit. The helper searches for the highest index that still fits.
@@ -116,6 +116,10 @@ export function findLastFittingIndex(
   }
 
   return -1;
+}
+
+export function warmSearchLocalCoverage(expansionLimit = defaultWarmExpansionLimit): number {
+  return 2 ** expansionLimit - 1;
 }
 
 export function findLargestFittingCount(
