@@ -259,7 +259,7 @@
   - text accessibility handling for rewritten visible output
   - guarded measured-path reuse of the last text clamp result and root width so warm resize passes
     can skip the full-text fit probe only when the previous result was clamped, the prepared
-    boundary offsets still match, and the estimated boundary-rank gain cannot reach the full source
+    boundary offsets still match, and the root has not grown beyond the small local search window
 - `packages/vue-clamp/src/rich-line/RichLineClamp.vue` now owns only rich-html behavior:
   - visible/probe rich DOM decisions and rich fallback state
   - hidden probe setup for rich measurement
@@ -342,8 +342,8 @@
     snapshot triggers Vue only when the hidden full-text accessibility structure must appear or
     disappear; clamped-to-clamped width churn therefore avoids a second Vue text patch
   - warm clamped resize passes may skip the separate full-body `scrollWidth` probe when the
-    previous body clamp used the same boundary offsets and the estimated boundary-rank gain cannot
-    reach the full source; the full body still participates as a candidate inside the warm search, so
+    previous body clamp used the same boundary offsets and the root has not grown beyond the small
+    local-search window; the full body still participates as a candidate inside the warm search, so
     small grows can recover the source text
   - inline candidate probes route body text writes through a small local guard, matching the shared
     text helper's behavior and avoiding no-op `textContent` mutations when the current candidate is
@@ -353,14 +353,6 @@
     callbacks compare `borderBoxSize` entries against the last settled signature so fractional
     width changes are not lost to integer offset rounding
   - width-only reclamps reuse the shared boundary-aware warm-start search helper
-  - text warm-start reuse is gated by rank-space movement rather than a fixed pixel delta:
-    observed boundary ranks per CSS pixel estimate how far the fit point should move, the candidate
-    set size supplies the cold binary-search depth, and the resulting dynamic budget decides whether
-    a previous hint is still cheaper than treating the pass as cold
-  - text full-fit skip uses the same rank-density signal plus remaining hidden boundary capacity and
-    a width budget derived from the previous width divided by binary-search depth; fixed 24px/32px
-    grow windows are intentionally avoided because they overfit a specific text density and width
-    step
   - no slots or exposed instance API
 - `WrapClamp` is item-driven and browser-aligned:
   - one root clamp container with live DOM measurement
@@ -477,8 +469,8 @@
       stable affix boxes do not require a fresh synchronous bounding-rect read during each probe
       rebuild
     - warm resize passes that were already clamped may skip the separate full-rich fit probe when
-      the estimated rich boundary-rank gain cannot reach the full source; the coarse search then
-      includes the full state as a candidate so small grows can still recover the unclamped source
+      the probe width has not grown beyond the local-search window; the coarse search then includes
+      the full state as a candidate so small grows can still recover the unclamped source
     - rich candidate checks share the text helper's conservative rect-count fit shortcut when
       `maxHeight` is absent; `maxHeight` still uses the full visible-bounds path
     - width-only visible commits patch a prefix-preserving suffix from the prepared source instead
@@ -497,10 +489,6 @@
     - rich search now derives warm-start hints from the previous structural decision for nearby
       width changes; the hidden probe's current patch state and the search hint are separate so
       large width jumps can cold-search without resetting or repainting the visible tree
-    - rich warm-start reuse is also rank-space based: `clampRich` reports the structural boundary
-      rank and candidate count for measured results, RichLineClamp tracks an observed rank-per-pixel
-      density and prediction error, and the hint is reused only when the predicted rank move plus
-      excess error beyond local expansion coverage fits inside a binary-depth-scaled rank budget
     - when affix geometry is unchanged and the previous rich boundary was inside a searchable text
       run, RichLineClamp first refines inside that same run before falling back to the normal coarse
       run search; it returns early only when an internal same-run cut proves the next cut fails, or

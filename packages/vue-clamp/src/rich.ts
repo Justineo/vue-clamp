@@ -91,8 +91,6 @@ export type RichClampOptions = {
 
 export type RichClampResult = {
   readonly fallback: boolean;
-  readonly rank?: number;
-  readonly rankCount?: number;
   readonly state: RichState | null;
 };
 
@@ -791,31 +789,6 @@ function boundaryPointIndex(points: readonly BoundaryPoint[], point: BoundaryPoi
   return null;
 }
 
-function rankPointsForRuns(runs: readonly LogicalRun[]): BoundaryPoint[] {
-  const points = [ROOT_START_POINT];
-
-  for (const run of runs) {
-    if (run.kind === "atomic") {
-      points.push(run.endPoint);
-      continue;
-    }
-
-    for (const point of run.textCuts) {
-      points.push(point);
-    }
-  }
-
-  return points;
-}
-
-function rankForState(state: RichState, points: readonly BoundaryPoint[]): number {
-  if (state.kind === "full") {
-    return points.length;
-  }
-
-  return boundaryPointIndex(points, state.point) ?? 0;
-}
-
 function textRunContainsPoint(run: TextLogicalRun, point: BoundaryPoint): boolean {
   if (boundaryPointIndex(run.textCuts, point) !== null) {
     return true;
@@ -946,16 +919,6 @@ export function clampRich({
     };
   }
 
-  const rankPoints = rankPointsForRuns(runs);
-  function measuredResult(): RichClampResult {
-    return {
-      fallback: false,
-      rank: rankForState(state, rankPoints),
-      rankCount: rankPoints.length,
-      state,
-    };
-  }
-
   const useHintedTextRun = preferHintedTextRun !== undefined ? preferHintedTextRun : hint === from;
 
   if (useHintedTextRun && hint?.kind === "clamped") {
@@ -976,7 +939,10 @@ export function clampRich({
 
         if (fineIndex >= 0 && fineIndex < runEndIndex) {
           applyCandidate(hintedRun.textCuts[fineIndex]!);
-          return measuredResult();
+          return {
+            state,
+            fallback: false,
+          };
         }
 
         if (fineIndex === runEndIndex) {
@@ -985,14 +951,20 @@ export function clampRich({
 
           if (!nextRun) {
             applyFullCandidate();
-            return measuredResult();
+            return {
+              state,
+              fallback: false,
+            };
           }
 
           // If the next unit is atomic and fails, the current run end is already
           // the best legal boundary. Text runs still need their own fine search.
           if (nextRun.kind === "atomic" && !fitsCandidate(nextRun.endPoint)) {
             applyCandidate(runEndPoint);
-            return measuredResult();
+            return {
+              state,
+              fallback: false,
+            };
           }
         }
 
@@ -1008,7 +980,10 @@ export function clampRich({
 
           if (fallbackIndex >= 0 && fallbackIndex < fallbackTextCuts.length - 1) {
             applyCandidate(fallbackTextCuts[fallbackIndex]!);
-            return measuredResult();
+            return {
+              state,
+              fallback: false,
+            };
           }
         }
 
@@ -1016,7 +991,10 @@ export function clampRich({
           const coarsePoint =
             hintedRunIndex > 0 ? runs[hintedRunIndex - 1]!.endPoint : ROOT_START_POINT;
           if (fitsCandidate(coarsePoint)) {
-            return measuredResult();
+            return {
+              state,
+              fallback: false,
+            };
           }
         }
       }
@@ -1041,7 +1019,10 @@ export function clampRich({
     richWarmExpansionLimit,
   );
   if (coarseIndex === runs.length) {
-    return measuredResult();
+    return {
+      state,
+      fallback: false,
+    };
   }
 
   const coarsePoint = coarseIndex >= 0 ? runs[coarseIndex]!.endPoint : ROOT_START_POINT;
@@ -1051,7 +1032,10 @@ export function clampRich({
     // If the next unit is atomic, there is no legal smaller slice after the
     // coarse point.
     applyCandidate(coarsePoint);
-    return measuredResult();
+    return {
+      state,
+      fallback: false,
+    };
   }
 
   const fineHint =
@@ -1081,5 +1065,8 @@ export function clampRich({
   }
 
   applyCandidate(finePoint);
-  return measuredResult();
+  return {
+    state,
+    fallback: false,
+  };
 }

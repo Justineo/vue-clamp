@@ -1,6 +1,6 @@
 // Two default local expansion steps capture normal resize deltas while bounding
 // the penalty when a previous answer is far from the new fit boundary.
-export const defaultWarmExpansionLimit = 2;
+const defaultWarmExpansionLimit = 2;
 
 // The clamp predicates are monotonic: once an index stops fitting, larger
 // indexes cannot fit. The helper searches for the highest index that still fits.
@@ -116,56 +116,6 @@ export function findLastFittingIndex(
   }
 
   return -1;
-}
-
-export function binarySearchProbeCount(count: number): number {
-  return count <= 0 ? 0 : Math.ceil(Math.log2(count + 1));
-}
-
-export function warmSearchLocalCoverage(expansionLimit = defaultWarmExpansionLimit): number {
-  return 2 ** expansionLimit - 1;
-}
-
-export function warmSearchRankMoveBudget(
-  count: number,
-  expansionLimit = defaultWarmExpansionLimit,
-): number {
-  const localCoverage = warmSearchLocalCoverage(expansionLimit);
-
-  // The fixed pixel window becomes a rank-space cost model: nearby movement is
-  // covered by exponential warm probes, while the remaining allowance grows
-  // with the cold binary-search depth of the current candidate set.
-  return localCoverage + binarySearchProbeCount(count) * 2;
-}
-
-export function warmSearchProbeCount(
-  count: number,
-  hint: number,
-  target: number,
-  expansionLimit = defaultWarmExpansionLimit,
-): number {
-  let probes = 0;
-
-  findLastFittingIndex(
-    count,
-    (index) => {
-      probes += 1;
-      return index <= target;
-    },
-    hint,
-    expansionLimit,
-  );
-
-  return probes;
-}
-
-export function shouldUseWarmSearchHint(
-  count: number,
-  hint: number,
-  target: number,
-  expansionLimit = defaultWarmExpansionLimit,
-): boolean {
-  return warmSearchProbeCount(count, hint, target, expansionLimit) <= binarySearchProbeCount(count);
 }
 
 export function findLargestFittingCount(

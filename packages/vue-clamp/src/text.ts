@@ -1,10 +1,5 @@
 import { fitsContent, visibleRootTop } from "./layout.ts";
-import {
-  binarySearchProbeCount,
-  findLastFittingIndex,
-  warmSearchProbeCount,
-  warmSearchRankMoveBudget,
-} from "./search.ts";
+import { findLastFittingIndex } from "./search.ts";
 
 import type { ClampBoundary, ClampLength, LineClampLocation } from "./types.ts";
 
@@ -28,8 +23,6 @@ export interface PreparedText {
 export interface TextClampHint {
   readonly boundaryOffsets: readonly number[];
   readonly kept: number;
-  readonly rankMoveError?: number;
-  readonly rankPerPx?: number;
   readonly rootWidth?: number;
 }
 
@@ -39,7 +32,9 @@ export interface TextClampResult extends TextClampHint {
 
 type MaybeTextClampHint = TextClampHint | null | undefined;
 
-const rankPerPxEmaWeight = 0.35;
+// Nearby width changes benefit from warm search; large jumps are cheaper as
+// cold search than as repeated local expansion from a stale answer.
+const layoutHintMaxWidthDelta = 32;
 
 export type TextClampSpacing = "trim" | "preserve-outer";
 
@@ -209,211 +204,6 @@ export function normalizeLocationRatio(location: LineClampLocation): number {
   return Math.max(0, Math.min(1, location));
 }
 
-function initialRankPerPx(
-  rank: number,
-  rootWidth: number,
-  lineLimit: number | undefined,
-  candidateCount: number,
-): number {
-  const lineScale = rank >= candidateCount && lineLimit !== undefined ? lineLimit : 1;
-
-  return Math.max(1 / rootWidth, rank / (rootWidth * lineScale));
-}
-
-function rankPerPxForHint(
-  hint: TextClampHint,
-  lineLimit: number | undefined,
-  candidateCount: number,
-): number {
-  if (hint.rankPerPx !== undefined && Number.isFinite(hint.rankPerPx) && hint.rankPerPx > 0) {
-    return hint.rankPerPx;
-  }
-
-  const hintRootWidth = hint.rootWidth;
-  if (hintRootWidth === undefined || hintRootWidth <= 0) {
-    return 1;
-  }
-
-  return initialRankPerPx(hint.kept, hintRootWidth, lineLimit, candidateCount);
-}
-
-function rankMoveErrorForHint(hint: TextClampHint): number {
-  const error = hint.rankMoveError;
-
-  return error !== undefined && Number.isFinite(error) && error > 0 ? error : 0;
-}
-
-function nextRankPerPx(
-  hint: MaybeTextClampHint,
-  kept: number,
-  rootWidth: number,
-  lineLimit: number | undefined,
-  candidateCount: number,
-): number {
-  if (!hint?.rootWidth || hint.rootWidth <= 0) {
-    return initialRankPerPx(kept, rootWidth, lineLimit, candidateCount);
-  }
-
-  const previous = rankPerPxForHint(hint, lineLimit, candidateCount);
-  const deltaWidth = Math.abs(rootWidth - hint.rootWidth);
-  if (deltaWidth === 0) {
-    return previous;
-  }
-
-  const observed = Math.abs(kept - hint.kept) / deltaWidth;
-  if (!Number.isFinite(observed) || observed <= 0) {
-    return previous;
-  }
-
-  return previous * (1 - rankPerPxEmaWeight) + observed * rankPerPxEmaWeight;
-}
-
-function nextRankMoveError(
-  hint: MaybeTextClampHint,
-  kept: number,
-  rootWidth: number,
-  lineLimit: number | undefined,
-  candidateCount: number,
-): number {
-  if (!hint?.rootWidth || hint.rootWidth <= 0) {
-    return 0;
-  }
-
-  const previous = rankPerPxForHint(hint, lineLimit, candidateCount);
-  const deltaWidth = Math.abs(rootWidth - hint.rootWidth);
-  if (deltaWidth === 0) {
-    return rankMoveErrorForHint(hint);
-  }
-
-  const observed = Math.abs(kept - hint.kept);
-  const predicted = deltaWidth * previous;
-  const error = Math.abs(observed - predicted);
-
-  return Math.max(error, rankMoveErrorForHint(hint) * (1 - rankPerPxEmaWeight));
-}
-
-export function withTextClampMetrics(
-  result: TextClampResult,
-  hint: MaybeTextClampHint,
-  rootWidth: number,
-  lineLimit: number | undefined,
-): TextClampResult {
-  const candidateCount = result.boundaryOffsets.length - 1;
-
-  return {
-    ...result,
-    rankMoveError: nextRankMoveError(hint, result.kept, rootWidth, lineLimit, candidateCount),
-    rankPerPx: nextRankPerPx(hint, result.kept, rootWidth, lineLimit, candidateCount),
-    rootWidth,
-  };
-}
-
-function textSearchCount(candidateCount: number, includeFullCandidate: boolean): number {
-  return Math.max(1, candidateCount + (includeFullCandidate ? 1 : 0));
-}
-
-function fullFitSkipWidthBudget(rootWidth: number, searchCount: number): number {
-  return rootWidth / binarySearchProbeCount(searchCount);
-}
-
-function estimatedTargetIndex(
-  hint: TextClampHint,
-  rootWidth: number,
-  lineLimit: number | undefined,
-  candidateCount: number,
-  includeFullCandidate: boolean,
-): number {
-  const searchCount = textSearchCount(candidateCount, includeFullCandidate);
-  const maxIndex = searchCount - 1;
-  const deltaWidth = rootWidth - (hint.rootWidth ?? rootWidth);
-  const direction = Math.sign(deltaWidth);
-  const rankMove =
-    Math.abs(deltaWidth) * rankPerPxForHint(hint, lineLimit, candidateCount) +
-    rankMoveErrorForHint(hint);
-  const target = Math.max(0, Math.min(maxIndex, hint.kept)) + direction * Math.ceil(rankMove);
-
-  return Math.max(0, Math.min(maxIndex, target));
-}
-
-function estimatedBestSearchProbeCount(
-  hint: TextClampHint,
-  rootWidth: number,
-  lineLimit: number | undefined,
-  candidateCount: number,
-  includeFullCandidate: boolean,
-): number {
-  const searchCount = textSearchCount(candidateCount, includeFullCandidate);
-  const target = estimatedTargetIndex(
-    hint,
-    rootWidth,
-    lineLimit,
-    candidateCount,
-    includeFullCandidate,
-  );
-
-  return Math.min(
-    warmSearchProbeCount(searchCount, hint.kept, target),
-    binarySearchProbeCount(searchCount),
-  );
-}
-
-export function canUseTextLayoutHint(
-  hint: MaybeTextClampHint,
-  rootWidth: number,
-  lineLimit: number | undefined,
-  includeFullCandidate = false,
-): boolean {
-  if (!hint) {
-    return false;
-  }
-
-  if (hint.rootWidth === undefined) {
-    return true;
-  }
-
-  const candidateCount = hint.boundaryOffsets.length - 1;
-  const searchCount = textSearchCount(candidateCount, includeFullCandidate);
-  const estimatedRankMove =
-    Math.abs(rootWidth - hint.rootWidth) * rankPerPxForHint(hint, lineLimit, candidateCount);
-
-  return estimatedRankMove <= warmSearchRankMoveBudget(searchCount);
-}
-
-export function canSkipFullTextFit(
-  prepared: PreparedText,
-  hint: MaybeTextClampHint,
-  rootWidth: number,
-  lineLimit: number | undefined,
-): boolean {
-  if (!hint || hint.boundaryOffsets !== prepared.boundaryOffsets || hint.rootWidth === undefined) {
-    return false;
-  }
-
-  const candidateCount = prepared.boundaryOffsets.length - 1;
-  if (hint.kept >= candidateCount) {
-    return false;
-  }
-
-  const deltaWidth = rootWidth - hint.rootWidth;
-  if (deltaWidth <= 0) {
-    return true;
-  }
-
-  const hiddenRank = candidateCount - hint.kept;
-  const estimatedGain = deltaWidth * rankPerPxForHint(hint, lineLimit, candidateCount);
-
-  if (hint.kept + Math.ceil(estimatedGain) >= candidateCount) {
-    return false;
-  }
-
-  return (
-    deltaWidth <= fullFitSkipWidthBudget(hint.rootWidth, textSearchCount(candidateCount, true)) &&
-    estimatedGain < hiddenRank &&
-    estimatedBestSearchProbeCount(hint, rootWidth, lineLimit, candidateCount, true) <=
-      1 + estimatedBestSearchProbeCount(hint, rootWidth, lineLimit, candidateCount, false)
-  );
-}
-
 export function clampTextToFit({
   ellipsis,
   fits,
@@ -484,7 +274,11 @@ export function clampTextToLayout({
 
   const { text } = prepared;
   const cachedVisibleTop = maxHeight === undefined ? undefined : visibleRootTop(root);
-  const searchHint = canUseTextLayoutHint(hint, rootWidth, lineLimit, skipFullFit) ? hint : null;
+  const hintRootWidth = hint?.rootWidth;
+  const searchHint =
+    hintRootWidth === undefined || Math.abs(rootWidth - hintRootWidth) <= layoutHintMaxWidthDelta
+      ? hint
+      : null;
   let currentText = target.textContent ?? "";
 
   function applyText(nextText: string): void {
@@ -499,16 +293,12 @@ export function clampTextToLayout({
     if (fitsContent(root, content, lineLimit, maxHeight, true, cachedVisibleTop)) {
       // The full source is the cheapest and most correct answer when it fits.
       // Store it as a warm-start hint so later shrink passes begin from full text.
-      return withTextClampMetrics(
-        {
-          boundaryOffsets: prepared.boundaryOffsets,
-          kept: prepared.boundaryOffsets.length - 1,
-          text,
-        },
-        hint,
+      return {
+        boundaryOffsets: prepared.boundaryOffsets,
+        kept: prepared.boundaryOffsets.length - 1,
         rootWidth,
-        lineLimit,
-      );
+        text,
+      };
     }
   }
 
@@ -525,5 +315,8 @@ export function clampTextToLayout({
   });
   applyText(result.text);
 
-  return withTextClampMetrics(result, hint, rootWidth, lineLimit);
+  return {
+    ...result,
+    rootWidth,
+  };
 }
