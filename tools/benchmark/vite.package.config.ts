@@ -27,6 +27,7 @@ type BenchmarkTargetConfig = {
 
 export default {
   define: {
+    "process.env.NODE_ENV": JSON.stringify("production"),
     __VUE_OPTIONS_API__: true,
     __VUE_PROD_DEVTOOLS__: false,
     __VUE_PROD_HYDRATION_MISMATCH_DETAILS__: false,
@@ -38,6 +39,7 @@ export default {
       mode: process.env.VUE_CLAMP_BENCH_MODE,
       warmupRuns: numericEnv("VUE_CLAMP_BENCH_WARMUP_RUNS"),
     }),
+    __VUE_CLAMP_BENCH_COUNTERS__: booleanEnv("VUE_CLAMP_BENCH_COUNTERS") ?? true,
     __VUE_CLAMP_BENCH_SCENARIOS__: JSON.stringify(benchmarkScenarioFilter),
     __VUE_CLAMP_BENCH_TARGET__: JSON.stringify({
       entry: targetEntry,
@@ -171,4 +173,21 @@ function numericEnv(name: string): number | undefined {
   }
 
   return numberValue;
+}
+
+function booleanEnv(name: string): boolean | undefined {
+  const value = process.env[name]?.trim().toLowerCase();
+  if (!value) {
+    return undefined;
+  }
+
+  if (["1", "true", "yes", "on"].includes(value)) {
+    return true;
+  }
+
+  if (["0", "false", "no", "off"].includes(value)) {
+    return false;
+  }
+
+  throw new Error(`${name} must be a boolean value.`);
 }

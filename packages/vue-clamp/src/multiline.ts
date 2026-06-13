@@ -10,12 +10,12 @@ import {
 import { useClampControls } from "./controls.ts";
 import {
   borderBoxObserverOptions,
-  borderBoxEntrySizeSnapshot,
-  borderBoxEntrySizeSignature,
   borderBoxSizeSnapshot,
   borderBoxSizeSignature,
   createCoalescingRunner,
+  emptyBorderBoxSignature,
   listenForFontLoads,
+  observedBorderBoxSizeSnapshot,
 } from "./layout.ts";
 
 import type { ComponentPublicInstance, Ref } from "vue";
@@ -39,6 +39,7 @@ export type MultilineAffixRefSetter = (element: ComponentPublicInstance | Elemen
 export type MultilineShellOptions = {
   readonly expanded: Ref<boolean>;
   readonly onClampedChange: (value: boolean) => void;
+  readonly onFontLoad?: () => void;
   readonly recompute: (expanded: Ref<boolean>, rootWidth?: number) => Promise<void>;
   readonly syncAffixSignaturesOnRootChange?: boolean;
 };
@@ -75,7 +76,13 @@ function createMultilineAffixRefSetter(
 // controlled expansion, slot/root refs, invalidation sources, and event timing.
 // Keeping that shell here avoids two subtly divergent lifecycle implementations.
 export function useMultilineClamp(options: MultilineShellOptions): MultilineShell {
-  const { expanded, onClampedChange, recompute, syncAffixSignaturesOnRootChange = false } = options;
+  const {
+    expanded,
+    onClampedChange,
+    onFontLoad,
+    recompute,
+    syncAffixSignaturesOnRootChange = false,
+  } = options;
   const controls = useClampControls(expanded);
   const state: ShellState = {
     rootRef: shallowRef<HTMLElement | null>(null),
@@ -89,11 +96,15 @@ export function useMultilineClamp(options: MultilineShellOptions): MultilineShel
   let resizeObserver: ResizeObserver | null = null;
   let stopFonts = () => {};
   let lastLayoutSignature: string | null = null;
-  let lastRootSizeSignature = "0x0";
-  let lastContentSizeSignature = "0x0";
-  let lastBeforeSizeSignature = "0x0";
-  let lastAfterSizeSignature = "0x0";
+  let lastRootSizeSignature = emptyBorderBoxSignature;
+  let lastContentSizeSignature = emptyBorderBoxSignature;
+  let lastBeforeSizeSignature = emptyBorderBoxSignature;
+  let lastAfterSizeSignature = emptyBorderBoxSignature;
   let pendingRootWidth: number | undefined;
+  let pendingAffixSignaturesFresh = false;
+  let recomputeEpoch = 0;
+  let fontRecomputeEpoch = 0;
+  let fontRecomputeFrame: number | null = null;
 
   function readRootSnapshot(): BorderBoxSizeSnapshot {
     const snapshot = borderBoxSizeSnapshot(state.rootRef.value);
@@ -106,13 +117,15 @@ export function useMultilineClamp(options: MultilineShellOptions): MultilineShel
     lastRootSizeSignature = borderBoxSizeSignature(state.rootRef.value);
   }
 
-  function readLayoutSignature(): string {
+  function readLayoutSignature(reuseAffixSignatures = false): string {
     // The content shell captures body geometry, while slots are tracked
     // separately. This signature only needs to decide whether another
     // synchronous clamp pass is needed.
     lastContentSizeSignature = borderBoxSizeSignature(state.contentRef.value);
-    lastBeforeSizeSignature = borderBoxSizeSignature(state.beforeRef.value);
-    lastAfterSizeSignature = borderBoxSizeSignature(state.afterRef.value);
+    if (!reuseAffixSignatures) {
+      lastBeforeSizeSignature = borderBoxSizeSignature(state.beforeRef.value);
+      lastAfterSizeSignature = borderBoxSizeSignature(state.afterRef.value);
+    }
 
     return (
       lastRootSizeSignature +
@@ -170,19 +183,6 @@ export function useMultilineClamp(options: MultilineShellOptions): MultilineShel
     requestRecomputeRunner();
   }
 
-  function signatureForObservedEntry(entry: ResizeObserverEntry): string | null {
-    if (entry.target !== state.rootRef.value) {
-      return borderBoxEntrySizeSignature(entry);
-    }
-
-    const snapshot = borderBoxEntrySizeSnapshot(entry);
-    if (snapshot) {
-      pendingRootWidth = snapshot.width;
-    }
-
-    return snapshot?.signature ?? null;
-  }
-
   function hasObservedSizeChange(entries: readonly ResizeObserverEntry[]): boolean {
     let changed = false;
 
@@ -192,17 +192,21 @@ export function useMultilineClamp(options: MultilineShellOptions): MultilineShel
         continue;
       }
 
-      const nextSignature = signatureForObservedEntry(entry);
-      if (nextSignature === null) {
+      const snapshot = observedBorderBoxSizeSnapshot(entry, previousSignature);
+      if (snapshot === null) {
         changed = true;
         continue;
       }
 
+      const nextSignature = snapshot.signature;
       if (previousSignature === nextSignature) {
         continue;
       }
 
       updateObservedSignature(entry.target, nextSignature);
+      if (entry.target === state.rootRef.value) {
+        pendingRootWidth = snapshot.width;
+      }
       changed = true;
     }
 
@@ -210,7 +214,9 @@ export function useMultilineClamp(options: MultilineShellOptions): MultilineShel
   }
 
   function observedSizeSignature(element: HTMLElement | null): string {
-    return element ? (lastObservedSignature(element) ?? borderBoxSizeSignature(element)) : "0x0";
+    return element
+      ? (lastObservedSignature(element) ?? borderBoxSizeSignature(element))
+      : emptyBorderBoxSignature;
   }
 
   function affixSlotProps(): ClampSlotProps {
@@ -225,14 +231,48 @@ export function useMultilineClamp(options: MultilineShellOptions): MultilineShel
 
   const requestRecomputeRunner = createCoalescingRunner(async () => {
     const rootWidth = pendingRootWidth;
+    const affixSignaturesFresh = pendingAffixSignaturesFresh;
+    const wasClamped = state.isClamped.value;
     pendingRootWidth = undefined;
+    pendingAffixSignaturesFresh = false;
+    recomputeEpoch += 1;
 
     await recompute(expanded, rootWidth);
     readRootSignature();
-    lastLayoutSignature = readLayoutSignature();
+    lastLayoutSignature = readLayoutSignature(
+      affixSignaturesFresh && wasClamped === state.isClamped.value,
+    );
   });
   const setBeforeElement = createMultilineAffixRefSetter(state.beforeRef, requestRecompute);
   const setAfterElement = createMultilineAffixRefSetter(state.afterRef, requestRecompute);
+
+  function cancelFontRecompute(): void {
+    if (fontRecomputeFrame === null) {
+      return;
+    }
+
+    cancelAnimationFrame(fontRecomputeFrame);
+    fontRecomputeFrame = null;
+  }
+
+  function requestFontRecompute(): void {
+    onFontLoad?.();
+    fontRecomputeEpoch = recomputeEpoch;
+
+    if (fontRecomputeFrame !== null) {
+      return;
+    }
+
+    fontRecomputeFrame = requestAnimationFrame(() => {
+      fontRecomputeFrame = null;
+
+      // Font events often arrive immediately before a Vue width update. If any
+      // reclamp has already run in that frame, it measured the current fonts.
+      if (fontRecomputeEpoch === recomputeEpoch) {
+        requestRecompute();
+      }
+    });
+  }
 
   watch(
     expanded,
@@ -279,7 +319,7 @@ export function useMultilineClamp(options: MultilineShellOptions): MultilineShel
 
   onMounted(() => {
     requestRecompute();
-    stopFonts = listenForFontLoads(requestRecompute);
+    stopFonts = listenForFontLoads(requestFontRecompute);
   });
 
   onUpdated(() => {
@@ -291,6 +331,7 @@ export function useMultilineClamp(options: MultilineShellOptions): MultilineShel
       // after recompute records the settled layout.
       if (syncAffixSignaturesOnRootChange) {
         readAffixSignatures();
+        pendingAffixSignaturesFresh = true;
       }
       requestRecompute(rootSnapshot.width);
       return;
@@ -304,6 +345,7 @@ export function useMultilineClamp(options: MultilineShellOptions): MultilineShel
   });
 
   onBeforeUnmount(() => {
+    cancelFontRecompute();
     resizeObserver?.disconnect();
     stopFonts();
   });

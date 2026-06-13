@@ -1,7 +1,14 @@
 <script setup lang="ts">
 import { computed, h, mergeProps, nextTick, shallowRef, useAttrs, watch } from "vue";
 import { trueOrUndefined } from "../attributes.ts";
-import { borderBoxWidth, cssLength, normalizeLineLimit } from "../layout.ts";
+import {
+  borderBoxWidth,
+  cssLength,
+  estimateLineCapacity,
+  hasBorderBoxSize,
+  normalizeLineLimit,
+  simpleLineFitFromStyle,
+} from "../layout.ts";
 import { useMultilineClamp } from "../multiline.ts";
 import { renderMultilineAffixSlot } from "../multiline-render.ts";
 import { multilineNativeSlotStyle, multilineSlotStyle } from "../multiline-styles.ts";
@@ -13,18 +20,19 @@ import {
   resolveNativeMode,
 } from "../native.ts";
 import { visuallyHiddenTextStyle } from "../styles.ts";
-import {
-  canSkipFullTextFit,
-  clampTextToLayout,
-  normalizeLocationRatio,
-  prepareText,
-} from "../text.ts";
+import { clampTextToLayout, normalizeLocationRatio, prepareText } from "../text.ts";
 
 import type { CSSProperties, VNodeChild } from "vue";
+import type { SimpleLineFit } from "../layout.ts";
 import type { ClampEmits } from "../types.ts";
 import type { LineClampExposed, LineClampProps, LineClampSlots } from "./types.ts";
 import type { NativeClampMode } from "../native.ts";
 import type { TextClampResult } from "../text.ts";
+
+type AffixLayout = {
+  readonly hasAffixes: boolean;
+  readonly key: string;
+};
 
 defineOptions({
   name: "LineClamp",
@@ -54,6 +62,7 @@ const visibleText = shallowRef({ text });
 const multilineBodyStyle: CSSProperties = { position: "relative" };
 const overflowHiddenRootStyle: CSSProperties = { overflow: "hidden" };
 let lastTextClamp: TextClampResult | null = null;
+let lineFitCache: { fit: SimpleLineFit; key: string } | null = null;
 
 const lineLimit = computed(() => normalizeLineLimit(maxLines));
 const preparedText = computed(() => prepareText(text, boundary));
@@ -68,12 +77,16 @@ const {
   expand,
   collapse,
   toggle,
+  observedSizeSignature,
   affixSlotProps,
   setBeforeElement,
   setAfterElement,
   requestRecompute,
 } = useMultilineClamp({
   expanded,
+  onFontLoad: () => {
+    resetLineFitCache();
+  },
   onClampedChange: (value) => {
     emit("clampchange", value);
   },
@@ -116,17 +129,24 @@ const {
 
     const prepared = preparedText.value;
     const rootWidth = rootWidthSnapshot ?? borderBoxWidth(rootElement);
+    const affixLayout = currentAffixLayout();
+    const layoutKey = affixLayout.key;
+    const lineCapacity = estimateLineCapacity(rootElement, maxHeight, currentLineLimit);
+    const simpleLineFit = lineFit(currentLineLimit, textElement, layoutKey);
     const nextResult = clampTextToLayout({
       content: contentElement,
       ellipsis,
+      hasAffixes: affixLayout.hasAffixes,
       hint: lastTextClamp,
+      lineCapacity,
+      layoutKey,
       lineLimit: currentLineLimit,
       maxHeight,
       prepared,
       ratio: locationRatio,
       root: rootElement,
       rootWidth,
-      skipFullFit: canSkipFullTextFit(prepared, lastTextClamp, rootWidth),
+      simpleLineFit,
       target: textElement,
     });
 
@@ -169,6 +189,17 @@ async function resetClamp(): Promise<void> {
 
 function resetTextClampHint(): void {
   lastTextClamp = null;
+  resetLineFitCache();
+}
+
+function currentAffixLayout(): AffixLayout {
+  const before = observedSizeSignature(beforeRef.value);
+  const after = observedSizeSignature(afterRef.value);
+
+  return {
+    hasAffixes: hasBorderBoxSize(before) || hasBorderBoxSize(after),
+    key: `${before}|${after}`,
+  };
 }
 
 function hasClampLimit(currentLineLimit: number | undefined): boolean {
@@ -189,6 +220,59 @@ function getNativeMode(
     locationRatio,
     maxHeight,
   });
+}
+
+function lineFit(
+  currentLineLimit: number | undefined,
+  textElement: HTMLElement,
+  layoutKey: string,
+): SimpleLineFit | undefined {
+  if (currentLineLimit === undefined || maxHeight !== undefined) {
+    return undefined;
+  }
+
+  const style = getComputedStyle(textElement);
+  const simpleLineFit = simpleLineFitFromStyle(style);
+  const key = lineFitCacheKey(style, layoutKey);
+  if (lineFitCache?.key === key) {
+    return lineFitCache.fit;
+  }
+
+  if (!simpleLineFit || (beforeRef.value === null && afterRef.value === null)) {
+    lineFitCache = simpleLineFit ? { fit: simpleLineFit, key } : null;
+    return simpleLineFit;
+  }
+
+  const fit = {
+    lineHeight: simpleLineFit.lineHeight,
+    verifyOverflow: true,
+  };
+  lineFitCache = { fit, key };
+
+  return fit;
+}
+
+function lineFitCacheKey(style: CSSStyleDeclaration, layoutKey: string): string {
+  return [
+    layoutKey,
+    style.fontFamily,
+    style.fontFeatureSettings,
+    style.fontKerning,
+    style.fontSize,
+    style.fontStretch,
+    style.fontStyle,
+    style.fontVariant,
+    style.fontWeight,
+    style.letterSpacing,
+    style.lineHeight,
+    style.textTransform,
+    style.verticalAlign,
+    style.wordSpacing,
+  ].join("\n");
+}
+
+function resetLineFitCache(): void {
+  lineFitCache = null;
 }
 
 function renderAffixSlot(part: "before" | "after", slotStyle: CSSProperties): VNodeChild | null {
@@ -290,7 +374,7 @@ watch(
   () => {
     // Any semantic prop change invalidates the previous kept-count hint.
     resetTextClampHint();
-    visibleText.value.text = text;
+    visibleText.value = { text };
     requestRecompute();
   },
   { flush: "post" },

@@ -105,8 +105,18 @@ type _TextHelperContracts = [
   Expect<Equal<TextClampSpacing, "trim" | "preserve-outer">>,
   Expect<Equal<PreparedText["boundaryOffsets"], readonly number[]>>,
   Expect<Equal<TextClampHint["boundaryOffsets"], readonly number[]>>,
+  Expect<Equal<TextClampHint["ellipsis"], string | undefined>>,
+  Expect<Equal<TextClampHint["hasAffixes"], boolean | undefined>>,
+  Expect<Equal<TextClampHint["layoutKey"], string | undefined>>,
+  Expect<Equal<TextClampHint["lineLimit"], number | undefined>>,
+  Expect<Equal<TextClampHint["maxHeight"], ClampLength | undefined>>,
+  Expect<Equal<TextClampHint["ratio"], number | undefined>>,
+  Expect<Equal<TextClampHint["spacing"], TextClampSpacing | undefined>>,
+  Expect<Equal<TextClampHint["wordFallbackMaxWidth"], number | undefined>>,
   Expect<Equal<TextClampResult["text"], string>>,
   Expect<Equal<TextClampFitInput["prepared"], PreparedText>>,
+  Expect<Equal<TextClampLayoutInput["hasAffixes"], boolean | undefined>>,
+  Expect<Equal<TextClampLayoutInput["layoutKey"], string | undefined>>,
   Expect<Equal<TextClampLayoutInput["maxHeight"], ClampLength | undefined>>,
 ];
 

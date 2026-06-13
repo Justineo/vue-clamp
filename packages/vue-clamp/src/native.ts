@@ -127,7 +127,8 @@ export function measureNativeClamped(
   measurableWidth?: number,
 ): boolean | null {
   if (mode === "multi-line") {
-    if ((measurableWidth ?? element.clientWidth) <= 0) {
+    const clientWidth = element.clientWidth;
+    if (clientWidth <= 0 || (measurableWidth !== undefined && measurableWidth <= 0)) {
       return null;
     }
 

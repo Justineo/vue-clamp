@@ -1,7 +1,8 @@
-import { fitsContent, visibleRootTop } from "./layout.ts";
-import { findLastFittingIndex } from "./search.ts";
+import { fitsContent, simpleLineFitFromStyle } from "./layout.ts";
+import { findLastFittingIndex, richWarmExpansionLimit } from "./search.ts";
 import { prepareText } from "./text.ts";
 
+import type { SimpleLineFit, VisibleBoundsCache } from "./layout.ts";
 import type { ClampBoundary, ClampLength } from "./types.ts";
 
 // Rich clamping is structural rather than string-based. We parse once, measure
@@ -44,10 +45,41 @@ type AtomicLogicalRun = {
 
 type LogicalRun = TextLogicalRun | AtomicLogicalRun;
 
+type RichLayoutInspection = {
+  readonly atomicPathSignature: string;
+  readonly atomicPaths: ReadonlySet<string>;
+  readonly hasElements: boolean;
+  readonly hasStyleDependentDisplay: boolean;
+  readonly hasStyleDependentLineMetrics: boolean;
+  readonly inheritsLineMetrics: boolean;
+  readonly simpleLineFit?: SimpleLineFit;
+  readonly simpleLineStyleKey?: string;
+};
+
 export type PreparedRich = {
   readonly boundary: ClampBoundary;
   readonly root: HTMLElement;
   readonly nodes: readonly PreparedRichNode[];
+};
+
+export type RichSearchIndex = {
+  readonly atomicPathSignature: string;
+  readonly body: HTMLElement;
+  readonly hasElements: boolean;
+  readonly hasStyleDependentDisplay: boolean;
+  readonly hasStyleDependentLineMetrics: boolean;
+  readonly prepared: PreparedRich;
+  readonly rankPoints: readonly BoundaryPoint[] | null;
+  readonly runs: readonly LogicalRun[];
+  readonly inheritsLineMetrics: boolean;
+  readonly simpleLineFit?: SimpleLineFit;
+  readonly simpleLineStyleKey?: string;
+  readonly styleSheetSignature: string;
+};
+
+type TextOnlySimpleLineFit = {
+  readonly fit: SimpleLineFit;
+  readonly styleKey: string;
 };
 
 // States are kept as structural points so width-only reclamps can patch from the
@@ -87,15 +119,67 @@ export type RichClampOptions = {
   readonly prepared: PreparedRich;
   readonly preferHintedTextRun?: boolean;
   readonly probe: RichClampProbe;
+  readonly searchIndex?: RichSearchIndex | null;
   readonly skipFullFit?: boolean;
+  // Only width-only reclamps may reuse line fit after root metrics change;
+  // descendant mutations need full inspection.
+  readonly reuseSimpleLineFit?: boolean;
+  readonly verifyFullCandidate?: boolean;
 };
 
 export type RichClampResult = {
   readonly fallback: boolean;
   readonly rank?: number;
   readonly rankCount?: number;
+  readonly searchIndex?: RichSearchIndex | null;
   readonly state: RichState | null;
+  readonly textRankSafe?: boolean;
 };
+
+function unrankedResult(
+  state: RichState | null,
+  searchIndex: RichSearchIndex | null,
+): RichClampResult {
+  return {
+    fallback: false,
+    searchIndex,
+    state,
+  };
+}
+
+function fallbackResult(state: RichState | null): RichClampResult {
+  return {
+    state,
+    fallback: true,
+    searchIndex: null,
+  };
+}
+
+function unsafeRankResult(state: RichState, searchIndex: RichSearchIndex | null): RichClampResult {
+  return {
+    fallback: false,
+    searchIndex,
+    state,
+    textRankSafe: false,
+  };
+}
+
+function rankedResult(
+  state: RichState,
+  searchIndex: RichSearchIndex | null,
+  rank: number,
+  rankCount: number,
+  textRankSafe: boolean,
+): RichClampResult {
+  return {
+    fallback: false,
+    rank,
+    rankCount,
+    searchIndex,
+    state,
+    textRankSafe,
+  };
+}
 
 const ROOT_PATH: readonly number[] = [];
 const ROOT_START_POINT: BoundaryPoint = {
@@ -105,9 +189,6 @@ const ROOT_START_POINT: BoundaryPoint = {
 const FULL_STATE: RichState = {
   kind: "full",
 };
-// Rich logical runs are coarser than text boundaries, so one extra local probe
-// reduces continuous-resize churn without changing the shared text default.
-const richWarmExpansionLimit = 3;
 // Probe images only need layout boxes. Replacing network sources prevents binary
 // search candidate churn from triggering repeated image fetches.
 const PROBE_IMAGE_SRC = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==";
@@ -134,8 +215,176 @@ function isInlineWrapperDisplay(display: string): boolean {
   return display === "inline" || display === "contents";
 }
 
-function inspectLayout(root: HTMLElement): Set<string> | null {
+function sameLineMetrics(style: CSSStyleDeclaration, base: CSSStyleDeclaration): boolean {
+  return (
+    style.fontSize === base.fontSize &&
+    style.lineHeight === base.lineHeight &&
+    style.verticalAlign === base.verticalAlign
+  );
+}
+
+function lineMetricKey(style: CSSStyleDeclaration): string {
+  return `${style.fontSize}|${style.lineHeight}|${style.verticalAlign}`;
+}
+
+let variableDisplayCache = new WeakMap<Element, boolean>();
+let variableDisplaySignature: string | undefined;
+let variableDisplaySelectors: string[] | null = [];
+let hasLineMetricRule = false;
+let hasVariableLineMetricRule = false;
+
+function declaresLineMetrics(style: CSSStyleDeclaration): boolean {
+  return style.fontSize !== "" || style.lineHeight !== "" || style.verticalAlign !== "";
+}
+
+function currentStyleSheetSignature(): string {
+  const { styleSheets } = document;
+  const signature = [styleSheets.length.toString()];
+  const displaySelectors: string[] = [];
+  let hasVariableLineMetrics = false;
+  let selectorsComplete = true;
+  hasLineMetricRule = false;
+
+  for (const sheet of styleSheets) {
+    try {
+      const sheetHasVariableLineMetrics = appendRuleListSignature(
+        signature,
+        sheet.cssRules,
+        displaySelectors,
+      );
+      hasVariableLineMetrics ||= sheetHasVariableLineMetrics;
+    } catch {
+      signature.push("?");
+      selectorsComplete = false;
+      hasLineMetricRule = true;
+      hasVariableLineMetrics = true;
+    }
+  }
+
+  variableDisplaySelectors = selectorsComplete ? displaySelectors : null;
+  hasVariableLineMetricRule = hasVariableLineMetrics;
+  return signature.join("|");
+}
+
+function appendRuleListSignature(
+  signature: string[],
+  rules: CSSRuleList,
+  displaySelectors: string[],
+): boolean {
+  signature.push(rules.length.toString());
+  let hasVariableLineMetrics = false;
+
+  for (const rule of rules) {
+    if (rule instanceof CSSStyleRule) {
+      const { selectorText, style } = rule;
+      const { display } = style;
+      const lineMetrics = lineMetricKey(style);
+      signature.push(selectorText, display, lineMetrics);
+      if (display.includes("var(")) {
+        displaySelectors.push(selectorText);
+      }
+      if (declaresLineMetrics(style)) {
+        hasLineMetricRule = true;
+      }
+      if (lineMetrics.includes("var(")) {
+        hasVariableLineMetrics = true;
+      }
+      continue;
+    }
+
+    const nestedRules = nestedCssRules(rule);
+    if (!nestedRules) {
+      continue;
+    }
+
+    signature.push("{");
+    const nestedHasVariableLineMetrics = appendRuleListSignature(
+      signature,
+      nestedRules,
+      displaySelectors,
+    );
+    hasVariableLineMetrics ||= nestedHasVariableLineMetrics;
+    signature.push("}");
+  }
+
+  return hasVariableLineMetrics;
+}
+
+function refreshVariableDisplayCache(styleSheetSignature: string): void {
+  if (variableDisplaySignature === styleSheetSignature) {
+    return;
+  }
+
+  variableDisplayCache = new WeakMap();
+  variableDisplaySignature = styleSheetSignature;
+}
+
+function nestedCssRules(rule: CSSRule): CSSRuleList | null {
+  if (rule instanceof CSSMediaRule && !matchMedia(rule.conditionText).matches) {
+    return null;
+  }
+
+  return "cssRules" in rule ? (rule as CSSGroupingRule).cssRules : null;
+}
+
+function matchesVariableDisplaySelector(element: Element): boolean {
+  const selectors = variableDisplaySelectors;
+  if (!selectors) {
+    return true;
+  }
+
+  for (const selector of selectors) {
+    try {
+      if (element.matches(selector)) {
+        return true;
+      }
+    } catch {
+      // Ignore selectors unsupported by Element.matches.
+    }
+  }
+
+  return false;
+}
+
+function hasVariableDisplay(element: Element, getStyleSheetSignature: () => string): boolean {
+  if (!(element instanceof HTMLElement)) {
+    return false;
+  }
+
+  if (element.style.display.includes("var(")) {
+    return true;
+  }
+
+  refreshVariableDisplayCache(getStyleSheetSignature());
+  const cached = variableDisplayCache.get(element);
+  if (cached !== undefined) {
+    return cached;
+  }
+
+  const matches = matchesVariableDisplaySelector(element);
+  variableDisplayCache.set(element, matches);
+  return matches;
+}
+
+function inspectLayout(
+  root: HTMLElement,
+  getStyleSheetSignature: () => string,
+  baseStyle = getComputedStyle(root),
+): RichLayoutInspection | null {
   const atomicPaths = new Set<string>();
+  let hasElements = false;
+  let hasStyleDependentDisplay = false;
+  let hasStyleDependentLineMetrics = false;
+  let inheritsLineMetrics = true;
+  const baseStyleKey = lineMetricKey(baseStyle);
+  const simpleLineFit = simpleLineFitFromStyle(baseStyle);
+  let canUseSimpleLineHeight =
+    simpleLineFit !== undefined && baseStyle.verticalAlign === "baseline";
+
+  function addAtomicPath(path: string, styleDependent: boolean): void {
+    atomicPaths.add(path);
+    hasStyleDependentDisplay ||= styleDependent;
+  }
 
   function walkChildren(container: Node, parentKey: string): boolean {
     const { childNodes: children } = container;
@@ -146,22 +395,33 @@ function inspectLayout(root: HTMLElement): Set<string> | null {
         continue;
       }
 
+      hasElements = true;
       const tagName = tagNameFor(child);
       const childKey = childPathKey(parentKey, index);
 
       if (tagName === "br" || tagName === "wbr") {
         // Break opportunities are inline-flow participants and are represented
         // as atomic runs later.
+        canUseSimpleLineHeight = false;
         continue;
       }
 
-      const { display, float: floatValue, position } = getComputedStyle(child);
+      const style = getComputedStyle(child);
+      const { display, float: floatValue, position } = style;
       const isAtomicInline = isAtomicInlineDisplay(display);
+      const variableDisplay = hasVariableDisplay(child, getStyleSheetSignature);
+      const hasInlineLineMetric = child instanceof HTMLElement && declaresLineMetrics(child.style);
+      const hasVariableLineMetric =
+        child instanceof HTMLElement && lineMetricKey(child.style).includes("var(");
+      hasStyleDependentDisplay ||= variableDisplay;
+      hasStyleDependentLineMetrics ||= hasVariableLineMetric;
+      inheritsLineMetrics &&= !hasInlineLineMetric;
 
       if (display === "none") {
         // Hidden elements do not expose searchable text, but preserving them as
         // atomic structure keeps patch points aligned with the source tree.
-        atomicPaths.add(childKey);
+        addAtomicPath(childKey, variableDisplay);
+        canUseSimpleLineHeight = false;
         continue;
       }
 
@@ -190,7 +450,8 @@ function inspectLayout(root: HTMLElement): Set<string> | null {
 
         // Atomic inline boxes can be kept or removed as a unit, but their
         // internals are not searchable.
-        atomicPaths.add(childKey);
+        addAtomicPath(childKey, isAtomicInline && child.childNodes.length > 0 && variableDisplay);
+        canUseSimpleLineHeight = false;
         continue;
       }
 
@@ -198,6 +459,11 @@ function inspectLayout(root: HTMLElement): Set<string> | null {
         // Search can descend only through transparent inline wrappers; other
         // display types become unsupported to avoid changing layout semantics.
         return false;
+      }
+
+      const hasSimpleLineMetrics = sameLineMetrics(style, baseStyle);
+      if (canUseSimpleLineHeight && !hasSimpleLineMetrics) {
+        canUseSimpleLineHeight = false;
       }
 
       if (!walkChildren(child, childKey)) {
@@ -208,7 +474,27 @@ function inspectLayout(root: HTMLElement): Set<string> | null {
     return true;
   }
 
-  return walkChildren(root, "") ? atomicPaths : null;
+  if (!walkChildren(root, "")) {
+    return null;
+  }
+
+  if (hasElements && !hasStyleDependentLineMetrics) {
+    getStyleSheetSignature();
+    inheritsLineMetrics &&= !hasLineMetricRule;
+    hasStyleDependentLineMetrics = hasVariableLineMetricRule;
+  }
+
+  return {
+    atomicPathSignature: [...atomicPaths].join("|"),
+    atomicPaths,
+    hasElements,
+    hasStyleDependentDisplay,
+    hasStyleDependentLineMetrics,
+    inheritsLineMetrics,
+    ...(canUseSimpleLineHeight && simpleLineFit !== undefined
+      ? { simpleLineFit, simpleLineStyleKey: baseStyleKey }
+      : {}),
+  };
 }
 
 function endPointForChild(path: readonly number[]): BoundaryPoint {
@@ -553,6 +839,16 @@ function removeRootEllipsis(target: Node, ellipsis: string): void {
   }
 }
 
+function rootEllipsisNode(target: Node, ellipsis: string): Text | null {
+  if (!ellipsis) {
+    return null;
+  }
+
+  const lastChild = target.lastChild;
+
+  return lastChild instanceof Text && lastChild.data === ellipsis ? lastChild : null;
+}
+
 function fullEndPoint(root: HTMLElement): BoundaryPoint {
   return {
     path: ROOT_PATH,
@@ -636,6 +932,63 @@ function samePath(left: readonly number[], right: readonly number[]): boolean {
   return true;
 }
 
+function compareBoundaryPoint(left: BoundaryPoint, right: BoundaryPoint): number {
+  if (samePath(left.path, right.path)) {
+    return Math.sign(left.offset - right.offset);
+  }
+
+  const sharedLength = Math.min(left.path.length, right.path.length);
+  let index = 0;
+  for (; index < sharedLength; index += 1) {
+    const delta = left.path[index]! - right.path[index]!;
+    if (delta !== 0) {
+      return Math.sign(delta);
+    }
+  }
+
+  if (index === left.path.length) {
+    return left.offset <= (right.path[index] ?? 0) ? -1 : 1;
+  }
+
+  return right.offset <= (left.path[index] ?? 0) ? 1 : -1;
+}
+
+function wholePrefixBoundaryForPoint(
+  root: HTMLElement,
+  point: BoundaryPoint,
+): BoundaryPoint | null {
+  const node = resolvePath(root, point.path);
+  let containerPath: number[];
+  let boundaryOffset: number;
+
+  if (node instanceof Text) {
+    if (point.offset !== node.data.length) {
+      return null;
+    }
+
+    containerPath = point.path.slice(0, -1);
+    boundaryOffset = (point.path.at(-1) ?? 0) + 1;
+  } else {
+    containerPath = [...point.path];
+    boundaryOffset = point.offset;
+  }
+
+  while (containerPath.length > 0) {
+    const container = resolvePath(root, containerPath);
+    if (!container || boundaryOffset !== container.childNodes.length) {
+      break;
+    }
+
+    boundaryOffset = containerPath[containerPath.length - 1]! + 1;
+    containerPath = containerPath.slice(0, -1);
+  }
+
+  return {
+    path: containerPath,
+    offset: boundaryOffset,
+  };
+}
+
 function patchAnchorFor(
   root: HTMLElement,
   currentPoint: BoundaryPoint,
@@ -675,11 +1028,11 @@ function textPrefixForPoint(root: HTMLElement, point: BoundaryPoint): string | n
     return null;
   }
 
-  const text = (node.textContent ?? "").slice(0, point.offset);
+  const text = (node.textContent ?? "").slice(0, point.offset).replace(trailingWhitespace, "");
 
   // Generic structural patching trims trailing whitespace before appending the
-  // root ellipsis. Keep that path for candidates whose text would be normalized.
-  return text.length > 0 && !trailingWhitespaceEdge.test(text) ? text : null;
+  // root ellipsis; same-node patching can do the same without replacing siblings.
+  return text.length > 0 ? text : null;
 }
 
 function patchSameTextCut(
@@ -707,14 +1060,386 @@ function patchSameTextCut(
     return false;
   }
 
-  liveNode.data = text;
+  if (liveNode.data !== text) {
+    liveNode.data = text;
+  }
+
   return true;
 }
 
-function removeChildrenFrom(container: Node, startIndex: number): void {
+function removeChildrenFrom(
+  container: Node,
+  startIndex: number,
+  preservedLastChild?: Text | null,
+): void {
+  const preservesLastChild = preservedLastChild?.parentNode === container;
+
   while (container.childNodes.length > startIndex) {
-    container.lastChild?.remove();
+    if (preservesLastChild && container.childNodes[startIndex] === preservedLastChild) {
+      return;
+    }
+
+    const child =
+      preservesLastChild && container.lastChild === preservedLastChild
+        ? preservedLastChild.previousSibling
+        : container.lastChild;
+    if (!child) {
+      return;
+    }
+
+    child.remove();
   }
+}
+
+function lastLeafIn(node: Node): Node {
+  let current = node;
+
+  while (current.lastChild) {
+    current = current.lastChild;
+  }
+
+  return current;
+}
+
+function trailingLeafBeforeBoundary(root: HTMLElement, boundary: BoundaryPoint): Node | null {
+  let path = boundary.path;
+  let offset = boundary.offset;
+
+  while (true) {
+    const container = resolvePath(root, path);
+    if (!container) {
+      return null;
+    }
+
+    if (offset > 0) {
+      const child = container.childNodes[offset - 1];
+      return child ? lastLeafIn(child) : null;
+    }
+
+    if (path.length === 0) {
+      return null;
+    }
+
+    offset = path[path.length - 1] ?? 0;
+    path = path.slice(0, -1);
+  }
+}
+
+function clampedPrefixBoundary(root: HTMLElement, boundary: BoundaryPoint): BoundaryPoint | null {
+  let liveBoundary = boundary;
+
+  if (boundary.path.length === 0) {
+    let offset = boundary.offset;
+    while (offset > 0) {
+      const child = root.childNodes[offset - 1];
+
+      if (child instanceof Text && child.data.replace(trailingWhitespace, "") === "") {
+        offset -= 1;
+        continue;
+      }
+
+      if (child instanceof Element && tagNameFor(child) === "wbr") {
+        offset -= 1;
+        continue;
+      }
+
+      break;
+    }
+
+    if (offset !== boundary.offset) {
+      liveBoundary = { path: ROOT_PATH, offset };
+    }
+  }
+
+  const leaf = trailingLeafBeforeBoundary(root, liveBoundary);
+
+  if (!leaf) {
+    return liveBoundary;
+  }
+
+  if (leaf instanceof Element && tagNameFor(leaf) === "wbr") {
+    return null;
+  }
+
+  return leaf instanceof Text && trailingWhitespaceEdge.test(leaf.data) ? null : liveBoundary;
+}
+
+function removeAfterBoundary(
+  root: HTMLElement,
+  boundary: BoundaryPoint,
+  preservedRootEllipsis?: Text | null,
+): boolean {
+  const container = resolvePath(root, boundary.path);
+  if (!container || container.childNodes.length < boundary.offset) {
+    return false;
+  }
+
+  removeChildrenFrom(container, boundary.offset, preservedRootEllipsis);
+
+  for (let depth = boundary.path.length - 1; depth >= 0; depth -= 1) {
+    const ancestor = resolvePath(root, boundary.path.slice(0, depth));
+    if (!ancestor) {
+      return false;
+    }
+
+    removeChildrenFrom(ancestor, boundary.path[depth]! + 1, preservedRootEllipsis);
+  }
+
+  return true;
+}
+
+function canRemoveAfterBoundary(root: HTMLElement, boundary: BoundaryPoint): boolean {
+  const container = resolvePath(root, boundary.path);
+  if (!container || container.childNodes.length < boundary.offset) {
+    return false;
+  }
+
+  for (let depth = boundary.path.length - 1; depth >= 0; depth -= 1) {
+    if (!resolvePath(root, boundary.path.slice(0, depth))) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+function appendPatchFragment(
+  target: HTMLElement,
+  liveAnchor: Node,
+  fragment: DocumentFragment,
+  to: RichState,
+  ellipsis: string,
+  existingEllipsis: Text | null,
+): void {
+  if (existingEllipsis && liveAnchor === target) {
+    target.insertBefore(fragment, existingEllipsis);
+  } else {
+    liveAnchor.appendChild(fragment);
+  }
+
+  if (to.kind === "clamped" && !existingEllipsis) {
+    appendEllipsis(target, ellipsis);
+  }
+}
+
+function patchForwardWholePrefix(
+  prepared: PreparedRich,
+  target: HTMLElement,
+  from: RichState | null,
+  to: RichState,
+  ellipsis: string,
+  imageSource?: string,
+): boolean {
+  if (from?.kind !== "clamped") {
+    return false;
+  }
+
+  const { root } = prepared;
+  const sourceBoundary = wholePrefixBoundaryForPoint(root, from.point);
+
+  if (!sourceBoundary) {
+    return false;
+  }
+
+  const liveBoundary = clampedPrefixBoundary(root, sourceBoundary);
+  if (!liveBoundary) {
+    return false;
+  }
+
+  const nextPoint = pointForState(root, to);
+  const anchor = patchAnchorFor(root, liveBoundary, nextPoint);
+  if (!samePath(anchor.path, liveBoundary.path) || anchor.startIndex !== liveBoundary.offset) {
+    return false;
+  }
+
+  const liveAnchor = resolvePath(target, liveBoundary.path);
+  if (!liveAnchor) {
+    return false;
+  }
+
+  const hasEllipsis =
+    ellipsis !== "" && target.lastChild instanceof Text && target.lastChild.data === ellipsis;
+  const expectedChildren =
+    liveBoundary.path.length === 0 && hasEllipsis ? liveBoundary.offset + 1 : liveBoundary.offset;
+
+  if (liveAnchor.childNodes.length !== expectedChildren) {
+    return false;
+  }
+
+  const fragment = clonePatchFromAnchor(root, anchor, nextPoint, imageSource);
+  const existingEllipsis = to.kind === "clamped" ? rootEllipsisNode(target, ellipsis) : null;
+
+  if (to.kind === "full") {
+    removeRootEllipsis(target, ellipsis);
+  }
+  if (to.kind === "clamped") {
+    trimTrailingWhitespace(fragment);
+  }
+
+  appendPatchFragment(target, liveAnchor, fragment, to, ellipsis, existingEllipsis);
+
+  return true;
+}
+
+function patchForwardTextPrefix(
+  prepared: PreparedRich,
+  target: HTMLElement,
+  from: RichState | null,
+  to: RichState,
+  ellipsis: string,
+  imageSource?: string,
+): boolean {
+  if (from?.kind !== "clamped") {
+    return false;
+  }
+
+  const { root } = prepared;
+  const sourceText = resolvePath(root, from.point.path);
+  if (!(sourceText instanceof Text) || from.point.offset >= sourceText.data.length) {
+    return false;
+  }
+
+  const sourceBoundary = wholePrefixBoundaryForPoint(root, {
+    path: from.point.path,
+    offset: sourceText.data.length,
+  });
+  if (!sourceBoundary) {
+    return false;
+  }
+
+  const nextPoint = pointForState(root, to);
+  if (compareBoundaryPoint(sourceBoundary, nextPoint) > 0) {
+    return false;
+  }
+
+  const anchor = patchAnchorFor(root, sourceBoundary, nextPoint);
+  if (!samePath(anchor.path, sourceBoundary.path) || anchor.startIndex !== sourceBoundary.offset) {
+    return false;
+  }
+
+  const liveText = resolvePath(target, from.point.path);
+  if (!(liveText instanceof Text)) {
+    return false;
+  }
+
+  const rootEllipsis = rootEllipsisNode(target, ellipsis);
+  const existingEllipsis = to.kind === "clamped" ? rootEllipsis : null;
+  if (!removeAfterBoundary(target, sourceBoundary, rootEllipsis)) {
+    return false;
+  }
+  if (to.kind === "full") {
+    removeRootEllipsis(target, ellipsis);
+  }
+
+  liveText.data = sourceText.data;
+  const liveAnchor = resolvePatchAnchor(target, anchor.path);
+  const fragment = clonePatchFromAnchor(root, anchor, nextPoint, imageSource);
+  if (to.kind === "clamped") {
+    trimTrailingWhitespace(fragment);
+  }
+
+  appendPatchFragment(target, liveAnchor, fragment, to, ellipsis, existingEllipsis);
+
+  return true;
+}
+
+function patchFullToClamped(
+  prepared: PreparedRich,
+  target: HTMLElement,
+  from: RichState | null,
+  to: RichState,
+  ellipsis: string,
+): boolean {
+  if (from?.kind !== "full" || to.kind !== "clamped") {
+    return false;
+  }
+
+  const { root } = prepared;
+  const liveNode = resolvePath(target, to.point.path);
+
+  if (liveNode instanceof Text) {
+    const text = textPrefixForPoint(root, to.point);
+    if (text === null) {
+      return false;
+    }
+
+    const boundary = {
+      path: to.point.path.slice(0, -1),
+      offset: (to.point.path.at(-1) ?? 0) + 1,
+    };
+    if (!canRemoveAfterBoundary(target, boundary)) {
+      return false;
+    }
+
+    liveNode.data = text;
+    if (!removeAfterBoundary(target, boundary)) {
+      return false;
+    }
+  } else if (!removeAfterBoundary(target, to.point)) {
+    return false;
+  }
+
+  trimTrailingWhitespace(target);
+  appendEllipsis(target, ellipsis);
+
+  return true;
+}
+
+function patchBackwardWholePrefix(
+  prepared: PreparedRich,
+  target: HTMLElement,
+  from: RichState | null,
+  to: RichState,
+  ellipsis: string,
+): boolean {
+  if (!from || to.kind !== "clamped") {
+    return false;
+  }
+
+  const { root } = prepared;
+  const sourceBoundary = wholePrefixBoundaryForPoint(root, to.point);
+  if (!sourceBoundary) {
+    return false;
+  }
+
+  const liveBoundary = clampedPrefixBoundary(root, sourceBoundary);
+  if (!liveBoundary) {
+    return false;
+  }
+
+  if (compareBoundaryPoint(liveBoundary, pointForState(root, from)) >= 0) {
+    return false;
+  }
+
+  const trimmedPrefix = !sameBoundaryPoint(liveBoundary, sourceBoundary);
+  const existingEllipsis = from.kind === "clamped" ? rootEllipsisNode(target, ellipsis) : null;
+  if (existingEllipsis) {
+    return removeAfterBoundary(target, liveBoundary, existingEllipsis);
+  }
+
+  removeRootEllipsis(target, ellipsis);
+  if (!removeAfterBoundary(target, liveBoundary)) {
+    return false;
+  }
+
+  if (!trimmedPrefix) {
+    trimTrailingWhitespace(target);
+  }
+  appendEllipsis(target, ellipsis);
+
+  return true;
+}
+
+function reusablePointForState(root: HTMLElement, state: RichState | null): BoundaryPoint {
+  if (state?.kind !== "clamped") {
+    return state ? pointForState(root, state) : ROOT_START_POINT;
+  }
+
+  const sourceBoundary = wholePrefixBoundaryForPoint(root, state.point);
+
+  return sourceBoundary && !clampedPrefixBoundary(root, sourceBoundary)
+    ? ROOT_START_POINT
+    : state.point;
 }
 
 export function patchRich(
@@ -734,13 +1459,31 @@ export function patchRich(
     return to;
   }
 
+  if (patchForwardTextPrefix(prepared, target, from, to, ellipsis, imageSource)) {
+    return to;
+  }
+
+  if (patchForwardWholePrefix(prepared, target, from, to, ellipsis, imageSource)) {
+    return to;
+  }
+
+  if (patchFullToClamped(prepared, target, from, to, ellipsis)) {
+    return to;
+  }
+
+  if (patchBackwardWholePrefix(prepared, target, from, to, ellipsis)) {
+    return to;
+  }
+
   const { root } = prepared;
-  const currentPoint = from ? pointForState(root, from) : ROOT_START_POINT;
+  const currentPoint = reusablePointForState(root, from);
   const nextPoint = pointForState(root, to);
   const anchor = patchAnchorFor(root, currentPoint, nextPoint);
   const fragment = clonePatchFromAnchor(root, anchor, nextPoint, imageSource);
+  const existingEllipsis =
+    from?.kind === "clamped" && to.kind === "clamped" ? rootEllipsisNode(target, ellipsis) : null;
 
-  if (from?.kind === "clamped") {
+  if (from?.kind === "clamped" && !existingEllipsis) {
     // The root-level ellipsis is outside the structural source tree, so remove it
     // before calculating the next source-derived suffix.
     removeRootEllipsis(target, ellipsis);
@@ -748,19 +1491,15 @@ export function patchRich(
 
   const liveAnchor = resolvePatchAnchor(target, anchor.path);
 
-  removeChildrenFrom(liveAnchor, anchor.startIndex);
+  removeChildrenFrom(liveAnchor, anchor.startIndex, existingEllipsis);
 
   if (to.kind === "clamped") {
     trimTrailingWhitespace(fragment);
   }
 
-  liveAnchor.appendChild(fragment);
-
-  if (to.kind === "clamped") {
-    // Ellipsis is deliberately appended to the rich body root, not inside the
-    // innermost inline element, so source markup remains structurally intact.
-    appendEllipsis(target, ellipsis);
-  }
+  // Ellipsis is deliberately appended to the rich body root, not inside the
+  // innermost inline element, so source markup remains structurally intact.
+  appendPatchFragment(target, liveAnchor, fragment, to, ellipsis, existingEllipsis);
 
   return to;
 }
@@ -810,12 +1549,101 @@ function rankPointsForRuns(runs: readonly LogicalRun[]): BoundaryPoint[] {
   return points;
 }
 
-function rankForState(state: RichState, points: readonly BoundaryPoint[]): number {
+function rankForState(state: RichState, points: readonly BoundaryPoint[]): number | undefined {
   if (state.kind === "full") {
     return points.length;
   }
 
-  return boundaryPointIndex(points, state.point) ?? 0;
+  return boundaryPointIndex(points, state.point) ?? undefined;
+}
+
+function canUseBodyOnlyLineFit(
+  content: HTMLElement,
+  body: HTMLElement,
+  lineLimit: number | undefined,
+  maxHeight: ClampLength | undefined,
+): boolean {
+  return (
+    lineLimit !== undefined &&
+    maxHeight === undefined &&
+    content.childNodes.length === 1 &&
+    content.firstChild === body
+  );
+}
+
+function isTextLogicalRun(run: LogicalRun): run is TextLogicalRun {
+  return run.kind === "text";
+}
+
+function textOnlySimpleLineFit(
+  inspection: RichLayoutInspection,
+  runs: readonly LogicalRun[],
+): TextOnlySimpleLineFit | null {
+  if (
+    inspection.simpleLineFit === undefined ||
+    inspection.simpleLineStyleKey === undefined ||
+    !runs.every(isTextLogicalRun)
+  ) {
+    return null;
+  }
+
+  return {
+    fit: inspection.simpleLineFit,
+    styleKey: inspection.simpleLineStyleKey,
+  };
+}
+
+function createSearchIndex(
+  prepared: PreparedRich,
+  body: HTMLElement,
+  getStyleSheetSignature: () => string,
+  inspection = inspectLayout(body, getStyleSheetSignature),
+): RichSearchIndex | null {
+  if (!inspection) {
+    return null;
+  }
+
+  const runs = buildLogicalRuns(prepared.nodes, inspection.atomicPaths);
+  const simpleLine = textOnlySimpleLineFit(inspection, runs);
+
+  return {
+    atomicPathSignature: inspection.atomicPathSignature,
+    body,
+    hasElements: inspection.hasElements,
+    hasStyleDependentDisplay: inspection.hasStyleDependentDisplay,
+    hasStyleDependentLineMetrics: inspection.hasStyleDependentLineMetrics,
+    inheritsLineMetrics: inspection.inheritsLineMetrics,
+    prepared,
+    rankPoints: prepared.boundary === "word" ? rankPointsForRuns(runs) : null,
+    runs,
+    ...(simpleLine
+      ? {
+          simpleLineFit: simpleLine.fit,
+          simpleLineStyleKey: simpleLine.styleKey,
+        }
+      : {}),
+    styleSheetSignature: inspection.hasElements ? getStyleSheetSignature() : "",
+  };
+}
+
+function searchIndexWithSimpleLineFit(
+  searchIndex: RichSearchIndex,
+  simpleLineFit: SimpleLineFit | undefined,
+  simpleLineStyleKey: string | undefined,
+): RichSearchIndex {
+  const {
+    simpleLineFit: _simpleLineFit,
+    simpleLineStyleKey: _simpleLineStyleKey,
+    ...rest
+  } = searchIndex;
+
+  return simpleLineFit !== undefined && simpleLineStyleKey !== undefined
+    ? {
+        ...rest,
+        simpleLineFit,
+        simpleLineStyleKey,
+      }
+    : rest;
 }
 
 function textRunContainsPoint(run: TextLogicalRun, point: BoundaryPoint): boolean {
@@ -870,6 +1698,33 @@ function textRunIndexForPoint(runs: readonly LogicalRun[], point: BoundaryPoint)
   return null;
 }
 
+function textPointHasContent(root: HTMLElement, point: BoundaryPoint): boolean {
+  const node = resolvePath(root, point.path);
+
+  return node instanceof Text && node.data.slice(0, point.offset).trim().length > 0;
+}
+
+function hasAtomicRunNeighbor(runs: readonly LogicalRun[], index: number): boolean {
+  return runs[index - 1]?.kind === "atomic" || runs[index + 1]?.kind === "atomic";
+}
+
+function textRankSafeForState(
+  state: RichState,
+  runs: readonly LogicalRun[],
+  root: HTMLElement,
+): boolean {
+  if (state.kind !== "clamped") {
+    return false;
+  }
+
+  const runIndex = textRunIndexForPoint(runs, state.point);
+
+  return (
+    runIndex !== null &&
+    (textPointHasContent(root, state.point) || !hasAtomicRunNeighbor(runs, runIndex))
+  );
+}
+
 export function clampRich({
   ellipsis,
   from,
@@ -879,9 +1734,11 @@ export function clampRich({
   prepared,
   preferHintedTextRun,
   probe,
+  reuseSimpleLineFit = false,
+  searchIndex,
   skipFullFit = false,
+  verifyFullCandidate = true,
 }: RichClampOptions): RichClampResult {
-  const { nodes } = prepared;
   const { body, content, root, width } = probe;
 
   if (width <= 0) {
@@ -892,7 +1749,15 @@ export function clampRich({
     };
   }
 
-  let state = patchRich(prepared, body, from, FULL_STATE, ellipsis, PROBE_IMAGE_SRC);
+  let state = from;
+  let styleSheetSignature: string | undefined;
+  const visibleBoundsCache: VisibleBoundsCache | undefined =
+    maxHeight === undefined ? undefined : {};
+
+  function getStyleSheetSignature(): string {
+    styleSheetSignature ??= currentStyleSheetSignature();
+    return styleSheetSignature;
+  }
 
   function applyFullCandidate(): void {
     state = patchRich(prepared, body, state, FULL_STATE, ellipsis, PROBE_IMAGE_SRC);
@@ -912,60 +1777,179 @@ export function clampRich({
     );
   }
 
-  const cachedVisibleTop = maxHeight === undefined ? undefined : visibleRootTop(root);
+  let checkedFullCandidate = false;
 
-  if (!skipFullFit && fitsContent(root, content, lineLimit, maxHeight, true, cachedVisibleTop)) {
-    // The full rich tree fits; exit before layout inspection because no
-    // searchable candidate is needed.
-    return {
-      state,
-      fallback: false,
-    };
+  function fitsFullCandidate(): boolean {
+    applyFullCandidate();
+    checkedFullCandidate = true;
+
+    return fitsContent(
+      root,
+      content,
+      lineLimit,
+      maxHeight,
+      true,
+      visibleBoundsCache,
+      simpleLineFit,
+    );
   }
 
-  const layout = inspectLayout(body);
-  if (!layout) {
+  let nextSearchIndex =
+    searchIndex?.prepared === prepared && searchIndex.body === body ? searchIndex : null;
+  if (!nextSearchIndex) {
+    applyFullCandidate();
+    nextSearchIndex = createSearchIndex(prepared, body, getStyleSheetSignature);
+  }
+
+  if (!nextSearchIndex) {
     // Unsupported inline layout falls back to the original HTML instead of
     // risking a structurally valid but visually wrong clamp.
-    return {
-      state,
-      fallback: true,
-    };
+    return fallbackResult(state);
+  }
+
+  const canUseSimpleLineLayout = canUseBodyOnlyLineFit(content, body, lineLimit, maxHeight);
+  const styleSheetsChanged =
+    nextSearchIndex.hasElements && nextSearchIndex.styleSheetSignature !== getStyleSheetSignature();
+  const hasSimpleLineFit = canUseSimpleLineLayout && nextSearchIndex.simpleLineFit !== undefined;
+  const displayDependsOnStyle = nextSearchIndex.hasStyleDependentDisplay;
+  const lineMetricsDependOnStyle = nextSearchIndex.hasStyleDependentLineMetrics;
+  let simpleLineFit: SimpleLineFit | undefined;
+  let baseStyleForInspection: CSSStyleDeclaration | undefined;
+  let inspectLayoutAgain = displayDependsOnStyle || lineMetricsDependOnStyle || styleSheetsChanged;
+  if (hasSimpleLineFit) {
+    if (
+      reuseSimpleLineFit &&
+      !inspectLayoutAgain &&
+      nextSearchIndex.simpleLineStyleKey !== undefined
+    ) {
+      const currentBaseStyle = getComputedStyle(body);
+      const currentBaseStyleKey = lineMetricKey(currentBaseStyle);
+      const inheritedSimpleLineFit =
+        nextSearchIndex.inheritsLineMetrics && currentBaseStyle.verticalAlign === "baseline"
+          ? simpleLineFitFromStyle(currentBaseStyle)
+          : undefined;
+      if (currentBaseStyleKey === nextSearchIndex.simpleLineStyleKey) {
+        simpleLineFit = nextSearchIndex.simpleLineFit;
+      } else if (inheritedSimpleLineFit) {
+        simpleLineFit = inheritedSimpleLineFit;
+        nextSearchIndex = searchIndexWithSimpleLineFit(
+          nextSearchIndex,
+          inheritedSimpleLineFit,
+          currentBaseStyleKey,
+        );
+      } else {
+        inspectLayoutAgain = true;
+        baseStyleForInspection = currentBaseStyle;
+      }
+    } else {
+      inspectLayoutAgain = true;
+    }
+  }
+
+  if (inspectLayoutAgain) {
+    if (displayDependsOnStyle || lineMetricsDependOnStyle || styleSheetsChanged) {
+      applyFullCandidate();
+    }
+
+    const inspection = inspectLayout(body, getStyleSheetSignature, baseStyleForInspection);
+    if (!inspection) {
+      applyFullCandidate();
+      return fallbackResult(state);
+    }
+
+    if (
+      styleSheetsChanged ||
+      inspection.atomicPathSignature !== nextSearchIndex.atomicPathSignature
+    ) {
+      // The cached all-text run map may be stale if CSS turned a transparent
+      // inline wrapper into an atomic box, or an atomic box back into text.
+      const refreshedSearchIndex = createSearchIndex(
+        prepared,
+        body,
+        getStyleSheetSignature,
+        inspection,
+      );
+      if (!refreshedSearchIndex) {
+        applyFullCandidate();
+        return fallbackResult(state);
+      }
+
+      nextSearchIndex = refreshedSearchIndex;
+    }
+
+    const nextSimpleLine = canUseSimpleLineLayout
+      ? textOnlySimpleLineFit(inspection, nextSearchIndex.runs)
+      : null;
+    nextSearchIndex = searchIndexWithSimpleLineFit(
+      nextSearchIndex,
+      nextSimpleLine?.fit,
+      nextSimpleLine?.styleKey,
+    );
+
+    if (nextSimpleLine) {
+      simpleLineFit = nextSimpleLine.fit;
+    }
+  }
+
+  const { rankPoints, runs } = nextSearchIndex;
+
+  if (!skipFullFit && fitsFullCandidate()) {
+    // The full rich tree fits and its layout is safe for the rich search model.
+    return unrankedResult(state, nextSearchIndex);
   }
 
   function fitsCandidate(endPoint: BoundaryPoint): boolean {
     applyCandidate(endPoint);
-    return fitsContent(root, content, lineLimit, maxHeight, true, cachedVisibleTop);
+    return fitsContent(
+      root,
+      content,
+      lineLimit,
+      maxHeight,
+      true,
+      visibleBoundsCache,
+      simpleLineFit,
+    );
   }
 
-  const runs = buildLogicalRuns(nodes, layout);
   if (runs.length === 0) {
     // Rich content can be all comments/empty text; in that case the full patched
     // state is already the only meaningful answer.
-    return {
-      state,
-      fallback: false,
-    };
+    applyFullCandidate();
+    return unrankedResult(state, nextSearchIndex);
   }
 
-  const rankPoints = prepared.boundary === "word" ? rankPointsForRuns(runs) : null;
-  function measuredResult(): RichClampResult {
-    if (!rankPoints) {
-      return {
-        fallback: false,
-        state,
-      };
+  function currentResult(): RichClampResult {
+    if (!state || !rankPoints) {
+      return unrankedResult(state, nextSearchIndex);
     }
 
-    return {
-      fallback: false,
-      rank: rankForState(state, rankPoints),
-      rankCount: rankPoints.length,
+    const stateRank = rankForState(state, rankPoints);
+    if (stateRank === undefined) {
+      return unsafeRankResult(state, nextSearchIndex);
+    }
+
+    return rankedResult(
       state,
-    };
+      nextSearchIndex,
+      stateRank,
+      rankPoints.length,
+      textRankSafeForState(state, runs, prepared.root),
+    );
+  }
+
+  function clampedResult(point: BoundaryPoint): RichClampResult {
+    if (skipFullFit && verifyFullCandidate && !checkedFullCandidate) {
+      if (fitsFullCandidate()) {
+        return currentResult();
+      }
+    }
+
+    applyCandidate(point);
+    return currentResult();
   }
 
   const useHintedTextRun = preferHintedTextRun !== undefined ? preferHintedTextRun : hint === from;
+  let coarseHint = runHintForState(runs, hint);
 
   if (useHintedTextRun && hint?.kind === "clamped") {
     const hintedRunIndex = textRunIndexForPoint(runs, hint.point);
@@ -984,8 +1968,7 @@ export function clampRich({
         );
 
         if (fineIndex >= 0 && fineIndex < runEndIndex) {
-          applyCandidate(hintedRun.textCuts[fineIndex]!);
-          return measuredResult();
+          return clampedResult(hintedRun.textCuts[fineIndex]!);
         }
 
         if (fineIndex === runEndIndex) {
@@ -993,15 +1976,21 @@ export function clampRich({
           const nextRun = runs[hintedRunIndex + 1];
 
           if (!nextRun) {
-            applyFullCandidate();
-            return measuredResult();
+            if (fitsFullCandidate()) {
+              return currentResult();
+            }
+
+            return clampedResult(runEndPoint);
           }
 
-          // If the next unit is atomic and fails, the current run end is already
-          // the best legal boundary. Text runs still need their own fine search.
-          if (nextRun.kind === "atomic" && !fitsCandidate(nextRun.endPoint)) {
-            applyCandidate(runEndPoint);
-            return measuredResult();
+          // Adjacent searchable text is merged into this run, so the next unit is
+          // normally atomic. If it fails, this run end is the best legal boundary.
+          if (nextRun.kind === "atomic") {
+            if (!fitsCandidate(nextRun.endPoint)) {
+              return clampedResult(runEndPoint);
+            }
+
+            coarseHint = hintedRunIndex + 1;
           }
         }
 
@@ -1016,8 +2005,7 @@ export function clampRich({
           );
 
           if (fallbackIndex >= 0 && fallbackIndex < fallbackTextCuts.length - 1) {
-            applyCandidate(fallbackTextCuts[fallbackIndex]!);
-            return measuredResult();
+            return clampedResult(fallbackTextCuts[fallbackIndex]!);
           }
         }
 
@@ -1025,14 +2013,13 @@ export function clampRich({
           const coarsePoint =
             hintedRunIndex > 0 ? runs[hintedRunIndex - 1]!.endPoint : ROOT_START_POINT;
           if (fitsCandidate(coarsePoint)) {
-            return measuredResult();
+            return clampedResult(coarsePoint);
           }
         }
       }
     }
   }
 
-  const coarseHint = runHintForState(runs, hint);
   const coarseSearchCount = runs.length + (skipFullFit ? 1 : 0);
   // Coarse search skips over complete logical runs first so refinement only has
   // to slice the one text run that crosses the fit boundary.
@@ -1040,8 +2027,7 @@ export function clampRich({
     coarseSearchCount,
     (index) => {
       if (index === runs.length) {
-        applyFullCandidate();
-        return fitsContent(root, content, lineLimit, maxHeight, true, cachedVisibleTop);
+        return fitsFullCandidate();
       }
 
       return fitsCandidate(runs[index]!.endPoint);
@@ -1050,7 +2036,7 @@ export function clampRich({
     richWarmExpansionLimit,
   );
   if (coarseIndex === runs.length) {
-    return measuredResult();
+    return currentResult();
   }
 
   const coarsePoint = coarseIndex >= 0 ? runs[coarseIndex]!.endPoint : ROOT_START_POINT;
@@ -1059,8 +2045,7 @@ export function clampRich({
   if (!nextRun || nextRun.kind === "atomic") {
     // If the next unit is atomic, there is no legal smaller slice after the
     // coarse point.
-    applyCandidate(coarsePoint);
-    return measuredResult();
+    return clampedResult(coarsePoint);
   }
 
   const fineHint =
@@ -1089,6 +2074,5 @@ export function clampRich({
     finePoint = fallbackIndex >= 0 ? fallbackTextCuts[fallbackIndex]! : coarsePoint;
   }
 
-  applyCandidate(finePoint);
-  return measuredResult();
+  return clampedResult(finePoint);
 }

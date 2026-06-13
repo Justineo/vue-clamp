@@ -21,6 +21,8 @@ declare const __VUE_CLAMP_BENCH_SAMPLING__: {
 
 declare const __VUE_CLAMP_BENCH_SCENARIOS__: string[];
 
+declare const __VUE_CLAMP_BENCH_COUNTERS__: boolean;
+
 declare module "vue-clamp" {
   import type { Component } from "vue";
 

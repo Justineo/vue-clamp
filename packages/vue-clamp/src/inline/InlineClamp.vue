@@ -11,22 +11,51 @@ import {
 } from "vue";
 import { trueOrUndefined } from "../attributes.ts";
 import {
+  exactResultCacheEntryLimit,
+  rememberCacheEntry,
+  touchCacheEntry,
+  tupleCacheKey,
+} from "../cache.ts";
+import {
   borderBoxObserverOptions,
+  borderBoxSizeSnapshot,
   borderBoxSizeSignature,
   createCoalescingRunner,
+  emptyBorderBoxSignature,
   hasBorderBoxEntrySignatureChange,
+  hasInlineFontMetrics,
+  hasUnresolvedInlineTextWidthStyle,
+  isContentIndependentWidth,
   listenForFontLoads,
 } from "../layout.ts";
 import { visuallyHiddenTextStyle } from "../styles.ts";
-import { clampTextToFit, normalizeLocationRatio, prepareText } from "../text.ts";
+import {
+  canSkipFullTextFit,
+  clampTextToFit,
+  normalizeLocationRatio,
+  prepareText,
+  setElementText,
+} from "../text.ts";
 import { inlineClampRootStyle } from "./styles.ts";
 
 import type { InlineClampProps } from "./types.ts";
 import type { PreparedText, TextClampResult } from "../text.ts";
 
+type TextContext = {
+  readonly ellipsis: string;
+  readonly hasAffixes: false;
+  readonly lineCapacity: 1;
+  readonly lineLimit: undefined;
+  readonly maxHeight: undefined;
+  readonly ratio: number;
+  readonly spacing: "preserve-outer";
+};
+type LayoutSnapshot = {
+  readonly rootWidth: number;
+  readonly signature: string;
+};
+
 const fitTolerance = 0.5;
-const fullFitSkipGrowLimit = 24;
-const contentIndependentWidth = /^(?:-?(?:\d|\.\d)|calc\(|clamp\(|max\(|min\()/u;
 
 defineOptions({
   name: "InlineClamp",
@@ -55,16 +84,23 @@ let resizeObserver: ResizeObserver | null = null;
 let stopFonts = () => {};
 let lastLayoutSignature: string | null = null;
 let lastTextClamp: TextClampResult | null = null;
-let lastParentSizeSignature = "0x0";
-let lastRootSizeSignature = "0x0";
+const resultCache = new Map<string, TextClampResult>();
+let lastParentSizeSignature = emptyBorderBoxSignature;
+let lastRootSizeSignature = emptyBorderBoxSignature;
+let pendingFreshLayoutSignature: string | undefined;
+let pendingFreshRootWidth: number | undefined;
 
-function layoutSignature(): string {
+function layoutSnapshot(): LayoutSnapshot {
   // The parent controls available inline width while the root records the
   // rendered result; observing both catches shrink and grow transitions.
   lastParentSizeSignature = borderBoxSizeSignature(rootRef.value?.parentElement ?? null);
-  lastRootSizeSignature = borderBoxSizeSignature(rootRef.value);
+  const rootSnapshot = borderBoxSizeSnapshot(rootRef.value);
+  lastRootSizeSignature = rootSnapshot.signature;
 
-  return lastParentSizeSignature + "|" + lastRootSizeSignature;
+  return {
+    rootWidth: rootSnapshot.width,
+    signature: lastParentSizeSignature + "|" + lastRootSizeSignature,
+  };
 }
 
 function lastObservedSignature(element: Element): string | null {
@@ -81,7 +117,7 @@ function lastObservedSignature(element: Element): string | null {
   return null;
 }
 
-function clampBody(): string | null {
+function clampBody(freshRootWidth?: number, cacheKey?: string): string | null {
   const rootElement = rootRef.value;
   const bodyElement = bodyRef.value;
   const body = parts.value.body;
@@ -94,19 +130,35 @@ function clampBody(): string | null {
 
   function applyBodyText(nextBody: string): void {
     if (nextBody !== currentBody) {
-      bodyElement.textContent = nextBody;
+      setElementText(bodyElement, nextBody);
       currentBody = nextBody;
     }
   }
 
   const canMeasureCurrentWidth = currentBody !== body && canTrustCurrentRootWidth(rootElement);
+  const prepared = preparedBody.value;
+  const locationRatio = normalizeLocationRatio(location);
+  const context = textContextFor(locationRatio);
+
+  if (cacheKey !== undefined) {
+    const cached = matchingCachedResult(cacheKey, prepared, context);
+    if (cached) {
+      applyBodyText(cached.text);
+      lastTextClamp = cached;
+      return cached.text;
+    }
+  }
+
   if (!canMeasureCurrentWidth) {
     // Content-sized inline-blocks need the full body before measurement.
     // Otherwise a shortened previous result becomes the stale width limit.
     applyBodyText(body);
   }
 
-  const limit = rootElement.getBoundingClientRect().width;
+  const limit =
+    canMeasureCurrentWidth && freshRootWidth !== undefined
+      ? freshRootWidth
+      : rootElement.getBoundingClientRect().width;
 
   if (limit <= 0) {
     // Do not replace visible text with a zero-width guess during mount or hidden
@@ -116,8 +168,9 @@ function clampBody(): string | null {
   }
 
   const fitsCurrentBody = () => rootElement.scrollWidth <= limit + fitTolerance;
-  const prepared = preparedBody.value;
-  const skipFullFit = canSkipFullBodyFit(prepared, limit);
+  const textHint = matchingTextHint(prepared, context);
+  const boundaryCount = prepared.boundaryOffsets.length - 1;
+  const skipFullFit = canSkipFullTextFit(prepared, textHint, limit, context);
 
   if (!skipFullFit) {
     applyBodyText(body);
@@ -127,10 +180,12 @@ function clampBody(): string | null {
       // starts from the real upper bound.
       lastTextClamp = {
         boundaryOffsets: prepared.boundaryOffsets,
-        kept: prepared.boundaryOffsets.length - 1,
+        ...context,
+        kept: boundaryCount,
         rootWidth: limit,
         text: body,
       };
+      rememberCacheEntry(resultCache, cacheKey, lastTextClamp, exactResultCacheEntryLimit);
       return body;
     }
   }
@@ -141,40 +196,143 @@ function clampBody(): string | null {
       applyBodyText(candidate);
       return fitsCurrentBody();
     },
-    hint: lastTextClamp,
+    hint: textHint,
     includeFullCandidate: skipFullFit,
     prepared,
-    ratio: normalizeLocationRatio(location),
+    ratio: locationRatio,
     // Split affixes already own the outer spacing; preserve spaces at the body
     // edges so custom split functions keep browser-like inline flow.
     spacing: "preserve-outer",
+    verifyFullCandidate: shouldVerifyFullBodyCandidate(skipFullFit, textHint, limit, boundaryCount),
   });
   const nextBody = nextResult.text;
   applyBodyText(nextBody);
   lastTextClamp = {
     ...nextResult,
+    ...context,
+    ...nextClampedMaxWidth(nextResult, textHint, limit, boundaryCount),
     rootWidth: limit,
   };
+  rememberCacheEntry(resultCache, cacheKey, lastTextClamp, exactResultCacheEntryLimit);
 
   return nextBody;
 }
 
 function canTrustCurrentRootWidth(element: HTMLElement): boolean {
-  return contentIndependentWidth.test(element.style.width.trim());
+  return isContentIndependentWidth(element.style.width.trim());
 }
 
-function canSkipFullBodyFit(prepared: PreparedText, rootWidth: number): boolean {
-  if (lastTextClamp === null) {
+function resultCacheKey(freshLayoutSignature: string | undefined): string | undefined {
+  const element = rootRef.value;
+  if (freshLayoutSignature === undefined || !element || !canCacheResult(element)) {
+    return undefined;
+  }
+
+  return tupleCacheKey([
+    freshLayoutSignature,
+    element.getAttribute("class") ?? "",
+    element.getAttribute("style") ?? "",
+  ]);
+}
+
+function canCacheResult(element: HTMLElement): boolean {
+  if (
+    !canTrustCurrentRootWidth(element) ||
+    (element.getAttribute("class") ?? "").trim() !== "" ||
+    hasUnresolvedInlineTextWidthStyle(element.style)
+  ) {
     return false;
   }
 
-  const boundaryCount = prepared.boundaryOffsets.length - 1;
+  return hasInlineFontMetrics(element.style);
+}
+
+function textContextFor(ratio: number): TextContext {
+  return {
+    ellipsis,
+    hasAffixes: false,
+    lineCapacity: 1,
+    lineLimit: undefined,
+    maxHeight: undefined,
+    ratio,
+    spacing: "preserve-outer",
+  };
+}
+
+function matchingTextHint(prepared: PreparedText, context: TextContext): TextClampResult | null {
+  const hint = lastTextClamp;
+
+  return sameTextContext(hint, prepared, context) ? hint : null;
+}
+
+function sameTextContext(
+  result: TextClampResult | null,
+  prepared: PreparedText,
+  context: TextContext,
+): boolean {
+  if (!result) {
+    return false;
+  }
+
   return (
-    lastTextClamp.boundaryOffsets === prepared.boundaryOffsets &&
-    lastTextClamp.kept < boundaryCount &&
-    lastTextClamp.rootWidth !== undefined &&
-    rootWidth <= lastTextClamp.rootWidth + fullFitSkipGrowLimit
+    result.boundaryOffsets === prepared.boundaryOffsets &&
+    result.ellipsis === context.ellipsis &&
+    (result.hasAffixes ?? false) === context.hasAffixes &&
+    result.lineCapacity === context.lineCapacity &&
+    result.lineLimit === context.lineLimit &&
+    result.maxHeight === context.maxHeight &&
+    result.ratio === context.ratio &&
+    result.spacing === context.spacing
   );
+}
+
+function matchingCachedResult(
+  key: string,
+  prepared: PreparedText,
+  context: TextContext,
+): TextClampResult | null {
+  const result = resultCache.get(key) ?? null;
+  if (!sameTextContext(result, prepared, context)) {
+    return null;
+  }
+
+  return touchCacheEntry(resultCache, key) ?? null;
+}
+
+function nextClampedMaxWidth(
+  result: TextClampResult,
+  hint: TextClampResult | null,
+  rootWidth: number,
+  boundaryCount: number,
+): Pick<TextClampResult, "clampedMaxWidth"> {
+  if (result.kept >= boundaryCount) {
+    return {};
+  }
+
+  return {
+    clampedMaxWidth: Math.max(rootWidth, hint?.clampedMaxWidth ?? rootWidth),
+  };
+}
+
+function shouldVerifyFullBodyCandidate(
+  skipFullFit: boolean,
+  hint: TextClampResult | null,
+  rootWidth: number,
+  boundaryCount: number,
+): boolean {
+  if (!skipFullFit || hint?.rootWidth === undefined) {
+    return true;
+  }
+
+  if (rootWidth <= hint.rootWidth) {
+    return rootWidth === hint.rootWidth;
+  }
+
+  if (hint.kept >= boundaryCount) {
+    return true;
+  }
+
+  return hint.clampedMaxWidth === undefined || rootWidth > hint.clampedMaxWidth;
 }
 
 function applyVisibleBody(nextBody: string): void {
@@ -188,14 +346,34 @@ function applyVisibleBody(nextBody: string): void {
   }
 }
 
-const requestRecompute = createCoalescingRunner(async () => {
-  const nextBody = clampBody();
+function requestRecompute(snapshot?: LayoutSnapshot): void {
+  if (snapshot) {
+    pendingFreshLayoutSignature = snapshot.signature;
+    pendingFreshRootWidth = snapshot.rootWidth;
+  } else {
+    pendingFreshLayoutSignature = undefined;
+    pendingFreshRootWidth = undefined;
+    resultCache.clear();
+  }
+
+  requestRecomputeRunner();
+}
+
+const requestRecomputeRunner = createCoalescingRunner(async () => {
+  const freshLayoutSignature = pendingFreshLayoutSignature;
+  const freshRootWidth = pendingFreshRootWidth;
+  pendingFreshLayoutSignature = undefined;
+  pendingFreshRootWidth = undefined;
+  const nextBody = clampBody(freshRootWidth, resultCacheKey(freshLayoutSignature));
 
   if (nextBody !== null && visibleBody.value.text !== nextBody) {
     applyVisibleBody(nextBody);
   }
 
-  lastLayoutSignature = layoutSignature();
+  lastLayoutSignature =
+    freshLayoutSignature !== undefined && rootRef.value && canTrustCurrentRootWidth(rootRef.value)
+      ? freshLayoutSignature
+      : layoutSnapshot().signature;
 });
 
 watch(
@@ -242,14 +420,15 @@ watchPostEffect((onCleanup) => {
 
 onMounted(() => {
   requestRecompute();
-  stopFonts = listenForFontLoads(requestRecompute);
+  stopFonts = listenForFontLoads(() => requestRecompute());
 });
 
 onUpdated(() => {
-  if (layoutSignature() !== lastLayoutSignature) {
+  const snapshot = layoutSnapshot();
+  if (snapshot.signature !== lastLayoutSignature) {
     // Vue-driven style changes can happen before ResizeObserver delivery; keep
     // the final clamped text in the same update cycle.
-    requestRecompute();
+    requestRecompute(snapshot);
   }
 });
 

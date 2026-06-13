@@ -12,4 +12,11 @@ describe("Public exports", () => {
   it("does not expose the old Clamp alias", () => {
     expect("Clamp" in exports).toBe(false);
   });
+
+  it("does not expose internal runtime helpers", () => {
+    expect("borderBoxWidth" in exports).toBe(false);
+    expect("clampTextToFit" in exports).toBe(false);
+    expect("prepareRich" in exports).toBe(false);
+    expect("tupleCacheKey" in exports).toBe(false);
+  });
 });

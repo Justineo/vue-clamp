@@ -1,11 +1,20 @@
 import { nextTick } from "vue";
 
 export type BenchmarkMetrics = {
+  addedNodes: number;
+  attributeMutationRecords: number;
   boundingRectReads: number;
+  characterDataMutationRecords: number;
+  childListMutationRecords: number;
   clientHeightReads: number;
+  clientRectEntries: number;
   clientRectReads: number;
   clientTopReads: number;
   clientWidthReads: number;
+  hiddenAddedNodes: number;
+  hiddenChildListMutationRecords: number;
+  hiddenMutationRecords: number;
+  hiddenRemovedNodes: number;
   cloneNodeCalls: number;
   imageCloneCalls: number;
   mutationCallbacks: number;
@@ -14,7 +23,9 @@ export type BenchmarkMetrics = {
   offsetWidthReads: number;
   replaceChildrenCalls: number;
   resizeObserverCallbacks: number;
+  removedNodes: number;
   scrollWidthReads: number;
+  styleReads: number;
 };
 
 export type StepDiagnostics = {
@@ -59,6 +70,10 @@ type GetterPatch = {
   descriptor: PropertyDescriptor;
   owner: object;
   property: string;
+};
+
+type BenchmarkSpyOptions = {
+  counters?: boolean;
 };
 
 type ActivityRecord = {
@@ -111,20 +126,31 @@ const trackedRoots: HTMLElement[] = [];
 const activityRecords: ActivityRecord[] = [];
 let trackedMetrics: BenchmarkMetrics | null = null;
 let installed = false;
+let countersInstalled = false;
 let originalGetBoundingClientRectDescriptor: PropertyDescriptor | undefined;
 let originalGetClientRectsDescriptor: PropertyDescriptor | undefined;
 let originalReplaceChildrenDescriptor: PropertyDescriptor | undefined;
 let originalCloneNodeDescriptor: PropertyDescriptor | undefined;
+let originalGetComputedStyle: typeof getComputedStyle | undefined;
 let originalResizeObserver: typeof ResizeObserver | undefined;
 let getterPatches: GetterPatch[] = [];
 
 function emptyMetrics(): BenchmarkMetrics {
   return {
+    addedNodes: 0,
+    attributeMutationRecords: 0,
     boundingRectReads: 0,
+    characterDataMutationRecords: 0,
+    childListMutationRecords: 0,
     clientHeightReads: 0,
+    clientRectEntries: 0,
     clientRectReads: 0,
     clientTopReads: 0,
     clientWidthReads: 0,
+    hiddenAddedNodes: 0,
+    hiddenChildListMutationRecords: 0,
+    hiddenMutationRecords: 0,
+    hiddenRemovedNodes: 0,
     cloneNodeCalls: 0,
     imageCloneCalls: 0,
     mutationCallbacks: 0,
@@ -133,7 +159,9 @@ function emptyMetrics(): BenchmarkMetrics {
     offsetWidthReads: 0,
     replaceChildrenCalls: 0,
     resizeObserverCallbacks: 0,
+    removedNodes: 0,
     scrollWidthReads: 0,
+    styleReads: 0,
   };
 }
 
@@ -158,6 +186,12 @@ function descriptorInPrototypeChain(start: object, property: string): GetterPatc
 
 function isTrackedElement(element: Element): boolean {
   return trackedRoots.some((root) => element === root || root.contains(element));
+}
+
+function isHiddenMutationTarget(target: Node): boolean {
+  const element = target instanceof Element ? target : target.parentElement;
+
+  return element?.closest('[aria-hidden="true"]') !== null;
 }
 
 function countTrackedElement(element: unknown, metric: keyof BenchmarkMetrics): void {
@@ -194,8 +228,17 @@ function patchElementMethod(
   Object.defineProperty(Element.prototype, property, {
     ...descriptor,
     value(this: Element): unknown {
-      countTrackedElement(this, metric);
-      return original.call(this);
+      const result = original.call(this);
+
+      if (trackedMetrics && isTrackedElement(this)) {
+        trackedMetrics[metric] += 1;
+
+        if (property === "getClientRects") {
+          trackedMetrics.clientRectEntries += (result as DOMRectList).length;
+        }
+      }
+
+      return result;
     },
   });
 }
@@ -218,6 +261,16 @@ function patchGetter(property: string, metric: GetterMetric): void {
       return Reflect.apply(originalGetter, this, []);
     },
   });
+}
+
+function patchGetComputedStyle(): void {
+  const original = globalThis.getComputedStyle;
+  originalGetComputedStyle = original;
+
+  globalThis.getComputedStyle = ((element: Element, pseudoElt?: string | null) => {
+    countTrackedElement(element, "styleReads");
+    return original.call(globalThis, element, pseudoElt);
+  }) as typeof getComputedStyle;
 }
 
 function patchReplaceChildren(): void {
@@ -308,22 +361,28 @@ function patchResizeObserver(): void {
   } as unknown as typeof ResizeObserver;
 }
 
-export function installBenchmarkSpies(): void {
+export function installBenchmarkSpies(options: BenchmarkSpyOptions = {}): void {
   if (installed) {
     return;
   }
 
   installed = true;
-  patchElementMethod("getBoundingClientRect", "boundingRectReads");
-  patchElementMethod("getClientRects", "clientRectReads");
-  patchGetter("clientHeight", "clientHeightReads");
-  patchGetter("clientTop", "clientTopReads");
-  patchGetter("clientWidth", "clientWidthReads");
-  patchGetter("offsetHeight", "offsetHeightReads");
-  patchGetter("offsetWidth", "offsetWidthReads");
-  patchGetter("scrollWidth", "scrollWidthReads");
-  patchReplaceChildren();
-  patchCloneNode();
+  countersInstalled = options.counters ?? true;
+
+  if (countersInstalled) {
+    patchElementMethod("getBoundingClientRect", "boundingRectReads");
+    patchElementMethod("getClientRects", "clientRectReads");
+    patchGetter("clientHeight", "clientHeightReads");
+    patchGetter("clientTop", "clientTopReads");
+    patchGetter("clientWidth", "clientWidthReads");
+    patchGetter("offsetHeight", "offsetHeightReads");
+    patchGetter("offsetWidth", "offsetWidthReads");
+    patchGetter("scrollWidth", "scrollWidthReads");
+    patchGetComputedStyle();
+    patchReplaceChildren();
+    patchCloneNode();
+  }
+
   patchResizeObserver();
 }
 
@@ -333,6 +392,7 @@ export function restoreBenchmarkSpies(): void {
   }
 
   installed = false;
+  countersInstalled = false;
   trackedRoots.length = 0;
   trackedMetrics = null;
 
@@ -356,6 +416,10 @@ export function restoreBenchmarkSpies(): void {
     Object.defineProperty(Node.prototype, "cloneNode", originalCloneNodeDescriptor);
   }
 
+  if (originalGetComputedStyle) {
+    globalThis.getComputedStyle = originalGetComputedStyle;
+  }
+
   for (const patch of getterPatches) {
     Object.defineProperty(patch.owner, patch.property, patch.descriptor);
   }
@@ -370,7 +434,7 @@ export function restoreBenchmarkSpies(): void {
 export function beginTracking(...roots: HTMLElement[]): void {
   trackedRoots.length = 0;
   trackedRoots.push(...roots);
-  trackedMetrics = emptyMetrics();
+  trackedMetrics = countersInstalled ? emptyMetrics() : null;
 }
 
 export function endTracking(): BenchmarkMetrics {
@@ -412,6 +476,28 @@ export function createActivityTracker(root: HTMLElement): ActivityTracker {
     if (trackedMetrics) {
       trackedMetrics.mutationCallbacks += 1;
       trackedMetrics.mutationRecords += records.length;
+
+      for (const record of records) {
+        const hidden = isHiddenMutationTarget(record.target);
+        if (hidden) {
+          trackedMetrics.hiddenMutationRecords += 1;
+        }
+
+        if (record.type === "childList") {
+          trackedMetrics.childListMutationRecords += 1;
+          trackedMetrics.addedNodes += record.addedNodes.length;
+          trackedMetrics.removedNodes += record.removedNodes.length;
+          if (hidden) {
+            trackedMetrics.hiddenChildListMutationRecords += 1;
+            trackedMetrics.hiddenAddedNodes += record.addedNodes.length;
+            trackedMetrics.hiddenRemovedNodes += record.removedNodes.length;
+          }
+        } else if (record.type === "characterData") {
+          trackedMetrics.characterDataMutationRecords += 1;
+        } else if (record.type === "attributes") {
+          trackedMetrics.attributeMutationRecords += 1;
+        }
+      }
     }
 
     mark();

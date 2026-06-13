@@ -1,16 +1,40 @@
 <script setup lang="ts">
 import { computed, h, mergeProps, nextTick, shallowRef, useAttrs, watch } from "vue";
-import { borderBoxWidth, cssLength, normalizeLineLimit } from "../layout.ts";
+import {
+  exactResultCacheEntryLimit,
+  rememberCacheEntry,
+  touchCacheEntry,
+  tupleCacheKey,
+} from "../cache.ts";
+import {
+  borderBoxWidth,
+  cssLength,
+  hasInlineFontMetrics,
+  hasUnresolvedStyleReference,
+  isContentIndependentWidth,
+  normalizeLineLimit,
+} from "../layout.ts";
 import { useMultilineClamp } from "../multiline.ts";
 import { renderMultilineAffixSlot } from "../multiline-render.ts";
 import { multilineSlotStyle } from "../multiline-styles.ts";
 import { clampRich, patchRich, prepareRich } from "../rich.ts";
-import { warmSearchLocalCoverage } from "../search.ts";
+import {
+  estimateColdSearchMaxProbeCount,
+  estimateWarmSearchProbeCount,
+  richWarmExpansionLimit,
+  warmSearchLocalCoverage,
+} from "../search.ts";
 import { richProbeStyle } from "./styles.ts";
 
 import type { VNodeChild } from "vue";
 import type { ClampEmits } from "../types.ts";
-import type { PreparedRich, RichClampProbe, RichClampResult, RichState } from "../rich.ts";
+import type {
+  PreparedRich,
+  RichClampProbe,
+  RichClampResult,
+  RichSearchIndex,
+  RichState,
+} from "../rich.ts";
 import type { RichLineClampExposed, RichLineClampProps, RichLineClampSlots } from "./types.ts";
 
 type ProbeElements = {
@@ -33,17 +57,23 @@ type PreparedProbe = {
   probe: RichClampProbe;
 };
 
-type RichRankHint = {
+type RankHint = {
+  hasObservedRankSlope: boolean;
   rank: number;
   rankCount: number;
-  rankObserved: boolean;
   rankPerPx: number;
+  textRankSafe: boolean;
   width: number;
 };
 
-// Large width jumps are cheaper as cold search than as repeated local expansion.
-const warmSearchWidthDelta = 32;
-const richWarmSearchExpansionLimit = 3;
+type CachedResult = RichClampResult & {
+  readonly fallback: false;
+  readonly state: RichState;
+};
+
+// Bootstrap locality before a measured word-rank slope exists. This is a pixel
+// window, separate from the rank-space expansion budget used inside searches.
+const warmBootstrapWidthDelta = 32;
 
 defineOptions({
   name: "RichLineClamp",
@@ -70,15 +100,19 @@ const isFallback = shallowRef(false);
 
 const preparedHtml = computed(() => prepareRich(html, boundary));
 
-// The visible tree and hidden probe advance independently: visibleState patches
-// user-facing DOM, while probeState keeps measurement patches cheap across
-// repeated reclamps.
+// The visible tree and hidden probe advance independently. measuredState is the
+// latest measured result used for warm hints; probeDomState is the actual hidden
+// body state used as the next patch origin.
 let visibleState: RichState | null = null;
-let probeState: RichState | null = null;
+let probeDomState: RichState | null = null;
+let measuredState: RichState | null = null;
 let probeElements: ProbeElements | null = null;
-let probeStateAffixSignature: string | null = null;
-let probeStateWidth: number | null = null;
-let probeRankHint: RichRankHint | null = null;
+let probeSearchIndex: RichSearchIndex | null = null;
+let measuredAffixSignature: string | null = null;
+let measuredWidth: number | null = null;
+let rankHint: RankHint | null = null;
+let clampedMaxWidth: number | null = null;
+const resultCache = new Map<string, CachedResult>();
 
 const {
   rootRef,
@@ -99,6 +133,9 @@ const {
   expanded,
   onClampedChange: (value) => {
     emit("clampchange", value);
+  },
+  onFontLoad: () => {
+    resultCache.clear();
   },
   syncAffixSignaturesOnRootChange: true,
   recompute: async (expanded, rootWidthSnapshot): Promise<void> => {
@@ -131,29 +168,42 @@ const {
     }
 
     const { affixSignature, probe } = preparedProbe;
-    const searchHint = canUseRichSearchHint(probe.width) ? probeState : null;
+    const hasWidthSnapshot = rootWidthSnapshot !== undefined;
+    const sameAffix = affixSignature === measuredAffixSignature;
+    const skipFullFit = canSkipFullFit(probe.width, sameAffix);
+    const searchHint = canUseSearchHint(probe.width, sameAffix, lineLimit) ? measuredState : null;
     const preferHintedTextRun =
-      searchHint?.kind === "clamped" &&
-      probeStateWidth !== null &&
-      affixSignature === probeStateAffixSignature;
-    // Search hints help nearby resizes but can cost more on large jumps. The
-    // current probe state is still passed separately so patching remains correct
-    // even when the search starts cold.
-    const result = clampRich({
-      ellipsis,
-      from: probeState,
-      hint: searchHint,
-      lineLimit,
-      maxHeight,
-      prepared,
-      preferHintedTextRun,
-      probe,
-      skipFullFit: canSkipFullRichFit(probe.width),
-    });
-    probeState = result.state;
-    probeStateAffixSignature = affixSignature;
-    probeStateWidth = probe.width;
-    updateProbeRankHint(result, probe.width);
+      searchHint?.kind === "clamped" && measuredWidth !== null && sameAffix;
+    const cacheKey = resultCacheKey(prepared, hasWidthSnapshot, probe.width, affixSignature);
+    const cachedResult = cacheKey ? (touchCacheEntry(resultCache, cacheKey) ?? null) : null;
+    const result =
+      cachedResult ??
+      clampRich({
+        ellipsis,
+        from: probeDomState,
+        hint: searchHint,
+        lineLimit,
+        maxHeight,
+        prepared,
+        preferHintedTextRun,
+        probe,
+        reuseSimpleLineFit: hasWidthSnapshot,
+        searchIndex: probeSearchIndex,
+        skipFullFit,
+        verifyFullCandidate: shouldVerifyFullCandidate(probe.width),
+      });
+    if (!cachedResult) {
+      probeDomState = result.state;
+    }
+    measuredState = result.state;
+    probeSearchIndex = result.searchIndex ?? null;
+    measuredAffixSignature = affixSignature;
+    measuredWidth = probe.width;
+    updateRankHint(result, probe.width, sameAffix);
+    updateClampedMaxWidth(result, probe.width, sameAffix);
+    if (!cachedResult && isCacheableResult(result)) {
+      rememberCacheEntry(resultCache, cacheKey, result, exactResultCacheEntryLimit);
+    }
 
     if (!result.state) {
       // A zero-width probe should not replace visible content with a guessed rich
@@ -273,55 +323,219 @@ function syncProbeAffixClone(
 
 function resetStates(): void {
   visibleState = null;
-  probeState = null;
-  probeStateAffixSignature = null;
-  probeStateWidth = null;
-  probeRankHint = null;
+  probeDomState = null;
+  measuredState = null;
+  probeSearchIndex = null;
+  measuredAffixSignature = null;
+  measuredWidth = null;
+  rankHint = null;
+  clampedMaxWidth = null;
+  resultCache.clear();
 }
 
-function canUseRichSearchHint(width: number): boolean {
-  if (!probeState) {
+function canCacheRoot(element: HTMLElement, searchIndex: RichSearchIndex): boolean {
+  if (
+    searchIndex.hasStyleDependentDisplay ||
+    searchIndex.hasStyleDependentLineMetrics ||
+    (element.getAttribute("class") ?? "").trim() !== ""
+  ) {
     return false;
   }
 
-  if (probeStateWidth === null || Math.abs(width - probeStateWidth) <= warmSearchWidthDelta) {
-    return true;
-  }
-
-  if (boundary !== "word") {
+  const styleText = element.getAttribute("style") ?? "";
+  if (styleText === "" || hasUnresolvedStyleReference(styleText)) {
     return false;
   }
-
-  const hint = probeRankHint;
-  if (!hint?.rankObserved) {
-    return false;
-  }
-
-  const searchCount = hint.rankCount;
-  const target = estimatedRichTargetRank(hint, width);
-  const start = Math.max(0, Math.min(searchCount - 1, hint.rank));
-  const warmProbeLimit = richWarmSearchExpansionLimit + 1;
 
   return (
-    Math.ceil(Math.log2(searchCount + 1)) > warmProbeLimit &&
-    Math.abs(target - start) <= warmSearchLocalCoverage(richWarmSearchExpansionLimit)
+    isContentIndependentWidth(element.style.width.trim()) && hasInlineFontMetrics(element.style)
   );
 }
 
-function estimatedRichTargetRank(hint: RichRankHint, width: number): number {
-  const maxRank = hint.rankCount - 1;
-  const deltaWidth = width - hint.width;
-  const rankMove = Math.abs(deltaWidth) * hint.rankPerPx;
-  const target =
-    Math.max(0, Math.min(maxRank, hint.rank)) + Math.sign(deltaWidth) * Math.ceil(rankMove);
+function styleSheetCacheKey(): string | null {
+  const signature = [document.styleSheets.length.toString()];
 
-  return Math.max(0, Math.min(maxRank, target));
+  for (const sheet of document.styleSheets) {
+    try {
+      for (const rule of sheet.cssRules) {
+        if (!(rule instanceof CSSStyleRule)) {
+          return null;
+        }
+
+        const cssText = rule.cssText;
+        if (cssText.toLowerCase().includes("var(")) {
+          return null;
+        }
+
+        signature.push(cssText);
+      }
+    } catch {
+      return null;
+    }
+  }
+
+  return tupleCacheKey(signature);
 }
 
-function nextRichRankPerPx(result: RichClampResult, width: number): number {
+function ancestorStyleContextKey(element: HTMLElement): string | null {
+  const parts: string[] = [];
+  let current: HTMLElement | null = element;
+
+  while (current) {
+    const style = current.getAttribute("style") ?? "";
+    if (hasUnresolvedStyleReference(style)) {
+      return null;
+    }
+
+    parts.push(current.id, current.getAttribute("class") ?? "", style);
+    current = current.parentElement;
+  }
+
+  return tupleCacheKey(parts);
+}
+
+function hasUnresolvedInlineStyles(root: Element): boolean {
+  const style = root.getAttribute("style") ?? "";
+  if (hasUnresolvedStyleReference(style)) {
+    return true;
+  }
+
+  for (const child of root.querySelectorAll("[style]")) {
+    if (hasUnresolvedStyleReference(child.getAttribute("style") ?? "")) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function resultCacheKey(
+  prepared: PreparedRich,
+  hasWidthSnapshot: boolean,
+  width: number,
+  affixSignature: string,
+): string | undefined {
+  const rootElement = rootRef.value;
+  const searchIndex = probeSearchIndex;
+  if (
+    !hasWidthSnapshot ||
+    !rootElement ||
+    !searchIndex ||
+    !canCacheRoot(rootElement, searchIndex) ||
+    hasUnresolvedInlineStyles(prepared.root)
+  ) {
+    return undefined;
+  }
+
+  const ancestorKey = ancestorStyleContextKey(rootElement);
+  if (ancestorKey === null) {
+    return undefined;
+  }
+
+  const styleSheetKey = styleSheetCacheKey();
+  if (styleSheetKey === null) {
+    return undefined;
+  }
+
+  return tupleCacheKey([
+    width,
+    affixSignature,
+    searchIndex.atomicPathSignature,
+    searchIndex.simpleLineStyleKey ?? "",
+    ancestorKey,
+    styleSheetKey,
+  ]);
+}
+
+function isCacheableResult(result: RichClampResult): result is CachedResult {
+  return !result.fallback && !!result.state;
+}
+
+function canUseSearchHint(
+  width: number,
+  sameAffix: boolean,
+  lineLimit: number | undefined,
+): boolean {
+  if (!measuredState || !sameAffix) {
+    return false;
+  }
+
+  const stateWidth = measuredWidth;
+  if (stateWidth === null || width === stateWidth) {
+    return true;
+  }
+
+  if (Math.abs(width - stateWidth) <= warmBootstrapWidthDelta) {
+    return true;
+  }
+
+  const hint = rankHint;
+  if (canUseSearchRank(hint)) {
+    return warmSearchCanBeatCold(hint, width, lineLimit);
+  }
+
+  return false;
+}
+
+function canUseObservedRankSlope(hint: RankHint | null): hint is RankHint {
+  return boundary === "word" && !!hint?.hasObservedRankSlope;
+}
+
+function canUseSearchRank(hint: RankHint | null): hint is RankHint {
+  return canUseObservedRankSlope(hint) && hint.textRankSafe;
+}
+
+function clampRank(rank: number, rankCount: number): number {
+  return Math.max(0, Math.min(rankCount - 1, rank));
+}
+
+function warmSearchCanBeatCold(
+  hint: RankHint,
+  width: number,
+  lineLimit: number | undefined,
+): boolean {
+  const searchCount = hint.rankCount;
+  const start = clampRank(hint.rank, searchCount);
+  const target = estimatedTargetRank(hint, width);
+  const coldProbes = estimateColdSearchMaxProbeCount(searchCount);
+  const warmProbes = estimateWarmSearchProbeCount(
+    searchCount,
+    start,
+    target,
+    richWarmExpansionLimit,
+  );
+  const rankMove = Math.abs(target - start);
+
+  return (
+    warmProbes < coldProbes ||
+    (warmRiskBudgetApplies(rankMove, lineLimit) && warmProbes <= coldProbes + 1)
+  );
+}
+
+function warmRiskBudgetApplies(rankMove: number, lineLimit: number | undefined): boolean {
+  if (rankMove <= warmSearchLocalCoverage(richWarmExpansionLimit)) {
+    return true;
+  }
+
+  return lineLimit !== 1;
+}
+
+function estimatedTargetRank(hint: RankHint, width: number): number {
+  const deltaWidth = width - hint.width;
+  const rankMove = Math.abs(deltaWidth) * hint.rankPerPx;
+  const target = clampRank(hint.rank, hint.rankCount) + Math.sign(deltaWidth) * Math.ceil(rankMove);
+
+  return clampRank(target, hint.rankCount);
+}
+
+function nextRankPerPx(
+  result: RichClampResult,
+  width: number,
+  sameAffix: boolean,
+  previous: RankHint | null,
+): number {
   const rank = result.rank ?? 0;
-  const previous = probeRankHint;
-  if (!previous || previous.rankCount !== result.rankCount) {
+  if (!sameAffix || !previous || previous.rankCount !== result.rankCount) {
     return Math.max(1 / width, rank / width);
   }
 
@@ -335,34 +549,71 @@ function nextRichRankPerPx(result: RichClampResult, width: number): number {
   return Number.isFinite(observed) && observed > 0 ? observed : previous.rankPerPx;
 }
 
-function nextRichRankObserved(width: number): boolean {
-  const previous = probeRankHint;
-
-  return !!previous && previous.width !== width;
+function nextRankSlopeObserved(
+  previous: RankHint | null,
+  width: number,
+  sameAffix: boolean,
+): boolean {
+  // Same-width font or slot invalidations should not discard a slope learned
+  // from an earlier resize.
+  return sameAffix && !!previous && (previous.hasObservedRankSlope || previous.width !== width);
 }
 
-function updateProbeRankHint(result: RichClampResult, width: number): void {
+function updateRankHint(result: RichClampResult, width: number, sameAffix: boolean): void {
   if (result.rank === undefined || result.rankCount === undefined || result.rankCount <= 0) {
-    probeRankHint = null;
+    rankHint = null;
     return;
   }
 
-  probeRankHint = {
+  const previous = rankHint;
+  rankHint = {
+    hasObservedRankSlope: nextRankSlopeObserved(previous, width, sameAffix),
     rank: result.rank,
     rankCount: result.rankCount,
-    rankObserved: nextRichRankObserved(width),
-    rankPerPx: nextRichRankPerPx(result, width),
+    rankPerPx: nextRankPerPx(result, width, sameAffix, previous),
+    textRankSafe: result.textRankSafe ?? false,
     width,
   };
 }
 
-function canSkipFullRichFit(width: number): boolean {
-  const state = probeState;
-  const stateWidth = probeStateWidth;
+function updateClampedMaxWidth(result: RichClampResult, width: number, sameAffix: boolean): void {
+  if (result.state?.kind !== "clamped") {
+    clampedMaxWidth = null;
+    return;
+  }
 
-  return (
-    state?.kind === "clamped" && stateWidth !== null && width <= stateWidth + warmSearchWidthDelta
-  );
+  clampedMaxWidth = sameAffix ? Math.max(width, clampedMaxWidth ?? width) : width;
+}
+
+function shouldVerifyFullCandidate(width: number): boolean {
+  if (measuredWidth === null || width === measuredWidth) {
+    return true;
+  }
+
+  if (width < measuredWidth) {
+    return false;
+  }
+
+  return clampedMaxWidth === null || width > clampedMaxWidth;
+}
+
+function canSkipFullFit(width: number, sameAffix: boolean): boolean {
+  const state = measuredState;
+  const stateWidth = measuredWidth;
+  if (state?.kind !== "clamped" || stateWidth === null || !sameAffix) {
+    return false;
+  }
+
+  if (width <= stateWidth + warmBootstrapWidthDelta) {
+    return true;
+  }
+
+  const hint = rankHint;
+  if (!canUseObservedRankSlope(hint)) {
+    return false;
+  }
+
+  return estimatedTargetRank(hint, width) < hint.rankCount - 1;
 }
 
 function patchVisible(prepared: PreparedRich, state: RichState): void {

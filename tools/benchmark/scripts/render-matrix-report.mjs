@@ -43,6 +43,8 @@ const reportJsonPath = resolve(outputDir, "310-package-benchmark-matrix.local.js
 const reportMdPath = resolve(outputDir, "310-package-benchmark-matrix.md");
 const reportSvgPath = resolve(outputDir, "310-package-benchmark-matrix.svg");
 const activeCvLowConfidenceThreshold = 10;
+const activeHotspotRmeThreshold = 5;
+const largeWidthDeltaThreshold = 32;
 const missingVersionReason =
   "No benchmark payload was provided for this version in the Vue 3 public component matrix.";
 const releaseCaveats = new Map([
@@ -126,6 +128,42 @@ function offsetReads(metrics) {
   return (height ?? 0) + (width ?? 0);
 }
 
+function counterTrackingEnabled(report) {
+  return report.environment?.counterTracking !== false;
+}
+
+function counterTrackingLabel(report) {
+  if (report.environment === null) {
+    return "N/A";
+  }
+
+  return counterTrackingEnabled(report) ? "on" : "off";
+}
+
+function pairCounterTrackingEnabled(pair) {
+  return counterTrackingEnabled(pair.from.report) && counterTrackingEnabled(pair.to.report);
+}
+
+function formatPairCounterDelta(pair, before, after, key) {
+  if (!pairCounterTrackingEnabled(pair)) {
+    return "N/A";
+  }
+
+  return formatPercent(percentDelta(before?.[key], after?.[key]));
+}
+
+function formatPairOffsetDelta(pair, before, after) {
+  if (!pairCounterTrackingEnabled(pair)) {
+    return "N/A";
+  }
+
+  return formatPercent(percentDelta(offsetReads(before), offsetReads(after)));
+}
+
+function formatCounterValue(tracksCounters, value) {
+  return tracksCounters ? formatNumber(value, 0) : "N/A";
+}
+
 function median(values) {
   if (values.length === 0) {
     return null;
@@ -172,10 +210,15 @@ function colorForDelta(delta) {
 }
 
 const workSignalKeys = [
+  "medianAddedNodes",
   "medianAfterSlotCalls",
+  "medianAttributeMutationRecords",
   "medianBeforeSlotCalls",
   "medianBoundingRectReads",
+  "medianCharacterDataMutationRecords",
+  "medianChildListMutationRecords",
   "medianClientHeightReads",
+  "medianClientRectEntries",
   "medianClientRectReads",
   "medianClientTopReads",
   "medianClientWidthReads",
@@ -186,8 +229,36 @@ const workSignalKeys = [
   "medianOffsetHeightReads",
   "medianOffsetWidthReads",
   "medianReplaceChildrenCalls",
+  "medianRemovedNodes",
   "medianResizeObserverCallbacks",
   "medianScrollWidthReads",
+  "medianStyleReads",
+];
+
+const structuralSignalDefinitions = [
+  ["BBox reads", "medianBoundingRectReads"],
+  ["Client rects", "medianClientRectReads"],
+  ["Client rect entries", "medianClientRectEntries"],
+  ["Mutation records", "medianMutationRecords"],
+  ["Child-list mutation records", "medianChildListMutationRecords"],
+  ["Character-data mutation records", "medianCharacterDataMutationRecords"],
+  ["Attribute mutation records", "medianAttributeMutationRecords"],
+  ["Added nodes", "medianAddedNodes"],
+  ["Removed nodes", "medianRemovedNodes"],
+  ["Offset height reads", "medianOffsetHeightReads"],
+  ["Offset width reads", "medianOffsetWidthReads"],
+  ["Client height reads", "medianClientHeightReads"],
+  ["Client top reads", "medianClientTopReads"],
+  ["Client width reads", "medianClientWidthReads"],
+  ["Scroll width reads", "medianScrollWidthReads"],
+  ["Before slot calls", "medianBeforeSlotCalls"],
+  ["After slot calls", "medianAfterSlotCalls"],
+  ["Item slot calls", "medianItemSlotCalls"],
+  ["Clone node calls", "medianCloneNodeCalls"],
+  ["Image clone calls", "medianImageCloneCalls"],
+  ["Replace children calls", "medianReplaceChildrenCalls"],
+  ["ResizeObserver callbacks", "medianResizeObserverCallbacks"],
+  ["Style reads", "medianStyleReads"],
 ];
 
 function maxWorkSignalDelta(before, after) {
@@ -227,14 +298,38 @@ function adjacentTimingSignal(before, after) {
 
   const beforeCv = before.sampleCvActiveMs;
   const afterCv = after.sampleCvActiveMs;
+  const beforeMean = before.sampleMeanActiveMs;
+  const afterMean = after.sampleMeanActiveMs;
+  const beforeMoe = before.sampleMoe95ActiveMs;
+  const afterMoe = after.sampleMoe95ActiveMs;
+  const meanDelta = percentDelta(beforeMean, afterMean);
   const highStandardDeviation =
     (typeof beforeCv === "number" && beforeCv > activeCvLowConfidenceThreshold) ||
     (typeof afterCv === "number" && afterCv > activeCvLowConfidenceThreshold);
+  const overlappingMeanMarginOfError =
+    typeof beforeMean === "number" &&
+    typeof afterMean === "number" &&
+    typeof beforeMoe === "number" &&
+    typeof afterMoe === "number" &&
+    beforeMean - beforeMoe <= afterMean + afterMoe &&
+    afterMean - afterMoe <= beforeMean + beforeMoe;
+  const mixedMedianMeanDirection =
+    typeof meanDelta === "number" && Math.sign(delta) !== 0 && Math.sign(meanDelta) !== 0
+      ? Math.sign(delta) !== Math.sign(meanDelta)
+      : false;
   const workDelta = maxWorkSignalDelta(before, after);
   const lowConfidenceReasons = [];
 
   if (highStandardDeviation) {
     lowConfidenceReasons.push("high active-time CV");
+  }
+
+  if (overlappingMeanMarginOfError) {
+    lowConfidenceReasons.push("overlapping active-time mean MOE");
+  }
+
+  if (mixedMedianMeanDirection) {
+    lowConfidenceReasons.push("median/mean active-time direction mismatch");
   }
 
   return {
@@ -495,6 +590,7 @@ async function readReports(file) {
   const payloadText = finalBenchmarkPayloadText(text);
 
   if (payloadText === null) {
+    console.warn(`Skipping ${file}: no PACKAGE_MATRIX_BENCHMARK marker found.`);
     return [];
   }
 
@@ -554,10 +650,12 @@ const scenarioMeta = new Map();
 
 for (const report of reports) {
   for (const scenario of report.scenarios) {
+    const previous = scenarioMeta.get(scenario.scenario);
     scenarioMeta.set(scenario.scenario, {
       component: scenario.component,
       group: scenario.group,
       scenario: scenario.scenario,
+      widthProfile: previous?.widthProfile ?? scenario.widthProfile ?? null,
     });
   }
 }
@@ -597,6 +695,7 @@ const matrix = scenarioIds.map((scenarioId) => {
 function summarizeReport(column) {
   const { label, report } = column;
   const ok = report.scenarios.filter((scenario) => scenario.status === "ok");
+  const tracksCounters = counterTrackingEnabled(report);
   const total = (key) => ok.reduce((sum, scenario) => sum + (scenario.summary[key] ?? 0), 0);
   const activeRmes = ok
     .map((scenario) => scenario.summary.sampleRme95ActiveMs)
@@ -619,6 +718,7 @@ function summarizeReport(column) {
 
   return {
     activeMs: ok.length > 0 ? total("medianActiveMs") : null,
+    counterTracking: counterTrackingLabel(report),
     maxActiveCv: activeCvs.length > 0 ? Math.max(...activeCvs) : null,
     maxActiveRme95: activeRmes.length > 0 ? Math.max(...activeRmes) : null,
     medianActiveCv: median(activeCvs),
@@ -626,15 +726,20 @@ function summarizeReport(column) {
     medianSampleCount: median(sampleCounts),
     medianSampleWallMs: median(sampleWallTimes),
     medianTotalSampleActiveMs: median(totalSampleActiveTimes),
-    itemSlotCalls: ok.length > 0 ? total("medianItemSlotCalls") : null,
+    itemSlotCalls: tracksCounters && ok.length > 0 ? total("medianItemSlotCalls") : null,
     longTaskCount: ok.length > 0 ? total("medianLongTaskCount") : null,
+    mutationRecords: tracksCounters && ok.length > 0 ? total("medianMutationRecords") : null,
     offsetReads:
-      offsetReadTotals.length > 0 ? offsetReadTotals.reduce((sum, value) => sum + value, 0) : null,
+      tracksCounters && offsetReadTotals.length > 0
+        ? offsetReadTotals.reduce((sum, value) => sum + value, 0)
+        : null,
     quietMs: ok.length > 0 ? total("medianQuietMs") : null,
-    bboxReads: ok.length > 0 ? total("medianBoundingRectReads") : null,
-    clientRectReads: ok.length > 0 ? total("medianClientRectReads") : null,
+    bboxReads: tracksCounters && ok.length > 0 ? total("medianBoundingRectReads") : null,
+    clientRectEntries: tracksCounters && ok.length > 0 ? total("medianClientRectEntries") : null,
+    clientRectReads: tracksCounters && ok.length > 0 ? total("medianClientRectReads") : null,
     scenarios: report.scenarios.length,
     settledMs: ok.length > 0 ? total("medianSettledMs") : null,
+    styleReads: tracksCounters && ok.length > 0 ? total("medianStyleReads") : null,
     supportedScenarios: ok.length,
     version: label,
   };
@@ -656,6 +761,7 @@ const adjacentPairs = reportColumns.slice(1).map((to, index) => ({
 }));
 
 function summarizePair(pair) {
+  const tracksCounters = pairCounterTrackingEnabled(pair);
   const totals = {
     activeAfter: 0,
     activeBefore: 0,
@@ -663,16 +769,23 @@ function summarizePair(pair) {
     bboxReadsBefore: 0,
     clientRectReadsAfter: 0,
     clientRectReadsBefore: 0,
+    clientRectEntriesAfter: 0,
+    clientRectEntriesBefore: 0,
     itemSlotCallsAfter: 0,
     itemSlotCallsBefore: 0,
     longTaskCountAfter: 0,
     longTaskCountBefore: 0,
+    mutationRecordsAfter: 0,
+    mutationRecordsBefore: 0,
     offsetReadsAfter: 0,
     offsetReadsBefore: 0,
     settledAfter: 0,
     settledBefore: 0,
+    styleReadsAfter: 0,
+    styleReadsBefore: 0,
   };
   let comparableScenarios = 0;
+  let lowConfidenceScenarios = 0;
 
   for (const row of matrix) {
     const before = cellMetrics(row, pair.from.key);
@@ -683,6 +796,10 @@ function summarizePair(pair) {
     }
 
     comparableScenarios += 1;
+    if (adjacentTimingSignal(before, after).lowConfidence) {
+      lowConfidenceScenarios += 1;
+    }
+
     totals.activeBefore += before.medianActiveMs ?? 0;
     totals.activeAfter += after.medianActiveMs ?? 0;
     totals.settledBefore += before.medianSettledMs ?? 0;
@@ -691,26 +808,50 @@ function summarizePair(pair) {
     totals.bboxReadsAfter += after.medianBoundingRectReads ?? 0;
     totals.clientRectReadsBefore += before.medianClientRectReads ?? 0;
     totals.clientRectReadsAfter += after.medianClientRectReads ?? 0;
+    totals.clientRectEntriesBefore += before.medianClientRectEntries ?? 0;
+    totals.clientRectEntriesAfter += after.medianClientRectEntries ?? 0;
     totals.offsetReadsBefore += offsetReads(before) ?? 0;
     totals.offsetReadsAfter += offsetReads(after) ?? 0;
     totals.itemSlotCallsBefore += before.medianItemSlotCalls ?? 0;
     totals.itemSlotCallsAfter += after.medianItemSlotCalls ?? 0;
     totals.longTaskCountBefore += before.medianLongTaskCount ?? 0;
     totals.longTaskCountAfter += after.medianLongTaskCount ?? 0;
+    totals.mutationRecordsBefore += before.medianMutationRecords ?? 0;
+    totals.mutationRecordsAfter += after.medianMutationRecords ?? 0;
+    totals.styleReadsBefore += before.medianStyleReads ?? 0;
+    totals.styleReadsAfter += after.medianStyleReads ?? 0;
   }
 
   return {
     activeDelta: percentDelta(totals.activeBefore, totals.activeAfter),
     activeMsAfter: comparableScenarios > 0 ? totals.activeAfter : null,
     activeMsBefore: comparableScenarios > 0 ? totals.activeBefore : null,
-    bboxReadsDelta: percentDelta(totals.bboxReadsBefore, totals.bboxReadsAfter),
-    clientRectReadsDelta: percentDelta(totals.clientRectReadsBefore, totals.clientRectReadsAfter),
+    bboxReadsDelta: tracksCounters
+      ? percentDelta(totals.bboxReadsBefore, totals.bboxReadsAfter)
+      : null,
+    clientRectEntriesDelta: tracksCounters
+      ? percentDelta(totals.clientRectEntriesBefore, totals.clientRectEntriesAfter)
+      : null,
+    clientRectReadsDelta: tracksCounters
+      ? percentDelta(totals.clientRectReadsBefore, totals.clientRectReadsAfter)
+      : null,
     comparableScenarios,
     from: pair.from.label,
-    itemSlotCallsDelta: percentDelta(totals.itemSlotCallsBefore, totals.itemSlotCallsAfter),
+    itemSlotCallsDelta: tracksCounters
+      ? percentDelta(totals.itemSlotCallsBefore, totals.itemSlotCallsAfter)
+      : null,
     longTaskCountDelta: percentDelta(totals.longTaskCountBefore, totals.longTaskCountAfter),
-    offsetReadsDelta: percentDelta(totals.offsetReadsBefore, totals.offsetReadsAfter),
+    lowConfidenceScenarios,
+    mutationRecordsDelta: tracksCounters
+      ? percentDelta(totals.mutationRecordsBefore, totals.mutationRecordsAfter)
+      : null,
+    offsetReadsDelta: tracksCounters
+      ? percentDelta(totals.offsetReadsBefore, totals.offsetReadsAfter)
+      : null,
     settledDelta: percentDelta(totals.settledBefore, totals.settledAfter),
+    styleReadsDelta: tracksCounters
+      ? percentDelta(totals.styleReadsBefore, totals.styleReadsAfter)
+      : null,
     to: pair.to.label,
   };
 }
@@ -729,7 +870,207 @@ function topMoversForPair(pair, limit = 8) {
     .slice(0, limit);
 }
 
+function structuralChangeScore(beforeValue, afterValue) {
+  if (typeof beforeValue !== "number" || typeof afterValue !== "number") {
+    return null;
+  }
+
+  if (beforeValue === afterValue) {
+    return null;
+  }
+
+  if (beforeValue === 0) {
+    return Number.POSITIVE_INFINITY;
+  }
+
+  return Math.abs(percentDelta(beforeValue, afterValue) ?? 0);
+}
+
+function topStructuralMoversForPair(pair, limit = 12) {
+  if (!pairCounterTrackingEnabled(pair)) {
+    return [];
+  }
+
+  const movers = [];
+
+  for (const row of matrix) {
+    const before = cellMetrics(row, pair.from.key);
+    const after = cellMetrics(row, pair.to.key);
+    if (!before || !after) {
+      continue;
+    }
+
+    for (const [signal, key] of structuralSignalDefinitions) {
+      const beforeValue = before[key];
+      const afterValue = after[key];
+      const score = structuralChangeScore(beforeValue, afterValue);
+
+      if (score === null) {
+        continue;
+      }
+
+      movers.push({
+        activeDelta: percentDelta(before.medianActiveMs, after.medianActiveMs),
+        after,
+        afterValue,
+        before,
+        beforeValue,
+        delta: percentDelta(beforeValue, afterValue),
+        row,
+        score,
+        signal,
+      });
+    }
+  }
+
+  return movers.sort((left, right) => right.score - left.score).slice(0, limit);
+}
+
+function structuralHotspotsForRow(row, column) {
+  const metrics = cellMetrics(row, column.key);
+  if (!metrics) {
+    return [];
+  }
+
+  const hotspots = [];
+
+  for (const [signal, key] of structuralSignalDefinitions) {
+    const value = metrics[key];
+    if (typeof value !== "number" || value <= 0) {
+      continue;
+    }
+
+    hotspots.push({
+      activeMs: metrics.medianActiveMs,
+      activeRme: metrics.sampleRme95ActiveMs,
+      component: row.component,
+      group: row.group,
+      scenario: row.scenario,
+      signal,
+      value,
+    });
+  }
+
+  return hotspots;
+}
+
+function topStructuralHotspotsForColumn(column, limit = 12) {
+  if (!counterTrackingEnabled(column.report)) {
+    return [];
+  }
+
+  const hotspots = matrix.flatMap((row) => structuralHotspotsForRow(row, column));
+
+  return hotspots.sort((left, right) => right.value - left.value).slice(0, limit);
+}
+
+function topStructuralHotspotsByComponentForColumn(column, limit = 5) {
+  if (!counterTrackingEnabled(column.report)) {
+    return [];
+  }
+
+  const groups = new Map();
+
+  for (const row of matrix) {
+    for (const hotspot of structuralHotspotsForRow(row, column)) {
+      const hotspots = groups.get(row.component) ?? [];
+      hotspots.push(hotspot);
+      groups.set(row.component, hotspots);
+    }
+  }
+
+  return [...groups.entries()]
+    .map(([component, hotspots]) => ({
+      component,
+      hotspots: hotspots.sort((left, right) => right.value - left.value).slice(0, limit),
+    }))
+    .filter(({ hotspots }) => hotspots.length > 0);
+}
+
+function activeHotspotForRow(row, column, tracksCounters) {
+  const metrics = cellMetrics(row, column.key);
+  const activeMs = metrics?.medianActiveMs;
+  const activeRme = metrics?.sampleRme95ActiveMs;
+  if (
+    typeof activeMs !== "number" ||
+    typeof activeRme !== "number" ||
+    activeRme > activeHotspotRmeThreshold
+  ) {
+    return null;
+  }
+
+  return {
+    activeMs,
+    activeRme,
+    bboxReads: tracksCounters ? metrics.medianBoundingRectReads : null,
+    clientRectEntries: tracksCounters ? metrics.medianClientRectEntries : null,
+    component: row.component,
+    group: row.group,
+    mutationRecords: tracksCounters ? metrics.medianMutationRecords : null,
+    offsetReads: tracksCounters ? offsetReads(metrics) : null,
+    sampleCount: metrics.sampleCount,
+    scenario: row.scenario,
+    styleReads: tracksCounters ? metrics.medianStyleReads : null,
+  };
+}
+
+function topActiveHotspotsForColumn(column, limit = 12) {
+  const tracksCounters = counterTrackingEnabled(column.report);
+  return matrix
+    .map((row) => activeHotspotForRow(row, column, tracksCounters))
+    .filter(Boolean)
+    .sort((left, right) => right.activeMs - left.activeMs)
+    .slice(0, limit);
+}
+
+function topActiveHotspotsByComponentForColumn(column, limit = 5) {
+  const tracksCounters = counterTrackingEnabled(column.report);
+  const groups = new Map();
+
+  for (const row of matrix) {
+    const hotspot = activeHotspotForRow(row, column, tracksCounters);
+    if (!hotspot) {
+      continue;
+    }
+
+    const hotspots = groups.get(row.component) ?? [];
+    hotspots.push(hotspot);
+    groups.set(row.component, hotspots);
+  }
+
+  return [...groups.entries()]
+    .map(([component, hotspots]) => ({
+      component,
+      hotspots: hotspots.sort((left, right) => right.activeMs - left.activeMs).slice(0, limit),
+    }))
+    .filter(({ hotspots }) => hotspots.length > 0);
+}
+
 const adjacentSummaries = adjacentPairs.map(summarizePair);
+const activeHotspots = reportColumns.map((column) => ({
+  hotspots: topActiveHotspotsForColumn(column),
+  tracksCounters: counterTrackingEnabled(column.report),
+  version: column.label,
+}));
+const activeHotspotsByComponent = reportColumns.map((column) => ({
+  components: topActiveHotspotsByComponentForColumn(column),
+  tracksCounters: counterTrackingEnabled(column.report),
+  version: column.label,
+}));
+const structuralHotspots = reportColumns.map((column) => ({
+  hotspots: topStructuralHotspotsForColumn(column),
+  version: column.label,
+}));
+const structuralHotspotsByComponent = reportColumns.map((column) => ({
+  components: topStructuralHotspotsByComponentForColumn(column),
+  version: column.label,
+}));
+const widthProfileRows = matrix.filter((row) => row.widthProfile);
+const widthProfileLargeDeltaThresholds = [
+  ...new Set(
+    widthProfileRows.map((row) => row.widthProfile.largeDeltaThreshold ?? largeWidthDeltaThreshold),
+  ),
+].sort((left, right) => left - right);
 
 await mkdir(outputDir, { recursive: true });
 await writeFile(
@@ -742,8 +1083,12 @@ await writeFile(
         schemaVersion: report.schemaVersion,
         target: report.target,
       })),
+      activeHotspots,
+      activeHotspotsByComponent,
       adjacentSummaries,
       scenarios: matrix,
+      structuralHotspots,
+      structuralHotspotsByComponent,
       versionSummaries,
     },
     null,
@@ -752,6 +1097,9 @@ await writeFile(
 );
 
 const markdown = [];
+const counterTrackingOffColumns = reportColumns.filter(
+  (column) => column.report.environment?.counterTracking === false,
+);
 markdown.push("# Package benchmark matrix");
 markdown.push("");
 markdown.push(
@@ -759,6 +1107,16 @@ markdown.push(
 );
 markdown.push("");
 markdown.push(`Generated from \`${logDir}\`.`);
+if (counterTrackingOffColumns.length > 0) {
+  markdown.push("");
+  markdown.push(
+    `Counter tracking was disabled for ${counterTrackingOffColumns
+      .map((column) => column.label)
+      .join(
+        ", ",
+      )}. Active timing remains available, but structural counter summaries and deltas for those columns are rendered as \`N/A\`.`,
+  );
+}
 if (placeholderVersions.length > 0) {
   markdown.push("");
   markdown.push(
@@ -771,20 +1129,21 @@ markdown.push("");
 markdown.push("## Version summary");
 markdown.push("");
 markdown.push(
-  "| Version | Scenarios | Samples | Sample wall ms | Sample active ms | Median active CV | Max active CV | Median active RME | Max active RME | Active ms | Settled ms | Quiet ms | BBox reads | Client rects | Offset reads | Item slot calls | Long tasks |",
+  "| Version | Counters | Scenarios | Samples | Sample wall ms | Sample active ms | Median active CV | Max active CV | Median active RME | Max active RME | Active ms | Settled ms | Quiet ms | BBox reads | Client rects | Client rect entries | Mutation records | Offset reads | Style reads | Item slot calls | Long tasks |",
 );
 markdown.push(
-  "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+  "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
 );
 
 for (const summary of versionSummaries) {
   markdown.push(
-    `| ${summary.version} | ${summary.supportedScenarios}/${summary.scenarios} | ${formatNumber(
-      summary.medianSampleCount,
-      0,
-    )} | ${formatNumber(summary.medianSampleWallMs)} | ${formatNumber(
-      summary.medianTotalSampleActiveMs,
-    )} | ${formatUnsignedPercent(summary.medianActiveCv)} | ${formatUnsignedPercent(
+    `| ${summary.version} | ${summary.counterTracking} | ${summary.supportedScenarios}/${
+      summary.scenarios
+    } | ${formatNumber(summary.medianSampleCount, 0)} | ${formatNumber(
+      summary.medianSampleWallMs,
+    )} | ${formatNumber(summary.medianTotalSampleActiveMs)} | ${formatUnsignedPercent(
+      summary.medianActiveCv,
+    )} | ${formatUnsignedPercent(
       summary.maxActiveCv,
     )} | ${formatUnsignedPercent(summary.medianActiveRme95)} | ${formatUnsignedPercent(
       summary.maxActiveRme95,
@@ -794,10 +1153,194 @@ for (const summary of versionSummaries) {
       summary.bboxReads,
       0,
     )} | ${formatNumber(summary.clientRectReads, 0)} | ${formatNumber(
+      summary.clientRectEntries,
+      0,
+    )} | ${formatNumber(summary.mutationRecords, 0)} | ${formatNumber(
       summary.offsetReads,
       0,
-    )} | ${formatNumber(summary.itemSlotCalls, 0)} | ${formatNumber(summary.longTaskCount, 0)} |`,
+    )} | ${formatNumber(summary.styleReads, 0)} | ${formatNumber(
+      summary.itemSlotCalls,
+      0,
+    )} | ${formatNumber(summary.longTaskCount, 0)} |`,
   );
+}
+
+if (widthProfileRows.length > 0) {
+  markdown.push("");
+  markdown.push("## Width profile matrix");
+  markdown.push("");
+  markdown.push(
+    "This describes the executed width input shape for each scenario. Width assignments count every write, including writes inside a burst; steps count the stable waits that are measured.",
+  );
+  markdown.push("");
+  markdown.push(
+    `| Component | Scenario | Steps | Width assignments | Unique widths | Repeated assignments | Repeated transitions | Large deltas (${widthProfileLargeDeltaThresholds
+      .map((threshold) => `>${threshold}px`)
+      .join(", ")}) | Max delta |`,
+  );
+  markdown.push("| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |");
+
+  for (const row of widthProfileRows) {
+    const profile = row.widthProfile;
+    markdown.push(
+      `| ${row.component} | ${row.scenario} | ${formatNumber(
+        profile.stepCount,
+        0,
+      )} | ${formatNumber(profile.widthAssignmentCount, 0)} | ${formatNumber(
+        profile.uniqueWidthCount,
+        0,
+      )} | ${formatNumber(profile.repeatedWidthAssignments, 0)} | ${formatNumber(
+        profile.repeatedTransitions,
+        0,
+      )} | ${formatNumber(profile.largeDeltaTransitions, 0)} | ${formatNumber(
+        profile.maxDelta,
+        0,
+      )} |`,
+    );
+  }
+}
+
+const activeHotspotGroups = activeHotspots.filter(({ hotspots }) => hotspots.length > 0);
+if (activeHotspotGroups.length > 0) {
+  markdown.push("");
+  markdown.push("## Top low-noise active hotspots by version");
+  markdown.push("");
+  markdown.push(
+    `Rows are sorted by median active time and limited to active RME <= ${formatUnsignedPercent(
+      activeHotspotRmeThreshold,
+    )}. Structural columns are \`N/A\` when counter tracking was disabled for that version.`,
+  );
+}
+
+for (const { hotspots, tracksCounters, version } of activeHotspotGroups) {
+  markdown.push("");
+  markdown.push(`### ${version}`);
+  markdown.push("");
+  markdown.push(
+    "| Component | Scenario | Active ms | Active RME | Samples | BBox reads | Client rect entries | Mutation records | Offset reads | Style reads |",
+  );
+  markdown.push("| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |");
+
+  for (const hotspot of hotspots) {
+    markdown.push(
+      `| ${hotspot.component} | ${hotspot.scenario} | ${formatNumber(
+        hotspot.activeMs,
+      )} | ${formatUnsignedPercent(hotspot.activeRme)} | ${formatNumber(
+        hotspot.sampleCount,
+        0,
+      )} | ${formatCounterValue(tracksCounters, hotspot.bboxReads)} | ${formatCounterValue(
+        tracksCounters,
+        hotspot.clientRectEntries,
+      )} | ${formatCounterValue(tracksCounters, hotspot.mutationRecords)} | ${formatCounterValue(
+        tracksCounters,
+        hotspot.offsetReads,
+      )} | ${formatCounterValue(tracksCounters, hotspot.styleReads)} |`,
+    );
+  }
+}
+
+const activeHotspotComponentGroups = activeHotspotsByComponent.filter(({ components }) =>
+  components.some(({ hotspots }) => hotspots.length > 0),
+);
+if (activeHotspotComponentGroups.length > 0) {
+  markdown.push("");
+  markdown.push("## Top low-noise active hotspots by component");
+  markdown.push("");
+  markdown.push(
+    `Each component list keeps up to 5 rows with active RME <= ${formatUnsignedPercent(
+      activeHotspotRmeThreshold,
+    )}, sorted by median active time.`,
+  );
+}
+
+for (const { components, tracksCounters, version } of activeHotspotComponentGroups) {
+  markdown.push("");
+  markdown.push(`### ${version}`);
+
+  for (const { component, hotspots } of components) {
+    markdown.push("");
+    markdown.push(`#### ${component}`);
+    markdown.push("");
+    markdown.push(
+      "| Scenario | Active ms | Active RME | Samples | BBox reads | Client rect entries | Mutation records | Offset reads | Style reads |",
+    );
+    markdown.push("| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |");
+
+    for (const hotspot of hotspots) {
+      markdown.push(
+        `| ${hotspot.scenario} | ${formatNumber(hotspot.activeMs)} | ${formatUnsignedPercent(
+          hotspot.activeRme,
+        )} | ${formatNumber(hotspot.sampleCount, 0)} | ${formatCounterValue(
+          tracksCounters,
+          hotspot.bboxReads,
+        )} | ${formatCounterValue(tracksCounters, hotspot.clientRectEntries)} | ${formatCounterValue(
+          tracksCounters,
+          hotspot.mutationRecords,
+        )} | ${formatCounterValue(tracksCounters, hotspot.offsetReads)} | ${formatCounterValue(
+          tracksCounters,
+          hotspot.styleReads,
+        )} |`,
+      );
+    }
+  }
+}
+
+const structuralHotspotGroups = structuralHotspots.filter(({ hotspots }) => hotspots.length > 0);
+if (structuralHotspotGroups.length > 0) {
+  markdown.push("");
+  markdown.push("## Top structural hotspots by version");
+}
+
+for (const { hotspots, version } of structuralHotspotGroups) {
+  markdown.push("");
+  markdown.push(`### ${version}`);
+  markdown.push("");
+  markdown.push("| Component | Scenario | Counter | Value | Active ms | Active RME |");
+  markdown.push("| --- | --- | --- | ---: | ---: | ---: |");
+
+  for (const hotspot of hotspots) {
+    markdown.push(
+      `| ${hotspot.component} | ${hotspot.scenario} | ${
+        hotspot.signal
+      } | ${formatNumber(hotspot.value, 0)} | ${formatNumber(
+        hotspot.activeMs,
+      )} | ${formatUnsignedPercent(hotspot.activeRme)} |`,
+    );
+  }
+}
+
+const structuralHotspotComponentGroups = structuralHotspotsByComponent.filter(({ components }) =>
+  components.some(({ hotspots }) => hotspots.length > 0),
+);
+if (structuralHotspotComponentGroups.length > 0) {
+  markdown.push("");
+  markdown.push("## Top structural hotspots by component");
+  markdown.push("");
+  markdown.push(
+    "Each component list keeps up to 5 counter/scenario pairs, sorted by absolute counter value. This section is omitted when counter tracking is disabled.",
+  );
+}
+
+for (const { components, version } of structuralHotspotComponentGroups) {
+  markdown.push("");
+  markdown.push(`### ${version}`);
+
+  for (const { component, hotspots } of components) {
+    markdown.push("");
+    markdown.push(`#### ${component}`);
+    markdown.push("");
+    markdown.push("| Scenario | Counter | Value | Active ms | Active RME |");
+    markdown.push("| --- | --- | ---: | ---: | ---: |");
+
+    for (const hotspot of hotspots) {
+      markdown.push(
+        `| ${hotspot.scenario} | ${hotspot.signal} | ${formatNumber(
+          hotspot.value,
+          0,
+        )} | ${formatNumber(hotspot.activeMs)} | ${formatUnsignedPercent(hotspot.activeRme)} |`,
+      );
+    }
+  }
 }
 
 if (adjacentSummaries.length > 0) {
@@ -805,19 +1348,29 @@ if (adjacentSummaries.length > 0) {
   markdown.push("## Adjacent release summary");
   markdown.push("");
   markdown.push(
-    "| From | To | Comparable scenarios | Active delta | Active ms | BBox delta | Client rect delta | Offset delta | Slot delta | Settled delta | Long task delta |",
+    "| From | To | Comparable scenarios | Low-conf active rows | Active delta | Active ms | BBox delta | Client rect delta | Client rect entry delta | Mutation delta | Offset delta | Style delta | Slot delta | Settled delta | Long task delta |",
   );
-  markdown.push("| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |");
+  markdown.push(
+    "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+  );
 
   for (const summary of adjacentSummaries) {
     markdown.push(
-      `| ${summary.from} | ${summary.to} | ${summary.comparableScenarios}/${matrix.length} | ${formatPercent(
+      `| ${summary.from} | ${summary.to} | ${summary.comparableScenarios}/${matrix.length} | ${
+        summary.lowConfidenceScenarios
+      }/${summary.comparableScenarios} | ${
+        summary.lowConfidenceScenarios > 0 ? "~" : ""
+      }${formatPercent(
         summary.activeDelta,
       )} | ${formatNumber(summary.activeMsBefore)} -> ${formatNumber(
         summary.activeMsAfter,
       )} | ${formatPercent(summary.bboxReadsDelta)} | ${formatPercent(
         summary.clientRectReadsDelta,
+      )} | ${formatPercent(summary.clientRectEntriesDelta)} | ${formatPercent(
+        summary.mutationRecordsDelta,
       )} | ${formatPercent(summary.offsetReadsDelta)} | ${formatPercent(
+        summary.styleReadsDelta,
+      )} | ${formatPercent(
         summary.itemSlotCallsDelta,
       )} | ${formatPercent(summary.settledDelta)} | ${formatPercent(summary.longTaskCountDelta)} |`,
     );
@@ -902,9 +1455,11 @@ if (adjacentPairs.length > 0) {
     markdown.push(`### ${pair.from.label} -> ${pair.to.label}`);
     markdown.push("");
     markdown.push(
-      "| Component | Scenario | Active delta | Active ms | Active RME | Confidence | BBox delta | Client rect delta | Offset delta | Slot delta | Settled delta |",
+      "| Component | Scenario | Active delta | Active ms | Active RME | Confidence | BBox delta | Client rect delta | Client rect entry delta | Mutation delta | Offset delta | Slot delta | Settled delta |",
     );
-    markdown.push("| --- | --- | ---: | ---: | ---: | --- | ---: | ---: | ---: | ---: | ---: |");
+    markdown.push(
+      "| --- | --- | ---: | ---: | ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+    );
 
     for (const { after, before, delta, row } of movers) {
       const timingSignal = adjacentTimingSignal(before, after);
@@ -919,15 +1474,61 @@ if (adjacentPairs.length > 0) {
           timingSignal.lowConfidence
             ? `low (${timingSignal.lowConfidenceReasons.join("; ")})`
             : "normal"
-        } | ${formatPercent(
-          percentDelta(before.medianBoundingRectReads, after.medianBoundingRectReads),
-        )} | ${formatPercent(
-          percentDelta(before.medianClientRectReads, after.medianClientRectReads),
-        )} | ${formatPercent(
-          percentDelta(offsetReads(before), offsetReads(after)),
-        )} | ${formatPercent(
-          percentDelta(before.medianItemSlotCalls, after.medianItemSlotCalls),
+        } | ${formatPairCounterDelta(pair, before, after, "medianBoundingRectReads")} | ${formatPairCounterDelta(
+          pair,
+          before,
+          after,
+          "medianClientRectReads",
+        )} | ${formatPairCounterDelta(pair, before, after, "medianClientRectEntries")} | ${formatPairCounterDelta(
+          pair,
+          before,
+          after,
+          "medianMutationRecords",
+        )} | ${formatPairOffsetDelta(pair, before, after)} | ${formatPairCounterDelta(
+          pair,
+          before,
+          after,
+          "medianItemSlotCalls",
         )} | ${formatPercent(percentDelta(before.medianSettledMs, after.medianSettledMs))} |`,
+      );
+    }
+  }
+
+  const structuralMoverGroups = adjacentPairs
+    .map((pair) => ({
+      movers: topStructuralMoversForPair(pair),
+      pair,
+    }))
+    .filter(({ movers }) => movers.length > 0);
+
+  if (structuralMoverGroups.length > 0) {
+    markdown.push("");
+    markdown.push("## Top structural movers by adjacent release");
+  }
+
+  for (const { movers, pair } of structuralMoverGroups) {
+    markdown.push("");
+    markdown.push(`### ${pair.from.label} -> ${pair.to.label}`);
+    markdown.push("");
+    markdown.push(
+      "| Component | Scenario | Counter | Delta | Value | Active delta | Active confidence |",
+    );
+    markdown.push("| --- | --- | --- | ---: | ---: | ---: | --- |");
+
+    for (const mover of movers) {
+      const timingSignal = adjacentTimingSignal(mover.before, mover.after);
+      markdown.push(
+        `| ${mover.row.component} | ${mover.row.scenario} | ${mover.signal} | ${formatPercent(
+          mover.delta,
+        )} | ${formatNumber(mover.beforeValue, 0)} -> ${formatNumber(mover.afterValue, 0)} | ${
+          timingSignal.lowConfidence
+            ? `~${formatPercent(mover.activeDelta)}`
+            : formatPercent(mover.activeDelta)
+        } | ${
+          timingSignal.lowConfidence
+            ? `low (${timingSignal.lowConfidenceReasons.join("; ")})`
+            : "normal"
+        } |`,
       );
     }
   }
@@ -941,7 +1542,7 @@ markdown.push(
 );
 markdown.push("");
 markdown.push(
-  `\`~\` marks a low-confidence delta: at least one side has active-time CV above ${activeCvLowConfidenceThreshold}%. SVG cells keep the normal direction color and add a top-right triangle marker.`,
+  `\`~\` marks a low-confidence delta: at least one side has active-time CV above ${activeCvLowConfidenceThreshold}%, compared active-time mean MOE intervals overlap, or median and mean active-time deltas point in opposite directions. SVG cells keep the normal direction color and add a top-right triangle marker.`,
 );
 markdown.push("");
 markdown.push("![Package benchmark matrix](310-package-benchmark-matrix.svg)");
@@ -987,7 +1588,7 @@ svg.push(
   '<text class="axis" x="32" y="92">Some adjacent deltas include correctness fixes that added missing reclamp work; see Markdown comparability notes.</text>',
 );
 svg.push(
-  `<text class="axis" x="32" y="110">~ and a top-right triangle mark low-confidence deltas; active-time CV above ${activeCvLowConfidenceThreshold}% is the trigger.</text>`,
+  `<text class="axis" x="32" y="110">~ and a top-right triangle mark low-confidence deltas; high CV, overlapping mean MOE, or median/mean direction mismatch is the trigger.</text>`,
 );
 
 function drawMatrixPanel({ cellForColumn, columns, description, title, top }) {
@@ -1045,6 +1646,16 @@ drawMatrixPanel({
     const baseline = row.cells.find((cell) => cell.metrics)?.metrics?.medianActiveMs;
     const delta = percentDelta(baseline, value);
     const cell = cellForKey(row, column.key);
+    const counterDetails =
+      metrics && counterTrackingEnabled(column.report)
+        ? `, bbox reads ${formatNumber(metrics.medianBoundingRectReads, 0)}, client rects ${formatNumber(
+            metrics.medianClientRectReads,
+            0,
+          )}, client rect entries ${formatNumber(
+            metrics.medianClientRectEntries,
+            0,
+          )}, offset reads ${formatNumber(offsetReads(metrics), 0)}`
+        : ", counters disabled";
 
     return {
       fill: metrics ? colorForDelta(delta) : "#e5e7eb",
@@ -1058,13 +1669,7 @@ drawMatrixPanel({
               metrics.sampleRme95ActiveMs,
             )}, active CV ${formatUnsignedPercent(metrics.sampleCvActiveMs)}, active stddev ${formatMs(
               metrics.sampleStdDevActiveMs,
-            )}, bbox reads ${formatNumber(metrics.medianBoundingRectReads, 0)}, client rects ${formatNumber(
-              metrics.medianClientRectReads,
-              0,
-            )}, offset reads ${formatNumber(
-              offsetReads(metrics),
-              0,
-            )}, mean active MOE ${formatMs(metrics.sampleMoe95MeanActiveMs)}, total sampled active ${formatMs(
+            )}${counterDetails}, mean active MOE ${formatMs(metrics.sampleMoe95MeanActiveMs)}, total sampled active ${formatMs(
               metrics.sampleTotalActiveMs,
             )}, sample wall ${formatMs(metrics.sampleWallMs)}, samples ${metrics.sampleCount ?? "N/A"}`,
     };
@@ -1072,6 +1677,7 @@ drawMatrixPanel({
   columns: reportColumns.map((column) => ({
     key: column.key,
     label: column.label,
+    report: column.report,
   })),
   description:
     "Cell text is median active ms; color is delta vs this scenario's first supported version.",
@@ -1087,6 +1693,16 @@ drawMatrixPanel({
       before,
       after,
     );
+    const tracksCounters = pairCounterTrackingEnabled(column.pair);
+    let confidenceDetails = "";
+
+    if (lowConfidence) {
+      confidenceDetails = `, low confidence: ${lowConfidenceReasons.join("; ")}`;
+    } else if (!tracksCounters) {
+      confidenceDetails = ", counter tracking disabled";
+    } else if (typeof workDelta === "number") {
+      confidenceDetails = `, max work-counter delta ${formatPercent(workDelta)}`;
+    }
 
     return {
       cornerMarker: lowConfidence ? `Low confidence: ${lowConfidenceReasons.join("; ")}` : null,
@@ -1096,17 +1712,27 @@ drawMatrixPanel({
         row.scenario
       }: active ${formatMs(before?.medianActiveMs)} -> ${formatMs(
         after?.medianActiveMs,
-      )}, delta ${formatPercent(delta)}, bbox ${formatPercent(
-        percentDelta(before?.medianBoundingRectReads, after?.medianBoundingRectReads),
-      )}, client rect ${formatPercent(
-        percentDelta(before?.medianClientRectReads, after?.medianClientRectReads),
-      )}, offset ${formatPercent(percentDelta(offsetReads(before), offsetReads(after)))}${
-        lowConfidence
-          ? `, low confidence: ${lowConfidenceReasons.join("; ")}`
-          : typeof workDelta === "number"
-            ? `, max work-counter delta ${formatPercent(workDelta)}`
-            : ""
-      }`,
+      )}, delta ${formatPercent(delta)}, bbox ${formatPairCounterDelta(
+        column.pair,
+        before,
+        after,
+        "medianBoundingRectReads",
+      )}, client rect ${formatPairCounterDelta(
+        column.pair,
+        before,
+        after,
+        "medianClientRectReads",
+      )}, client rect entries ${formatPairCounterDelta(
+        column.pair,
+        before,
+        after,
+        "medianClientRectEntries",
+      )}, mutation records ${formatPairCounterDelta(
+        column.pair,
+        before,
+        after,
+        "medianMutationRecords",
+      )}, offset ${formatPairOffsetDelta(column.pair, before, after)}${confidenceDetails}`,
     };
   },
   columns: adjacentPairs.map((pair) => ({

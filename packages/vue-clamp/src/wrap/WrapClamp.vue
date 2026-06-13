@@ -14,6 +14,7 @@ import {
   borderBoxSizeSignature,
   createCoalescingRunner,
   cssLength,
+  emptyBorderBoxSignature,
   hasBorderBoxEntrySignatureChange,
   listenForFontLoads,
   normalizeLineLimit,
@@ -84,10 +85,10 @@ let lastLayoutSignature: string | null = null;
 let lastRootWidth: number | null = null;
 let measuredItemWidths: number[] = [];
 let isRecomputing = false;
-let lastRootSizeSignature = "0x0";
-let lastContentSizeSignature = "0x0";
-let lastBeforeSizeSignature = "0x0";
-let lastAfterSizeSignature = "0x0";
+let lastRootSizeSignature = emptyBorderBoxSignature;
+let lastContentSizeSignature = emptyBorderBoxSignature;
+let lastBeforeSizeSignature = emptyBorderBoxSignature;
+let lastAfterSizeSignature = emptyBorderBoxSignature;
 
 async function applyVisibleCount(nextVisibleCount: number): Promise<void> {
   const totalItems = items.length;

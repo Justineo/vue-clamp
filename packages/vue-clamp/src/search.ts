@@ -1,6 +1,7 @@
 // Two default local expansion steps capture normal resize deltas while bounding
 // the penalty when a previous answer is far from the new fit boundary.
 export const defaultWarmExpansionLimit = 2;
+export const richWarmExpansionLimit = defaultWarmExpansionLimit + 1;
 
 // The clamp predicates are monotonic: once an index stops fitting, larger
 // indexes cannot fit. The helper searches for the highest index that still fits.
@@ -120,6 +121,116 @@ export function findLastFittingIndex(
 
 export function warmSearchLocalCoverage(expansionLimit = defaultWarmExpansionLimit): number {
   return 2 ** expansionLimit - 1;
+}
+
+function estimateBinarySearchProbeCount(low: number, high: number, target: number): number {
+  let currentLow = low;
+  let currentHigh = high;
+  let probes = 0;
+
+  while (currentLow <= currentHigh) {
+    const index = Math.floor((currentLow + currentHigh) / 2);
+    probes += 1;
+
+    if (index <= target) {
+      currentLow = index + 1;
+    } else {
+      currentHigh = index - 1;
+    }
+  }
+
+  return probes;
+}
+
+function normalizedSearchTarget(maxIndex: number, target: number): number {
+  if (!Number.isFinite(target)) {
+    return target === Number.POSITIVE_INFINITY ? maxIndex : -1;
+  }
+
+  return Math.max(-1, Math.min(maxIndex, Math.floor(target)));
+}
+
+export function estimateColdSearchProbeCount(count: number, target: number): number {
+  if (count <= 0) {
+    return 0;
+  }
+
+  const maxIndex = count - 1;
+  const targetIndex = normalizedSearchTarget(maxIndex, target);
+
+  return estimateBinarySearchProbeCount(0, maxIndex, targetIndex);
+}
+
+export function estimateColdSearchMaxProbeCount(count: number): number {
+  return count <= 0 ? 0 : Math.ceil(Math.log2(count + 1));
+}
+
+export function estimateWarmSearchProbeCount(
+  count: number,
+  hint: number,
+  target: number,
+  expansionLimit = defaultWarmExpansionLimit,
+): number {
+  if (count <= 0) {
+    return 0;
+  }
+
+  if (!Number.isFinite(hint)) {
+    return estimateColdSearchProbeCount(count, target);
+  }
+
+  const maxIndex = count - 1;
+  const start = Math.max(0, Math.min(maxIndex, Math.floor(hint)));
+  const targetIndex = normalizedSearchTarget(maxIndex, target);
+  let probes = 1;
+
+  if (start <= targetIndex) {
+    let fit = start;
+    let step = 1;
+    let expansions = 0;
+
+    while (fit < maxIndex) {
+      const probe = Math.min(maxIndex, fit + step);
+      probes += 1;
+
+      if (probe > targetIndex) {
+        return probes + estimateBinarySearchProbeCount(fit + 1, probe - 1, targetIndex);
+      }
+
+      fit = probe;
+      expansions += 1;
+      if (expansions >= expansionLimit) {
+        return probes + estimateBinarySearchProbeCount(fit + 1, maxIndex, targetIndex);
+      }
+
+      step *= 2;
+    }
+
+    return probes;
+  }
+
+  let failed = start;
+  let step = 1;
+  let expansions = 0;
+
+  while (failed > 0) {
+    const probe = Math.max(0, failed - step);
+    probes += 1;
+
+    if (probe <= targetIndex) {
+      return probes + estimateBinarySearchProbeCount(probe + 1, failed - 1, targetIndex);
+    }
+
+    failed = probe;
+    expansions += 1;
+    if (expansions >= expansionLimit) {
+      return probes + estimateBinarySearchProbeCount(0, failed - 1, targetIndex);
+    }
+
+    step *= 2;
+  }
+
+  return probes;
 }
 
 export function findLargestFittingCount(
