@@ -18,7 +18,7 @@ catalog:
   bumpp: ^11.0.1
   overlayscrollbars: ^2.15.1
   playwright: ^1.59.1
-  releaselog: ^7.0.2
+  releaselog: ^8.0.0
   shiki: ^4.0.2
   simple-icons: ^16.18.0
   stats.js: ^0.17.0

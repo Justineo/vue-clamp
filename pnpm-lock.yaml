@@ -37,8 +37,8 @@ catalogs:
       specifier: ^1.59.1
       version: 1.60.0
     releaselog:
-      specifier: ^7.0.2
-      version: 7.0.2
+      specifier: ^8.0.0
+      version: 8.0.0
     shiki:
       specifier: ^4.0.2
       version: 4.2.0
@@ -97,7 +97,7 @@ importers:
         version: 1.60.0
       releaselog:
         specifier: 'catalog:'
-        version: 7.0.2
+        version: 8.0.0
       unplugin-vue:
         specifier: 'catalog:'
         version: 7.2.0(@types/node@25.9.1)(esbuild@0.27.7)(jiti@2.7.0)(tsx@4.21.0)(vue@3.5.35(typescript@6.0.3))(yaml@2.9.0)
@@ -2121,9 +2121,9 @@ packages:
   chownr@1.1.4:
     resolution: {integrity: sha512-jJ0bqzaylmJtVnNgzTeSOs8DPavpbYgEr/b0YL8/2GO3xJEhInFmhKMUnEJQjZumK7KXGFhUy89PrsJWlakBVg==}
 
-  ci-logger@8.0.1:
-    resolution: {integrity: sha512-qyP6quwHiMa7X/EfWt4kXjuNi1A1TNhVkgvZbPMQNG+WRoKVVP5N1XtqLaeKtWUvfRpszfylDAK7SM7WCn4u6g==}
-    engines: {node: ^20.9.0 || ^22.11.0 || >=24.0.0}
+  ci-logger@9.0.0:
+    resolution: {integrity: sha512-buqUrAus0PsdowzSKcpIpBOiGYm4nUxUVqAhzBhTjw8GBOmZfl68zWKpk8D0pqN4iekU0ctEb6D+KbDolNZtFA==}
+    engines: {node: ^22.11.0 || ^24.11.0 || >=26}
 
   comma-separated-tokens@2.0.3:
     resolution: {integrity: sha512-Fu4hJdvzeylCfQPp9SGWidpzrMs7tTrlu6Vb8XGaRGck8QSNZJJp538Wrb60Lax4fPwR64ViY468OIUTbRlGZg==}
@@ -2727,9 +2727,9 @@ packages:
   regex@6.1.0:
     resolution: {integrity: sha512-6VwtthbV4o/7+OaAF9I5L5V3llLEsoPyq9P1JVXkedTP33c7MfCG0/5NOPcSJn0TzXcG9YUrR0gQSWioew3LDg==}
 
-  releaselog@7.0.2:
-    resolution: {integrity: sha512-75K9254U6Xf224ZecuiNfVyVLUEDkN0tdhmIP+njaihw/rljOwukIx+Th6G1MM3taFm9hbCyoxc3pbZhteqSbg==}
-    engines: {node: ^20.9.0 || ^22.11.0 || >=24.0.0}
+  releaselog@8.0.0:
+    resolution: {integrity: sha512-1YDFvJZ81B/L5DUoQ1FoNg/q/e1lrLBNbwMUC3Sr8ZTC717KGmLtvEBic9KU/FX5XZSx/lqh12iNLsqRXoSdYQ==}
+    engines: {node: ^22.11.0 || ^24.11.0 || >=26}
     hasBin: true
 
   resolve-pkg-maps@1.0.0:
@@ -4326,7 +4326,7 @@ snapshots:
 
   chownr@1.1.4: {}
 
-  ci-logger@8.0.1: {}
+  ci-logger@9.0.0: {}
 
   comma-separated-tokens@2.0.3: {}
 
@@ -4920,9 +4920,9 @@ snapshots:
     dependencies:
       regex-utilities: 2.3.0
 
-  releaselog@7.0.2:
+  releaselog@8.0.0:
     dependencies:
-      ci-logger: 8.0.1
+      ci-logger: 9.0.0
       commander: 14.0.3
 
   resolve-pkg-maps@1.0.0: {}
