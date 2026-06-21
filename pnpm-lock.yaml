@@ -6,15 +6,45 @@ settings:
 
 catalogs:
   default:
+    '@lucide/vue':
+      specifier: ^1.12.0
+      version: 1.17.0
+    '@types/node':
+      specifier: ^25.6.0
+      version: 25.9.1
     '@types/stats.js':
       specifier: ^0.17.4
       version: 0.17.4
+    '@vitejs/plugin-vue':
+      specifier: ^6.0.6
+      version: 6.0.7
     '@vue-macros/define-render':
       specifier: ^3.1.2
       version: 3.1.2
+    '@vue/compiler-dom':
+      specifier: ^3.5.33
+      version: 3.5.38
+    '@vue/compiler-sfc':
+      specifier: ^3.5.33
+      version: 3.5.35
+    bumpp:
+      specifier: ^11.0.1
+      version: 11.1.0
+    overlayscrollbars:
+      specifier: ^2.15.1
+      version: 2.16.0
+    playwright:
+      specifier: ^1.59.1
+      version: 1.60.0
     releaselog:
       specifier: ^7.0.2
       version: 7.0.2
+    shiki:
+      specifier: ^4.0.2
+      version: 4.2.0
+    simple-icons:
+      specifier: ^16.18.0
+      version: 16.22.0
     stats.js:
       specifier: ^0.17.0
       version: 0.17.0
@@ -24,9 +54,21 @@ catalogs:
     unplugin-vue:
       specifier: ^7.2.0
       version: 7.2.0
+    vite:
+      specifier: ^8.0.11
+      version: 8.0.16
+    vite-plus:
+      specifier: ^0.1.20
+      version: 0.1.24
     void:
-      specifier: 0.9.2
-      version: 0.9.2
+      specifier: 0.9.3
+      version: 0.9.3
+    vue:
+      specifier: ^3.5.33
+      version: 3.5.35
+    vue-tsc:
+      specifier: ^3.2.7
+      version: 3.3.3
 
 importers:
 
@@ -43,7 +85,7 @@ importers:
         version: 3.1.2(vue@3.5.35(typescript@6.0.3))
       '@vue/compiler-dom':
         specifier: 'catalog:'
-        version: 3.5.35
+        version: 3.5.38
       '@vue/compiler-sfc':
         specifier: 'catalog:'
         version: 3.5.35
@@ -131,7 +173,7 @@ importers:
         version: 0.1.24(@types/node@25.9.1)(esbuild@0.27.7)(jiti@2.7.0)(tsx@4.21.0)(typescript@6.0.3)(vite@8.0.16(@types/node@25.9.1)(esbuild@0.27.7)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.9.0))(yaml@2.9.0)
       void:
         specifier: 'catalog:'
-        version: 0.9.2(arktype@2.2.0)(kysely@0.28.17)(valibot@1.4.0(typescript@6.0.3))(vite@8.0.16(@types/node@25.9.1)(esbuild@0.27.7)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.9.0))(vue@3.5.35(typescript@6.0.3))(workerd@1.20260507.1)(zod@4.4.3)
+        version: 0.9.3(arktype@2.2.0)(kysely@0.28.17)(valibot@1.4.0(typescript@6.0.3))(vite@8.0.16(@types/node@25.9.1)(esbuild@0.27.7)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.9.0))(vue@3.5.35(typescript@6.0.3))(workerd@1.20260507.1)(zod@4.4.3)
       vue-tsc:
         specifier: 'catalog:'
         version: 3.3.3(typescript@6.0.3)
@@ -2934,11 +2976,11 @@ packages:
       yaml:
         optional: true
 
-  void@0.9.2:
-    resolution: {integrity: sha512-5fKbAR6/RgqGCREW978k2zx9MQ+rdk+zjlaLEYGt5tVOOMB0EBx8/lAgBR7WA/zq6yrlyvECpt4ZSSiBp11CPw==}
+  void@0.9.3:
+    resolution: {integrity: sha512-qCQrUTAjp2bOSbr9JeIysghEkDcUWG7KszgCpQ9ZzHmbmbPkWlkyRpQ8hhVmvO62h/QXEK6N7CXHTpMfg8iNMA==}
     hasBin: true
     peerDependencies:
-      '@void/md': 0.9.2
+      '@void/md': 0.9.3
       arktype: '>=2.0.0'
       valibot: '>=1.0.0-beta.7'
       vite: ^8.0.0
@@ -5216,7 +5258,7 @@ snapshots:
       tsx: 4.21.0
       yaml: 2.9.0
 
-  void@0.9.2(arktype@2.2.0)(kysely@0.28.17)(valibot@1.4.0(typescript@6.0.3))(vite@8.0.16(@types/node@25.9.1)(esbuild@0.27.7)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.9.0))(vue@3.5.35(typescript@6.0.3))(workerd@1.20260507.1)(zod@4.4.3):
+  void@0.9.3(arktype@2.2.0)(kysely@0.28.17)(valibot@1.4.0(typescript@6.0.3))(vite@8.0.16(@types/node@25.9.1)(esbuild@0.27.7)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.9.0))(vue@3.5.35(typescript@6.0.3))(workerd@1.20260507.1)(zod@4.4.3):
     dependencies:
       '@cloudflare/sandbox': 0.10.0
       '@cloudflare/vite-plugin': 1.36.3(vite@8.0.16(@types/node@25.9.1)(esbuild@0.27.7)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.9.0))(workerd@1.20260507.1)(wrangler@4.90.0(@cloudflare/workers-types@4.20260508.1))
