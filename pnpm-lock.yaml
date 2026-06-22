@@ -6,6 +6,12 @@ settings:
 
 catalogs:
   default:
+    '@lucide/vue':
+      specifier: ^1.12.0
+      version: 1.18.0
+    '@types/node':
+      specifier: ^25.6.0
+      version: 25.9.3
     '@types/stats.js':
       specifier: ^0.17.4
       version: 0.17.4
@@ -18,21 +24,24 @@ catalogs:
     '@vue/compiler-dom':
       specifier: ^3.5.33
       version: 3.5.38
+    '@vue/compiler-sfc':
+      specifier: ^3.5.33
+      version: 3.5.38
     bumpp:
       specifier: ^11.0.1
       version: 11.1.0
     overlayscrollbars:
       specifier: ^2.15.1
       version: 2.16.0
-    playwright:
-      specifier: ^1.59.1
-      version: 1.60.0
     releaselog:
       specifier: ^7.0.2
       version: 7.0.2
     shiki:
       specifier: ^4.0.2
       version: 4.2.0
+    simple-icons:
+      specifier: ^16.18.0
+      version: 16.23.0
     stats.js:
       specifier: ^0.17.0
       version: 0.17.0
@@ -51,6 +60,12 @@ catalogs:
     void:
       specifier: 0.9.3
       version: 0.9.3
+    vue:
+      specifier: ^3.5.33
+      version: 3.5.38
+    vue-tsc:
+      specifier: ^3.2.7
+      version: 3.3.5
 
 importers:
 
@@ -76,7 +91,7 @@ importers:
         version: 11.1.0
       playwright:
         specifier: 'catalog:'
-        version: 1.60.0
+        version: 1.61.0
       releaselog:
         specifier: 'catalog:'
         version: 7.0.2
@@ -170,7 +185,7 @@ importers:
         version: 6.0.7(vite@8.0.16(@types/node@25.9.3)(esbuild@0.27.7)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.9.0))(vue@3.5.38(typescript@6.0.3))
       playwright:
         specifier: 'catalog:'
-        version: 1.60.0
+        version: 1.61.0
       typescript:
         specifier: 'catalog:'
         version: 6.0.3
@@ -2631,13 +2646,13 @@ packages:
   pkg-types@2.3.1:
     resolution: {integrity: sha512-y+ichcgc2LrADuhLNAx8DFjVfgz91pRxfZdI3UDhxHvcVEZsenLO+7XaU5vOp0u/7V/wZ+plyuQxtrDlZJ+yeg==}
 
-  playwright-core@1.60.0:
-    resolution: {integrity: sha512-9bW6zvX/m0lEbgTKJ6YppOKx8H3VOPBMOCFh2irXFOT4BbHgrx5hPjwJYLT40Lu+4qtD36qKc/Hn56StUW57IA==}
+  playwright-core@1.61.0:
+    resolution: {integrity: sha512-caX7TrY3Ml6egyDX0WUcTHDxodl/b51y5wJOdCEA36QviK/s2g081hvmGs8eaE3DWb6NYZQ6BjO/QkNRPenoPA==}
     engines: {node: '>=18'}
     hasBin: true
 
-  playwright@1.60.0:
-    resolution: {integrity: sha512-hheHdokM8cdqCb0lcE3s+zT4t4W+vvjpGxsZlDnikarzx8tSzMebh3UiFtgqwFwnTnjYQcsyMF8ei2mCO/tpeA==}
+  playwright@1.61.0:
+    resolution: {integrity: sha512-Z+7BeeqQPRRzklHsVFP4KTGIyMxKUmfeRA4WisM6G3/XW6nwGeX6fX9qYaDa+CiUqpOkb2f6X3nar05R3kSuJQ==}
     engines: {node: '>=18'}
     hasBin: true
 
@@ -4803,11 +4818,11 @@ snapshots:
       exsolve: 1.0.8
       pathe: 2.0.3
 
-  playwright-core@1.60.0: {}
+  playwright-core@1.61.0: {}
 
-  playwright@1.60.0:
+  playwright@1.61.0:
     dependencies:
-      playwright-core: 1.60.0
+      playwright-core: 1.61.0
     optionalDependencies:
       fsevents: 2.3.2
 
