@@ -16,6 +16,18 @@ type MountedResizableInlineClamp = MountedInlineClamp & {
   width: Ref<number>;
 };
 
+type MountedStyledInlineClamp = MountedResizableInlineClamp & {
+  fontSize: Ref<number>;
+};
+
+type MountedSpacingInlineClamp = MountedResizableInlineClamp & {
+  letterSpacing: Ref<number>;
+};
+
+type MountedPercentInlineClamp = MountedInlineClamp & {
+  outerWidth: Ref<number>;
+};
+
 type MountInlineOptions = {
   text: string;
   width?: number;
@@ -165,6 +177,177 @@ function mountResizableInlineClamp(options: MountInlineOptions): MountedResizabl
   return mountedClamp;
 }
 
+function mountStyledInlineClamp(options: MountInlineOptions): MountedStyledInlineClamp {
+  const text = ref(options.text);
+  const width = ref(options.width ?? 180);
+  const fontSize = ref(16);
+  const container = document.createElement("div");
+  document.body.append(container);
+
+  const Host = defineComponent({
+    setup() {
+      return () => {
+        const props: {
+          text: string;
+          style: string;
+          split?: InlineClampSplit;
+        } = {
+          style: hostStyle(width.value, `font:${fontSize.value}px Georgia, serif`),
+          text: text.value,
+        };
+
+        if (typeof options.split === "function") {
+          props.split = options.split;
+        }
+
+        return h(InlineClamp, props);
+      };
+    },
+  });
+
+  const app = createApp(Host);
+  app.mount(container);
+
+  const mountedClamp = {
+    app,
+    container,
+    fontSize,
+    text,
+    width,
+  };
+  mounted.add(mountedClamp);
+  return mountedClamp;
+}
+
+function mountVariableFontInlineClamp(options: MountInlineOptions): MountedStyledInlineClamp {
+  const text = ref(options.text);
+  const width = ref(options.width ?? 180);
+  const fontSize = ref(16);
+  const container = document.createElement("div");
+  document.body.append(container);
+
+  const Host = defineComponent({
+    setup() {
+      return () =>
+        h(
+          "div",
+          {
+            style: `--inline-font-size:${fontSize.value}px`,
+          },
+          h(InlineClamp, {
+            split: options.split,
+            style: [
+              `width:${width.value}px`,
+              "font-family:Georgia, serif",
+              "font-size:var(--inline-font-size)",
+            ].join(";"),
+            text: text.value,
+          }),
+        );
+    },
+  });
+
+  const app = createApp(Host);
+  app.mount(container);
+
+  const mountedClamp = {
+    app,
+    container,
+    fontSize,
+    text,
+    width,
+  };
+  mounted.add(mountedClamp);
+  return mountedClamp;
+}
+
+function mountVariableSpacingInlineClamp(options: MountInlineOptions): MountedSpacingInlineClamp {
+  const text = ref(options.text);
+  const width = ref(options.width ?? 180);
+  const letterSpacing = ref(2);
+  const container = document.createElement("div");
+  document.body.append(container);
+
+  const Host = defineComponent({
+    setup() {
+      return () =>
+        h(
+          "div",
+          {
+            style: `--inline-letter-spacing:${letterSpacing.value}px`,
+          },
+          h(InlineClamp, {
+            split: options.split,
+            style: [
+              `width:${width.value}px`,
+              "font:16px Georgia, serif",
+              "letter-spacing:var(--inline-letter-spacing)",
+            ].join(";"),
+            text: text.value,
+          }),
+        );
+    },
+  });
+
+  const app = createApp(Host);
+  app.mount(container);
+
+  const mountedClamp = {
+    app,
+    container,
+    letterSpacing,
+    text,
+    width,
+  };
+  mounted.add(mountedClamp);
+  return mountedClamp;
+}
+
+function mountPercentInlineClamp(
+  options: MountInlineOptions,
+  rootStyle = "width:100%",
+): MountedPercentInlineClamp {
+  const text = ref(options.text);
+  const outerWidth = ref(options.width ?? 180);
+  const container = document.createElement("div");
+  document.body.append(container);
+
+  const Host = defineComponent({
+    setup() {
+      return () =>
+        h(
+          "div",
+          {
+            style: hostStyle(outerWidth.value, options.style),
+          },
+          h(
+            "span",
+            {
+              style: "display:inline-block;max-width:100%;vertical-align:top",
+            },
+            h(InlineClamp, {
+              split: options.split,
+              style: rootStyle,
+              text: text.value,
+            }),
+          ),
+        );
+    },
+  });
+
+  const app = createApp(Host);
+  app.mount(container);
+
+  const mountedClamp = {
+    app,
+    container,
+    outerWidth,
+    text,
+  };
+  mounted.add(mountedClamp);
+  return mountedClamp;
+}
+
 function rootElement(container: HTMLElement): HTMLElement {
   const root = container.firstElementChild;
   if (!(root instanceof HTMLElement)) {
@@ -180,11 +363,12 @@ function segment(root: HTMLElement, name: "start" | "body" | "end"): HTMLElement
 }
 
 function measureReferenceWidth(text: string): number {
+  return measureStyledTextWidth(text, "font:16px Georgia, serif");
+}
+
+function measureStyledTextWidth(text: string, style: string): number {
   const reference = document.createElement("span");
-  reference.style.position = "absolute";
-  reference.style.visibility = "hidden";
-  reference.style.whiteSpace = "pre";
-  reference.style.font = "16px Georgia, serif";
+  reference.style.cssText = `${style};position:absolute;visibility:hidden;white-space:pre`;
   reference.textContent = text;
   document.body.append(reference);
   const width = reference.getBoundingClientRect().width;
@@ -461,6 +645,216 @@ describe("InlineClamp browser contract", () => {
     expect(body.textContent).not.toBe("very-long-generated-types");
 
     mountedClamp.width.value = 360;
+    await settle();
+
+    expect(body.textContent).toBe("very-long-generated-types");
+  });
+
+  it("does not reuse a repeated-width cache entry after root style changes", async () => {
+    const bodySource = "generated-component-props";
+    const end = ".d.ts";
+    const fullText = `${bodySource}${end}`;
+    const width = Math.ceil(measureStyledTextWidth(fullText, "font:10px Georgia, serif") + 1);
+
+    expect(measureStyledTextWidth(fullText, "font:16px Georgia, serif")).toBeGreaterThan(width);
+
+    const mountedClamp = mountStyledInlineClamp({
+      text: fullText,
+      width,
+      split(text) {
+        return {
+          body: text.slice(0, -end.length),
+          end,
+        };
+      },
+    });
+
+    await settle();
+
+    const root = rootElement(mountedClamp.container);
+    const body = segment(root, "body");
+
+    if (!body) {
+      throw new Error("Expected inline clamp body segment.");
+    }
+
+    mountedClamp.width.value = width + 80;
+    await settle();
+    mountedClamp.width.value = width;
+    await settle();
+
+    expect(body.textContent).not.toBe(bodySource);
+
+    mountedClamp.width.value = width + 80;
+    await settle();
+    mountedClamp.fontSize.value = 10;
+    mountedClamp.width.value = width;
+    await settle();
+
+    expect(body.textContent).toBe(bodySource);
+  });
+
+  it("does not reuse a repeated-width cache entry when root font metrics use CSS variables", async () => {
+    const bodySource = "generated-component-props";
+    const end = ".d.ts";
+    const fullText = `${bodySource}${end}`;
+    const width = Math.ceil(measureStyledTextWidth(fullText, "font:10px Georgia, serif") + 1);
+
+    expect(measureStyledTextWidth(fullText, "font:16px Georgia, serif")).toBeGreaterThan(width);
+
+    const mountedClamp = mountVariableFontInlineClamp({
+      text: fullText,
+      width,
+      split(text) {
+        return {
+          body: text.slice(0, -end.length),
+          end,
+        };
+      },
+    });
+
+    await settle();
+
+    const host = mountedClamp.container.firstElementChild;
+    if (!(host instanceof HTMLElement)) {
+      throw new Error("Expected inline clamp host element.");
+    }
+
+    const root = rootElement(host);
+    const body = segment(root, "body");
+
+    if (!body) {
+      throw new Error("Expected inline clamp body segment.");
+    }
+
+    mountedClamp.width.value = width + 80;
+    await settle();
+    mountedClamp.width.value = width;
+    await settle();
+
+    expect(body.textContent).not.toBe(bodySource);
+
+    mountedClamp.width.value = width + 80;
+    await settle();
+    mountedClamp.fontSize.value = 10;
+    mountedClamp.width.value = width;
+    await settle();
+
+    expect(body.textContent).toBe(bodySource);
+  });
+
+  it("does not reuse a repeated-width cache entry when root spacing uses CSS variables", async () => {
+    const bodySource = "generated-component-props";
+    const end = ".d.ts";
+    const fullText = `${bodySource}${end}`;
+    const compactStyle = "font:16px Georgia, serif;letter-spacing:0px";
+    const spacedStyle = "font:16px Georgia, serif;letter-spacing:2px";
+    const width = Math.ceil(measureStyledTextWidth(fullText, compactStyle) + 1);
+
+    expect(measureStyledTextWidth(fullText, spacedStyle)).toBeGreaterThan(width);
+
+    const mountedClamp = mountVariableSpacingInlineClamp({
+      text: fullText,
+      width,
+      split(text) {
+        return {
+          body: text.slice(0, -end.length),
+          end,
+        };
+      },
+    });
+
+    await settle();
+
+    const host = mountedClamp.container.firstElementChild;
+    if (!(host instanceof HTMLElement)) {
+      throw new Error("Expected inline clamp host element.");
+    }
+
+    const root = rootElement(host);
+    const body = segment(root, "body");
+
+    if (!body) {
+      throw new Error("Expected inline clamp body segment.");
+    }
+
+    mountedClamp.width.value = width + 80;
+    await settle();
+    mountedClamp.width.value = width;
+    await settle();
+
+    expect(body.textContent).not.toBe(bodySource);
+
+    mountedClamp.width.value = width + 80;
+    await settle();
+    mountedClamp.letterSpacing.value = 0;
+    mountedClamp.width.value = width;
+    await settle();
+
+    expect(body.textContent).toBe(bodySource);
+  });
+
+  it("does not trust percentage root width inside shrink-to-fit parents", async () => {
+    const mountedClamp = mountPercentInlineClamp({
+      text: "very-long-generated-types.d.ts",
+      width: 120,
+      split(text) {
+        return {
+          body: text.slice(0, -5),
+          end: ".d.ts",
+        };
+      },
+    });
+
+    await settle();
+
+    const root = mountedClamp.container.querySelector('[data-part="root"]');
+    const body = root instanceof HTMLElement ? segment(root, "body") : null;
+
+    if (!body) {
+      throw new Error("Expected inline clamp body segment.");
+    }
+
+    expect(body.textContent).not.toBe("very-long-generated-types");
+
+    mountedClamp.outerWidth.value = 360;
+    await nextTick();
+    document.fonts?.dispatchEvent(new Event("loadingdone"));
+    await settle();
+
+    expect(body.textContent).toBe("very-long-generated-types");
+  });
+
+  it("does not trust CSS-variable percentage root width inside shrink-to-fit parents", async () => {
+    const mountedClamp = mountPercentInlineClamp(
+      {
+        text: "very-long-generated-types.d.ts",
+        width: 120,
+        style: "--inline-clamp-width:100%",
+        split(text) {
+          return {
+            body: text.slice(0, -5),
+            end: ".d.ts",
+          };
+        },
+      },
+      "width:calc(var(--inline-clamp-width))",
+    );
+
+    await settle();
+
+    const root = mountedClamp.container.querySelector('[data-part="root"]');
+    const body = root instanceof HTMLElement ? segment(root, "body") : null;
+
+    if (!body) {
+      throw new Error("Expected inline clamp body segment.");
+    }
+
+    expect(body.textContent).not.toBe("very-long-generated-types");
+
+    mountedClamp.outerWidth.value = 360;
+    await nextTick();
+    document.fonts?.dispatchEvent(new Event("loadingdone"));
     await settle();
 
     expect(body.textContent).toBe("very-long-generated-types");

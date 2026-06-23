@@ -36,6 +36,28 @@ const nativeSingleLineContentStyle: CSSProperties = {
   verticalAlign: "baseline",
   width: "100%",
 };
+const nativeMultiLineContentStyles = new Map<number, CSSProperties>();
+
+function getNativeMultiLineContentStyle(lineLimit: number): CSSProperties {
+  const cached = nativeMultiLineContentStyles.get(lineLimit);
+  if (cached) {
+    return cached;
+  }
+
+  const lineClamp = String(lineLimit);
+  const style: CSSProperties = {
+    display: "-webkit-box",
+    lineClamp,
+    maxWidth: "100%",
+    overflow: "hidden",
+    verticalAlign: "baseline",
+    WebkitBoxOrient: "vertical",
+    WebkitLineClamp: lineClamp,
+  };
+  nativeMultiLineContentStyles.set(lineLimit, style);
+
+  return style;
+}
 
 function hasMultilineClamp(): boolean {
   if (supportsMultilineClamp !== null) {
@@ -96,25 +118,27 @@ export function getNativeContentStyle(
     return undefined;
   }
 
-  return {
-    display: "-webkit-box",
-    lineClamp: String(lineLimit),
-    maxWidth: "100%",
-    overflow: "hidden",
-    verticalAlign: "baseline",
-    WebkitBoxOrient: "vertical",
-    WebkitLineClamp: String(lineLimit),
-  };
+  return getNativeMultiLineContentStyle(lineLimit);
 }
 
-export function measureNativeClamped(element: HTMLElement, mode: NativeClampMode): boolean | null {
-  if (element.clientWidth <= 0 || element.getBoundingClientRect().width <= 0) {
-    return null;
-  }
-
+export function measureNativeClamped(
+  element: HTMLElement,
+  mode: NativeClampMode,
+  measurableWidth?: number,
+): boolean | null {
   if (mode === "multi-line") {
+    const clientWidth = element.clientWidth;
+    if (clientWidth <= 0 || (measurableWidth !== undefined && measurableWidth <= 0)) {
+      return null;
+    }
+
     return element.scrollHeight > element.clientHeight + 0.5;
   }
 
-  return element.scrollWidth > element.clientWidth + 0.5;
+  const clientWidth = element.clientWidth;
+  if (clientWidth <= 0) {
+    return null;
+  }
+
+  return element.scrollWidth > clientWidth + 0.5;
 }

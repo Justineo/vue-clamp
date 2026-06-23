@@ -21,6 +21,7 @@ type MountedPage = {
 type DemoSurface = "line" | "rich" | "inline" | "wrap";
 
 const mounted = new Set<MountedPage>();
+const asyncDomWaitMs = 1500;
 
 function mountPage(component: Component): MountedPage {
   const container = document.createElement("div");
@@ -430,26 +431,30 @@ function waitTime(ms: number): Promise<void> {
 }
 
 async function waitForDocumentElement(document: Document, selector: string): Promise<HTMLElement> {
-  for (let attempt = 0; attempt < 20; attempt += 1) {
+  const deadline = performance.now() + asyncDomWaitMs;
+
+  do {
     await settle(1);
 
     const element = document.querySelector(selector);
     if (element instanceof HTMLElement) {
       return element;
     }
-  }
+  } while (performance.now() < deadline);
 
   throw new Error(`Expected document element matching ${selector}.`);
 }
 
 async function waitForElementAttribute(element: HTMLElement, attribute: string): Promise<void> {
-  for (let attempt = 0; attempt < 20; attempt += 1) {
+  const deadline = performance.now() + asyncDomWaitMs;
+
+  do {
     await settle(1);
 
     if (element.hasAttribute(attribute)) {
       return;
     }
-  }
+  } while (performance.now() < deadline);
 
   throw new Error(`Expected ${attribute} on element.`);
 }

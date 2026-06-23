@@ -1,6 +1,13 @@
 import { fitsContent } from "./layout.ts";
-import { findLastFittingIndex } from "./search.ts";
+import {
+  defaultWarmExpansionLimit,
+  estimateColdSearchMaxProbeCount,
+  estimateWarmSearchProbeCount,
+  findLastFittingIndex,
+  warmSearchLocalCoverage,
+} from "./search.ts";
 
+import type { SimpleLineFit, VisibleBoundsCache } from "./layout.ts";
 import type { ClampBoundary, ClampLength, LineClampLocation } from "./types.ts";
 
 // Text preparation is separated from DOM measurement so width-only reclamps can
@@ -22,35 +29,107 @@ export interface PreparedText {
 
 export interface TextClampHint {
   readonly boundaryOffsets: readonly number[];
+  readonly ellipsis?: string | undefined;
+  readonly hasAffixes?: boolean | undefined;
   readonly kept: number;
+  readonly lineCapacity?: number | undefined;
+  readonly layoutKey?: string | undefined;
+  readonly lineLimit?: number | undefined;
+  readonly maxHeight?: ClampLength | undefined;
+  readonly rankPerPx?: number;
+  readonly rankPerPxWidth?: number;
+  readonly ratio?: number | undefined;
+  readonly clampedMaxWidth?: number;
+  readonly rootWidth?: number;
+  readonly spacing?: TextClampSpacing | undefined;
+  readonly wordFallbackMaxWidth?: number;
 }
 
 export interface TextClampResult extends TextClampHint {
   readonly text: string;
 }
 
-type MaybeTextClampHint = TextClampHint | null | undefined;
+export function setElementText(element: HTMLElement, text: string): void {
+  const child = element.firstChild;
 
+  if (child instanceof Text && child.nextSibling === null) {
+    child.data = text;
+    return;
+  }
+
+  element.textContent = text;
+}
+
+type RankSlope = {
+  rankPerPx?: number;
+  rankPerPxWidth?: number;
+};
+type WarmSearchInput = {
+  readonly boundary: ClampBoundary;
+  readonly candidateCount: number;
+  readonly hasAffixes: boolean;
+  readonly hintKept: number;
+  readonly includeFullCandidate: boolean;
+  readonly lineCapacity: number | undefined;
+  readonly rankPerPx: number;
+  readonly referenceWidth: number;
+  readonly rootWidth: number;
+};
+type WarmHintInput = Omit<WarmSearchInput, "hintKept" | "rankPerPx" | "referenceWidth"> & {
+  readonly hint: TextClampHint;
+};
+type WarmSearchEstimate = {
+  readonly rankMove: number;
+  readonly searchCount: number;
+  readonly target: number;
+};
 export type TextClampSpacing = "trim" | "preserve-outer";
+
+type TextFitContext = {
+  readonly ellipsis: string;
+  readonly ratio: number;
+  readonly spacing: TextClampSpacing;
+};
+
+type TextClampContext = TextFitContext & {
+  readonly hasAffixes: boolean;
+  readonly lineCapacity: number | undefined;
+  readonly layoutKey?: string | undefined;
+  readonly lineLimit: number | undefined;
+  readonly maxHeight: ClampLength | undefined;
+};
+
+const maxComparableWidthRatio = 2;
+const warmSearchProbeRiskBudget = defaultWarmExpansionLimit;
+const wordWarmExpansionLimit = defaultWarmExpansionLimit + 1;
 
 export type TextClampFitInput = {
   readonly ellipsis: string;
+  readonly expansionLimit?: number;
   readonly fits: (text: string) => boolean;
-  readonly hint?: MaybeTextClampHint;
+  readonly hint?: TextClampHint | null;
+  readonly includeFullCandidate?: boolean;
   readonly prepared: PreparedText;
   readonly ratio: number;
   readonly spacing?: TextClampSpacing;
+  readonly verifyFullCandidate?: boolean;
 };
 
 export type TextClampLayoutInput = {
   readonly content: HTMLElement;
   readonly ellipsis: string;
-  readonly hint?: MaybeTextClampHint;
+  readonly hasAffixes?: boolean;
+  readonly hint?: TextClampHint | null;
+  readonly lineCapacity?: number | undefined;
+  readonly layoutKey?: string | undefined;
   readonly lineLimit: number | undefined;
   readonly maxHeight: ClampLength | undefined;
   readonly prepared: PreparedText;
   readonly ratio: number;
   readonly root: HTMLElement;
+  readonly rootWidth: number;
+  readonly forceSkipFullFit?: boolean;
+  readonly simpleLineFit?: SimpleLineFit;
   readonly target: HTMLElement;
 };
 
@@ -69,7 +148,12 @@ function graphemeBoundaryOffsets(text: string, asciiSafe = isAsciiSafe(text)): n
   if (asciiSafe) {
     // ASCII has one UTF-16 code unit per grapheme in the range we accept here,
     // so this hot path avoids Intl.Segmenter for common English/code strings.
-    return Array.from({ length: text.length + 1 }, (_, index) => index);
+    const offsets: number[] = [];
+    for (let index = 0; index <= text.length; index += 1) {
+      offsets.push(index);
+    }
+
+    return offsets;
   }
 
   const boundaryOffsets = [0];
@@ -154,18 +238,23 @@ export function displayTextForKeptCount(
   // share the same search over a single candidate count.
   const prefix = Math.floor(kept * ratio);
   const suffix = kept - prefix;
-  const prefixText = text.slice(0, boundaryOffsets[prefix]);
-  const suffixText = text.slice(boundaryOffsets[boundaryCount - suffix]);
-  const trimPrefix = spacing === "preserve-outer" ? prefixText.trimEnd() : prefixText.trim();
-  const trimSuffix = spacing === "preserve-outer" ? suffixText.trimStart() : suffixText.trim();
 
   if (prefix <= 0) {
+    const suffixText = text.slice(boundaryOffsets[boundaryCount - suffix]);
+    const trimSuffix = spacing === "preserve-outer" ? suffixText.trimStart() : suffixText.trim();
+
     return `${ellipsis}${trimSuffix}`;
   }
+
+  const prefixText = text.slice(0, boundaryOffsets[prefix]);
+  const trimPrefix = spacing === "preserve-outer" ? prefixText.trimEnd() : prefixText.trim();
 
   if (suffix <= 0) {
     return `${trimPrefix}${ellipsis}`;
   }
+
+  const suffixText = text.slice(boundaryOffsets[boundaryCount - suffix]);
+  const trimSuffix = spacing === "preserve-outer" ? suffixText.trimStart() : suffixText.trim();
 
   return `${trimPrefix}${ellipsis}${trimSuffix}`;
 }
@@ -186,34 +275,498 @@ export function normalizeLocationRatio(location: LineClampLocation): number {
   return Math.max(0, Math.min(1, location));
 }
 
+function nextClampedMaxWidth(
+  hint: TextClampHint | null,
+  kept: number,
+  rootWidth: number,
+  boundaryCount: number,
+): Pick<TextClampHint, "clampedMaxWidth"> {
+  if (kept >= boundaryCount) {
+    return {};
+  }
+
+  return {
+    clampedMaxWidth: Math.max(rootWidth, hint?.clampedMaxWidth ?? rootWidth),
+  };
+}
+
+function nextWordFallbackMaxWidth(
+  prepared: PreparedText,
+  result: TextClampResult,
+  hint: TextClampHint | null,
+  rootWidth: number,
+): Pick<TextClampHint, "wordFallbackMaxWidth"> {
+  if (
+    prepared.boundary !== "word" ||
+    prepared.fallbackBoundaryOffsets === undefined ||
+    result.boundaryOffsets !== prepared.fallbackBoundaryOffsets
+  ) {
+    return {};
+  }
+
+  const previous =
+    hint?.boundaryOffsets === prepared.fallbackBoundaryOffsets && hint.rootWidth !== rootWidth
+      ? (hint.wordFallbackMaxWidth ?? hint.rootWidth)
+      : undefined;
+
+  return {
+    wordFallbackMaxWidth: Math.max(rootWidth, previous ?? rootWidth),
+  };
+}
+
+function observedRankSlope(hint: TextClampHint | null, kept: number, rootWidth: number): RankSlope {
+  if (!hint?.rootWidth || hint.rootWidth <= 0) {
+    return {};
+  }
+
+  const deltaWidth = Math.abs(rootWidth - hint.rootWidth);
+  const rankDelta = Math.abs(kept - hint.kept);
+  if (deltaWidth === 0 || rankDelta === 0) {
+    return previousRankSlope(hint);
+  }
+
+  const rankPerPx = rankDelta / deltaWidth;
+  if (!Number.isFinite(rankPerPx) || rankPerPx <= 0) {
+    return previousRankSlope(hint);
+  }
+
+  return {
+    rankPerPx,
+    rankPerPxWidth: deltaWidth,
+  };
+}
+
+function previousRankSlope(hint: TextClampHint): RankSlope {
+  const result: RankSlope = {};
+  if (hint.rankPerPx !== undefined) {
+    result.rankPerPx = hint.rankPerPx;
+  }
+
+  if (hint.rankPerPxWidth !== undefined) {
+    result.rankPerPxWidth = hint.rankPerPxWidth;
+  }
+
+  return result;
+}
+
+function sameTextClampContext(
+  hint: TextClampHint | null,
+  context: TextClampContext,
+): hint is TextClampHint {
+  return (
+    !!hint &&
+    hint.ellipsis === context.ellipsis &&
+    (hint.hasAffixes ?? false) === context.hasAffixes &&
+    hint.lineCapacity === context.lineCapacity &&
+    hint.layoutKey === context.layoutKey &&
+    hint.lineLimit === context.lineLimit &&
+    hint.maxHeight === context.maxHeight &&
+    hint.ratio === context.ratio &&
+    hint.spacing === context.spacing
+  );
+}
+
+function sameTextFitContext(
+  hint: TextClampHint | null,
+  context: TextFitContext,
+): hint is TextClampHint {
+  return (
+    !!hint &&
+    hint.ellipsis === context.ellipsis &&
+    hint.ratio === context.ratio &&
+    hint.spacing === context.spacing
+  );
+}
+
+function withTextClampMetrics(
+  result: TextClampResult,
+  hint: TextClampHint | null,
+  prepared: PreparedText,
+  rootWidth: number,
+  context: TextClampContext,
+): TextClampResult {
+  const { ellipsis, layoutKey, lineLimit, maxHeight, ratio } = context;
+  const metricHint = hint?.boundaryOffsets === result.boundaryOffsets ? hint : null;
+
+  return {
+    ...result,
+    ellipsis,
+    hasAffixes: context.hasAffixes || undefined,
+    layoutKey,
+    lineLimit,
+    maxHeight,
+    ...nextClampedMaxWidth(metricHint, result.kept, rootWidth, result.boundaryOffsets.length - 1),
+    ...nextWordFallbackMaxWidth(prepared, result, metricHint, rootWidth),
+    ...observedRankSlope(metricHint, result.kept, rootWidth),
+    lineCapacity: context.lineCapacity,
+    ratio,
+    rootWidth,
+    spacing: context.spacing,
+  };
+}
+
+function searchCountForCandidates(candidateCount: number, includeFullCandidate: boolean): number {
+  return Math.max(1, candidateCount + (includeFullCandidate ? 1 : 0));
+}
+
+function estimatedSearchTarget(
+  searchCount: number,
+  hintKept: number,
+  rootWidth: number,
+  referenceWidth: number,
+  rankPerPx: number,
+): number {
+  const widthDelta = rootWidth - referenceWidth;
+  const rankMove = Math.ceil(Math.abs(widthDelta) * rankPerPx);
+  const direction = Math.sign(widthDelta);
+  const target = hintKept + direction * rankMove;
+
+  return Math.max(0, Math.min(searchCount - 1, target));
+}
+
+function comparableWidthScale(width: number, referenceWidth: number): boolean {
+  return (
+    Math.min(width, referenceWidth) * maxComparableWidthRatio >= Math.max(width, referenceWidth)
+  );
+}
+
+function warmSearchCanBeatCold(
+  searchCount: number,
+  hintKept: number,
+  estimatedTarget: number,
+  allowRiskBudget = false,
+): boolean {
+  const coldProbes = estimateColdSearchMaxProbeCount(searchCount);
+  const warmProbes = estimateWarmSearchProbeCount(searchCount, hintKept, estimatedTarget);
+  const rankMove = Math.abs(estimatedTarget - hintKept);
+
+  return (
+    rankMove <= coldProbes &&
+    (warmProbes < coldProbes ||
+      (allowRiskBudget && warmProbes <= coldProbes + warmSearchProbeRiskBudget))
+  );
+}
+
+function estimateWarmSearch(input: WarmSearchInput): WarmSearchEstimate | null {
+  const { candidateCount, hintKept, includeFullCandidate, rankPerPx, referenceWidth, rootWidth } =
+    input;
+
+  if (
+    !Number.isFinite(rankPerPx) ||
+    rankPerPx <= 0 ||
+    referenceWidth <= 0 ||
+    !comparableWidthScale(rootWidth, referenceWidth)
+  ) {
+    return null;
+  }
+
+  const searchCount = searchCountForCandidates(candidateCount, includeFullCandidate);
+  const target = estimatedSearchTarget(searchCount, hintKept, rootWidth, referenceWidth, rankPerPx);
+
+  return {
+    rankMove: Math.abs(target - hintKept),
+    searchCount,
+    target,
+  };
+}
+
+function warmRiskBudgetApplies(
+  boundary: ClampBoundary,
+  hasAffixes: boolean,
+  includeFullCandidate: boolean,
+  rankMove: number,
+  lineCapacity: number | undefined,
+): boolean {
+  if (rankMove <= warmSearchLocalCoverage()) {
+    return true;
+  }
+
+  if (lineCapacity === 1) {
+    return false;
+  }
+
+  if (boundary === "word") {
+    return true;
+  }
+
+  return includeFullCandidate && lineCapacity !== undefined && lineCapacity >= 2 && hasAffixes;
+}
+
+function warmEstimateCanBeatCold(input: WarmSearchInput, estimate: WarmSearchEstimate): boolean {
+  return warmSearchCanBeatCold(
+    estimate.searchCount,
+    input.hintKept,
+    estimate.target,
+    warmRiskBudgetApplies(
+      input.boundary,
+      input.hasAffixes,
+      input.includeFullCandidate,
+      estimate.rankMove,
+      input.lineCapacity,
+    ),
+  );
+}
+
+function warmSearchStaysLocal(input: WarmSearchInput): boolean {
+  const estimate = estimateWarmSearch(input);
+
+  return estimate !== null && warmEstimateCanBeatCold(input, estimate);
+}
+
+function warmSearchStaysLocalFromHint(
+  input: WarmHintInput,
+  rankPerPx: number,
+  referenceWidth: number,
+): boolean {
+  const {
+    boundary,
+    candidateCount,
+    hasAffixes,
+    hint,
+    includeFullCandidate,
+    lineCapacity,
+    rootWidth,
+  } = input;
+
+  return warmSearchStaysLocal({
+    boundary,
+    candidateCount,
+    hasAffixes,
+    hintKept: hint.kept,
+    includeFullCandidate,
+    lineCapacity,
+    rankPerPx,
+    referenceWidth,
+    rootWidth,
+  });
+}
+
+function warmSearchStaysLocalBySlope(input: WarmHintInput): boolean {
+  const { hint, rootWidth } = input;
+  const { rankPerPx, rankPerPxWidth, rootWidth: hintWidth } = hint;
+  if (
+    rankPerPx === undefined ||
+    rankPerPxWidth === undefined ||
+    hintWidth === undefined ||
+    rankPerPx <= 0 ||
+    rankPerPxWidth <= 0
+  ) {
+    return false;
+  }
+
+  const deltaWidth = Math.abs(rootWidth - hintWidth);
+  if (!comparableWidthScale(rootWidth, hintWidth)) {
+    return false;
+  }
+
+  if (deltaWidth > rankPerPxWidth) {
+    return false;
+  }
+
+  return warmSearchStaysLocalFromHint(input, rankPerPx, hintWidth);
+}
+
+function warmSearchStaysLocalByVisibleDensity(input: WarmHintInput): boolean {
+  const { hint } = input;
+  const hintWidth = hint.rootWidth;
+  if (hintWidth === undefined || hintWidth <= 0 || hint.kept <= 0) {
+    return false;
+  }
+
+  return warmSearchStaysLocalFromHint(input, hint.kept / hintWidth, hintWidth);
+}
+
+function canUseTextLayoutHint(
+  hint: TextClampHint | null,
+  boundary: ClampBoundary,
+  rootWidth: number,
+  context: TextClampContext,
+  includeFullCandidate = false,
+): boolean {
+  if (!hint) {
+    return false;
+  }
+
+  if (hint.rootWidth === undefined || rootWidth === hint.rootWidth) {
+    return true;
+  }
+
+  const candidateCount = hint.boundaryOffsets.length - 1;
+  const warmHintInput: WarmHintInput = {
+    boundary,
+    candidateCount,
+    hasAffixes: context.hasAffixes,
+    hint,
+    includeFullCandidate,
+    lineCapacity: context.lineCapacity,
+    rootWidth,
+  };
+
+  return (
+    warmSearchStaysLocalBySlope(warmHintInput) ||
+    warmSearchStaysLocalByVisibleDensity(warmHintInput)
+  );
+}
+
+export function canSkipFullTextFit(
+  prepared: PreparedText,
+  hint: TextClampHint | null,
+  rootWidth: number,
+  context: TextClampContext,
+): boolean {
+  if (
+    !hint ||
+    hint.boundaryOffsets !== prepared.boundaryOffsets ||
+    !sameTextClampContext(hint, context) ||
+    hint.rootWidth === undefined
+  ) {
+    return false;
+  }
+
+  const candidateCount = prepared.boundaryOffsets.length - 1;
+  if (hint.kept >= candidateCount) {
+    return false;
+  }
+
+  if (rootWidth <= hint.rootWidth) {
+    return true;
+  }
+
+  const warmSearchInput = {
+    boundary: prepared.boundary,
+    candidateCount,
+    hasAffixes: context.hasAffixes,
+    hintKept: hint.kept,
+    includeFullCandidate: true,
+    lineCapacity: context.lineCapacity,
+    rankPerPx: hint.kept / hint.rootWidth,
+    referenceWidth: hint.rootWidth,
+    rootWidth,
+  };
+  const estimate = estimateWarmSearch(warmSearchInput);
+
+  return (
+    estimate !== null &&
+    estimate.target < candidateCount &&
+    warmEstimateCanBeatCold(warmSearchInput, estimate)
+  );
+}
+
+function fallbackSearchPrepared(
+  prepared: PreparedText,
+  hint: TextClampHint | null,
+  rootWidth: number,
+): PreparedText {
+  if (
+    prepared.boundary !== "word" ||
+    !prepared.fallbackBoundaryOffsets ||
+    hint?.boundaryOffsets !== prepared.fallbackBoundaryOffsets ||
+    hint.rootWidth === undefined ||
+    rootWidth === hint.rootWidth
+  ) {
+    return prepared;
+  }
+
+  const fallbackMaxWidth = hint.wordFallbackMaxWidth ?? hint.rootWidth;
+  if (rootWidth > fallbackMaxWidth) {
+    return prepared;
+  }
+
+  return {
+    text: prepared.text,
+    boundary: "grapheme",
+    boundaryOffsets: prepared.fallbackBoundaryOffsets,
+  };
+}
+
+function shouldVerifyFullTextCandidate(
+  skipFullFit: boolean,
+  hint: TextClampHint | null,
+  rootWidth: number,
+  boundaryCount: number,
+): boolean {
+  if (!skipFullFit || hint?.rootWidth === undefined) {
+    return true;
+  }
+
+  if (rootWidth <= hint.rootWidth) {
+    return rootWidth === hint.rootWidth;
+  }
+
+  if (hint.kept >= boundaryCount) {
+    return true;
+  }
+
+  return hint.clampedMaxWidth === undefined || rootWidth > hint.clampedMaxWidth;
+}
+
 export function clampTextToFit({
   ellipsis,
+  expansionLimit = defaultWarmExpansionLimit,
   fits,
   hint,
+  includeFullCandidate = false,
   prepared,
   ratio,
   spacing = "trim",
+  verifyFullCandidate = true,
 }: TextClampFitInput): TextClampResult {
   const boundaryCount = prepared.boundaryOffsets.length - 1;
+  const searchCount = Math.max(1, boundaryCount + (includeFullCandidate ? 1 : 0));
+  const context: TextFitContext = {
+    ellipsis,
+    ratio,
+    spacing,
+  };
+  const textHint = hint ?? null;
+  let checkedFullCandidate = false;
+
+  function fitsKeptCount(kept: number): boolean {
+    if (includeFullCandidate && kept >= boundaryCount) {
+      checkedFullCandidate = true;
+    }
+
+    return fits(displayTextForKeptCount(prepared, ratio, ellipsis, kept, spacing));
+  }
 
   // The search helper works over indexes. For text, the index is the number of
   // boundary units kept, with at least the zero-kept ellipsis candidate present.
-  const best = Math.max(
+  let best = Math.max(
     0,
     findLastFittingIndex(
-      Math.max(1, boundaryCount),
-      (kept) => fits(displayTextForKeptCount(prepared, ratio, ellipsis, kept, spacing)),
-      hint?.boundaryOffsets === prepared.boundaryOffsets ? hint.kept : null,
+      searchCount,
+      fitsKeptCount,
+      textHint?.boundaryOffsets === prepared.boundaryOffsets &&
+        sameTextFitContext(textHint, context)
+        ? textHint.kept
+        : null,
+      expansionLimit,
     ),
   );
+
+  if (
+    includeFullCandidate &&
+    verifyFullCandidate &&
+    best < boundaryCount &&
+    !checkedFullCandidate
+  ) {
+    // The full-text candidate omits the ellipsis, so it is not guaranteed to be
+    // monotonic with the truncated candidates that precede it.
+    checkedFullCandidate = true;
+    if (fitsKeptCount(boundaryCount)) {
+      best = boundaryCount;
+    }
+  }
 
   if (best === 0 && prepared.fallbackBoundaryOffsets) {
     // Whole-word truncation should never fail completely just because a single
     // word is wider than the container; retry at grapheme granularity.
     return clampTextToFit({
       ellipsis,
+      expansionLimit,
       fits,
-      hint,
+      hint: textHint,
+      includeFullCandidate,
       prepared: {
         text: prepared.text,
         boundary: "grapheme",
@@ -221,6 +774,7 @@ export function clampTextToFit({
       },
       ratio,
       spacing,
+      verifyFullCandidate,
     });
   }
 
@@ -228,7 +782,10 @@ export function clampTextToFit({
 
   return {
     boundaryOffsets: prepared.boundaryOffsets,
+    ellipsis,
     kept: best,
+    ratio,
+    spacing,
     text,
   };
 }
@@ -236,51 +793,108 @@ export function clampTextToFit({
 export function clampTextToLayout({
   content,
   ellipsis,
+  hasAffixes = false,
   hint,
+  lineCapacity,
+  layoutKey,
   lineLimit,
   maxHeight,
   prepared,
   ratio,
   root,
+  rootWidth,
+  forceSkipFullFit = false,
+  simpleLineFit,
   target,
 }: TextClampLayoutInput): TextClampResult | null {
-  if (root.getBoundingClientRect().width <= 0) {
+  if (rootWidth <= 0) {
     // Measuring against an unlaid-out root would only cache a bogus clamp.
     return null;
   }
 
   const { text } = prepared;
+  const context: TextClampContext = {
+    ellipsis,
+    hasAffixes,
+    lineCapacity,
+    layoutKey,
+    lineLimit,
+    maxHeight,
+    ratio,
+    spacing: "trim",
+  };
+  const currentHint = hint ?? null;
+  const textHint = sameTextClampContext(currentHint, context) ? currentHint : null;
+  const skipFullFit =
+    forceSkipFullFit || canSkipFullTextFit(prepared, textHint, rootWidth, context);
+  const searchHint = canUseTextLayoutHint(
+    textHint,
+    prepared.boundary,
+    rootWidth,
+    context,
+    skipFullFit,
+  )
+    ? textHint
+    : null;
+  const expansionLimit =
+    prepared.boundary === "word" ? wordWarmExpansionLimit : defaultWarmExpansionLimit;
+  const visibleBoundsCache: VisibleBoundsCache | undefined =
+    maxHeight === undefined ? undefined : {};
   let currentText = target.textContent ?? "";
 
   function applyText(nextText: string): void {
     if (nextText !== currentText) {
-      target.textContent = nextText;
+      setElementText(target, nextText);
       currentText = nextText;
     }
   }
 
-  applyText(text);
-  if (fitsContent(root, content, lineLimit, maxHeight)) {
-    // The full source is the cheapest and most correct answer when it fits.
-    // Store it as a warm-start hint so later shrink passes begin from full text.
-    return {
-      boundaryOffsets: prepared.boundaryOffsets,
-      kept: prepared.boundaryOffsets.length - 1,
-      text,
-    };
+  if (!skipFullFit) {
+    applyText(text);
+    if (fitsContent(root, content, lineLimit, maxHeight, true, visibleBoundsCache, simpleLineFit)) {
+      // The full source is the cheapest and most correct answer when it fits.
+      // Store it as a warm-start hint so later shrink passes begin from full text.
+      return withTextClampMetrics(
+        {
+          boundaryOffsets: prepared.boundaryOffsets,
+          kept: prepared.boundaryOffsets.length - 1,
+          text,
+        },
+        textHint,
+        prepared,
+        rootWidth,
+        context,
+      );
+    }
   }
 
   const result = clampTextToFit({
     ellipsis,
     fits(candidate) {
       applyText(candidate);
-      return fitsContent(root, content, lineLimit, maxHeight);
+      return fitsContent(
+        root,
+        content,
+        lineLimit,
+        maxHeight,
+        true,
+        visibleBoundsCache,
+        simpleLineFit,
+      );
     },
-    hint,
-    prepared,
+    expansionLimit,
+    hint: searchHint,
+    includeFullCandidate: skipFullFit,
+    prepared: fallbackSearchPrepared(prepared, textHint, rootWidth),
     ratio,
+    verifyFullCandidate: shouldVerifyFullTextCandidate(
+      skipFullFit,
+      searchHint,
+      rootWidth,
+      prepared.boundaryOffsets.length - 1,
+    ),
   });
   applyText(result.text);
 
-  return result;
+  return withTextClampMetrics(result, textHint, prepared, rootWidth, context);
 }
