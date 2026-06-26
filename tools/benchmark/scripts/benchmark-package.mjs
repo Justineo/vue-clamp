@@ -118,6 +118,26 @@ function parseTargetArgs(args) {
   };
 }
 
+function scenarioList(value) {
+  return value
+    .split(/\r?\n/u)
+    .flatMap((line) => line.replace(/#.*/u, "").split(","))
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+async function scenarioFilterEnv() {
+  const scenarios = scenarioList(process.env.VUE_CLAMP_BENCH_SCENARIOS ?? "");
+  const file = process.env.VUE_CLAMP_BENCH_SCENARIOS_FILE;
+
+  if (file) {
+    const path = isAbsolute(file) ? file : resolve(workspaceRoot, file);
+    scenarios.push(...scenarioList(await readFile(path, "utf8")));
+  }
+
+  return Array.from(new Set(scenarios)).join(",");
+}
+
 function dependencyForSpecifier(specifier) {
   if (specifier === "vue-clamp") {
     return "latest";
@@ -236,6 +256,7 @@ for (const specifier of targetSpecifiers) {
 await run("vp", ["test", "-c", "tools/benchmark/vite.package.config.ts", ...passthroughArgs], {
   env: {
     VUE_CLAMP_BENCH_ENTRY: targets[0].entry,
+    VUE_CLAMP_BENCH_SCENARIOS: await scenarioFilterEnv(),
     VUE_CLAMP_BENCH_SPECIFIER: targets[0].specifier,
     VUE_CLAMP_BENCH_TARGETS: JSON.stringify(targets),
     VUE_CLAMP_BENCH_VERSION: targets[0].version,

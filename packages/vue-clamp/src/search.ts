@@ -3,6 +3,15 @@
 export const defaultWarmExpansionLimit = 2;
 export const richWarmExpansionLimit = defaultWarmExpansionLimit + 1;
 
+type TargetInput = {
+  readonly allowPatchTieBreak?: boolean;
+  readonly coldCost: number;
+  readonly count: number;
+  readonly expansionLimit?: number;
+  readonly hint: number;
+  readonly target: number;
+};
+
 // The clamp predicates are monotonic: once an index stops fitting, larger
 // indexes cannot fit. The helper searches for the highest index that still fits.
 function binarySearchLastFit(
@@ -123,26 +132,30 @@ export function warmSearchLocalCoverage(expansionLimit = defaultWarmExpansionLim
   return 2 ** expansionLimit - 1;
 }
 
-function estimateBinarySearchProbeCount(low: number, high: number, target: number): number {
-  let currentLow = low;
-  let currentHigh = high;
+export function estimateColdSearchMaxProbeCount(count: number): number {
+  return count <= 0 ? 0 : Math.ceil(Math.log2(count + 1));
+}
+
+function binaryProbeCount(low: number, high: number, target: number): number {
+  let floor = low;
+  let ceiling = high;
   let probes = 0;
 
-  while (currentLow <= currentHigh) {
-    const index = Math.floor((currentLow + currentHigh) / 2);
+  while (floor <= ceiling) {
+    const index = Math.floor((floor + ceiling) / 2);
     probes += 1;
 
     if (index <= target) {
-      currentLow = index + 1;
+      floor = index + 1;
     } else {
-      currentHigh = index - 1;
+      ceiling = index - 1;
     }
   }
 
   return probes;
 }
 
-function normalizedSearchTarget(maxIndex: number, target: number): number {
+function normalizedTarget(maxIndex: number, target: number): number {
   if (!Number.isFinite(target)) {
     return target === Number.POSITIVE_INFINITY ? maxIndex : -1;
   }
@@ -150,22 +163,7 @@ function normalizedSearchTarget(maxIndex: number, target: number): number {
   return Math.max(-1, Math.min(maxIndex, Math.floor(target)));
 }
 
-export function estimateColdSearchProbeCount(count: number, target: number): number {
-  if (count <= 0) {
-    return 0;
-  }
-
-  const maxIndex = count - 1;
-  const targetIndex = normalizedSearchTarget(maxIndex, target);
-
-  return estimateBinarySearchProbeCount(0, maxIndex, targetIndex);
-}
-
-export function estimateColdSearchMaxProbeCount(count: number): number {
-  return count <= 0 ? 0 : Math.ceil(Math.log2(count + 1));
-}
-
-export function estimateWarmSearchProbeCount(
+function warmProbeCount(
   count: number,
   hint: number,
   target: number,
@@ -176,12 +174,12 @@ export function estimateWarmSearchProbeCount(
   }
 
   if (!Number.isFinite(hint)) {
-    return estimateColdSearchProbeCount(count, target);
+    return Number.POSITIVE_INFINITY;
   }
 
   const maxIndex = count - 1;
   const start = Math.max(0, Math.min(maxIndex, Math.floor(hint)));
-  const targetIndex = normalizedSearchTarget(maxIndex, target);
+  const targetIndex = normalizedTarget(maxIndex, target);
   let probes = 1;
 
   if (start <= targetIndex) {
@@ -194,13 +192,13 @@ export function estimateWarmSearchProbeCount(
       probes += 1;
 
       if (probe > targetIndex) {
-        return probes + estimateBinarySearchProbeCount(fit + 1, probe - 1, targetIndex);
+        return probes + binaryProbeCount(fit + 1, probe - 1, targetIndex);
       }
 
       fit = probe;
       expansions += 1;
       if (expansions >= expansionLimit) {
-        return probes + estimateBinarySearchProbeCount(fit + 1, maxIndex, targetIndex);
+        return probes + binaryProbeCount(fit + 1, maxIndex, targetIndex);
       }
 
       step *= 2;
@@ -218,19 +216,32 @@ export function estimateWarmSearchProbeCount(
     probes += 1;
 
     if (probe <= targetIndex) {
-      return probes + estimateBinarySearchProbeCount(probe + 1, failed - 1, targetIndex);
+      return probes + binaryProbeCount(probe + 1, failed - 1, targetIndex);
     }
 
     failed = probe;
     expansions += 1;
     if (expansions >= expansionLimit) {
-      return probes + estimateBinarySearchProbeCount(0, failed - 1, targetIndex);
+      return probes + binaryProbeCount(0, failed - 1, targetIndex);
     }
 
     step *= 2;
   }
 
   return probes;
+}
+
+export function warmTargetBeatsCold({
+  allowPatchTieBreak = false,
+  coldCost,
+  count,
+  expansionLimit = defaultWarmExpansionLimit,
+  hint,
+  target,
+}: TargetInput): boolean {
+  const warmCost = warmProbeCount(count, hint, target, expansionLimit);
+
+  return warmCost < coldCost || (allowPatchTieBreak && warmCost === coldCost);
 }
 
 export function findLargestFittingCount(

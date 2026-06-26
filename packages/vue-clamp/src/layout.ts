@@ -49,7 +49,9 @@ export function cssLength(value: ClampLength | undefined): string | undefined {
 
 const contentIndependentWidth = /^(?:-?(?:\d|\.\d)|calc\(|clamp\(|max\(|min\()/u;
 const unresolvedStyleReference = /(?:%|var\()/iu;
-const inlineTextWidthProperties = [
+const lineHeight = /^(?:normal|-?(?:\d+|\d*\.\d+)(?:px)?)$/iu;
+const pxLength = /^-?(?:\d+|\d*\.\d+)px$/iu;
+export const inlineTextWidthProperties = [
   "font",
   "font-family",
   "font-feature-settings",
@@ -76,15 +78,20 @@ export function isContentIndependentWidth(value: string): boolean {
   return value !== "" && !hasUnresolvedStyleReference(value) && contentIndependentWidth.test(value);
 }
 
-function hasResolvedInlineStyleValue(value: string): boolean {
-  return value !== "" && !hasUnresolvedStyleReference(value);
+function hasResolvedInlineStyleValue(value: string | undefined): boolean {
+  return value !== undefined && value !== "" && !hasUnresolvedStyleReference(value);
 }
 
 export function hasInlineFontMetrics(style: CSSStyleDeclaration): boolean {
   return (
-    hasResolvedInlineStyleValue(style.font) ||
-    (hasResolvedInlineStyleValue(style.fontFamily) && hasResolvedInlineStyleValue(style.fontSize))
+    hasResolvedInlineStyleValue(style.fontFamily) && pxLength.test((style.fontSize ?? "").trim())
   );
+}
+
+export function hasInlineLineMetrics(style: CSSStyleDeclaration): boolean {
+  const value = style.lineHeight?.trim();
+
+  return hasResolvedInlineStyleValue(value) && lineHeight.test(value);
 }
 
 export function hasUnresolvedInlineTextWidthStyle(style: CSSStyleDeclaration): boolean {
@@ -97,6 +104,12 @@ function pixelLength(value: string | undefined): number | undefined {
   const match = /^([0-9]+(?:\.[0-9]+)?)px$/.exec(value ?? "");
 
   return match ? Number(match[1]) : undefined;
+}
+
+export function numericPx(value: string): number | null {
+  const number = Number.parseFloat(value);
+
+  return Number.isFinite(number) && number > 0 ? number : null;
 }
 
 export function estimateLineCapacity(
@@ -126,13 +139,6 @@ export function simpleLineFitFromStyle(style: CSSStyleDeclaration): SimpleLineFi
   const fontSize = Number.parseFloat(style.fontSize);
   if (!Number.isFinite(lineHeight) || !Number.isFinite(fontSize) || lineHeight <= 0) {
     return undefined;
-  }
-
-  if (fontSize <= lineHeight * 0.8) {
-    return {
-      lineHeight,
-      maxLineBoxHeight: lineHeight,
-    };
   }
 
   return {
@@ -299,20 +305,20 @@ export function hasBorderBoxEntrySignatureChange(
   return false;
 }
 
-export function listenForFontLoads(onLoad: () => void): () => void {
+export function listenForFontLoads(onLoad: (event?: Event) => void): () => void {
   const fontFaceSet = document.fonts;
   if (!fontFaceSet) {
     return () => {};
   }
 
   let active = true;
-  const notify = () => {
+  const notify = (event?: Event) => {
     if (active) {
-      onLoad();
+      onLoad(event);
     }
   };
 
-  void fontFaceSet.ready.then(notify);
+  void fontFaceSet.ready.then(() => notify());
   fontFaceSet.addEventListener("loadingdone", notify);
 
   return () => {
@@ -335,11 +341,24 @@ export type VisibleBoundsCache = {
 
 export type SimpleLineFit = {
   lineHeight: number;
+  lineStep?: number;
   maxLineBoxHeight?: number;
   minOverflowHeight?: number;
   overflowLineLimit?: number;
   verifyOverflow?: boolean;
 };
+
+export type ContentFitSample =
+  | {
+      readonly bounds: DOMRect;
+      readonly rects?: undefined;
+    }
+  | {
+      readonly bounds?: undefined;
+      readonly rects: DOMRectList;
+    };
+
+export type ContentFitObserver = (sample: ContentFitSample) => void;
 
 function sameLineBox(line: LineBox, rect: DOMRect): boolean {
   return Math.abs(line.top - rect.top) <= 0.5 && Math.abs(line.bottom - rect.bottom) <= 0.5;
@@ -348,6 +367,7 @@ function sameLineBox(line: LineBox, rect: DOMRect): boolean {
 function cacheSimpleLineBoxHeight(
   simpleLineFit: SimpleLineFit | undefined,
   rects: DOMRectList,
+  lineLimit?: number,
   lineBoxHeight = 0,
 ): void {
   if (!simpleLineFit) {
@@ -355,20 +375,43 @@ function cacheSimpleLineBoxHeight(
   }
 
   let maxLineBoxHeight = lineBoxHeight;
-  if (maxLineBoxHeight <= 0) {
-    for (let index = 0; index < rects.length; index += 1) {
-      maxLineBoxHeight = Math.max(maxLineBoxHeight, rects[index]?.height ?? 0);
+  const lines: LineBox[] = [];
+  for (let index = 0; index < rects.length; index += 1) {
+    const rect = rects[index];
+    if (!rect || rect.height <= 0) {
+      continue;
+    }
+
+    maxLineBoxHeight = Math.max(maxLineBoxHeight, rect.height);
+    if (!lines.some((line) => sameLineBox(line, rect))) {
+      lines.push({
+        bottom: rect.bottom,
+        top: rect.top,
+      });
     }
   }
 
-  if (maxLineBoxHeight > 0) {
-    const previousHeight = simpleLineFit.maxLineBoxHeight ?? 0;
-    const nextHeight = Math.max(previousHeight, maxLineBoxHeight);
-    if (nextHeight > previousHeight) {
+  let maxLineStep = 0;
+  for (let index = 1; index < lines.length; index += 1) {
+    maxLineStep = Math.max(maxLineStep, lines[index]!.top - lines[index - 1]!.top);
+  }
+
+  const previousHeight = simpleLineFit.maxLineBoxHeight ?? 0;
+  const previousStep = simpleLineFit.lineStep ?? simpleLineFit.lineHeight;
+  const nextHeight = Math.max(previousHeight, maxLineBoxHeight);
+  const nextStep = Math.max(previousStep, maxLineStep);
+
+  if (nextHeight > previousHeight || nextStep > previousStep) {
+    if (nextHeight > 0) {
       simpleLineFit.maxLineBoxHeight = nextHeight;
-      delete simpleLineFit.minOverflowHeight;
-      delete simpleLineFit.overflowLineLimit;
     }
+
+    if (nextStep > simpleLineFit.lineHeight) {
+      simpleLineFit.lineStep = nextStep;
+    }
+
+    delete simpleLineFit.minOverflowHeight;
+    delete simpleLineFit.overflowLineLimit;
   }
 }
 
@@ -416,6 +459,7 @@ export function fitsContent(
   allowRectCountFit = false,
   visibleBoundsCache?: VisibleBoundsCache,
   simpleLineFit?: SimpleLineFit,
+  onContentFit?: ContentFitObserver,
 ): boolean {
   if (lineLimit === undefined && maxHeight === undefined) {
     // No visual limit means every candidate fits; avoid layout reads entirely.
@@ -426,6 +470,7 @@ export function fitsContent(
     const height = rootElement.clientHeight;
     const [visibleTop, visibleBottom] = visibleBoundsFor(rootElement, height, visibleBoundsCache);
     const rect = contentElement.getBoundingClientRect();
+    onContentFit?.({ bounds: rect });
 
     return rect.top >= visibleTop - 0.5 && rect.bottom <= visibleBottom + 0.5;
   }
@@ -438,12 +483,13 @@ export function fitsContent(
     simpleLineFit?.maxLineBoxHeight !== undefined &&
     simpleLineFit.lineHeight > 0
   ) {
-    const height = contentElement.getBoundingClientRect().height;
+    const rect = contentElement.getBoundingClientRect();
+    onContentFit?.({ bounds: rect });
+    const { height } = rect;
     heightVerifyHeight = height;
-    const fitLimit =
-      simpleLineFit.maxLineBoxHeight + (lineLimit - 1) * simpleLineFit.lineHeight + 0.5;
-    const heightFits = height <= fitLimit;
-    if (heightFits) {
+    const lineStep = simpleLineFit.lineStep ?? simpleLineFit.lineHeight;
+    const fitLimit = simpleLineFit.maxLineBoxHeight + (lineLimit - 1) * lineStep + 0.5;
+    if (height <= fitLimit) {
       return true;
     }
 
@@ -451,21 +497,21 @@ export function fitsContent(
       return false;
     }
 
-    const clearOverflowLimit =
-      simpleLineFit.maxLineBoxHeight + lineLimit * simpleLineFit.lineHeight + 0.5;
+    const clearOverflowLimit = simpleLineFit.maxLineBoxHeight + lineLimit * lineStep + 0.5;
     if (!simpleLineFit.verifyOverflow || height > clearOverflowLimit) {
       return false;
     }
   }
 
   const rects = contentElement.getClientRects();
+  onContentFit?.({ rects });
   if (
     allowRectCountFit &&
     maxHeight === undefined &&
     lineLimit !== undefined &&
     rects.length <= lineLimit
   ) {
-    cacheSimpleLineBoxHeight(simpleLineFit, rects);
+    cacheSimpleLineBoxHeight(simpleLineFit, rects, lineLimit);
     return true;
   }
 
@@ -502,7 +548,7 @@ export function fitsContent(
           bottom: rect.bottom,
           top: rect.top,
         });
-        cacheSimpleLineBoxHeight(simpleLineFit, rects, rect.bottom - rect.top);
+        cacheSimpleLineBoxHeight(simpleLineFit, rects, lineLimit, rect.bottom - rect.top);
 
         if (lines.length > lineLimit) {
           cacheSimpleOverflowHeight(simpleLineFit, lineLimit, heightVerifyHeight);

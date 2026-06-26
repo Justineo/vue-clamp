@@ -20,9 +20,9 @@ import { multilineSlotStyle } from "../multiline-styles.ts";
 import { clampRich, patchRich, prepareRich } from "../rich.ts";
 import {
   estimateColdSearchMaxProbeCount,
-  estimateWarmSearchProbeCount,
   richWarmExpansionLimit,
   warmSearchLocalCoverage,
+  warmTargetBeatsCold,
 } from "../search.ts";
 import { richProbeStyle } from "./styles.ts";
 
@@ -71,8 +71,8 @@ type CachedResult = RichClampResult & {
   readonly state: RichState;
 };
 
-// Bootstrap locality before a measured word-rank slope exists. This is a pixel
-// window, separate from the rank-space expansion budget used inside searches.
+// Bootstrap locality before a measured word-rank slope exists. This is a
+// conservative fallback, not a proof that the pixel window is globally optimal.
 const warmBootstrapWidthDelta = 32;
 
 defineOptions({
@@ -179,6 +179,7 @@ const {
     const result =
       cachedResult ??
       clampRich({
+        checkFullFitFirst: probe.width === measuredWidth,
         ellipsis,
         from: probeDomState,
         hint: searchHint,
@@ -465,16 +466,12 @@ function canUseSearchHint(
     return true;
   }
 
-  if (Math.abs(width - stateWidth) <= warmBootstrapWidthDelta) {
-    return true;
-  }
-
   const hint = rankHint;
   if (canUseSearchRank(hint)) {
-    return warmSearchCanBeatCold(hint, width, lineLimit);
+    return warmBeatsCold(hint, width, lineLimit);
   }
 
-  return false;
+  return Math.abs(width - stateWidth) <= warmBootstrapWidthDelta;
 }
 
 function canUseObservedRankSlope(hint: RankHint | null): hint is RankHint {
@@ -489,30 +486,24 @@ function clampRank(rank: number, rankCount: number): number {
   return Math.max(0, Math.min(rankCount - 1, rank));
 }
 
-function warmSearchCanBeatCold(
-  hint: RankHint,
-  width: number,
-  lineLimit: number | undefined,
-): boolean {
-  const searchCount = hint.rankCount;
-  const start = clampRank(hint.rank, searchCount);
+function warmBeatsCold(hint: RankHint, width: number, lineLimit: number | undefined): boolean {
+  const count = hint.rankCount;
+  const start = clampRank(hint.rank, count);
   const target = estimatedTargetRank(hint, width);
-  const coldProbes = estimateColdSearchMaxProbeCount(searchCount);
-  const warmProbes = estimateWarmSearchProbeCount(
-    searchCount,
-    start,
-    target,
-    richWarmExpansionLimit,
-  );
+  const coldProbes = estimateColdSearchMaxProbeCount(count);
   const rankMove = Math.abs(target - start);
 
-  return (
-    warmProbes < coldProbes ||
-    (warmRiskBudgetApplies(rankMove, lineLimit) && warmProbes <= coldProbes + 1)
-  );
+  return warmTargetBeatsCold({
+    allowPatchTieBreak: warmPatchTieBreakApplies(rankMove, lineLimit),
+    coldCost: coldProbes,
+    count,
+    expansionLimit: richWarmExpansionLimit,
+    hint: start,
+    target,
+  });
 }
 
-function warmRiskBudgetApplies(rankMove: number, lineLimit: number | undefined): boolean {
+function warmPatchTieBreakApplies(rankMove: number, lineLimit: number | undefined): boolean {
   if (rankMove <= warmSearchLocalCoverage(richWarmExpansionLimit)) {
     return true;
   }
@@ -604,16 +595,12 @@ function canSkipFullFit(width: number, sameAffix: boolean): boolean {
     return false;
   }
 
-  if (width <= stateWidth + warmBootstrapWidthDelta) {
-    return true;
-  }
-
   const hint = rankHint;
-  if (!canUseObservedRankSlope(hint)) {
-    return false;
+  if (canUseObservedRankSlope(hint)) {
+    return estimatedTargetRank(hint, width) < hint.rankCount - 1;
   }
 
-  return estimatedTargetRank(hint, width) < hint.rankCount - 1;
+  return width <= stateWidth + warmBootstrapWidthDelta;
 }
 
 function patchVisible(prepared: PreparedRich, state: RichState): void {

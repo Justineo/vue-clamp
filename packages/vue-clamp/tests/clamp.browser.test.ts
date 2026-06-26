@@ -1,7 +1,15 @@
 import { afterEach, describe, expect, it } from "vite-plus/test";
 import { Comment, createApp, defineComponent, h, nextTick, ref } from "vue";
 import { InlineClamp, LineClamp, RichLineClamp } from "../src/index.ts";
-import { clampRich, patchRich, prepareRich } from "../src/rich.ts";
+import { clampRich, patchRich, prepareRich, rankRichState, richStateForRank } from "../src/rich.ts";
+import { estimateColdSearchMaxProbeCount, richWarmExpansionLimit } from "../src/search.ts";
+import {
+  estimateTargetRankInterval,
+  estimateTargetRankLocalInterval,
+  estimateWarmSearchWidthRoom,
+  warmSearchAdvanceWindow,
+  warmSearchDecision,
+} from "./search-model.ts";
 import {
   accessibleTextElement,
   afterElement,
@@ -21,7 +29,8 @@ import {
 } from "./browser.ts";
 
 import type { LineClampExposed, RichLineClampExposed } from "../src/index.ts";
-import type { RichClampResult, RichState } from "../src/rich.ts";
+import type { PreparedRich, RichClampResult, RichStateRank, RichState } from "../src/rich.ts";
+import type { RankAdvance, TargetRankInterval, WarmColdDecision } from "./search-model.ts";
 
 const DEMO_TEXT =
   "Vue (pronounced /vjuː/, like view) is a progressive framework for building user interfaces. Unlike other monolithic frameworks, Vue is designed from the ground up to be incrementally adoptable. The core library is focused on the view layer only, and is easy to pick up and integrate with other libraries or existing projects. On the other hand, Vue is also perfectly capable of powering sophisticated Single-Page Applications when used in combination with modern tooling and supporting libraries.";
@@ -43,14 +52,18 @@ type RichClampFixture = {
   clamp: () => RichClampResult;
   cleanup: () => void;
   content: HTMLElement;
+  prepared: PreparedRich;
   reclamp: (previous: RichClampResult) => RichClampResult;
   root: HTMLElement;
   styles: HTMLStyleElement[];
 };
 
 type RichClampFixtureOptions = {
+  affixWidths?: readonly [number, number];
   className?: string;
   html?: string;
+  lineLimit?: number | undefined;
+  maxHeight?: string;
   reuseSimpleLineFit?: boolean;
   rootStyle?: readonly string[];
   styles?: readonly string[];
@@ -85,6 +98,57 @@ function lineContentElement(root: HTMLElement): HTMLElement {
   }
 
   return content;
+}
+
+async function collectFontEventMutations(
+  root: HTMLElement,
+  event: Event,
+): Promise<MutationRecord[]> {
+  const records: MutationRecord[] = [];
+  const observer = new MutationObserver((items) => {
+    records.push(...items);
+  });
+
+  observer.observe(root, {
+    attributes: true,
+    characterData: true,
+    childList: true,
+    subtree: true,
+  });
+  observer.takeRecords();
+  document.fonts?.dispatchEvent(event);
+  await settle(5);
+  records.push(...observer.takeRecords());
+  observer.disconnect();
+
+  return records;
+}
+
+function genericFontEvent(): Event {
+  return new Event("loadingdone");
+}
+
+async function fontFaceEvent(family: string): Promise<Event> {
+  const face = new FontFace(family, "local(Arial)");
+  await face.load();
+
+  return new FontFaceSetLoadEvent("loadingdone", {
+    fontfaces: [face],
+  });
+}
+
+function unloadedUsedFontFaceEvent(): Event {
+  return new FontFaceSetLoadEvent("loadingdone", {
+    fontfaces: [new FontFace("Georgia", "local(Arial)")],
+  });
+}
+
+async function unusedFontFaceEvent(): Promise<Event> {
+  return fontFaceEvent("UnusedBenchFont");
+}
+
+async function usedFontFaceEvent(): Promise<Event> {
+  return fontFaceEvent("Georgia");
 }
 
 function inlineBodyElement(root: HTMLElement): HTMLElement {
@@ -137,6 +201,32 @@ function countClientRectsDuring(element: Element, run: () => void): number {
   return calls;
 }
 
+function countBoundingRectsDuring(run: () => void): number {
+  const descriptor = Object.getOwnPropertyDescriptor(Element.prototype, "getBoundingClientRect");
+  const original = descriptor?.value as ((this: Element) => DOMRect) | undefined;
+  if (!descriptor || !original) {
+    throw new Error("Expected Element.prototype.getBoundingClientRect to be patchable.");
+  }
+
+  let calls = 0;
+  Object.defineProperty(Element.prototype, "getBoundingClientRect", {
+    ...descriptor,
+    value(this: Element): DOMRect {
+      calls += 1;
+
+      return original.call(this);
+    },
+  });
+
+  try {
+    run();
+  } finally {
+    Object.defineProperty(Element.prototype, "getBoundingClientRect", descriptor);
+  }
+
+  return calls;
+}
+
 function countComputedStylesDuring(run: () => void): number {
   const original = window.getComputedStyle;
   let calls = 0;
@@ -152,6 +242,326 @@ function countComputedStylesDuring(run: () => void): number {
   }
 
   return calls;
+}
+
+type MutationSummary = {
+  readonly addedNodes: number;
+  readonly characterData: number;
+  readonly childList: number;
+  readonly records: number;
+  readonly removedNodes: number;
+};
+
+type RichProbeCostSample = {
+  readonly boundingRectReads: number;
+  readonly cloneCalls: number;
+  readonly clientRectReads: number;
+  readonly clientRectEntries: number;
+  readonly imageCloneCalls: number;
+  readonly mutations: MutationSummary;
+  readonly styleReads: number;
+};
+
+type RichProbeCostTotal = RichProbeCostSample & {
+  readonly layoutReads: number;
+  readonly probes: number;
+};
+
+type RichPatchClass =
+  | "clamped-to-full"
+  | "full-to-clamped"
+  | "same-state"
+  | "same-text-cut"
+  | "whole-prefix";
+
+type RichPatchCostVector = {
+  readonly addedNodes: number;
+  readonly clientRectEntries: number;
+  readonly cloneCalls: number;
+  readonly layoutReads: number;
+  readonly probes: number;
+  readonly removedNodes: number;
+  readonly styleReads: number;
+};
+
+type RichProbePatchKind = "none" | "structure" | "text";
+
+function samePath(left: readonly number[], right: readonly number[]): boolean {
+  return left.length === right.length && left.every((item, index) => item === right[index]);
+}
+
+function richPatchClass(from: RichState, to: RichState): RichPatchClass {
+  if (from.kind === "full") {
+    return to.kind === "full" ? "same-state" : "full-to-clamped";
+  }
+
+  if (to.kind === "full") {
+    return "clamped-to-full";
+  }
+
+  if (from.point.offset === to.point.offset && samePath(from.point.path, to.point.path)) {
+    return "same-state";
+  }
+
+  return samePath(from.point.path, to.point.path) ? "same-text-cut" : "whole-prefix";
+}
+
+function richPatchMutationMatchesClass(
+  mutation: MutationSummary,
+  patchClass: RichPatchClass,
+): boolean {
+  if (patchClass === "same-state") {
+    return mutation.records === 0;
+  }
+
+  if (patchClass === "same-text-cut") {
+    return (
+      mutation.characterData > 0 &&
+      mutation.childList === 0 &&
+      mutation.addedNodes === 0 &&
+      mutation.removedNodes === 0
+    );
+  }
+
+  if (mutation.childList <= 0) {
+    return false;
+  }
+
+  if (patchClass === "full-to-clamped") {
+    return mutation.removedNodes > 0;
+  }
+
+  if (patchClass === "clamped-to-full") {
+    return mutation.addedNodes > 0;
+  }
+
+  return mutation.addedNodes + mutation.removedNodes > 0;
+}
+
+function richWarmPatchVectorDominates(
+  warm: RichPatchCostVector,
+  cold: RichPatchCostVector,
+): boolean {
+  return (
+    warm.probes <= cold.probes &&
+    warm.layoutReads <= cold.layoutReads &&
+    warm.clientRectEntries <= cold.clientRectEntries &&
+    warm.styleReads <= cold.styleReads &&
+    warm.removedNodes <= cold.removedNodes &&
+    warm.cloneCalls < cold.cloneCalls &&
+    warm.addedNodes < cold.addedNodes
+  );
+}
+
+function emptyMutationSummary(): MutationSummary {
+  return {
+    addedNodes: 0,
+    characterData: 0,
+    childList: 0,
+    records: 0,
+    removedNodes: 0,
+  };
+}
+
+function summarizeMutations(records: readonly MutationRecord[]): MutationSummary {
+  return records.reduce<MutationSummary>(
+    (summary, record) => ({
+      addedNodes: summary.addedNodes + record.addedNodes.length,
+      characterData: summary.characterData + (record.type === "characterData" ? 1 : 0),
+      childList: summary.childList + (record.type === "childList" ? 1 : 0),
+      records: summary.records + 1,
+      removedNodes: summary.removedNodes + record.removedNodes.length,
+    }),
+    emptyMutationSummary(),
+  );
+}
+
+function addMutationSummary(left: MutationSummary, right: MutationSummary): MutationSummary {
+  return {
+    addedNodes: left.addedNodes + right.addedNodes,
+    characterData: left.characterData + right.characterData,
+    childList: left.childList + right.childList,
+    records: left.records + right.records,
+    removedNodes: left.removedNodes + right.removedNodes,
+  };
+}
+
+function sumRichProbeCosts(samples: readonly RichProbeCostSample[]): RichProbeCostTotal {
+  return samples.reduce<RichProbeCostTotal>(
+    (total, sample) => ({
+      boundingRectReads: total.boundingRectReads + sample.boundingRectReads,
+      cloneCalls: total.cloneCalls + sample.cloneCalls,
+      clientRectEntries: total.clientRectEntries + sample.clientRectEntries,
+      clientRectReads: total.clientRectReads + sample.clientRectReads,
+      imageCloneCalls: total.imageCloneCalls + sample.imageCloneCalls,
+      layoutReads: total.layoutReads + sample.boundingRectReads + sample.clientRectReads,
+      mutations: addMutationSummary(total.mutations, sample.mutations),
+      probes: total.probes + 1,
+      styleReads: total.styleReads + sample.styleReads,
+    }),
+    {
+      boundingRectReads: 0,
+      cloneCalls: 0,
+      clientRectEntries: 0,
+      clientRectReads: 0,
+      imageCloneCalls: 0,
+      layoutReads: 0,
+      mutations: emptyMutationSummary(),
+      probes: 0,
+      styleReads: 0,
+    },
+  );
+}
+
+function richProbePatchKind(sample: RichProbeCostSample): RichProbePatchKind {
+  if (sample.mutations.childList > 0) {
+    return "structure";
+  }
+
+  return sample.mutations.characterData > 0 ? "text" : "none";
+}
+
+function expectObservedRichPatchCostClass(
+  summary: MutationSummary,
+  costClass: RichPatchClass,
+): void {
+  expect(richPatchMutationMatchesClass(summary, costClass)).toBe(true);
+}
+
+async function observeMutationsDuring(target: Node, run: () => void): Promise<MutationSummary> {
+  const records: MutationRecord[] = [];
+  const observer = new MutationObserver((nextRecords) => {
+    records.push(...nextRecords);
+  });
+
+  observer.observe(target, {
+    characterData: true,
+    childList: true,
+    subtree: true,
+  });
+
+  run();
+  await Promise.resolve();
+  observer.disconnect();
+
+  return summarizeMutations(records);
+}
+
+async function collectRichProbeCostsDuring(
+  content: HTMLElement,
+  body: HTMLElement,
+  run: () => void,
+): Promise<RichProbeCostSample[]> {
+  const boundingRectDescriptor = Object.getOwnPropertyDescriptor(
+    Element.prototype,
+    "getBoundingClientRect",
+  );
+  const originalGetBoundingClientRect = boundingRectDescriptor?.value as
+    | ((this: Element) => DOMRect)
+    | undefined;
+  const rectsDescriptor = Object.getOwnPropertyDescriptor(Element.prototype, "getClientRects");
+  const originalGetClientRects = rectsDescriptor?.value as
+    | ((this: Element) => DOMRectList)
+    | undefined;
+  const cloneDescriptor = Object.getOwnPropertyDescriptor(Node.prototype, "cloneNode");
+  const originalCloneNode = cloneDescriptor?.value as
+    | ((this: Node, deep?: boolean) => Node)
+    | undefined;
+  if (
+    !boundingRectDescriptor ||
+    !originalGetBoundingClientRect ||
+    !rectsDescriptor ||
+    !originalGetClientRects ||
+    !cloneDescriptor ||
+    !originalCloneNode
+  ) {
+    throw new Error("Expected DOM probe methods to be patchable.");
+  }
+
+  const originalGetComputedStyle = window.getComputedStyle;
+  const observer = new MutationObserver(() => {});
+  const samples: RichProbeCostSample[] = [];
+  let cloneCalls = 0;
+  let imageCloneCalls = 0;
+  let styleReads = 0;
+
+  observer.observe(body, {
+    characterData: true,
+    childList: true,
+    subtree: true,
+  });
+
+  function pushSample(
+    boundingRectReads: number,
+    clientRectReads: number,
+    clientRectEntries: number,
+  ): void {
+    samples.push({
+      boundingRectReads,
+      cloneCalls,
+      clientRectEntries,
+      clientRectReads,
+      imageCloneCalls,
+      mutations: summarizeMutations(observer.takeRecords()),
+      styleReads,
+    });
+    cloneCalls = 0;
+    imageCloneCalls = 0;
+    styleReads = 0;
+  }
+
+  Object.defineProperty(Element.prototype, "getBoundingClientRect", {
+    ...boundingRectDescriptor,
+    value(this: Element): DOMRect {
+      const result = originalGetBoundingClientRect.call(this);
+
+      if (this === content) {
+        pushSample(1, 0, 0);
+      }
+
+      return result;
+    },
+  });
+  Object.defineProperty(Element.prototype, "getClientRects", {
+    ...rectsDescriptor,
+    value(this: Element): DOMRectList {
+      const result = originalGetClientRects.call(this);
+
+      if (this === content) {
+        pushSample(0, 1, result.length);
+      }
+
+      return result;
+    },
+  });
+  Object.defineProperty(Node.prototype, "cloneNode", {
+    ...cloneDescriptor,
+    value(this: Node, deep?: boolean): Node {
+      cloneCalls += 1;
+      if (this instanceof HTMLImageElement) {
+        imageCloneCalls += 1;
+      }
+
+      return originalCloneNode.call(this, deep);
+    },
+  });
+  window.getComputedStyle = ((...args: Parameters<typeof window.getComputedStyle>) => {
+    styleReads += 1;
+    return originalGetComputedStyle(...args);
+  }) as typeof window.getComputedStyle;
+
+  try {
+    run();
+    await Promise.resolve();
+  } finally {
+    observer.disconnect();
+    Object.defineProperty(Element.prototype, "getBoundingClientRect", boundingRectDescriptor);
+    Object.defineProperty(Element.prototype, "getClientRects", rectsDescriptor);
+    Object.defineProperty(Node.prototype, "cloneNode", cloneDescriptor);
+    window.getComputedStyle = originalGetComputedStyle;
+  }
+
+  return samples;
 }
 
 function countStyleSheetRuleReadsDuring(run: () => void): number {
@@ -208,9 +618,19 @@ function withUnreadableStyleSheetRules<T>(sheet: CSSStyleSheet, run: () => T): T
   }
 }
 
+function richFixtureLineLimit(options: {
+  readonly lineLimit?: number | undefined;
+  readonly maxHeight?: string | undefined;
+}): number | undefined {
+  return options.lineLimit ?? (options.maxHeight === undefined ? 1 : undefined);
+}
+
 function createRichClampFixture({
+  affixWidths,
   className,
   html = RICH_DYNAMIC_TOKEN_HTML,
+  lineLimit,
+  maxHeight,
   reuseSimpleLineFit = false,
   rootStyle = [],
   styles = [],
@@ -221,6 +641,7 @@ function createRichClampFixture({
     throw new Error("Expected rich preparation to be available.");
   }
   const preparedRich = prepared;
+  const clampLineLimit = richFixtureLineLimit({ lineLimit, maxHeight });
 
   const styleElements = styles.map((text) => {
     const style = document.createElement("style");
@@ -241,12 +662,23 @@ function createRichClampFixture({
     "line-height:20px",
     "white-space:normal",
     "overflow-wrap:break-word",
+    ...(maxHeight === undefined ? [] : [`max-height:${maxHeight}`, "overflow:hidden"]),
     ...rootStyle,
   ].join(";");
   const content = document.createElement("span");
   const body = document.createElement("span");
   body.innerHTML = html;
+  if (affixWidths) {
+    const before = document.createElement("span");
+    before.style.cssText = `display:inline-block;width:${affixWidths[0]}px;height:16px;vertical-align:baseline`;
+    content.append(before);
+  }
   content.append(body);
+  if (affixWidths) {
+    const after = document.createElement("span");
+    after.style.cssText = `display:inline-block;width:${affixWidths[1]}px;height:16px;vertical-align:baseline`;
+    content.append(after);
+  }
   root.append(content);
   container.append(root);
 
@@ -258,8 +690,8 @@ function createRichClampFixture({
       ellipsis: "…",
       from,
       hint: from,
-      lineLimit: 1,
-      maxHeight: undefined,
+      lineLimit: clampLineLimit,
+      maxHeight,
       prepared: preparedRich,
       probe: {
         body,
@@ -282,12 +714,608 @@ function createRichClampFixture({
       container.remove();
     },
     content,
+    prepared: preparedRich,
     reclamp(previous): RichClampResult {
       return clamp(previous.state, previous.searchIndex ?? null);
     },
     root,
     styles: styleElements,
   };
+}
+
+async function richRankForLayout(options: RichClampFixtureOptions): Promise<number> {
+  const fixture = createRichClampFixture(options);
+
+  try {
+    await settle(1);
+    const result = fixture.clamp();
+    if (result.rank === undefined) {
+      throw new Error("Expected rich clamp result to publish a rank.");
+    }
+
+    return result.rank;
+  } finally {
+    fixture.cleanup();
+  }
+}
+
+type RichMixedRankSample = RichStateRank & {
+  readonly publishedRank: number | undefined;
+};
+
+type RichMixedRankIntervalInput = Omit<RichClampFixtureOptions, "width"> & {
+  readonly lineCapacity: number;
+  readonly nextWidth: number;
+  readonly packingSlack?: number;
+  readonly previousWidth: number;
+  readonly text: string;
+};
+
+async function richMixedRankForLayout(
+  options: RichClampFixtureOptions,
+): Promise<RichMixedRankSample> {
+  const fixture = createRichClampFixture(options);
+
+  try {
+    await settle(1);
+    const result = fixture.clamp();
+    if (!result.searchIndex || !result.state) {
+      throw new Error("Expected rich clamp result to carry searchable state.");
+    }
+
+    const rank = rankRichState(result.searchIndex, result.state);
+    if (!rank) {
+      throw new Error("Expected fallback-aware rich rank to cover the result state.");
+    }
+
+    return {
+      ...rank,
+      publishedRank: result.rank,
+    };
+  } finally {
+    fixture.cleanup();
+  }
+}
+
+function graphemeParts(text: string): string[] {
+  return [...new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(text)].map(
+    (part) => part.segment,
+  );
+}
+
+function createTextMeasureProbe(rootStyle: readonly string[]): HTMLSpanElement {
+  const probe = document.createElement("span");
+  probe.style.cssText = [
+    "position:absolute",
+    "visibility:hidden",
+    "white-space:nowrap",
+    "font:16px Georgia, serif",
+    "line-height:20px",
+    ...rootStyle,
+  ].join(";");
+  document.body.append(probe);
+
+  return probe;
+}
+
+function measureTextWidth(text: string, rootStyle: readonly string[] = []): number {
+  const probe = createTextMeasureProbe(rootStyle);
+
+  try {
+    probe.textContent = text;
+    return probe.getBoundingClientRect().width;
+  } finally {
+    probe.remove();
+  }
+}
+
+function measureAdvances(text: string, rootStyle: readonly string[] = []): number[] {
+  const probe = createTextMeasureProbe(rootStyle);
+
+  try {
+    const advances: number[] = [];
+    const parts = graphemeParts(text);
+    probe.textContent = "…";
+    let previousWidth = probe.getBoundingClientRect().width;
+    let prefix = "";
+
+    for (const part of parts) {
+      prefix += part;
+      probe.textContent = `${prefix}…`;
+      const width = probe.getBoundingClientRect().width;
+      const advance = width - previousWidth;
+      if (advance > 0) {
+        advances.push(advance);
+      }
+      previousWidth = width;
+    }
+
+    return advances;
+  } finally {
+    probe.remove();
+  }
+}
+
+type ProbeLineMetrics = {
+  readonly lineCount: number;
+  readonly maxWidth: number | undefined;
+  readonly slack: number | undefined;
+  readonly usedWidth: number | undefined;
+};
+
+type RichProbeLayout = {
+  readonly boundsWidth: number | undefined;
+  readonly clientRectReads: number;
+  readonly fitProbeCount: number;
+  readonly lineCount: number;
+  readonly lineSlack: number | undefined;
+  readonly lineUsedWidth: number | undefined;
+  readonly lineWidth: number | undefined;
+  readonly rank: RichStateRank;
+  readonly rectReads: number;
+};
+
+type RichSearchIndex = NonNullable<RichClampResult["searchIndex"]>;
+
+type RichLayoutSample = {
+  readonly bounds: DOMRect;
+  readonly rects: readonly DOMRect[];
+  readonly state: RichState;
+};
+
+function measureRichStateLayout(fixture: RichClampFixture, state: RichState): RichLayoutSample {
+  patchRich(fixture.prepared, fixture.body, null, state, "…");
+
+  return {
+    bounds: fixture.content.getBoundingClientRect(),
+    rects: Array.from(fixture.content.getClientRects()),
+    state,
+  };
+}
+
+function measureRichRankLayout(
+  fixture: RichClampFixture,
+  searchIndex: RichSearchIndex,
+  rank: number,
+): RichLayoutSample {
+  const state = richStateForRank(searchIndex, rank);
+  if (!state) {
+    throw new Error("Expected rank to resolve to a rich state.");
+  }
+
+  return measureRichStateLayout(fixture, state);
+}
+
+function windowRanks(indexes: readonly number[]): number[] {
+  const ranks = new Set<number>();
+
+  for (const index of indexes) {
+    ranks.add(index);
+    ranks.add(index + 1);
+  }
+
+  return [...ranks];
+}
+
+function advancesFromWidths(widthByRank: ReadonlyMap<number, number>): number[] {
+  const advances: number[] = [];
+
+  for (const [rank, width] of widthByRank) {
+    const nextWidth = widthByRank.get(rank + 1);
+    if (nextWidth !== undefined) {
+      advances[rank] = nextWidth - width;
+    }
+  }
+
+  return advances;
+}
+
+function sameProbeLine(
+  line: { readonly bottom: number; readonly top: number },
+  rect: DOMRect,
+): boolean {
+  return Math.abs(line.top - rect.top) <= 0.5 && Math.abs(line.bottom - rect.bottom) <= 0.5;
+}
+
+function lineMetricsForRects(
+  rootWidth: number,
+  rects: readonly DOMRect[],
+  lineLimit?: number,
+): ProbeLineMetrics {
+  const lines: Array<{ bottom: number; left: number; right: number; top: number }> = [];
+
+  for (const rect of rects) {
+    if (rect.height <= 0) {
+      continue;
+    }
+
+    const line = lines.find((item) => sameProbeLine(item, rect));
+    if (line) {
+      line.left = Math.min(line.left, rect.left);
+      line.right = Math.max(line.right, rect.right);
+    } else {
+      lines.push({
+        bottom: rect.bottom,
+        left: rect.left,
+        right: rect.right,
+        top: rect.top,
+      });
+    }
+  }
+
+  if (lines.length === 0) {
+    return {
+      lineCount: 0,
+      maxWidth: undefined,
+      slack: undefined,
+      usedWidth: undefined,
+    };
+  }
+
+  const widths = lines.map((line) => Math.max(0, line.right - line.left));
+  const usedWidth = widths.reduce((total, width) => total + width, 0);
+
+  const unusedLineCount =
+    lineLimit === undefined || lineLimit < lines.length ? 0 : lineLimit - lines.length;
+
+  return {
+    lineCount: lines.length,
+    maxWidth: Math.max(...widths),
+    slack:
+      widths.reduce((total, width) => total + Math.max(0, rootWidth - width), 0) +
+      unusedLineCount * rootWidth,
+    usedWidth,
+  };
+}
+
+async function collectRichProbeLayout({
+  lineLimit,
+  maxHeight,
+  width = 120,
+  ...options
+}: RichClampFixtureOptions = {}): Promise<RichProbeLayout> {
+  const fixture = createRichClampFixture({
+    ...options,
+    lineLimit,
+    ...(maxHeight === undefined ? {} : { maxHeight }),
+    width,
+  });
+  const fitLineLimit = richFixtureLineLimit({ lineLimit, maxHeight });
+  let result: RichClampResult | undefined;
+
+  try {
+    const samples = await collectRichProbeCostsDuring(fixture.content, fixture.body, () => {
+      result = clampRich({
+        ellipsis: "…",
+        from: null,
+        hint: null,
+        lineLimit: fitLineLimit,
+        maxHeight,
+        prepared: fixture.prepared,
+        probe: {
+          body: fixture.body,
+          content: fixture.content,
+          root: fixture.root,
+          width,
+        },
+      });
+    });
+
+    if (!result?.searchIndex || !result.state) {
+      throw new Error("Expected one-line rich clamp to publish searchable state.");
+    }
+
+    const rank = rankRichState(result.searchIndex, result.state);
+    if (!rank) {
+      throw new Error("Expected one-line rich clamp to publish a mixed rank.");
+    }
+
+    const rectReads = samples.reduce((total, sample) => total + sample.boundingRectReads, 0);
+    const clientRectReads = samples.reduce((total, sample) => total + sample.clientRectReads, 0);
+    const layout = measureRichStateLayout(fixture, result.state);
+    const lineMetrics =
+      clientRectReads > 0
+        ? lineMetricsForRects(
+            width,
+            layout.rects,
+            maxHeight === undefined ? fitLineLimit : undefined,
+          )
+        : null;
+
+    return {
+      boundsWidth: rectReads > 0 ? layout.bounds.width : undefined,
+      clientRectReads,
+      fitProbeCount: samples.length,
+      lineCount: lineMetrics?.lineCount ?? 0,
+      lineSlack: lineMetrics?.slack,
+      lineUsedWidth: lineMetrics?.usedWidth,
+      lineWidth: lineMetrics?.maxWidth,
+      rank,
+      rectReads,
+    };
+  } finally {
+    fixture.cleanup();
+  }
+}
+
+function advanceRange(advances: readonly number[]): RankAdvance {
+  let max = 0;
+  let min = Number.POSITIVE_INFINITY;
+
+  for (const advance of advances) {
+    if (advance > 0) {
+      max = Math.max(max, advance);
+      min = Math.min(min, advance);
+    }
+  }
+
+  if (!Number.isFinite(min) || min <= 0 || max <= 0) {
+    throw new Error("Expected positive rich candidate advances.");
+  }
+
+  return { max, min };
+}
+
+async function expectRichMixedRankInterval({
+  lineCapacity,
+  nextWidth,
+  packingSlack,
+  previousWidth,
+  rootStyle = [],
+  text,
+  ...fixtureOptions
+}: RichMixedRankIntervalInput): Promise<{
+  readonly advance: RankAdvance;
+  readonly advances: readonly number[];
+  readonly interval: TargetRankInterval;
+  readonly localInterval: TargetRankInterval;
+  readonly next: RichMixedRankSample;
+  readonly previous: RichMixedRankSample;
+}> {
+  const previous = await richMixedRankForLayout({
+    ...fixtureOptions,
+    rootStyle,
+    width: previousWidth,
+  });
+  const next = await richMixedRankForLayout({
+    ...fixtureOptions,
+    rootStyle,
+    width: nextWidth,
+  });
+  const advances = measureAdvances(text, rootStyle);
+  const advance = advanceRange(advances);
+  const interval = estimateTargetRankInterval({
+    advance,
+    lineCapacity,
+    nextWidth,
+    previousRank: previous.rank,
+    previousWidth,
+    rankCount: previous.rankCount,
+  });
+  const localInterval = estimateTargetRankLocalInterval({
+    advance,
+    advances,
+    lineCapacity,
+    nextWidth,
+    ...(packingSlack === undefined ? {} : { packingSlack }),
+    previousRank: previous.rank,
+    previousWidth,
+    rankCount: previous.rankCount,
+  });
+
+  expect(next.rank).toBeGreaterThanOrEqual(interval.min);
+  expect(next.rank).toBeLessThanOrEqual(interval.max);
+  expect(next.rank).toBeGreaterThanOrEqual(localInterval.min);
+  expect(next.rank).toBeLessThanOrEqual(localInterval.max);
+
+  return { advance, advances, interval, localInterval, next, previous };
+}
+
+type RichCostComparisonOptions = Omit<RichClampFixtureOptions, "width"> & {
+  readonly nextWidth: number;
+  readonly previousWidth: number;
+};
+
+type RichCostComparison = {
+  readonly cold: RichProbeCostTotal;
+  readonly coldResult: RichClampResult | undefined;
+  readonly decision: WarmColdDecision | null;
+  readonly decisionReason: RichWarmDecisionReason | null;
+  readonly mixedDecision: WarmColdDecision | null;
+  readonly mixedDecisionReason: RichWarmDecisionReason | null;
+  readonly previous: RichClampResult;
+  readonly warm: RichProbeCostTotal;
+  readonly warmResult: RichClampResult | undefined;
+};
+
+type RichWarmDecisionReason = "previous-unranked" | "rank-count-mismatch" | "target-unranked";
+
+type RichWarmDecisionCheck = {
+  readonly decision: WarmColdDecision | null;
+  readonly reason: RichWarmDecisionReason | null;
+};
+
+function richCostVector(total: RichProbeCostTotal): RichPatchCostVector {
+  return {
+    addedNodes: total.mutations.addedNodes,
+    clientRectEntries: total.clientRectEntries,
+    cloneCalls: total.cloneCalls,
+    layoutReads: total.layoutReads,
+    probes: total.probes,
+    removedNodes: total.mutations.removedNodes,
+    styleReads: total.styleReads,
+  };
+}
+
+function wholeLayoutReadCredit(comparison: RichCostComparison): number {
+  return Math.max(0, comparison.cold.layoutReads - comparison.warm.layoutReads);
+}
+
+function richWarmDecision(
+  previous: RichClampResult,
+  target: RichClampResult | undefined,
+): RichWarmDecisionCheck {
+  if (previous.rank === undefined || previous.rankCount === undefined) {
+    return { decision: null, reason: "previous-unranked" };
+  }
+
+  if (target?.rank === undefined || target.rankCount === undefined) {
+    return { decision: null, reason: "target-unranked" };
+  }
+
+  if (target.rankCount !== previous.rankCount) {
+    return { decision: null, reason: "rank-count-mismatch" };
+  }
+
+  return {
+    decision: warmSearchDecision({
+      allowPatchTieBreak: true,
+      count: previous.rankCount,
+      expansionLimit: richWarmExpansionLimit,
+      hint: previous.rank,
+      interval: { max: target.rank, min: target.rank },
+    }),
+    reason: null,
+  };
+}
+
+function richMixedWarmDecision(
+  previous: RichClampResult,
+  target: RichClampResult | undefined,
+): RichWarmDecisionCheck {
+  if (!previous.searchIndex || !previous.state) {
+    return { decision: null, reason: "previous-unranked" };
+  }
+
+  if (!target?.searchIndex || !target.state) {
+    return { decision: null, reason: "target-unranked" };
+  }
+
+  const previousRank = rankRichState(previous.searchIndex, previous.state);
+  if (!previousRank) {
+    return { decision: null, reason: "previous-unranked" };
+  }
+
+  const targetRank = rankRichState(target.searchIndex, target.state);
+  if (!targetRank) {
+    return { decision: null, reason: "target-unranked" };
+  }
+
+  if (targetRank.rankCount !== previousRank.rankCount) {
+    return { decision: null, reason: "rank-count-mismatch" };
+  }
+
+  return {
+    decision: warmSearchDecision({
+      allowPatchTieBreak: true,
+      count: previousRank.rankCount,
+      expansionLimit: richWarmExpansionLimit,
+      hint: previousRank.rank,
+      interval: { max: targetRank.rank, min: targetRank.rank },
+    }),
+    reason: null,
+  };
+}
+
+async function compareRichWarmColdCosts({
+  nextWidth,
+  previousWidth,
+  ...fixtureOptions
+}: RichCostComparisonOptions): Promise<RichCostComparison> {
+  const warmFixture = createRichClampFixture({
+    ...fixtureOptions,
+    width: previousWidth,
+  });
+  const coldFixture = createRichClampFixture({
+    ...fixtureOptions,
+    width: nextWidth,
+  });
+
+  try {
+    await settle(1);
+    const previous = warmFixture.clamp();
+    warmFixture.root.style.width = `${nextWidth}px`;
+
+    let warmResult: RichClampResult | undefined;
+    const warmSamples = await collectRichProbeCostsDuring(
+      warmFixture.content,
+      warmFixture.body,
+      () => {
+        warmResult = clampRich({
+          ellipsis: "…",
+          from: previous.state,
+          hint: previous.state,
+          lineLimit: richFixtureLineLimit(fixtureOptions),
+          maxHeight: fixtureOptions.maxHeight,
+          preferHintedTextRun: true,
+          prepared: warmFixture.prepared,
+          probe: {
+            body: warmFixture.body,
+            content: warmFixture.content,
+            root: warmFixture.root,
+            width: nextWidth,
+          },
+          reuseSimpleLineFit: true,
+          searchIndex: previous.searchIndex ?? null,
+          skipFullFit: true,
+          verifyFullCandidate: false,
+        });
+      },
+    );
+
+    let coldResult: RichClampResult | undefined;
+    const coldSamples = await collectRichProbeCostsDuring(
+      coldFixture.content,
+      coldFixture.body,
+      () => {
+        coldResult = coldFixture.clamp();
+      },
+    );
+
+    const decision = richWarmDecision(previous, coldResult);
+    const mixedDecision = richMixedWarmDecision(previous, coldResult);
+
+    return {
+      cold: sumRichProbeCosts(coldSamples),
+      coldResult,
+      decision: decision.decision,
+      decisionReason: decision.reason,
+      mixedDecision: mixedDecision.decision,
+      mixedDecisionReason: mixedDecision.reason,
+      previous,
+      warm: sumRichProbeCosts(warmSamples),
+      warmResult,
+    };
+  } finally {
+    warmFixture.cleanup();
+    coldFixture.cleanup();
+  }
+}
+
+function expectWarmPatchCreditDirection(
+  comparison: RichCostComparison,
+  requireDecision = true,
+): void {
+  expect(comparison.previous.state?.kind).toBe("clamped");
+  expect(comparison.warmResult?.state?.kind).toBe("clamped");
+  expect(comparison.coldResult?.state?.kind).toBe("clamped");
+  if (requireDecision) {
+    expect(comparison.decision).not.toBeNull();
+    expect(comparison.decisionReason).toBeNull();
+  }
+  if (comparison.decision) {
+    expect(comparison.decision.requiredCredit).toBe(0);
+    expect(comparison.decision.useWarm).toBe(true);
+  }
+  if (comparison.mixedDecision) {
+    expect(comparison.mixedDecision.requiredCredit).toBe(0);
+    expect(comparison.mixedDecision.useWarm).toBe(true);
+    expect(comparison.mixedDecisionReason).toBeNull();
+  }
+
+  expect(
+    richWarmPatchVectorDominates(richCostVector(comparison.warm), richCostVector(comparison.cold)),
+  ).toBe(true);
 }
 
 describe("LineClamp browser contract", () => {
@@ -422,6 +1450,100 @@ describe("LineClamp browser contract", () => {
     expect(await sampleVisibleLineCounts(root)).toEqual([2, 2, 2]);
   });
 
+  it("ignores generic font-load events when text layout is unchanged", async () => {
+    const mounted = mountClamp({
+      text: DEMO_TEXT,
+      style: "font:16px Georgia,serif;line-height:28px",
+      width: 220,
+      props: {
+        boundary: "word",
+        maxLines: 2,
+      },
+    });
+
+    const root = rootElement(mounted.container);
+    await waitUntilVisible(root);
+    await settle(4);
+
+    const before = textElement(root).textContent;
+    const records = await collectFontEventMutations(root, genericFontEvent());
+
+    expect(records).toHaveLength(0);
+    expect(textElement(root).textContent).toBe(before);
+  });
+
+  it("ignores unused font-face events when text layout is unchanged", async () => {
+    const mounted = mountClamp({
+      text: DEMO_TEXT,
+      style: "font:16px Georgia,serif;line-height:28px",
+      width: 220,
+      props: {
+        boundary: "word",
+        maxLines: 2,
+      },
+    });
+
+    const root = rootElement(mounted.container);
+    await waitUntilVisible(root);
+    await settle(4);
+
+    const before = textElement(root).textContent;
+    const records = await collectFontEventMutations(root, await unusedFontFaceEvent());
+
+    expect(records).toHaveLength(0);
+    expect(textElement(root).textContent).toBe(before);
+  });
+
+  it("ignores unloaded used font-face events while text is clamped", async () => {
+    const mounted = mountClamp({
+      text: DEMO_TEXT,
+      style: "font:16px Georgia,serif;line-height:28px",
+      width: 220,
+      props: {
+        boundary: "word",
+        maxLines: 2,
+      },
+    });
+
+    const root = rootElement(mounted.container);
+    await waitUntilVisible(root);
+    await settle(4);
+
+    const before = textElement(root).textContent;
+    expect(before).toContain("…");
+
+    const records = await collectFontEventMutations(root, unloadedUsedFontFaceEvent());
+
+    expect(records).toHaveLength(0);
+    expect(textElement(root).textContent).toBe(before);
+  });
+
+  it("ignores used font-face events when full text layout is unchanged", async () => {
+    const source = "Release ownership remains visible.";
+    const mounted = mountClamp({
+      text: source,
+      style: "font:16px Georgia,serif;line-height:28px",
+      width: 560,
+      props: {
+        boundary: "word",
+        maxLines: 3,
+      },
+    });
+
+    const root = rootElement(mounted.container);
+    await waitUntilVisible(root);
+    await settle(4);
+
+    expect(textElement(root).textContent).toBe(source);
+    expect(mounted.exposed.value?.clamped).toBe(false);
+
+    const records = await collectFontEventMutations(root, await usedFontFaceEvent());
+
+    expect(records).toHaveLength(0);
+    expect(textElement(root).textContent).toBe(source);
+    expect(mounted.exposed.value?.clamped).toBe(false);
+  });
+
   it("restores full text after same-width font-load metrics shrink", async () => {
     const source = "Release dashboards keep ownership visible after regional incidents.";
     const mounted = mountClamp({
@@ -446,6 +1568,66 @@ describe("LineClamp browser contract", () => {
 
     expect(textElement(root).textContent).toBe(source);
     expect(mounted.exposed.value?.clamped).toBe(false);
+  });
+
+  it("does not reuse cached line results after inline font metrics shrink", async () => {
+    await document.fonts?.ready;
+
+    const source = "Release dashboards keep ownership visible after regional incidents.";
+    const width = ref(280);
+    const fontSize = ref(24);
+    const exposed = ref<LineClampExposed | null>(null);
+    const container = document.createElement("div");
+    document.body.append(container);
+
+    const Host = defineComponent({
+      setup() {
+        return () =>
+          h(LineClamp, {
+            ref: exposed,
+            boundary: "word",
+            maxLines: 2,
+            text: source,
+            style: [
+              "display:block",
+              `width:${width.value}px`,
+              "font-family:Georgia,serif",
+              `font-size:${fontSize.value}px`,
+              "line-height:28px",
+              "white-space:normal",
+              "overflow-wrap:break-word",
+            ].join(";"),
+          });
+      },
+    });
+
+    const app = createApp(Host);
+    app.mount(container);
+
+    try {
+      const root = rootElement(container);
+      await waitUntilVisible(root);
+      await settle(4);
+
+      width.value = 360;
+      await settle(4);
+      width.value = 280;
+      await settle(4);
+
+      expect(textElement(root).textContent).toContain("…");
+
+      width.value = 360;
+      await settle(4);
+      fontSize.value = 12;
+      width.value = 280;
+      await settle(4);
+
+      expect(textElement(root).textContent).toBe(source);
+      expect(exposed.value?.clamped).toBe(false);
+    } finally {
+      app.unmount();
+      container.remove();
+    }
   });
 
   it("uses native one-line overflow when the default end-ellipsis path is eligible", async () => {
@@ -1221,6 +2403,177 @@ describe("LineClamp browser contract", () => {
     expect(records).toHaveLength(0);
   });
 
+  it("calibrates same-state rich patches as mutation-free", async () => {
+    const prepared = prepareRich("<span>alpha beta</span>");
+    if (!prepared) {
+      throw new Error("Expected rich preparation to be available.");
+    }
+
+    const target = document.createElement("span");
+    const nextState: RichState = { kind: "clamped", point: { path: [0, 0], offset: 5 } };
+    let state: RichState | null = patchRich(prepared, target, null, nextState, "…");
+    const summary = await observeMutationsDuring(target, () => {
+      state = patchRich(prepared, target, state, nextState, "…");
+    });
+
+    expect(target.textContent).toBe("alpha…");
+    expect(summary.records).toBe(0);
+  });
+
+  it("calibrates same-text rich cuts as character-data work", async () => {
+    const prepared = prepareRich("<span>alpha beta</span>");
+    if (!prepared) {
+      throw new Error("Expected rich preparation to be available.");
+    }
+
+    const target = document.createElement("span");
+    let state: RichState | null = patchRich(
+      prepared,
+      target,
+      null,
+      { kind: "clamped", point: { path: [0, 0], offset: 2 } },
+      "…",
+    );
+    const span = target.firstChild;
+    const text = span?.firstChild;
+    const ellipsisNode = target.lastChild;
+    const summary = await observeMutationsDuring(target, () => {
+      state = patchRich(
+        prepared,
+        target,
+        state,
+        { kind: "clamped", point: { path: [0, 0], offset: 3 } },
+        "…",
+      );
+    });
+
+    expect(target.textContent).toBe("alp…");
+    expect(target.firstChild).toBe(span);
+    expect(target.firstChild?.firstChild).toBe(text);
+    expect(target.lastChild).toBe(ellipsisNode);
+    expect(summary.characterData).toBeGreaterThan(0);
+    expect(summary.childList).toBe(0);
+    expect(summary.addedNodes).toBe(0);
+    expect(summary.removedNodes).toBe(0);
+  });
+
+  it("calibrates whole-prefix rich growth as child-list work", async () => {
+    const prepared = prepareRich("<span>alpha</span> <span>beta</span> <span>gamma</span>");
+    if (!prepared) {
+      throw new Error("Expected rich preparation to be available.");
+    }
+
+    const target = document.createElement("span");
+    let state: RichState | null = patchRich(
+      prepared,
+      target,
+      null,
+      { kind: "clamped", point: { path: [0, 0], offset: 5 } },
+      "…",
+    );
+    const firstSpan = target.firstChild;
+    const ellipsisNode = target.lastChild;
+    const summary = await observeMutationsDuring(target, () => {
+      state = patchRich(
+        prepared,
+        target,
+        state,
+        { kind: "clamped", point: { path: [2, 0], offset: 4 } },
+        "…",
+      );
+    });
+
+    expect(target.textContent).toBe("alpha beta…");
+    expect(target.firstChild).toBe(firstSpan);
+    expect(target.lastChild).toBe(ellipsisNode);
+    expect(summary.childList).toBeGreaterThan(0);
+    expect(summary.addedNodes).toBeGreaterThan(0);
+  });
+
+  it("calibrates full-to-clamped rich patches as child-list work", async () => {
+    const prepared = prepareRich("<span>alpha</span> <span>beta</span> <span>gamma</span>");
+    if (!prepared) {
+      throw new Error("Expected rich preparation to be available.");
+    }
+
+    const target = document.createElement("span");
+    let state: RichState | null = patchRich(prepared, target, null, { kind: "full" }, "…");
+    const firstSpan = target.firstChild;
+    const summary = await observeMutationsDuring(target, () => {
+      state = patchRich(
+        prepared,
+        target,
+        state,
+        { kind: "clamped", point: { path: [2, 0], offset: 2 } },
+        "…",
+      );
+    });
+
+    expect(target.textContent).toBe("alpha be…");
+    expect(target.firstChild).toBe(firstSpan);
+    expect(summary.childList).toBeGreaterThan(0);
+    expect(summary.removedNodes).toBeGreaterThan(0);
+  });
+
+  it("matches declared rich patch classes to observed DOM mutation vectors", async () => {
+    const cases: {
+      expected: RichPatchClass;
+      from: RichState;
+      html: string;
+      to: RichState;
+    }[] = [
+      {
+        expected: "same-state",
+        from: { kind: "clamped", point: { path: [0, 0], offset: 5 } },
+        html: "<span>alpha beta</span>",
+        to: { kind: "clamped", point: { path: [0, 0], offset: 5 } },
+      },
+      {
+        expected: "same-text-cut",
+        from: { kind: "clamped", point: { path: [0, 0], offset: 2 } },
+        html: "<span>alpha beta</span>",
+        to: { kind: "clamped", point: { path: [0, 0], offset: 3 } },
+      },
+      {
+        expected: "whole-prefix",
+        from: { kind: "clamped", point: { path: [0, 0], offset: 5 } },
+        html: "<span>alpha</span> <span>beta</span> <span>gamma</span>",
+        to: { kind: "clamped", point: { path: [2, 0], offset: 4 } },
+      },
+      {
+        expected: "full-to-clamped",
+        from: { kind: "full" },
+        html: "<span>alpha</span> <span>beta</span> <span>gamma</span>",
+        to: { kind: "clamped", point: { path: [2, 0], offset: 2 } },
+      },
+      {
+        expected: "clamped-to-full",
+        from: { kind: "clamped", point: { path: [0, 0], offset: 5 } },
+        html: "<span>alpha</span> <span>beta</span> <span>gamma</span>",
+        to: { kind: "full" },
+      },
+    ];
+
+    for (const { expected, from, html, to } of cases) {
+      const prepared = prepareRich(html);
+      if (!prepared) {
+        throw new Error("Expected rich preparation to be available.");
+      }
+
+      const target = document.createElement("span");
+      let state: RichState | null = patchRich(prepared, target, null, from, "…");
+      const costClass = richPatchClass(from, to);
+
+      expect(costClass).toBe(expected);
+
+      const summary = await observeMutationsDuring(target, () => {
+        state = patchRich(prepared, target, state, to, "…");
+      });
+
+      expectObservedRichPatchCostClass(summary, costClass);
+    }
+  });
+
   it("preserves the rich root ellipsis across generic clamped patches", () => {
     const prepared = prepareRich("<span>alpha</span> <span>beta</span>");
     if (!prepared) {
@@ -1551,6 +2904,102 @@ describe("LineClamp browser contract", () => {
     expect(after).toContain("…");
     expect(after.length).toBeLessThan(before.length);
     expect(await sampleVisibleLineCounts(root)).toEqual([2, 2, 2]);
+  });
+
+  it("ignores generic font-load events when rich layout is unchanged", async () => {
+    const mounted = mountRichClamp({
+      html: RICH_TEXT_HTML,
+      style: "font:16px Georgia,serif;line-height:28px",
+      width: 220,
+      props: {
+        boundary: "word",
+        maxLines: 2,
+      },
+    });
+
+    const root = rootElement(mounted.container);
+    await waitUntilVisible(root);
+    await settle(4);
+
+    const before = richContentElement(root).innerHTML;
+    const records = await collectFontEventMutations(root, genericFontEvent());
+
+    expect(records).toHaveLength(0);
+    expect(richContentElement(root).innerHTML).toBe(before);
+  });
+
+  it("ignores unused font-face events when rich layout is unchanged", async () => {
+    const mounted = mountRichClamp({
+      html: RICH_TEXT_HTML,
+      style: "font:16px Georgia,serif;line-height:28px",
+      width: 220,
+      props: {
+        boundary: "word",
+        maxLines: 2,
+      },
+    });
+
+    const root = rootElement(mounted.container);
+    await waitUntilVisible(root);
+    await settle(4);
+
+    const before = richContentElement(root).innerHTML;
+    const records = await collectFontEventMutations(root, await unusedFontFaceEvent());
+
+    expect(records).toHaveLength(0);
+    expect(richContentElement(root).innerHTML).toBe(before);
+  });
+
+  it("ignores unloaded used font-face events while rich html is clamped", async () => {
+    const mounted = mountRichClamp({
+      html: RICH_TEXT_HTML,
+      style: "font:16px Georgia,serif;line-height:28px",
+      width: 220,
+      props: {
+        boundary: "word",
+        maxLines: 2,
+      },
+    });
+
+    const root = rootElement(mounted.container);
+    await waitUntilVisible(root);
+    await settle(4);
+
+    const before = richContentElement(root).innerHTML;
+    expect(richContentElement(root).textContent).toContain("…");
+
+    const records = await collectFontEventMutations(root, unloadedUsedFontFaceEvent());
+
+    expect(records).toHaveLength(0);
+    expect(richContentElement(root).innerHTML).toBe(before);
+  });
+
+  it("ignores used font-face events when full rich layout is unchanged", async () => {
+    const source = "Release ownership remains visible.";
+    const html = "<strong>Release ownership</strong> remains visible.";
+    const mounted = mountRichClamp({
+      html,
+      style: "font:16px Georgia,serif;line-height:28px",
+      width: 560,
+      props: {
+        boundary: "word",
+        maxLines: 3,
+      },
+    });
+
+    const root = rootElement(mounted.container);
+    await waitUntilVisible(root);
+    await settle(4);
+
+    expect(richContentElement(root).textContent).toBe(source);
+    expect(mounted.exposed.value?.clamped).toBe(false);
+
+    const before = richContentElement(root).innerHTML;
+    const records = await collectFontEventMutations(root, await usedFontFaceEvent());
+
+    expect(records).toHaveLength(0);
+    expect(richContentElement(root).innerHTML).toBe(before);
+    expect(mounted.exposed.value?.clamped).toBe(false);
   });
 
   it("restores full rich html after same-width font-load metrics shrink", async () => {
@@ -1978,7 +3427,7 @@ describe("LineClamp browser contract", () => {
     }
   });
 
-  it("avoids rich rect-list line counting for simple inline text with roomy line metrics", async () => {
+  it("avoids rich rect-list line counting after simple inline text calibration", async () => {
     const html = `<strong>Telemetry</strong> ${Array.from(
       { length: 12 },
       (_, index) => `<span>observabilityPlatform${index + 1}</span>`,
@@ -2008,8 +3457,9 @@ describe("LineClamp browser contract", () => {
 
     try {
       await settle(1);
-      const calls = countClientRectsDuring(content, () => {
-        clampRich({
+      let result: RichClampResult | undefined;
+      const firstCalls = countClientRectsDuring(content, () => {
+        result = clampRich({
           ellipsis: "…",
           from: null,
           hint: null,
@@ -2025,7 +3475,33 @@ describe("LineClamp browser contract", () => {
         });
       });
 
-      expect(calls).toBe(0);
+      const first = result;
+      const searchIndex = first?.searchIndex;
+      if (!first || !searchIndex) {
+        throw new Error("Expected rich clamp to return a calibrated search index.");
+      }
+
+      const secondCalls = countClientRectsDuring(content, () => {
+        clampRich({
+          ellipsis: "…",
+          from: first.state,
+          hint: first.state,
+          lineLimit: 5,
+          maxHeight: undefined,
+          prepared,
+          probe: {
+            body,
+            content,
+            root,
+            width: 360,
+          },
+          reuseSimpleLineFit: true,
+          searchIndex,
+        });
+      });
+
+      expect(firstCalls).toBeGreaterThan(0);
+      expect(secondCalls).toBe(0);
     } finally {
       container.remove();
     }
@@ -2082,6 +3558,1572 @@ describe("LineClamp browser contract", () => {
       expect(calls).toBeGreaterThan(0);
     } finally {
       container.remove();
+    }
+  });
+
+  it("captures rich search probe costs during actual layout fitting", async () => {
+    const html = `<strong>Telemetry</strong> ${Array.from(
+      { length: 8 },
+      (_, index) => `<span>observabilityPlatform${index + 1}</span>`,
+    ).join(" ")}`;
+    const fixture = createRichClampFixture({
+      html,
+      rootStyle: ["font-size:18px"],
+      width: 160,
+    });
+
+    try {
+      await settle(1);
+      let result: RichClampResult | undefined;
+      const samples = await collectRichProbeCostsDuring(fixture.content, fixture.body, () => {
+        result = fixture.clamp();
+      });
+      const patchKinds = samples.map(richProbePatchKind);
+
+      expect(result?.state?.kind).toBe("clamped");
+      expect(samples.length).toBeGreaterThan(1);
+      expect(
+        samples.every((sample) => sample.boundingRectReads + sample.clientRectReads === 1),
+      ).toBe(true);
+      expect(samples.some((sample) => sample.clientRectEntries > 0)).toBe(true);
+      expect(samples.some((sample) => sample.boundingRectReads > 0)).toBe(true);
+      expect(samples.some((sample) => sample.styleReads > 0)).toBe(true);
+      expect(samples.some((sample) => sample.cloneCalls > 0)).toBe(true);
+      expect(samples.some((sample) => sample.mutations.records > 0)).toBe(true);
+      expect(
+        samples.some(
+          (sample) => sample.mutations.childList > 0 || sample.mutations.characterData > 0,
+        ),
+      ).toBe(true);
+      expect(patchKinds).toContain("structure");
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
+  it("captures same-text rich probe costs during actual layout fitting", async () => {
+    const html = `<span>${[
+      "alpha",
+      "beta",
+      "gamma",
+      "delta",
+      "epsilon",
+      "zeta",
+      "eta",
+      "theta",
+      "iota",
+      "kappa",
+      "lambda",
+    ].join(" ")}</span>`;
+    const fixture = createRichClampFixture({
+      html,
+      rootStyle: ["font-size:18px"],
+      width: 120,
+    });
+
+    try {
+      await settle(1);
+      let result: RichClampResult | undefined;
+      const samples = await collectRichProbeCostsDuring(fixture.content, fixture.body, () => {
+        result = fixture.clamp();
+      });
+      const patchKinds = samples.map(richProbePatchKind);
+
+      expect(result?.state?.kind).toBe("clamped");
+      expect(samples.length).toBeGreaterThan(1);
+      expect(patchKinds).toContain("text");
+      expect(
+        samples.some(
+          (sample) => sample.mutations.characterData > 0 && sample.mutations.childList === 0,
+        ),
+      ).toBe(true);
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
+  it("compares rich warm and cold patch cost vectors during actual layout fitting", async () => {
+    const html = `<strong>Telemetry</strong> ${Array.from(
+      { length: 8 },
+      (_, index) => `<span>observabilityPlatform${index + 1}</span>`,
+    ).join(" ")}`;
+    const comparison = await compareRichWarmColdCosts({
+      html,
+      nextWidth: 150,
+      previousWidth: 160,
+      rootStyle: ["font-size:18px"],
+    });
+
+    expectWarmPatchCreditDirection(comparison);
+  });
+
+  it("compares rich warm and cold patch vectors for hinted text-run fitting", async () => {
+    const comparison = await compareRichWarmColdCosts({
+      html: `<span>${[
+        "alpha",
+        "beta",
+        "gamma",
+        "delta",
+        "epsilon",
+        "zeta",
+        "eta",
+        "theta",
+        "iota",
+        "kappa",
+        "lambda",
+        "mu",
+      ].join(" ")}</span>`,
+      nextWidth: 110,
+      previousWidth: 120,
+      rootStyle: ["font-size:18px"],
+    });
+
+    expectWarmPatchCreditDirection(comparison);
+  });
+
+  it("compares rich warm and cold patch vectors across atomic runs", async () => {
+    const comparison = await compareRichWarmColdCosts({
+      html: `Lead <span style="display:inline-block;width:44px;height:14px;vertical-align:baseline"></span> ${Array.from(
+        { length: 8 },
+        (_, index) => `observabilityPlatform${index + 1}`,
+      ).join(" ")}`,
+      nextWidth: 150,
+      previousWidth: 170,
+      rootStyle: ["font-size:18px"],
+    });
+
+    expectWarmPatchCreditDirection(comparison);
+  });
+
+  it("compares rich warm and cold patch vectors with affix occupancy", async () => {
+    const comparison = await compareRichWarmColdCosts({
+      affixWidths: [36, 28],
+      html: `<strong>Telemetry</strong> ${Array.from(
+        { length: 7 },
+        (_, index) => `<span>observabilityPlatform${index + 1}</span>`,
+      ).join(" ")}`,
+      nextWidth: 170,
+      previousWidth: 190,
+      rootStyle: ["font-size:18px"],
+    });
+
+    expectWarmPatchCreditDirection(comparison, false);
+    expect(comparison.decision).toBeNull();
+    expect(comparison.decisionReason).toBe("target-unranked");
+    expect(comparison.mixedDecision).not.toBeNull();
+    expect(comparison.mixedDecisionReason).toBeNull();
+  });
+
+  it("compares rich warm and cold patch vectors under max-height fitting", async () => {
+    const comparison = await compareRichWarmColdCosts({
+      html: `<strong>Telemetry</strong> ${Array.from(
+        { length: 12 },
+        (_, index) => `<span>observabilityPlatform${index + 1}</span>`,
+      ).join(" ")}`,
+      maxHeight: "40px",
+      nextWidth: 190,
+      previousWidth: 220,
+      rootStyle: ["font-size:18px"],
+    });
+
+    expectWarmPatchCreditDirection(comparison);
+  });
+
+  it("observes Rich target-rank movement from line count and boundary density", async () => {
+    const denseHtml = `<span>${Array.from({ length: 56 }, (_, index) => `metric${index + 1}`).join(
+      " ",
+    )}</span>`;
+    const longTokenHtml = `<span>${Array.from(
+      { length: 56 },
+      (_, index) => `observabilityPlatform${index + 1}`,
+    ).join(" ")}</span>`;
+
+    const denseOneLine = await richRankForLayout({
+      html: denseHtml,
+      lineLimit: 1,
+      width: 160,
+    });
+    const denseThreeLines = await richRankForLayout({
+      html: denseHtml,
+      lineLimit: 3,
+      width: 160,
+    });
+    const denseWide = await richRankForLayout({
+      html: denseHtml,
+      lineLimit: 3,
+      width: 240,
+    });
+    const longNarrow = await richRankForLayout({
+      html: longTokenHtml,
+      lineLimit: 3,
+      width: 160,
+    });
+    const longWide = await richRankForLayout({
+      html: longTokenHtml,
+      lineLimit: 3,
+      width: 240,
+    });
+
+    expect(denseThreeLines).toBeGreaterThan(denseOneLine);
+    expect(denseWide - denseThreeLines).toBeGreaterThan(longWide - longNarrow);
+  });
+
+  it("calibrates fallback-aware Rich mixed rank on held-out layout inputs", async () => {
+    const longTokenHtml = "<span>observabilityPlatformTelemetryPipeline</span>";
+    const longNarrow = await richMixedRankForLayout({
+      html: longTokenHtml,
+      rootStyle: ["font-size:18px"],
+      width: 110,
+    });
+    const longWide = await richMixedRankForLayout({
+      html: longTokenHtml,
+      rootStyle: ["font-size:18px"],
+      width: 170,
+    });
+
+    expect(longNarrow.publishedRank).toBeUndefined();
+    expect(longNarrow.rank).toBeGreaterThan(0);
+    expect(longWide.rank).toBeGreaterThan(longNarrow.rank);
+
+    const plain = await richMixedRankForLayout({
+      html: longTokenHtml,
+      rootStyle: ["font-size:18px"],
+      width: 170,
+    });
+    const affixed = await richMixedRankForLayout({
+      affixWidths: [36, 28],
+      html: longTokenHtml,
+      rootStyle: ["font-size:18px"],
+      width: 170,
+    });
+
+    expect(plain.rank).toBeGreaterThan(affixed.rank);
+
+    const cjkEmojiHtml = "<span>指标🙂测量指标🙂测量指标🙂测量指标🙂测量</span>";
+    const cjkNarrow = await richMixedRankForLayout({
+      html: cjkEmojiHtml,
+      rootStyle: ["font-size:18px"],
+      width: 100,
+    });
+    const cjkWide = await richMixedRankForLayout({
+      html: cjkEmojiHtml,
+      rootStyle: ["font-size:18px"],
+      width: 160,
+    });
+
+    expect(cjkWide.rank).toBeGreaterThan(cjkNarrow.rank);
+
+    const oneLine = await richMixedRankForLayout({
+      html: longTokenHtml,
+      lineLimit: 1,
+      rootStyle: ["font-size:18px"],
+      width: 110,
+    });
+    const threeLines = await richMixedRankForLayout({
+      html: longTokenHtml,
+      lineLimit: 3,
+      rootStyle: ["font-size:18px"],
+      width: 110,
+    });
+
+    expect(threeLines.rank).toBeGreaterThan(oneLine.rank);
+
+    const clippedHtml = `<span>${Array.from(
+      { length: 24 },
+      (_, index) => `metric${index + 1}`,
+    ).join(" ")}</span>`;
+    const shortClip = await richMixedRankForLayout({
+      html: clippedHtml,
+      maxHeight: "40px",
+      rootStyle: ["font-size:18px", "line-height:28px"],
+      width: 220,
+    });
+    const tallClip = await richMixedRankForLayout({
+      html: clippedHtml,
+      maxHeight: "80px",
+      rootStyle: ["font-size:18px", "line-height:28px"],
+      width: 220,
+    });
+
+    expect(shortClip.textRankSafe).toBe(true);
+    expect(tallClip.rank).toBeGreaterThan(shortClip.rank);
+
+    const atomicOnly = await richMixedRankForLayout({
+      html: `<span style="display:inline-block;width:44px;height:14px;vertical-align:baseline"></span> observabilityPlatformTelemetryPipeline`,
+      rootStyle: ["font-size:18px"],
+      width: 70,
+    });
+
+    expect(atomicOnly.textRankSafe).toBe(false);
+  });
+
+  it("keeps tight max-height clipping outside mixed-rank slope inputs", async () => {
+    const longTokenHtml = "<span>observabilityPlatformTelemetryPipeline</span>";
+    const tightStyle = ["font-size:18px", "line-height:28px"];
+    const narrow = await richMixedRankForLayout({
+      html: longTokenHtml,
+      maxHeight: "10px",
+      rootStyle: tightStyle,
+      width: 120,
+    });
+    const wide = await richMixedRankForLayout({
+      html: longTokenHtml,
+      maxHeight: "10px",
+      rootStyle: tightStyle,
+      width: 240,
+    });
+
+    expect(narrow.rank).toBe(0);
+    expect(wide.rank).toBe(0);
+    expect(narrow.textRankSafe).toBe(false);
+    expect(wide.textRankSafe).toBe(false);
+  });
+
+  it("bounds fallback-aware Rich mixed-rank movement with physical width inputs", async () => {
+    const longToken = "observabilityPlatformTelemetryPipeline";
+    const longTokenHtml = `<span>${longToken}</span>`;
+    const longTokenInterval = await expectRichMixedRankInterval({
+      html: longTokenHtml,
+      lineCapacity: 1,
+      nextWidth: 170,
+      previousWidth: 110,
+      rootStyle: ["font-size:18px"],
+      text: longToken,
+    });
+
+    expect(longTokenInterval.interval.max).toBeLessThan(longTokenInterval.previous.rankCount - 1);
+    expect(longTokenInterval.localInterval.max).toBeLessThanOrEqual(longTokenInterval.interval.max);
+    expect(longTokenInterval.localInterval.min).toBeGreaterThanOrEqual(
+      longTokenInterval.interval.min,
+    );
+
+    const affixInterval = await expectRichMixedRankInterval({
+      affixWidths: [36, 28],
+      html: longTokenHtml,
+      lineCapacity: 1,
+      nextWidth: 190,
+      previousWidth: 150,
+      rootStyle: ["font-size:18px"],
+      text: longToken,
+    });
+
+    expect(affixInterval.next.rank).toBeGreaterThan(affixInterval.previous.rank);
+
+    const cjkEmoji = "指标🙂测量指标🙂测量指标🙂测量指标🙂测量";
+    const cjkInterval = await expectRichMixedRankInterval({
+      html: `<span>${cjkEmoji}</span>`,
+      lineCapacity: 1,
+      nextWidth: 160,
+      previousWidth: 100,
+      rootStyle: ["font-size:18px"],
+      text: cjkEmoji,
+    });
+
+    expect(cjkInterval.next.rank).toBeGreaterThan(cjkInterval.previous.rank);
+
+    const clippedText = "observabilityPlatformTelemetryPipeline".repeat(4);
+    const clippedInterval = await expectRichMixedRankInterval({
+      html: `<span>${clippedText}</span>`,
+      lineCapacity: 2,
+      maxHeight: "60px",
+      nextWidth: 220,
+      previousWidth: 160,
+      rootStyle: ["font-size:18px", "line-height:28px"],
+      text: clippedText,
+    });
+
+    expect(clippedInterval.next.textRankSafe).toBe(true);
+    expect(clippedInterval.next.rank).toBeGreaterThan(clippedInterval.previous.rank);
+  });
+
+  it("bounds mixed-rank movement for combined Rich held-out inputs", async () => {
+    const cjkEmoji = "指标🙂测量指标🙂测量指标🙂测量指标🙂测量指标🙂测量";
+    const combined = await expectRichMixedRankInterval({
+      affixWidths: [32, 24],
+      html: `<span>${cjkEmoji}</span>`,
+      lineCapacity: 2,
+      maxHeight: "60px",
+      nextWidth: 220,
+      previousWidth: 150,
+      rootStyle: ["font-size:18px", "line-height:28px"],
+      text: cjkEmoji,
+    });
+
+    expect(combined.next.textRankSafe).toBe(true);
+    expect(combined.next.rank).toBeGreaterThan(combined.previous.rank);
+    expect(combined.localInterval.max).toBeLessThanOrEqual(combined.interval.max);
+    expect(combined.localInterval.min).toBeGreaterThanOrEqual(combined.interval.min);
+  });
+
+  it("requires scalar credit before broad mixed-rank intervals can drive warm search", async () => {
+    const longToken = "observabilityPlatformTelemetryPipeline";
+    const longTokenHtml = `<span>${longToken}</span>`;
+    const plain = await expectRichMixedRankInterval({
+      html: longTokenHtml,
+      lineCapacity: 1,
+      nextWidth: 170,
+      previousWidth: 110,
+      rootStyle: ["font-size:18px"],
+      text: longToken,
+    });
+    const affixed = await expectRichMixedRankInterval({
+      affixWidths: [36, 28],
+      html: longTokenHtml,
+      lineCapacity: 1,
+      nextWidth: 190,
+      previousWidth: 150,
+      rootStyle: ["font-size:18px"],
+      text: longToken,
+    });
+
+    for (const sample of [plain, affixed]) {
+      const decision = warmSearchDecision({
+        allowPatchTieBreak: true,
+        count: sample.previous.rankCount,
+        expansionLimit: richWarmExpansionLimit,
+        hint: sample.previous.rank,
+        interval: sample.interval,
+      });
+      const localDecision = warmSearchDecision({
+        allowPatchTieBreak: true,
+        count: sample.previous.rankCount,
+        expansionLimit: richWarmExpansionLimit,
+        hint: sample.previous.rank,
+        interval: sample.localInterval,
+      });
+
+      expect(decision.useWarm).toBe(false);
+      expect(decision.requiredCredit).toBeGreaterThan(0);
+      expect(localDecision.requiredCredit).toBeLessThanOrEqual(decision.requiredCredit);
+      expect(sample.next.rank).toBeGreaterThanOrEqual(sample.interval.min);
+      expect(sample.next.rank).toBeLessThanOrEqual(sample.interval.max);
+    }
+  });
+
+  it("requires actual layout-read credit before using scalar warm credit", async () => {
+    const longToken = "observabilityPlatformTelemetryPipeline";
+    const previousWidth = 110;
+    const nextWidth = 170;
+    const rootStyle = ["font-size:18px"];
+    const sample = await expectRichMixedRankInterval({
+      html: `<span>${longToken}</span>`,
+      lineCapacity: 1,
+      nextWidth,
+      previousWidth,
+      rootStyle,
+      text: longToken,
+    });
+    const intervalDecision = warmSearchDecision({
+      allowPatchTieBreak: true,
+      count: sample.previous.rankCount,
+      expansionLimit: richWarmExpansionLimit,
+      hint: sample.previous.rank,
+      interval: sample.interval,
+    });
+    const comparison = await compareRichWarmColdCosts({
+      html: `<span>${longToken}</span>`,
+      nextWidth,
+      previousWidth,
+      rootStyle,
+    });
+    const layoutCredit = wholeLayoutReadCredit(comparison);
+
+    expect(intervalDecision.requiredCredit).toBeGreaterThan(0);
+    expect(layoutCredit).toBeLessThan(intervalDecision.requiredCredit);
+    expect(
+      warmSearchDecision({
+        allowPatchTieBreak: true,
+        count: sample.previous.rankCount,
+        expansionLimit: richWarmExpansionLimit,
+        hint: sample.previous.rank,
+        interval: sample.interval,
+        warmCredit: layoutCredit,
+      }).useWarm,
+    ).toBe(false);
+  });
+
+  it("separates exact mixed-rank targets from interval uncertainty", async () => {
+    const longToken = "observabilityPlatformTelemetryPipeline";
+    const previousWidth = 110;
+    const rootStyle = ["font-size:18px"];
+    const sample = await expectRichMixedRankInterval({
+      html: `<span>${longToken}</span>`,
+      lineCapacity: 1,
+      nextWidth: 120,
+      previousWidth,
+      rootStyle,
+      text: longToken,
+    });
+    const previousText = `${longToken.slice(0, sample.previous.rank)}…`;
+    let packingSlack = 0;
+    const slackReads = countBoundingRectsDuring(() => {
+      packingSlack = Math.max(0, previousWidth - measureTextWidth(previousText, rootStyle));
+    });
+    const intervalDecision = warmSearchDecision({
+      allowPatchTieBreak: true,
+      count: sample.previous.rankCount,
+      expansionLimit: richWarmExpansionLimit,
+      hint: sample.previous.rank,
+      interval: sample.interval,
+    });
+    const exactDecision = warmSearchDecision({
+      allowPatchTieBreak: true,
+      count: sample.previous.rankCount,
+      expansionLimit: richWarmExpansionLimit,
+      hint: sample.previous.rank,
+      interval: { max: sample.next.rank, min: sample.next.rank },
+    });
+    const localDecision = warmSearchDecision({
+      allowPatchTieBreak: true,
+      count: sample.previous.rankCount,
+      expansionLimit: richWarmExpansionLimit,
+      hint: sample.previous.rank,
+      interval: sample.localInterval,
+    });
+    const slackInterval = estimateTargetRankLocalInterval({
+      advance: sample.advance,
+      advances: sample.advances,
+      lineCapacity: 1,
+      nextWidth: 120,
+      packingSlack,
+      previousRank: sample.previous.rank,
+      previousWidth,
+      rankCount: sample.previous.rankCount,
+    });
+    const slackDecision = warmSearchDecision({
+      allowPatchTieBreak: true,
+      count: sample.previous.rankCount,
+      expansionLimit: richWarmExpansionLimit,
+      hint: sample.previous.rank,
+      interval: slackInterval,
+    });
+
+    expect(sample.next.rank).toBe(sample.previous.rank + 1);
+    expect(exactDecision.requiredCredit).toBe(0);
+    expect(exactDecision.useWarm).toBe(true);
+    expect(intervalDecision.useWarm).toBe(false);
+    expect(intervalDecision.requiredCredit).toBeGreaterThan(0);
+    expect(localDecision.useWarm).toBe(false);
+    expect(localDecision.requiredCredit).toBeGreaterThan(0);
+    expect(slackReads).toBe(1);
+    expect(slackInterval.max).toBe(sample.next.rank);
+    expect(slackDecision.requiredCredit).toBe(0);
+    expect(slackDecision.useWarm).toBe(true);
+  });
+
+  it("calibrates dynamic warm width room against browser mixed-rank movement", async () => {
+    const longToken = "observabilityPlatformTelemetryPipeline";
+    const previousWidth = 110;
+    const rootStyle = ["font-size:18px"];
+    const previous = await richMixedRankForLayout({
+      html: `<span>${longToken}</span>`,
+      rootStyle,
+      width: previousWidth,
+    });
+    let advances: readonly number[] = [];
+    const advanceReads = countBoundingRectsDuring(() => {
+      advances = measureAdvances(longToken, rootStyle);
+    });
+    const advance = advanceRange(advances);
+    const previousText = `${longToken.slice(0, previous.rank)}…`;
+    const packingSlack = Math.max(0, previousWidth - measureTextWidth(previousText, rootStyle));
+    const room = estimateWarmSearchWidthRoom({
+      allowPatchTieBreak: true,
+      advances,
+      count: previous.rankCount,
+      expansionLimit: richWarmExpansionLimit,
+      hint: previous.rank,
+      lineCapacity: 1,
+      packingSlack,
+    });
+    const insideWidth = previousWidth + room.widthDeltaLimit - 0.001;
+    const inside = await richMixedRankForLayout({
+      html: `<span>${longToken}</span>`,
+      rootStyle,
+      width: insideWidth,
+    });
+    const insideInterval = estimateTargetRankLocalInterval({
+      advance,
+      advances,
+      lineCapacity: 1,
+      nextWidth: insideWidth,
+      packingSlack,
+      previousRank: previous.rank,
+      previousWidth,
+      rankCount: previous.rankCount,
+    });
+    const boundaryInterval = estimateTargetRankLocalInterval({
+      advance,
+      advances,
+      lineCapacity: 1,
+      nextWidth: previousWidth + room.widthDeltaLimit,
+      packingSlack,
+      previousRank: previous.rank,
+      previousWidth,
+      rankCount: previous.rankCount,
+    });
+
+    expect(room.useWarm).toBe(true);
+    expect(room.widthDeltaLimit).toBeGreaterThan(0);
+    expect(advanceReads).toBe(graphemeParts(longToken).length + 1);
+    expect(advanceReads).toBeGreaterThan(estimateColdSearchMaxProbeCount(previous.rankCount));
+    expect(inside.rank).toBeLessThanOrEqual(previous.rank + room.maxRankMove);
+    expect(inside.rank).toBeGreaterThanOrEqual(insideInterval.min);
+    expect(inside.rank).toBeLessThanOrEqual(insideInterval.max);
+    expect(
+      warmSearchDecision({
+        allowPatchTieBreak: true,
+        count: previous.rankCount,
+        expansionLimit: richWarmExpansionLimit,
+        hint: previous.rank,
+        interval: insideInterval,
+      }).useWarm,
+    ).toBe(true);
+    expect(
+      warmSearchDecision({
+        allowPatchTieBreak: true,
+        count: previous.rankCount,
+        expansionLimit: richWarmExpansionLimit,
+        hint: previous.rank,
+        interval: boundaryInterval,
+      }).useWarm,
+    ).toBe(false);
+  });
+
+  it("calibrates dynamic warm shrink room against browser mixed-rank movement", async () => {
+    const longToken = "observabilityPlatformTelemetryPipeline";
+    const previousWidth = 150;
+    const rootStyle = ["font-size:18px"];
+    const previous = await richMixedRankForLayout({
+      html: `<span>${longToken}</span>`,
+      rootStyle,
+      width: previousWidth,
+    });
+    const advances = measureAdvances(longToken, rootStyle);
+    const advance = advanceRange(advances);
+    const previousText = `${longToken.slice(0, previous.rank)}…`;
+    const packingSlack = Math.max(0, previousWidth - measureTextWidth(previousText, rootStyle));
+    const room = estimateWarmSearchWidthRoom({
+      allowPatchTieBreak: true,
+      advances,
+      count: previous.rankCount,
+      direction: -1,
+      expansionLimit: richWarmExpansionLimit,
+      hint: previous.rank,
+      lineCapacity: 1,
+      packingSlack,
+    });
+    const insideWidth = previousWidth - room.widthDeltaLimit + 0.001;
+    const inside = await richMixedRankForLayout({
+      html: `<span>${longToken}</span>`,
+      rootStyle,
+      width: insideWidth,
+    });
+    const insideInterval = estimateTargetRankLocalInterval({
+      advance,
+      advances,
+      lineCapacity: 1,
+      nextWidth: insideWidth,
+      packingSlack,
+      previousRank: previous.rank,
+      previousWidth,
+      rankCount: previous.rankCount,
+    });
+    const outsideInterval = estimateTargetRankLocalInterval({
+      advance,
+      advances,
+      lineCapacity: 1,
+      nextWidth: previousWidth - room.widthDeltaLimit - 0.001,
+      packingSlack,
+      previousRank: previous.rank,
+      previousWidth,
+      rankCount: previous.rankCount,
+    });
+
+    expect(room.useWarm).toBe(true);
+    expect(room.widthDeltaLimit).toBeGreaterThan(0);
+    expect(inside.rank).toBeGreaterThanOrEqual(previous.rank - room.maxRankMove);
+    expect(inside.rank).toBeGreaterThanOrEqual(insideInterval.min);
+    expect(inside.rank).toBeLessThanOrEqual(insideInterval.max);
+    expect(
+      warmSearchDecision({
+        allowPatchTieBreak: true,
+        count: previous.rankCount,
+        expansionLimit: richWarmExpansionLimit,
+        hint: previous.rank,
+        interval: insideInterval,
+      }).useWarm,
+    ).toBe(true);
+    expect(
+      warmSearchDecision({
+        allowPatchTieBreak: true,
+        count: previous.rankCount,
+        expansionLimit: richWarmExpansionLimit,
+        hint: previous.rank,
+        interval: outsideInterval,
+      }).useWarm,
+    ).toBe(false);
+  });
+
+  it("captures ranked rich layout cost without runtime diagnostics", async () => {
+    const longToken = "observabilityPlatformTelemetryPipeline";
+    const fixture = createRichClampFixture({
+      html: `<span>${longToken}</span>`,
+      rootStyle: ["font-size:18px"],
+      width: 110,
+    });
+    const results: RichClampResult[] = [];
+
+    try {
+      const samples = await collectRichProbeCostsDuring(fixture.content, fixture.body, () => {
+        results.push(
+          clampRich({
+            ellipsis: "…",
+            from: null,
+            hint: null,
+            lineLimit: 1,
+            maxHeight: undefined,
+            prepared: fixture.prepared,
+            probe: {
+              body: fixture.body,
+              content: fixture.content,
+              root: fixture.root,
+              width: 110,
+            },
+          }),
+        );
+      });
+      const boundingRectReads = samples.reduce(
+        (total, sample) => total + sample.boundingRectReads,
+        0,
+      );
+      const layoutReads = samples.reduce(
+        (total, sample) => total + sample.boundingRectReads + sample.clientRectReads,
+        0,
+      );
+      const searchIndex = results[0]?.searchIndex;
+
+      if (!searchIndex || !results[0]?.state) {
+        throw new Error("Expected rich search index for ranked probe samples.");
+      }
+
+      const layout = measureRichStateLayout(fixture, results[0].state);
+      const rank = rankRichState(searchIndex, results[0].state);
+
+      expect(results[0]?.state?.kind).toBe("clamped");
+      expect(boundingRectReads).toBeGreaterThan(0);
+      expect(samples.length).toBe(layoutReads);
+      expect(layout.bounds.width).toBeGreaterThan(0);
+      expect(layout.bounds.height).toBeGreaterThan(0);
+      expect(rank).not.toBeNull();
+      expect(rank?.rank).toBeGreaterThanOrEqual(0);
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
+  it("derives one-line rich packing slack from fit probe bounds", async () => {
+    const longToken = "observabilityPlatformTelemetryPipeline";
+    const previousWidth = 110;
+    const nextWidth = 120;
+    const rootStyle = ["font-size:18px"];
+    const probe = await collectRichProbeLayout({
+      html: `<span>${longToken}</span>`,
+      lineLimit: 1,
+      rootStyle,
+      width: previousWidth,
+    });
+
+    if (!probe.rank.textRankSafe || probe.boundsWidth === undefined) {
+      throw new Error("Expected one-line rich text result to publish safe probe bounds.");
+    }
+
+    const previousText = `${longToken.slice(0, probe.rank.rank)}…`;
+    const measuredSlack = Math.max(0, previousWidth - measureTextWidth(previousText, rootStyle));
+    const probeSlack = Math.max(0, previousWidth - probe.boundsWidth);
+    const advances = measureAdvances(longToken, rootStyle);
+    const advance = advanceRange(advances);
+    const localInterval = estimateTargetRankLocalInterval({
+      advance,
+      advances,
+      lineCapacity: 1,
+      nextWidth,
+      previousRank: probe.rank.rank,
+      previousWidth,
+      rankCount: probe.rank.rankCount,
+    });
+    const slackInterval = estimateTargetRankLocalInterval({
+      advance,
+      advances,
+      lineCapacity: 1,
+      nextWidth,
+      packingSlack: probeSlack,
+      previousRank: probe.rank.rank,
+      previousWidth,
+      rankCount: probe.rank.rankCount,
+    });
+    const localDecision = warmSearchDecision({
+      allowPatchTieBreak: true,
+      count: probe.rank.rankCount,
+      expansionLimit: richWarmExpansionLimit,
+      hint: probe.rank.rank,
+      interval: localInterval,
+    });
+    const slackDecision = warmSearchDecision({
+      allowPatchTieBreak: true,
+      count: probe.rank.rankCount,
+      expansionLimit: richWarmExpansionLimit,
+      hint: probe.rank.rank,
+      interval: slackInterval,
+    });
+
+    expect(probe.fitProbeCount).toBe(probe.rectReads + probe.clientRectReads);
+    expect(probeSlack).toBeCloseTo(measuredSlack, 3);
+    expect(localDecision.useWarm).toBe(false);
+    expect(localDecision.requiredCredit).toBeGreaterThan(0);
+    expect(slackInterval.max).toBeLessThan(localInterval.max);
+    expect(slackDecision.requiredCredit).toBe(0);
+    expect(slackDecision.useWarm).toBe(true);
+  });
+
+  it("derives affixed one-line rich packing slack from fit probe line boxes", async () => {
+    const longToken = "observabilityPlatformTelemetryPipeline";
+    const affixWidths = [36, 28] as const;
+    const previousWidth = 150;
+    const nextWidth = 160;
+    const rootStyle = ["font-size:18px"];
+    const probe = await collectRichProbeLayout({
+      affixWidths,
+      html: `<span>${longToken}</span>`,
+      lineLimit: 1,
+      rootStyle,
+      width: previousWidth,
+    });
+
+    if (!probe.rank.textRankSafe || probe.lineWidth === undefined) {
+      throw new Error("Expected affixed rich text result to publish safe line-box width.");
+    }
+
+    const previousText = `${longToken.slice(0, probe.rank.rank)}…`;
+    const measuredSlack = Math.max(
+      0,
+      previousWidth - measureTextWidth(previousText, rootStyle) - affixWidths[0] - affixWidths[1],
+    );
+    const probeSlack = Math.max(0, previousWidth - probe.lineWidth);
+    const advances = measureAdvances(longToken, rootStyle);
+    const advance = advanceRange(advances);
+    const localInterval = estimateTargetRankLocalInterval({
+      advance,
+      advances,
+      lineCapacity: 1,
+      nextWidth,
+      previousRank: probe.rank.rank,
+      previousWidth,
+      rankCount: probe.rank.rankCount,
+    });
+    const slackInterval = estimateTargetRankLocalInterval({
+      advance,
+      advances,
+      lineCapacity: 1,
+      nextWidth,
+      packingSlack: probeSlack,
+      previousRank: probe.rank.rank,
+      previousWidth,
+      rankCount: probe.rank.rankCount,
+    });
+    const localDecision = warmSearchDecision({
+      allowPatchTieBreak: true,
+      count: probe.rank.rankCount,
+      expansionLimit: richWarmExpansionLimit,
+      hint: probe.rank.rank,
+      interval: localInterval,
+    });
+    const slackDecision = warmSearchDecision({
+      allowPatchTieBreak: true,
+      count: probe.rank.rankCount,
+      expansionLimit: richWarmExpansionLimit,
+      hint: probe.rank.rank,
+      interval: slackInterval,
+    });
+
+    expect(probe.fitProbeCount).toBe(probe.clientRectReads);
+    expect(probe.rectReads).toBe(0);
+    expect(probe.boundsWidth).toBeUndefined();
+    expect(probeSlack).toBeCloseTo(measuredSlack, 3);
+    expect(localDecision.useWarm).toBe(false);
+    expect(localDecision.requiredCredit).toBeGreaterThan(0);
+    expect(slackInterval.max).toBeLessThanOrEqual(localInterval.max);
+    expect(slackDecision.useWarm).toBe(true);
+  });
+
+  it("bounds two-line affixed rich movement with fit probe line slack", async () => {
+    const longToken = "observabilityPlatformTelemetryPipeline";
+    const affixWidths = [36, 28] as const;
+    const previousWidth = 150;
+    const nextWidth = 170;
+    const rootStyle = ["font-size:18px"];
+    const probe = await collectRichProbeLayout({
+      affixWidths,
+      html: `<span>${longToken}</span>`,
+      lineLimit: 2,
+      rootStyle,
+      width: previousWidth,
+    });
+    const next = await richMixedRankForLayout({
+      affixWidths,
+      html: `<span>${longToken}</span>`,
+      lineLimit: 2,
+      rootStyle,
+      width: nextWidth,
+    });
+
+    if (!probe.rank.textRankSafe || probe.lineSlack === undefined) {
+      throw new Error("Expected two-line affixed rich text result to publish safe line slack.");
+    }
+
+    const advances = measureAdvances(longToken, rootStyle);
+    const advance = advanceRange(advances);
+    const localInterval = estimateTargetRankLocalInterval({
+      advance,
+      advances,
+      lineCapacity: 2,
+      nextWidth,
+      previousRank: probe.rank.rank,
+      previousWidth,
+      rankCount: probe.rank.rankCount,
+    });
+    const slackInterval = estimateTargetRankLocalInterval({
+      advance,
+      advances,
+      lineCapacity: 2,
+      nextWidth,
+      packingSlack: probe.lineSlack,
+      previousRank: probe.rank.rank,
+      previousWidth,
+      rankCount: probe.rank.rankCount,
+    });
+
+    expect(probe.fitProbeCount).toBe(probe.clientRectReads);
+    expect(probe.rectReads).toBe(0);
+    expect(probe.lineCount).toBe(2);
+    expect(probe.boundsWidth).toBeUndefined();
+    expect(next.rank).toBeGreaterThanOrEqual(slackInterval.min);
+    expect(next.rank).toBeLessThanOrEqual(slackInterval.max);
+    expect(slackInterval.max).toBeLessThanOrEqual(localInterval.max);
+    expect(slackInterval.min).toBeGreaterThanOrEqual(localInterval.min);
+  });
+
+  it("keeps two-line affixed rich shrink outside slack-tightened advance calibration", async () => {
+    const longToken = "observabilityPlatformTelemetryPipeline";
+    const affixWidths = [36, 28] as const;
+    const previousWidth = 170;
+    const nextWidth = 150;
+    const rootStyle = ["font-size:18px"];
+    const probe = await collectRichProbeLayout({
+      affixWidths,
+      html: `<span>${longToken}</span>`,
+      lineLimit: 2,
+      rootStyle,
+      width: previousWidth,
+    });
+    const next = await richMixedRankForLayout({
+      affixWidths,
+      html: `<span>${longToken}</span>`,
+      lineLimit: 2,
+      rootStyle,
+      width: nextWidth,
+    });
+
+    if (!probe.rank.textRankSafe || probe.lineSlack === undefined) {
+      throw new Error("Expected two-line affixed rich text result to publish safe line slack.");
+    }
+
+    const advances = measureAdvances(longToken, rootStyle);
+    const advance = advanceRange(advances);
+    const localInterval = estimateTargetRankLocalInterval({
+      advance,
+      advances,
+      lineCapacity: 2,
+      nextWidth,
+      previousRank: probe.rank.rank,
+      previousWidth,
+      rankCount: probe.rank.rankCount,
+    });
+    const unsafeInterval = estimateTargetRankLocalInterval({
+      advance,
+      advances,
+      lineCapacity: 2,
+      nextWidth,
+      packingSlack: probe.lineSlack,
+      previousRank: probe.rank.rank,
+      previousWidth,
+      rankCount: probe.rank.rankCount,
+      shrinkLineBreaksKnown: true,
+    });
+
+    expect(probe.fitProbeCount).toBe(probe.clientRectReads);
+    expect(probe.rectReads).toBe(0);
+    expect(probe.lineCount).toBe(2);
+    expect(probe.boundsWidth).toBeUndefined();
+    expect(next.rank).toBeLessThanOrEqual(probe.rank.rank);
+    expect(next.rank).toBeGreaterThanOrEqual(localInterval.min);
+    expect(next.rank).toBeLessThan(unsafeInterval.min);
+    expect(unsafeInterval.max).toBeLessThanOrEqual(localInterval.max);
+    expect(unsafeInterval.min).toBeGreaterThanOrEqual(localInterval.min);
+  });
+
+  it("observes rich shrink line-count overflow beyond total capacity slack", async () => {
+    const longToken = "observabilityPlatformTelemetryPipeline";
+    const affixWidths = [36, 28] as const;
+    const lineLimit = 2;
+    const previousWidth = 170;
+    const nextWidth = 150;
+    const fixture = createRichClampFixture({
+      affixWidths,
+      html: `<span>${longToken}</span>`,
+      lineLimit,
+      rootStyle: ["font-size:18px"],
+      width: previousWidth,
+    });
+
+    try {
+      const previous = fixture.clamp();
+      if (!previous.state || !previous.searchIndex) {
+        throw new Error("Expected initial rich clamp to publish searchable state.");
+      }
+
+      const rank = rankRichState(previous.searchIndex, previous.state);
+      if (!rank?.textRankSafe) {
+        throw new Error("Expected two-line affixed rich clamp to publish a safe mixed rank.");
+      }
+
+      const before = lineMetricsForRects(
+        previousWidth,
+        Array.from(fixture.content.getClientRects()),
+        lineLimit,
+      );
+      if (before.slack === undefined) {
+        throw new Error("Expected previous rich candidate to publish line slack.");
+      }
+
+      fixture.root.style.width = `${nextWidth}px`;
+      const next = clampRich({
+        ellipsis: "…",
+        from: previous.state,
+        hint: previous.state,
+        lineLimit,
+        maxHeight: undefined,
+        preferHintedTextRun: true,
+        prepared: fixture.prepared,
+        probe: {
+          body: fixture.body,
+          content: fixture.content,
+          root: fixture.root,
+          width: nextWidth,
+        },
+        reuseSimpleLineFit: true,
+        searchIndex: previous.searchIndex,
+        skipFullFit: true,
+        verifyFullCandidate: false,
+      });
+
+      if (!next.state) {
+        throw new Error("Expected next rich clamp to produce a state.");
+      }
+
+      const nextRank = rankRichState(previous.searchIndex, next.state);
+      if (!nextRank?.textRankSafe) {
+        throw new Error("Expected next rich clamp to publish a safe mixed rank.");
+      }
+
+      const advances = measureAdvances(longToken, ["font-size:18px"]);
+      const unsafeInterval = estimateTargetRankLocalInterval({
+        advance: advanceRange(advances),
+        advances,
+        lineCapacity: lineLimit,
+        nextWidth,
+        packingSlack: before.slack,
+        previousRank: rank.rank,
+        previousWidth,
+        rankCount: rank.rankCount,
+        shrinkLineBreaksKnown: true,
+      });
+      const predictedRank = unsafeInterval.min;
+      const predictedLayout = measureRichRankLayout(fixture, previous.searchIndex, predictedRank);
+      const predictedMetrics = lineMetricsForRects(nextWidth, predictedLayout.rects, lineLimit);
+
+      expect(nextRank.rank).toBeLessThan(predictedRank);
+      expect(predictedMetrics.lineCount).toBeGreaterThan(lineLimit);
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
+  it("bounds three-line affixed rich movement with fit probe line slack", async () => {
+    const longToken = "observabilityPlatformTelemetryPipeline".repeat(2);
+    const affixWidths = [36, 28] as const;
+    const previousWidth = 150;
+    const nextWidth = 190;
+    const rootStyle = ["font-size:18px"];
+    const probe = await collectRichProbeLayout({
+      affixWidths,
+      html: `<span>${longToken}</span>`,
+      lineLimit: 3,
+      rootStyle,
+      width: previousWidth,
+    });
+    const next = await richMixedRankForLayout({
+      affixWidths,
+      html: `<span>${longToken}</span>`,
+      lineLimit: 3,
+      rootStyle,
+      width: nextWidth,
+    });
+
+    if (!probe.rank.textRankSafe || probe.lineSlack === undefined) {
+      throw new Error("Expected three-line affixed rich text result to publish safe line slack.");
+    }
+
+    const advances = measureAdvances(longToken, rootStyle);
+    const advance = advanceRange(advances);
+    const localInterval = estimateTargetRankLocalInterval({
+      advance,
+      advances,
+      lineCapacity: 3,
+      nextWidth,
+      previousRank: probe.rank.rank,
+      previousWidth,
+      rankCount: probe.rank.rankCount,
+    });
+    const slackInterval = estimateTargetRankLocalInterval({
+      advance,
+      advances,
+      lineCapacity: 3,
+      nextWidth,
+      packingSlack: probe.lineSlack,
+      previousRank: probe.rank.rank,
+      previousWidth,
+      rankCount: probe.rank.rankCount,
+    });
+
+    expect(probe.fitProbeCount).toBe(probe.clientRectReads);
+    expect(probe.rectReads).toBe(0);
+    expect(probe.lineCount).toBe(3);
+    expect(probe.boundsWidth).toBeUndefined();
+    expect(next.rank).toBeGreaterThanOrEqual(slackInterval.min);
+    expect(next.rank).toBeLessThanOrEqual(slackInterval.max);
+    expect(slackInterval.max).toBeLessThanOrEqual(localInterval.max);
+    expect(slackInterval.min).toBeGreaterThanOrEqual(localInterval.min);
+  });
+
+  it("counts unused rich lines as grow packing slack", async () => {
+    const lineLimit = 2;
+    const affixWidths = [20, 12] as const;
+    const fixture = createRichClampFixture({
+      affixWidths,
+      html: "<span></span>",
+      lineLimit,
+      rootStyle: ["font-size:18px"],
+      width: 190,
+    });
+    const prefixes = [
+      "alpha beta gamma",
+      "metrics traces logs",
+      "release channels",
+      "observability data",
+    ];
+    const suffixes = ["observabilityPlatformTelemetry", "pipelineDiagnostics", "dashboardLatency"];
+
+    try {
+      for (const prefix of prefixes) {
+        fixture.body.textContent = `${prefix}…`;
+        const before = lineMetricsForRects(
+          190,
+          Array.from(fixture.content.getClientRects()),
+          lineLimit,
+        );
+
+        if (before.lineCount !== 1 || before.usedWidth === undefined) {
+          continue;
+        }
+
+        const existingLineSlack = before.lineCount * 190 - before.usedWidth;
+        const totalLineSlack = lineLimit * 190 - before.usedWidth;
+
+        for (const suffix of suffixes) {
+          fixture.body.textContent = `${prefix} ${suffix}…`;
+          const after = lineMetricsForRects(
+            190,
+            Array.from(fixture.content.getClientRects()),
+            lineLimit,
+          );
+
+          if (after.lineCount !== 2 || after.usedWidth === undefined) {
+            continue;
+          }
+
+          const addedWidth = after.usedWidth - before.usedWidth;
+          if (addedWidth > existingLineSlack && addedWidth <= totalLineSlack) {
+            expect(addedWidth).toBeGreaterThan(existingLineSlack);
+            expect(addedWidth).toBeLessThanOrEqual(totalLineSlack);
+            expect(totalLineSlack).toBe(existingLineSlack + 190);
+            return;
+          }
+        }
+      }
+    } finally {
+      fixture.cleanup();
+    }
+
+    throw new Error("Expected unused line capacity to cover a two-line Rich candidate.");
+  });
+
+  it("counts unused rich lines as shrink packing slack", async () => {
+    const lineLimit = 2;
+    const previousWidth = 190;
+    const affixWidths = [20, 12] as const;
+    const fixture = createRichClampFixture({
+      affixWidths,
+      html: "<span></span>",
+      lineLimit,
+      rootStyle: ["font-size:18px"],
+      width: previousWidth,
+    });
+    const prefixes = [
+      "alpha beta gamma",
+      "metrics traces logs",
+      "release channels",
+      "observability data",
+    ];
+
+    try {
+      for (const prefix of prefixes) {
+        fixture.root.style.width = `${previousWidth}px`;
+        fixture.body.textContent = `${prefix}…`;
+        const before = lineMetricsForRects(
+          previousWidth,
+          Array.from(fixture.content.getClientRects()),
+          lineLimit,
+        );
+
+        if (before.lineCount !== 1 || before.usedWidth === undefined) {
+          continue;
+        }
+
+        const existingLineSlack = before.lineCount * previousWidth - before.usedWidth;
+        const totalLineSlack = lineLimit * previousWidth - before.usedWidth;
+
+        for (const nextWidth of [180, 170, 160, 150, 140, 130]) {
+          const widthLoss = previousWidth - nextWidth;
+          const existingCapacityLoss = widthLoss * before.lineCount;
+          const totalCapacityLoss = widthLoss * lineLimit;
+
+          if (existingCapacityLoss <= existingLineSlack || totalCapacityLoss > totalLineSlack) {
+            continue;
+          }
+
+          fixture.root.style.width = `${nextWidth}px`;
+          const after = lineMetricsForRects(
+            nextWidth,
+            Array.from(fixture.content.getClientRects()),
+            lineLimit,
+          );
+
+          if (after.lineCount > 0 && after.lineCount <= lineLimit) {
+            expect(existingCapacityLoss).toBeGreaterThan(existingLineSlack);
+            expect(totalCapacityLoss).toBeLessThanOrEqual(totalLineSlack);
+            expect(after.lineCount).toBe(lineLimit);
+            return;
+          }
+        }
+      }
+    } finally {
+      fixture.cleanup();
+    }
+
+    throw new Error("Expected unused line capacity to absorb a Rich shrink.");
+  });
+
+  it("keeps max-height-only rich bounds outside line-slack calibration", async () => {
+    const text = "observabilityPlatformTelemetryPipeline".repeat(4);
+    const previousWidth = 160;
+    const nextWidth = 220;
+    const rootStyle = ["font-size:18px", "line-height:28px"];
+    const probe = await collectRichProbeLayout({
+      html: `<span>${text}</span>`,
+      maxHeight: "60px",
+      rootStyle,
+      width: previousWidth,
+    });
+    const next = await richMixedRankForLayout({
+      html: `<span>${text}</span>`,
+      maxHeight: "60px",
+      rootStyle,
+      width: nextWidth,
+    });
+
+    if (!probe.rank.textRankSafe || probe.boundsWidth === undefined) {
+      throw new Error("Expected roomy max-height rich result to publish safe bounds.");
+    }
+
+    const advances = measureAdvances(text, rootStyle);
+    const interval = estimateTargetRankInterval({
+      advance: advanceRange(advances),
+      lineCapacity: 2,
+      nextWidth,
+      previousRank: probe.rank.rank,
+      previousWidth,
+      rankCount: probe.rank.rankCount,
+    });
+    const room = estimateWarmSearchWidthRoom({
+      advances,
+      allowPatchTieBreak: true,
+      count: probe.rank.rankCount,
+      expansionLimit: richWarmExpansionLimit,
+      hint: probe.rank.rank,
+      lineCapacity: 2,
+    });
+
+    expect(probe.fitProbeCount).toBe(probe.rectReads);
+    expect(probe.clientRectReads).toBe(0);
+    expect(probe.lineSlack).toBeUndefined();
+    expect(probe.boundsWidth).toBeGreaterThan(0);
+    expect(next.rank).toBeGreaterThanOrEqual(interval.min);
+    expect(next.rank).toBeLessThanOrEqual(interval.max);
+    expect(room.widthDeltaLimit).toBe(0);
+  });
+
+  it("keeps atomic rich probe bounds outside text-rank slack calibration", async () => {
+    const longToken = "observabilityPlatformTelemetryPipeline";
+    const probe = await collectRichProbeLayout({
+      html: `<span style="display:inline-block;width:44px;height:14px;vertical-align:baseline"></span> ${longToken}`,
+      lineLimit: 1,
+      rootStyle: ["font-size:18px"],
+      width: 70,
+    });
+
+    expect(probe.fitProbeCount).toBe(probe.clientRectReads);
+    expect(probe.rectReads).toBe(0);
+    expect(probe.boundsWidth).toBeUndefined();
+    expect(probe.lineWidth).toBeGreaterThan(0);
+    expect(probe.rank.textRankSafe).toBe(false);
+  });
+
+  it("learns adjacent rich candidate advances from warm fit probe bounds", async () => {
+    const longToken = "observabilityPlatformTelemetryPipeline";
+    const rootStyle = ["font-size:18px"];
+    const fixture = createRichClampFixture({
+      html: `<span>${longToken}</span>`,
+      rootStyle,
+      width: 110,
+    });
+
+    try {
+      const previous = fixture.clamp();
+      if (!previous.state || !previous.searchIndex) {
+        throw new Error("Expected initial rich clamp to publish searchable state.");
+      }
+      const previousRank = rankRichState(previous.searchIndex, previous.state);
+      if (!previousRank) {
+        throw new Error("Expected initial rich clamp to publish mixed rank.");
+      }
+
+      fixture.root.style.width = "120px";
+      clampRich({
+        ellipsis: "…",
+        from: previous.state,
+        hint: previous.state,
+        lineLimit: 1,
+        maxHeight: undefined,
+        preferHintedTextRun: true,
+        prepared: fixture.prepared,
+        probe: {
+          body: fixture.body,
+          content: fixture.content,
+          root: fixture.root,
+          width: 120,
+        },
+        reuseSimpleLineFit: true,
+        searchIndex: previous.searchIndex,
+        skipFullFit: true,
+        verifyFullCandidate: false,
+      });
+
+      const advances = measureAdvances(longToken, rootStyle);
+      const requiredWindow = warmSearchAdvanceWindow({
+        allowPatchTieBreak: true,
+        count: previousRank.rankCount,
+        expansionLimit: richWarmExpansionLimit,
+        hint: previousRank.rank,
+      });
+      const widthByRank = new Map<number, number>();
+      for (const rank of windowRanks(requiredWindow.indexes)) {
+        const layout = measureRichRankLayout(fixture, previous.searchIndex, rank);
+        const sampleRank = rankRichState(previous.searchIndex, layout.state);
+        if (sampleRank?.textRankSafe) {
+          widthByRank.set(sampleRank.rank, layout.bounds.width);
+        }
+      }
+
+      const learnedAdvances = advancesFromWidths(widthByRank);
+      const learnedRank = learnedAdvances.findIndex(
+        (advance, rank) =>
+          advance > 0 && advances[rank] !== undefined && requiredWindow.indexes.includes(rank),
+      );
+
+      expect(requiredWindow.useWarm).toBe(true);
+      expect(learnedRank).toBeGreaterThanOrEqual(0);
+      expect(learnedAdvances[learnedRank]).toBeCloseTo(advances[learnedRank]!, 3);
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
+  it("learns affixed rich candidate advances from line boxes", async () => {
+    const longToken = "observabilityPlatformTelemetryPipeline";
+    const rootStyle = ["font-size:18px"];
+    const fixture = createRichClampFixture({
+      affixWidths: [36, 28],
+      html: `<span>${longToken}</span>`,
+      lineLimit: 1,
+      rootStyle,
+      width: 150,
+    });
+
+    try {
+      const previous = fixture.clamp();
+      if (!previous.state || !previous.searchIndex) {
+        throw new Error("Expected initial rich clamp to publish searchable state.");
+      }
+      const previousRank = rankRichState(previous.searchIndex, previous.state);
+      if (!previousRank?.textRankSafe) {
+        throw new Error("Expected initial affixed rich clamp to publish safe mixed rank.");
+      }
+
+      fixture.root.style.width = "160px";
+      clampRich({
+        ellipsis: "…",
+        from: previous.state,
+        hint: previous.state,
+        lineLimit: 1,
+        maxHeight: undefined,
+        preferHintedTextRun: true,
+        prepared: fixture.prepared,
+        probe: {
+          body: fixture.body,
+          content: fixture.content,
+          root: fixture.root,
+          width: 160,
+        },
+        reuseSimpleLineFit: true,
+        searchIndex: previous.searchIndex,
+        skipFullFit: true,
+        verifyFullCandidate: false,
+      });
+
+      const advances = measureAdvances(longToken, rootStyle);
+      const requiredWindow = warmSearchAdvanceWindow({
+        allowPatchTieBreak: true,
+        count: previousRank.rankCount,
+        expansionLimit: richWarmExpansionLimit,
+        hint: previousRank.rank,
+      });
+      const widthByRank = new Map<number, number>();
+      for (const rank of windowRanks(requiredWindow.indexes)) {
+        const layout = measureRichRankLayout(fixture, previous.searchIndex, rank);
+        const sampleRank = rankRichState(previous.searchIndex, layout.state);
+        const metrics = lineMetricsForRects(160, layout.rects);
+        if (sampleRank?.textRankSafe && metrics.maxWidth !== undefined) {
+          widthByRank.set(sampleRank.rank, metrics.maxWidth);
+        }
+      }
+
+      const learnedAdvances = advancesFromWidths(widthByRank);
+      const learnedRank = learnedAdvances.findIndex(
+        (advance, rank) =>
+          advance > 0 && advances[rank] !== undefined && requiredWindow.indexes.includes(rank),
+      );
+
+      expect(requiredWindow.useWarm).toBe(true);
+      expect(widthByRank.size).toBeGreaterThan(0);
+      expect(learnedRank).toBeGreaterThanOrEqual(0);
+      expect(learnedAdvances[learnedRank]).toBeCloseTo(advances[learnedRank]!, 3);
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
+  it("learns two-line affixed rich candidate advances from line boxes", async () => {
+    const longToken = "observabilityPlatformTelemetryPipeline";
+    const rootStyle = ["font-size:18px"];
+    const fixture = createRichClampFixture({
+      affixWidths: [36, 28],
+      html: `<span>${longToken}</span>`,
+      lineLimit: 2,
+      rootStyle,
+      width: 150,
+    });
+
+    try {
+      const previous = fixture.clamp();
+      if (!previous.state || !previous.searchIndex) {
+        throw new Error("Expected initial rich clamp to publish searchable state.");
+      }
+      const previousRank = rankRichState(previous.searchIndex, previous.state);
+      if (!previousRank?.textRankSafe) {
+        throw new Error("Expected initial two-line affixed clamp to publish safe mixed rank.");
+      }
+
+      fixture.root.style.width = "170px";
+      clampRich({
+        ellipsis: "…",
+        from: previous.state,
+        hint: previous.state,
+        lineLimit: 2,
+        maxHeight: undefined,
+        preferHintedTextRun: true,
+        prepared: fixture.prepared,
+        probe: {
+          body: fixture.body,
+          content: fixture.content,
+          root: fixture.root,
+          width: 170,
+        },
+        reuseSimpleLineFit: true,
+        searchIndex: previous.searchIndex,
+        skipFullFit: true,
+        verifyFullCandidate: false,
+      });
+
+      const advances = measureAdvances(longToken, rootStyle);
+      const requiredWindow = warmSearchAdvanceWindow({
+        allowPatchTieBreak: true,
+        count: previousRank.rankCount,
+        expansionLimit: richWarmExpansionLimit,
+        hint: previousRank.rank,
+      });
+      const usedWidthByRank = new Map<number, number>();
+      for (const rank of windowRanks(requiredWindow.indexes)) {
+        const layout = measureRichRankLayout(fixture, previous.searchIndex, rank);
+        const sampleRank = rankRichState(previous.searchIndex, layout.state);
+        const metrics = lineMetricsForRects(170, layout.rects);
+        if (sampleRank?.textRankSafe && metrics.usedWidth !== undefined) {
+          usedWidthByRank.set(sampleRank.rank, metrics.usedWidth);
+        }
+      }
+
+      const learnedAdvances = advancesFromWidths(usedWidthByRank);
+      const learnedRank = learnedAdvances.findIndex(
+        (advance, rank) =>
+          advance > 0 && advances[rank] !== undefined && requiredWindow.indexes.includes(rank),
+      );
+
+      expect(requiredWindow.useWarm).toBe(true);
+      expect(usedWidthByRank.size).toBeGreaterThan(0);
+      expect(learnedRank).toBeGreaterThanOrEqual(0);
+      expect(learnedAdvances[learnedRank]).toBeCloseTo(advances[learnedRank]!, 3);
+    } finally {
+      fixture.cleanup();
     }
   });
 
@@ -2381,25 +5423,24 @@ describe("LineClamp browser contract", () => {
 
   it("rebuilds cached rich search metadata when inline wrappers become atomic", async () => {
     const fixture = createRichClampFixture({
+      className: "dynamic-rich-host",
       html: "<span>observabilityPlatform1</span> trailing copy",
+      styles: [".dynamic-rich-host span{display:inline;width:80px}"],
     });
 
     try {
       await settle(1);
       const first = fixture.clamp();
 
-      const span = fixture.body.querySelector("span");
-      if (!span) {
-        throw new Error("Expected rich body to contain the source span.");
-      }
-      span.style.display = "inline-block";
-      span.style.width = "180px";
+      expect(fixture.body.querySelector("span")).toBeNull();
+      fixture.styles[0]!.textContent = ".dynamic-rich-host span{display:inline-block;width:80px}";
+      await settle(1);
 
       const result = fixture.reclamp(first);
 
       expect(result.fallback).toBe(false);
-      expect(fixture.body.querySelector("span")).toBeNull();
-      expect(fixture.body.textContent).toBe("…");
+      expect(result.searchIndex?.atomicPathSignature).toBe("0");
+      expect(fixture.body.querySelector("span")?.textContent).toBe("observabilityPlatform1");
     } finally {
       fixture.cleanup();
     }

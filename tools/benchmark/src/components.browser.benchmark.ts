@@ -142,6 +142,10 @@ const wordBoundaryText =
   "International operations teams summarize customer-facing incidents, regional mitigations, and follow-up ownership without breaking words awkwardly.";
 const cjkWordBoundaryText =
   "国际响应团队需要在多区域故障期间保持客户沟通、缓解措施和后续责任清晰可见，同时避免在关键短语中间截断。";
+const emojiZwjText =
+  "Incident roles 👩‍💻 🧑‍🚒 👨‍👩‍👧‍👦 stay grouped with status signals ✅ ❤️‍🔥 while dashboards resize.";
+const rtlBidiText =
+  "فرق الاستجابة تراجع incident 4721 و API latency وتبقي ownership واضحا أثناء تغيّر العرض.";
 const longTokenWordBoundaryText = Array.from(
   { length: 36 },
   (_, index) => `observabilityPlatform${index + 1}`,
@@ -149,6 +153,7 @@ const longTokenWordBoundaryText = Array.from(
 const fallbackWordBoundaryText = "supercalifragilisticexpialidocious".repeat(8);
 const sameWidthFontRecoveryText =
   "Release dashboards keep ownership visible after regional incidents across regions.";
+const unclampedFontFaceText = "Release ownership remains visible.";
 const inlineText =
   "/workspace/vue-clamp/packages/components/long-generated-file-name.browser.benchmark.ts";
 const inlineSentence =
@@ -163,8 +168,13 @@ const richWordHtml =
   "<strong>International response</strong> keeps regional mitigations, customer communications, and ownership notes readable without cutting important words in half.";
 const richCjkWordHtml =
   '<strong>国际响应</strong>团队需要在<a href="/status">多区域故障</a>期间保留客户沟通、缓解措施和后续责任，避免关键短语被截断。';
+const richEmojiZwjHtml =
+  "<strong>Incident roles</strong> 👩‍💻 <span>🧑‍🚒</span> <em>👨‍👩‍👧‍👦</em> stay grouped with status signals ✅ ❤️‍🔥 while dashboards resize.";
+const richRtlBidiHtml =
+  "<strong>فرق الاستجابة</strong> تراجع <span>incident 4721</span> و <code>API latency</code> وتبقي ownership واضحا أثناء تغيّر العرض.";
 const richSameWidthFontRecoveryHtml =
   "<strong>Release dashboards</strong> keep ownership visible after <em>regional incidents across regions</em>.";
+const richUnclampedFontFaceHtml = "<strong>Release ownership</strong> remains visible.";
 const richLongTokenHtml = `<strong>Telemetry</strong> ${Array.from(
   { length: 28 },
   (_, index) => `<span>observabilityPlatform${index + 1}</span>`,
@@ -177,6 +187,10 @@ const richDynamicAtomicCss =
   ".rich-dynamic-token{display:var(--bench-rich-token-display,inline);width:42px;height:14px;vertical-align:baseline}";
 const richDynamicAtomicHtml =
   '<span class="rich-dynamic-token">Alpha</span> <span class="rich-dynamic-token">Beta</span> dynamic rich copy for wrappers that switch between text flow and atomic boxes.';
+const richNestedMetricCss =
+  ".rich-nested-metric{font-size:var(--bench-nested-font-size,16px);line-height:20px;vertical-align:baseline}";
+const richNestedMetricHtml =
+  '<span>Incident response </span><span><em class="rich-nested-metric">ownership escalations and regional mitigations</em></span><span> remain readable while nested inline metrics change inside transparent wrappers.</span>';
 const denseRichHtmls = Array.from(
   { length: 40 },
   (_, index) =>
@@ -209,6 +223,8 @@ const lineCjkJitterWidths = [
   241, 267, 289, 323, 351, 386, 414, 449, 478, 505,
 ];
 const lineCjkNovelJitterWidths = novelJitterWidths(35, 420, 260, 560, 79, 0x235);
+const lineEmojiNovelJitterWidths = novelJitterWidths(35, 390, 220, 560, 79, 0x236);
+const lineRtlNovelJitterWidths = novelJitterWidths(35, 420, 240, 560, 79, 0x237);
 const lineHeightAffixWidths = [
   ...repeatedWidths([460, 180, 440, 200, 420, 160, 460], 4),
   ...widthSweep(460, 180, -20),
@@ -230,9 +246,12 @@ const richCjkJitterWidths = [
   258, 291, 323, 346, 376, 392,
 ];
 const richCjkNovelJitterWidths = novelJitterWidths(35, 320, 180, 460, 73, 0x532);
+const richEmojiNovelJitterWidths = novelJitterWidths(35, 320, 180, 460, 73, 0x533);
+const richRtlNovelJitterWidths = novelJitterWidths(35, 340, 190, 480, 73, 0x534);
 const richLongTokenWidths = repeatedWidths([640, 560, 620, 540, 600, 520, 640], 5);
 const richLongTokenNovelJitterWidths = novelJitterWidths(35, 590, 480, 680, 79, 0x552);
 const richFullFitTransitionWidths = [180, 220, 960, 180, 960, 220, 960];
+const sameWidthFontTickWidths = [560, 560, 560, 560, 560, 560, 560];
 const sameWidthFontRecoveryWidths = [420, 420, 420, 420, 420, 420, 420];
 const largeWidthDeltaThreshold = 32;
 const lineBatchSize = 16;
@@ -243,6 +262,25 @@ const targets = benchmarkTargets as BenchmarkTarget[];
 
 async function dispatchFontLoadRecompute(): Promise<void> {
   document.fonts?.dispatchEvent(new Event("loadingdone"));
+  await flushVueUpdates();
+}
+
+async function fontFaceLoadEvent(family: string): Promise<Event> {
+  const face = new FontFace(family, "local(Arial)");
+  await face.load();
+
+  return new FontFaceSetLoadEvent("loadingdone", {
+    fontfaces: [face],
+  });
+}
+
+async function dispatchUnusedFontFaceRecompute(): Promise<void> {
+  document.fonts?.dispatchEvent(await fontFaceLoadEvent("UnusedBenchFont"));
+  await flushVueUpdates();
+}
+
+async function dispatchUsedFontFaceRecompute(): Promise<void> {
+  document.fonts?.dispatchEvent(await fontFaceLoadEvent("Georgia"));
   await flushVueUpdates();
 }
 
@@ -268,6 +306,22 @@ async function toggleRichAtomicDisplay(mounted: MountedScenario, stepIndex: numb
   mounted.container.style.setProperty(
     "--bench-rich-token-display",
     stepIndex % 2 === 0 ? "inline-block" : "inline",
+  );
+  await flushVueUpdates();
+}
+
+async function toggleAffixWidth(mounted: MountedScenario, stepIndex: number): Promise<void> {
+  mounted.container.style.setProperty("--bench-affix-width", stepIndex % 2 === 0 ? "96px" : "32px");
+  await flushVueUpdates();
+}
+
+async function toggleNestedInlineMetrics(
+  mounted: MountedScenario,
+  stepIndex: number,
+): Promise<void> {
+  mounted.container.style.setProperty(
+    "--bench-nested-font-size",
+    stepIndex % 2 === 0 ? "19px" : "13px",
   );
   await flushVueUpdates();
 }
@@ -508,7 +562,7 @@ function novelJitterWidths(
   return widths;
 }
 
-function blockStyle(width: number, fontSize?: string): string {
+function blockStyle(width: number, fontSize?: string, direction?: "ltr" | "rtl"): string {
   const fontStyle = fontSize
     ? [`font-family:Georgia,serif`, `font-size:${fontSize}`]
     : ["font:16px Georgia,serif"];
@@ -519,6 +573,7 @@ function blockStyle(width: number, fontSize?: string): string {
     ...fontStyle,
     "line-height:20px",
     "overflow-wrap:break-word",
+    ...(direction ? [`direction:${direction}`, "text-align:start"] : []),
   ].join(";");
 }
 
@@ -569,9 +624,10 @@ function trackElement(container: HTMLElement): HTMLElement {
 }
 
 type LineClampBatchOptions = {
-  after?: boolean;
+  after?: boolean | "dynamic-width";
   before?: boolean;
   boundary?: "grapheme" | "word";
+  direction?: "ltr" | "rtl";
   ellipsis?: string;
   fontSize?: string;
   location?: "start" | "middle" | "end" | number;
@@ -589,10 +645,11 @@ type InlineClampBatchOptions = {
 };
 
 type RichLineClampBatchOptions = {
-  after?: boolean;
+  after?: boolean | "dynamic-width";
   before?: boolean;
   boundary?: "grapheme" | "word";
   css?: string;
+  direction?: "ltr" | "rtl";
   ellipsis?: string;
   fontSize?: string;
   html?: string;
@@ -653,7 +710,7 @@ async function mountLineClampBatch(
             const props: Record<string, unknown> = {
               key: index,
               maxLines: options.maxLines,
-              style: blockStyle(width.value, options.fontSize),
+              style: blockStyle(width.value, options.fontSize, options.direction),
               text: textVariant(options.text ?? text, index),
             };
             const slots: Record<string, () => VNodeChild> = {};
@@ -684,10 +741,15 @@ async function mountLineClampBatch(
             if (options.after) {
               slots.after = () => {
                 afterSlotCalls.increment();
+                const style =
+                  options.after === "dynamic-width"
+                    ? "display:inline-block;width:var(--bench-affix-width,32px);font:inherit;margin-left:4px;padding:0;border:0;background:transparent;white-space:nowrap"
+                    : "font:inherit;margin-left:4px;padding:0;border:0;background:transparent";
+
                 return h(
                   "button",
                   {
-                    style: "font:inherit;margin-left:4px;padding:0;border:0;background:transparent",
+                    style,
                     type: "button",
                   },
                   "more",
@@ -787,7 +849,7 @@ async function mountRichLineClampBatch(
             const props: Record<string, unknown> = {
               html: richHtmlVariant(options.html ?? richHtml, index),
               key: index,
-              style: blockStyle(width.value, options.fontSize),
+              style: blockStyle(width.value, options.fontSize, options.direction),
             };
             const slots: Record<string, () => VNodeChild> = {};
 
@@ -810,7 +872,12 @@ async function mountRichLineClampBatch(
             if (options.after) {
               slots.after = () => {
                 afterSlotCalls.increment();
-                return h("span", { style: "margin-left:4px" }, "details");
+                const style =
+                  options.after === "dynamic-width"
+                    ? "display:inline-block;width:var(--bench-affix-width,32px);margin-left:4px;white-space:nowrap"
+                    : "margin-left:4px";
+
+                return h("span", { style }, "details");
               };
             }
 
@@ -1288,6 +1355,27 @@ function scenarios(): PublicScenario[] {
     {
       component: "LineClamp",
       group: "line",
+      mount: lineClampBatch({ boundary: "grapheme", maxLines: 3, text: emojiZwjText }),
+      name: "line-grapheme-emoji-zwj-batch-novel-jitter",
+      widths: lineEmojiNovelJitterWidths,
+    },
+    {
+      component: "LineClamp",
+      group: "line",
+      minVersion: "1.3.0",
+      mount: lineClampBatch({
+        boundary: "word",
+        direction: "rtl",
+        maxLines: 3,
+        text: rtlBidiText,
+      }),
+      name: "line-word-rtl-bidi-batch-novel-jitter",
+      unsupportedReason: 'LineClamp boundary="word" was added in vue-clamp 1.3.0.',
+      widths: lineRtlNovelJitterWidths,
+    },
+    {
+      component: "LineClamp",
+      group: "line",
       minVersion: "1.3.0",
       mount: lineClampBatch({ boundary: "word", maxLines: 3, text: fallbackWordBoundaryText }),
       name: "line-word-fallback-batch-continuous",
@@ -1306,6 +1394,21 @@ function scenarios(): PublicScenario[] {
       name: "line-word-long-token-batch-jumps",
       unsupportedReason: 'LineClamp boundary="word" was added in vue-clamp 1.3.0.',
       widths: lineLongTokenWidths,
+    },
+    {
+      beforeStep: toggleAffixWidth,
+      component: "LineClamp",
+      group: "line",
+      minVersion: "1.3.0",
+      mount: lineClampBatch({
+        after: "dynamic-width",
+        boundary: "word",
+        maxLines: 3,
+        text: longTokenWordBoundaryText,
+      }),
+      name: "line-word-long-token-affix-resize-same-width",
+      unsupportedReason: 'LineClamp boundary="word" was added in vue-clamp 1.3.0.',
+      widths: sameWidthFontTickWidths,
     },
     {
       component: "LineClamp",
@@ -1333,6 +1436,62 @@ function scenarios(): PublicScenario[] {
       name: "line-word-long-token-font-tick-jumps",
       unsupportedReason: 'LineClamp boundary="word" was added in vue-clamp 1.3.0.',
       widths: lineLongTokenWidths,
+    },
+    {
+      beforeStep: dispatchFontLoadRecompute,
+      component: "LineClamp",
+      group: "line",
+      minVersion: "1.3.0",
+      mount: lineClampBatch({
+        boundary: "word",
+        maxLines: 3,
+        text: longTokenWordBoundaryText,
+      }),
+      name: "line-word-long-token-font-tick-same-width",
+      unsupportedReason: 'LineClamp boundary="word" was added in vue-clamp 1.3.0.',
+      widths: sameWidthFontTickWidths,
+    },
+    {
+      beforeStep: dispatchUnusedFontFaceRecompute,
+      component: "LineClamp",
+      group: "line",
+      minVersion: "1.3.0",
+      mount: lineClampBatch({
+        boundary: "word",
+        maxLines: 3,
+        text: longTokenWordBoundaryText,
+      }),
+      name: "line-word-long-token-unused-fontface-same-width",
+      unsupportedReason: 'LineClamp boundary="word" was added in vue-clamp 1.3.0.',
+      widths: sameWidthFontTickWidths,
+    },
+    {
+      beforeStep: dispatchUsedFontFaceRecompute,
+      component: "LineClamp",
+      group: "line",
+      minVersion: "1.3.0",
+      mount: lineClampBatch({
+        boundary: "word",
+        maxLines: 3,
+        text: longTokenWordBoundaryText,
+      }),
+      name: "line-word-long-token-used-fontface-same-width",
+      unsupportedReason: 'LineClamp boundary="word" was added in vue-clamp 1.3.0.',
+      widths: sameWidthFontTickWidths,
+    },
+    {
+      beforeStep: dispatchUsedFontFaceRecompute,
+      component: "LineClamp",
+      group: "line",
+      minVersion: "1.3.0",
+      mount: lineClampBatch({
+        boundary: "word",
+        maxLines: 3,
+        text: unclampedFontFaceText,
+      }),
+      name: "line-word-unclamped-used-fontface-same-width",
+      unsupportedReason: 'LineClamp boundary="word" was added in vue-clamp 1.3.0.',
+      widths: sameWidthFontTickWidths,
     },
     {
       beforeStep: dispatchFontSizeRecompute,
@@ -1695,6 +1854,31 @@ function scenarios(): PublicScenario[] {
     {
       component: "RichLineClamp",
       group: "rich",
+      mount: richLineClampBatch({
+        boundary: "grapheme",
+        html: richEmojiZwjHtml,
+        maxLines: 3,
+      }),
+      name: "rich-grapheme-emoji-zwj-batch-novel-jitter",
+      widths: richEmojiNovelJitterWidths,
+    },
+    {
+      component: "RichLineClamp",
+      group: "rich",
+      minVersion: "1.3.0",
+      mount: richLineClampBatch({
+        boundary: "word",
+        direction: "rtl",
+        html: richRtlBidiHtml,
+        maxLines: 3,
+      }),
+      name: "rich-word-rtl-bidi-batch-novel-jitter",
+      unsupportedReason: 'RichLineClamp boundary="word" was added in vue-clamp 1.3.0.',
+      widths: richRtlNovelJitterWidths,
+    },
+    {
+      component: "RichLineClamp",
+      group: "rich",
       minVersion: "1.3.0",
       mount: richLineClampBatch({
         after: true,
@@ -1736,6 +1920,21 @@ function scenarios(): PublicScenario[] {
       widths: repeatedWidths([120, 56, 112, 60, 116, 56, 120], 5),
     },
     {
+      beforeStep: toggleNestedInlineMetrics,
+      component: "RichLineClamp",
+      group: "rich",
+      minVersion: "1.3.0",
+      mount: richLineClampBatch({
+        boundary: "word",
+        css: richNestedMetricCss,
+        html: richNestedMetricHtml,
+        maxLines: 2,
+      }),
+      name: "rich-word-nested-inline-metric-same-width",
+      unsupportedReason: 'RichLineClamp boundary="word" was added in vue-clamp 1.3.0.',
+      widths: sameWidthFontTickWidths,
+    },
+    {
       component: "RichLineClamp",
       group: "rich",
       minVersion: "1.3.0",
@@ -1747,6 +1946,21 @@ function scenarios(): PublicScenario[] {
       name: "rich-word-long-token-batch-jumps",
       unsupportedReason: 'RichLineClamp boundary="word" was added in vue-clamp 1.3.0.',
       widths: richLongTokenWidths,
+    },
+    {
+      beforeStep: toggleAffixWidth,
+      component: "RichLineClamp",
+      group: "rich",
+      minVersion: "1.3.0",
+      mount: richLineClampBatch({
+        after: "dynamic-width",
+        boundary: "word",
+        html: richLongTokenHtml,
+        maxLines: 2,
+      }),
+      name: "rich-word-long-token-affix-resize-same-width",
+      unsupportedReason: 'RichLineClamp boundary="word" was added in vue-clamp 1.3.0.',
+      widths: sameWidthFontTickWidths,
     },
     {
       component: "RichLineClamp",
@@ -1774,6 +1988,62 @@ function scenarios(): PublicScenario[] {
       name: "rich-word-long-token-font-tick-jumps",
       unsupportedReason: 'RichLineClamp boundary="word" was added in vue-clamp 1.3.0.',
       widths: richLongTokenWidths,
+    },
+    {
+      beforeStep: dispatchFontLoadRecompute,
+      component: "RichLineClamp",
+      group: "rich",
+      minVersion: "1.3.0",
+      mount: richLineClampBatch({
+        boundary: "word",
+        html: richLongTokenHtml,
+        maxLines: 5,
+      }),
+      name: "rich-word-long-token-font-tick-same-width",
+      unsupportedReason: 'RichLineClamp boundary="word" was added in vue-clamp 1.3.0.',
+      widths: sameWidthFontTickWidths,
+    },
+    {
+      beforeStep: dispatchUnusedFontFaceRecompute,
+      component: "RichLineClamp",
+      group: "rich",
+      minVersion: "1.3.0",
+      mount: richLineClampBatch({
+        boundary: "word",
+        html: richLongTokenHtml,
+        maxLines: 5,
+      }),
+      name: "rich-word-long-token-unused-fontface-same-width",
+      unsupportedReason: 'RichLineClamp boundary="word" was added in vue-clamp 1.3.0.',
+      widths: sameWidthFontTickWidths,
+    },
+    {
+      beforeStep: dispatchUsedFontFaceRecompute,
+      component: "RichLineClamp",
+      group: "rich",
+      minVersion: "1.3.0",
+      mount: richLineClampBatch({
+        boundary: "word",
+        html: richLongTokenHtml,
+        maxLines: 5,
+      }),
+      name: "rich-word-long-token-used-fontface-same-width",
+      unsupportedReason: 'RichLineClamp boundary="word" was added in vue-clamp 1.3.0.',
+      widths: sameWidthFontTickWidths,
+    },
+    {
+      beforeStep: dispatchUsedFontFaceRecompute,
+      component: "RichLineClamp",
+      group: "rich",
+      minVersion: "1.3.0",
+      mount: richLineClampBatch({
+        boundary: "word",
+        html: richUnclampedFontFaceHtml,
+        maxLines: 3,
+      }),
+      name: "rich-word-unclamped-used-fontface-same-width",
+      unsupportedReason: 'RichLineClamp boundary="word" was added in vue-clamp 1.3.0.',
+      widths: sameWidthFontTickWidths,
     },
     {
       beforeStep: dispatchFontSizeRecompute,
@@ -2243,6 +2513,10 @@ function matchesScenarioFilter(scenario: PublicScenario, filter: ReadonlySet<str
   return filter.has(scenario.name) || filter.has(scenario.group) || filter.has(scenario.component);
 }
 
+function scenarioMatchesFilter(scenario: PublicScenario, filter: string): boolean {
+  return scenario.name === filter || scenario.group === filter || scenario.component === filter;
+}
+
 function selectedScenarios(): PublicScenario[] {
   const allScenarios = scenarios();
   const filter = new Set(__VUE_CLAMP_BENCH_SCENARIOS__);
@@ -2256,6 +2530,15 @@ function selectedScenarios(): PublicScenario[] {
       `VUE_CLAMP_BENCH_SCENARIOS did not match any scenario name, group, or component: ${[
         ...filter,
       ].join(", ")}`,
+    );
+  }
+
+  const unmatched = [...filter].filter(
+    (item) => !allScenarios.some((scenario) => scenarioMatchesFilter(scenario, item)),
+  );
+  if (unmatched.length > 0) {
+    throw new Error(
+      `VUE_CLAMP_BENCH_SCENARIOS contained unknown scenario names, groups, or components: ${unmatched.join(", ")}`,
     );
   }
 

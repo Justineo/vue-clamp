@@ -1,4 +1,9 @@
-import { fitsContent, simpleLineFitFromStyle } from "./layout.ts";
+import {
+  fitsContent,
+  inlineTextWidthProperties,
+  numericPx,
+  simpleLineFitFromStyle,
+} from "./layout.ts";
 import { findLastFittingIndex, richWarmExpansionLimit } from "./search.ts";
 import { prepareText } from "./text.ts";
 
@@ -69,6 +74,7 @@ export type RichSearchIndex = {
   readonly hasStyleDependentDisplay: boolean;
   readonly hasStyleDependentLineMetrics: boolean;
   readonly prepared: PreparedRich;
+  readonly probeModel?: RichProbeModel;
   readonly rankPoints: readonly BoundaryPoint[] | null;
   readonly runs: readonly LogicalRun[];
   readonly inheritsLineMetrics: boolean;
@@ -80,6 +86,18 @@ export type RichSearchIndex = {
 type TextOnlySimpleLineFit = {
   readonly fit: SimpleLineFit;
   readonly styleKey: string;
+};
+
+type TextMap = {
+  readonly length: number;
+  readonly probe: readonly number[];
+  readonly source: readonly number[];
+  readonly start: number;
+};
+
+type RichProbeModel = {
+  readonly prepared: PreparedRich;
+  readonly text: readonly TextMap[];
 };
 
 // States are kept as structural points so width-only reclamps can patch from the
@@ -111,6 +129,7 @@ export type RichClampProbe = {
 };
 
 export type RichClampOptions = {
+  readonly checkFullFitFirst?: boolean;
   readonly ellipsis: string;
   readonly from: RichState | null;
   readonly hint: RichState | null;
@@ -136,48 +155,17 @@ export type RichClampResult = {
   readonly textRankSafe?: boolean;
 };
 
-function unrankedResult(
-  state: RichState | null,
-  searchIndex: RichSearchIndex | null,
-): RichClampResult {
-  return {
-    fallback: false,
-    searchIndex,
-    state,
-  };
-}
+export type RichStateRank = {
+  readonly rank: number;
+  readonly rankCount: number;
+  readonly textRankSafe: boolean;
+};
 
 function fallbackResult(state: RichState | null): RichClampResult {
   return {
     state,
     fallback: true,
     searchIndex: null,
-  };
-}
-
-function unsafeRankResult(state: RichState, searchIndex: RichSearchIndex | null): RichClampResult {
-  return {
-    fallback: false,
-    searchIndex,
-    state,
-    textRankSafe: false,
-  };
-}
-
-function rankedResult(
-  state: RichState,
-  searchIndex: RichSearchIndex | null,
-  rank: number,
-  rankCount: number,
-  textRankSafe: boolean,
-): RichClampResult {
-  return {
-    fallback: false,
-    rank,
-    rankCount,
-    searchIndex,
-    state,
-    textRankSafe,
   };
 }
 
@@ -194,10 +182,30 @@ const FULL_STATE: RichState = {
 const PROBE_IMAGE_SRC = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==";
 const trailingWhitespace = /[\t\n\f\r ]+$/u;
 const trailingWhitespaceEdge = /[\t\n\f\r ]$/u;
-
-function tagNameFor(element: Element): string {
-  return element.localName;
-}
+const transparentTextFlowProperties = [
+  "direction",
+  "line-height",
+  "overflow-wrap",
+  "tab-size",
+  "unicode-bidi",
+  "vertical-align",
+  "white-space",
+  "word-break",
+] as const;
+const transparentZeroBoxProperties = [
+  "border-bottom-width",
+  "border-left-width",
+  "border-right-width",
+  "border-top-width",
+  "margin-bottom",
+  "margin-left",
+  "margin-right",
+  "margin-top",
+  "padding-bottom",
+  "padding-left",
+  "padding-right",
+  "padding-top",
+] as const;
 
 function pathKey(path: readonly number[]): string {
   return path.join(".");
@@ -396,7 +404,7 @@ function inspectLayout(
       }
 
       hasElements = true;
-      const tagName = tagNameFor(child);
+      const tagName = child.localName;
       const childKey = childPathKey(parentKey, index);
 
       if (tagName === "br" || tagName === "wbr") {
@@ -569,7 +577,7 @@ function buildPreparedRichNodes(
       continue;
     }
 
-    const tagName = tagNameFor(child);
+    const tagName = child.localName;
 
     nodes.push({
       kind: "element",
@@ -687,6 +695,231 @@ function cloneNodeForPatch(node: Node, imageSource?: string): Node {
   }
 
   return clone;
+}
+
+function hasGeneratedContent(element: Element, pseudo: "::after" | "::before"): boolean {
+  const content = getComputedStyle(element, pseudo).content;
+
+  return content !== "" && content !== "none" && content !== "normal";
+}
+
+function canUnwrapProbeElement(element: Element, parent: Element): boolean {
+  if (
+    element.localName !== "span" ||
+    element.attributes.length > 0 ||
+    hasGeneratedContent(element, "::before") ||
+    hasGeneratedContent(element, "::after")
+  ) {
+    return false;
+  }
+
+  const style = getComputedStyle(element);
+  if (!isInlineWrapperDisplay(style.display)) {
+    return false;
+  }
+
+  for (const property of transparentZeroBoxProperties) {
+    const value = style.getPropertyValue(property);
+    if (value !== "0px" && value !== "0") {
+      return false;
+    }
+  }
+
+  const parentStyle = getComputedStyle(parent);
+  for (const property of inlineTextWidthProperties) {
+    if (style.getPropertyValue(property) !== parentStyle.getPropertyValue(property)) {
+      return false;
+    }
+  }
+
+  for (const property of transparentTextFlowProperties) {
+    if (style.getPropertyValue(property) !== parentStyle.getPropertyValue(property)) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+function appendNormalizedText(
+  target: Node,
+  targetPath: readonly number[],
+  sourcePath: readonly number[],
+  text: string,
+  textMap: TextMap[],
+): void {
+  if (text.length === 0) {
+    return;
+  }
+
+  const last = target.lastChild;
+  const joinsLastText = last instanceof Text;
+  const probe = [...targetPath, target.childNodes.length - (joinsLastText ? 1 : 0)];
+  const start = joinsLastText ? last.data.length : 0;
+
+  if (joinsLastText) {
+    last.data += text;
+  } else {
+    target.appendChild(document.createTextNode(text));
+  }
+
+  textMap.push({
+    length: text.length,
+    probe,
+    source: sourcePath,
+    start,
+  });
+}
+
+function appendNormalizedChildren(
+  source: Element,
+  live: Element,
+  target: Node,
+  sourcePath: readonly number[],
+  targetPath: readonly number[],
+  textMap: TextMap[],
+): boolean {
+  const { childNodes: sourceChildren } = source;
+  const { childNodes: liveChildren } = live;
+
+  for (let index = 0; index < sourceChildren.length; index += 1) {
+    const sourceChild = sourceChildren[index];
+    const liveChild = liveChildren[index];
+    if (!sourceChild || !liveChild) {
+      return false;
+    }
+
+    const childSourcePath = [...sourcePath, index];
+
+    if (sourceChild.nodeType === Node.TEXT_NODE) {
+      appendNormalizedText(
+        target,
+        targetPath,
+        childSourcePath,
+        sourceChild.textContent ?? "",
+        textMap,
+      );
+      continue;
+    }
+
+    if (!(sourceChild instanceof Element) || !(liveChild instanceof Element)) {
+      continue;
+    }
+
+    if (canUnwrapProbeElement(liveChild, live)) {
+      if (
+        !appendNormalizedChildren(
+          sourceChild,
+          liveChild,
+          target,
+          childSourcePath,
+          targetPath,
+          textMap,
+        )
+      ) {
+        return false;
+      }
+      continue;
+    }
+
+    const probePath = [...targetPath, target.childNodes.length];
+    const clone = cloneElementForPatch(sourceChild);
+    target.appendChild(clone);
+    if (
+      !appendNormalizedChildren(sourceChild, liveChild, clone, childSourcePath, probePath, textMap)
+    ) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+function createProbeModel(
+  prepared: PreparedRich,
+  liveRoot: HTMLElement,
+  inspection: RichLayoutInspection | null,
+): RichProbeModel | null {
+  if (
+    !inspection ||
+    inspection.atomicPaths.size > 0 ||
+    inspection.hasStyleDependentDisplay ||
+    inspection.hasStyleDependentLineMetrics
+  ) {
+    return null;
+  }
+
+  const root = document.createElement("body");
+  const textMap: TextMap[] = [];
+
+  if (!appendNormalizedChildren(prepared.root, liveRoot, root, ROOT_PATH, ROOT_PATH, textMap)) {
+    return null;
+  }
+
+  if (!textMap.some((text) => !samePath(text.source, text.probe))) {
+    return null;
+  }
+
+  return {
+    prepared: {
+      boundary: prepared.boundary,
+      nodes: buildPreparedRichNodes(root, ROOT_PATH, prepared.boundary),
+      root,
+    },
+    text: textMap,
+  };
+}
+
+function mapPoint(
+  model: RichProbeModel | undefined,
+  point: BoundaryPoint,
+  toProbe: boolean,
+): BoundaryPoint | null {
+  if (!model || (point.path.length === 0 && point.offset === 0)) {
+    return point;
+  }
+
+  for (const text of model.text) {
+    const fromPath = toProbe ? text.source : text.probe;
+    const fromStart = toProbe ? 0 : text.start;
+    const offset = point.offset - fromStart;
+    if (!samePath(point.path, fromPath) || offset < 0 || offset > text.length) {
+      continue;
+    }
+
+    const toStart = toProbe ? text.start : 0;
+    const toPath = toProbe ? text.probe : text.source;
+
+    return {
+      path: toPath,
+      offset: toStart + offset,
+    };
+  }
+
+  return null;
+}
+
+function mapState(
+  model: RichProbeModel | undefined,
+  state: RichState | null,
+  toProbe: boolean,
+): RichState | null {
+  if (!model || !state || state.kind === "full") {
+    return state;
+  }
+
+  const point = mapPoint(model, state.point, toProbe);
+
+  return point ? { kind: "clamped", point } : null;
+}
+
+function replaceWithFullPrepared(target: HTMLElement, prepared: PreparedRich): void {
+  const fragment = document.createDocumentFragment();
+  for (const child of prepared.root.childNodes) {
+    fragment.appendChild(cloneNodeForPatch(child, PROBE_IMAGE_SRC));
+  }
+
+  target.replaceChildren(fragment);
 }
 
 function clonePatchFromContainer(
@@ -809,7 +1042,7 @@ function trimTrailingWhitespace(root: Node): void {
       continue;
     }
 
-    if (leaf instanceof Element && tagNameFor(leaf) === "wbr") {
+    if (leaf instanceof Element && leaf.localName === "wbr") {
       leaf.remove();
       continue;
     }
@@ -1138,7 +1371,7 @@ function clampedPrefixBoundary(root: HTMLElement, boundary: BoundaryPoint): Boun
         continue;
       }
 
-      if (child instanceof Element && tagNameFor(child) === "wbr") {
+      if (child instanceof Element && child.localName === "wbr") {
         offset -= 1;
         continue;
       }
@@ -1157,7 +1390,7 @@ function clampedPrefixBoundary(root: HTMLElement, boundary: BoundaryPoint): Boun
     return liveBoundary;
   }
 
-  if (leaf instanceof Element && tagNameFor(leaf) === "wbr") {
+  if (leaf instanceof Element && leaf.localName === "wbr") {
     return null;
   }
 
@@ -1532,7 +1765,28 @@ function boundaryPointIndex(points: readonly BoundaryPoint[], point: BoundaryPoi
   return null;
 }
 
-function rankPointsForRuns(runs: readonly LogicalRun[]): BoundaryPoint[] {
+function addRankPoint(points: BoundaryPoint[], point: BoundaryPoint): void {
+  if (boundaryPointIndex(points, point) === null) {
+    points.push(point);
+  }
+}
+
+function textRankPoints(run: TextLogicalRun, includeFallback: boolean): BoundaryPoint[] {
+  if (!includeFallback || !run.fallbackTextCuts) {
+    return run.textCuts.slice();
+  }
+
+  const points = [...run.textCuts, ...run.fallbackTextCuts].sort(compareBoundaryPoint);
+  const unique: BoundaryPoint[] = [];
+
+  for (const point of points) {
+    addRankPoint(unique, point);
+  }
+
+  return unique;
+}
+
+function rankPointsForRuns(runs: readonly LogicalRun[], includeFallback = false): BoundaryPoint[] {
   const points = [ROOT_START_POINT];
 
   for (const run of runs) {
@@ -1541,8 +1795,15 @@ function rankPointsForRuns(runs: readonly LogicalRun[]): BoundaryPoint[] {
       continue;
     }
 
-    for (const point of run.textCuts) {
-      points.push(point);
+    if (!includeFallback) {
+      for (const point of run.textCuts) {
+        points.push(point);
+      }
+      continue;
+    }
+
+    for (const point of textRankPoints(run, true)) {
+      addRankPoint(points, point);
     }
   }
 
@@ -1555,6 +1816,50 @@ function rankForState(state: RichState, points: readonly BoundaryPoint[]): numbe
   }
 
   return boundaryPointIndex(points, state.point) ?? undefined;
+}
+
+export function rankRichState(
+  searchIndex: RichSearchIndex,
+  state: RichState,
+): RichStateRank | null {
+  const points = rankPointsForRuns(searchIndex.runs, true);
+  const probeState = mapState(searchIndex.probeModel, state, true);
+  if (!probeState) {
+    return null;
+  }
+
+  const rank = rankForState(probeState, points);
+  const prepared = searchIndex.probeModel?.prepared ?? searchIndex.prepared;
+
+  return rank === undefined
+    ? null
+    : {
+        rank,
+        rankCount: points.length,
+        textRankSafe: textRankSafeForState(probeState, searchIndex.runs, prepared.root),
+      };
+}
+
+export function richStateForRank(searchIndex: RichSearchIndex, rank: number): RichState | null {
+  if (!Number.isFinite(rank)) {
+    return null;
+  }
+
+  const points = rankPointsForRuns(searchIndex.runs, true);
+  const index = Math.floor(rank);
+  if (index < 0 || index > points.length) {
+    return null;
+  }
+
+  const state: RichState =
+    index === points.length
+      ? FULL_STATE
+      : {
+          kind: "clamped",
+          point: points[index]!,
+        };
+
+  return mapState(searchIndex.probeModel, state, false);
 }
 
 function canUseBodyOnlyLineFit(
@@ -1571,10 +1876,6 @@ function canUseBodyOnlyLineFit(
   );
 }
 
-function isTextLogicalRun(run: LogicalRun): run is TextLogicalRun {
-  return run.kind === "text";
-}
-
 function textOnlySimpleLineFit(
   inspection: RichLayoutInspection,
   runs: readonly LogicalRun[],
@@ -1582,7 +1883,7 @@ function textOnlySimpleLineFit(
   if (
     inspection.simpleLineFit === undefined ||
     inspection.simpleLineStyleKey === undefined ||
-    !runs.every(isTextLogicalRun)
+    !runs.every((run) => run.kind === "text")
   ) {
     return null;
   }
@@ -1598,23 +1899,27 @@ function createSearchIndex(
   body: HTMLElement,
   getStyleSheetSignature: () => string,
   inspection = inspectLayout(body, getStyleSheetSignature),
+  probeModel?: RichProbeModel,
 ): RichSearchIndex | null {
   if (!inspection) {
     return null;
   }
 
-  const runs = buildLogicalRuns(prepared.nodes, inspection.atomicPaths);
+  const probePrepared = probeModel?.prepared ?? prepared;
+  const runs = buildLogicalRuns(probePrepared.nodes, inspection.atomicPaths);
   const simpleLine = textOnlySimpleLineFit(inspection, runs);
+  const hasElements = inspection.hasElements || !!probeModel;
 
   return {
     atomicPathSignature: inspection.atomicPathSignature,
     body,
-    hasElements: inspection.hasElements,
+    hasElements,
     hasStyleDependentDisplay: inspection.hasStyleDependentDisplay,
     hasStyleDependentLineMetrics: inspection.hasStyleDependentLineMetrics,
     inheritsLineMetrics: inspection.inheritsLineMetrics,
     prepared,
-    rankPoints: prepared.boundary === "word" ? rankPointsForRuns(runs) : null,
+    ...(probeModel ? { probeModel } : {}),
+    rankPoints: probePrepared.boundary === "word" ? rankPointsForRuns(runs) : null,
     runs,
     ...(simpleLine
       ? {
@@ -1622,7 +1927,7 @@ function createSearchIndex(
           simpleLineStyleKey: simpleLine.styleKey,
         }
       : {}),
-    styleSheetSignature: inspection.hasElements ? getStyleSheetSignature() : "",
+    styleSheetSignature: hasElements ? getStyleSheetSignature() : "",
   };
 }
 
@@ -1734,6 +2039,7 @@ export function clampRich({
   prepared,
   preferHintedTextRun,
   probe,
+  checkFullFitFirst = false,
   reuseSimpleLineFit = false,
   searchIndex,
   skipFullFit = false,
@@ -1749,10 +2055,16 @@ export function clampRich({
     };
   }
 
-  let state = from;
   let styleSheetSignature: string | undefined;
   const visibleBoundsCache: VisibleBoundsCache | undefined =
     maxHeight === undefined ? undefined : {};
+  let currentFit: { readonly fits: boolean; readonly state: RichState } | null = null;
+  let nextSearchIndex =
+    searchIndex?.prepared === prepared && searchIndex.body === body ? searchIndex : null;
+  let probeModel = nextSearchIndex?.probeModel;
+  let probePrepared = probeModel?.prepared ?? prepared;
+  let state = mapState(probeModel, from, true);
+  let probeHint = mapState(probeModel, hint, true);
 
   function getStyleSheetSignature(): string {
     styleSheetSignature ??= currentStyleSheetSignature();
@@ -1760,12 +2072,12 @@ export function clampRich({
   }
 
   function applyFullCandidate(): void {
-    state = patchRich(prepared, body, state, FULL_STATE, ellipsis, PROBE_IMAGE_SRC);
+    state = patchRich(probePrepared, body, state, FULL_STATE, ellipsis, PROBE_IMAGE_SRC);
   }
 
   function applyCandidate(point: BoundaryPoint): void {
     state = patchRich(
-      prepared,
+      probePrepared,
       body,
       state,
       {
@@ -1777,13 +2089,51 @@ export function clampRich({
     );
   }
 
+  function sourceStateFor(candidate: RichState | null): RichState | null {
+    return mapState(probeModel, candidate, false);
+  }
+
+  function unrankedProbeResult(candidate: RichState | null): RichClampResult {
+    return {
+      fallback: false,
+      searchIndex: nextSearchIndex,
+      state: sourceStateFor(candidate),
+    };
+  }
+
+  function searchIndexFromSource(inspection: RichLayoutInspection | null): RichSearchIndex | null {
+    const model = createProbeModel(prepared, body, inspection) ?? undefined;
+
+    if (model) {
+      replaceWithFullPrepared(body, model.prepared);
+    }
+
+    probeModel = model;
+    probePrepared = model?.prepared ?? prepared;
+    probeHint = mapState(model, hint, true);
+    state = FULL_STATE;
+
+    return createSearchIndex(
+      prepared,
+      body,
+      getStyleSheetSignature,
+      model ? undefined : inspection,
+      model,
+    );
+  }
+
   let checkedFullCandidate = false;
 
   function fitsFullCandidate(): boolean {
+    if (currentFit && sameState(state, FULL_STATE) && sameState(currentFit.state, FULL_STATE)) {
+      checkedFullCandidate = true;
+      return currentFit.fits;
+    }
+
     applyFullCandidate();
     checkedFullCandidate = true;
 
-    return fitsContent(
+    const fits = fitsContent(
       root,
       content,
       lineLimit,
@@ -1792,30 +2142,52 @@ export function clampRich({
       visibleBoundsCache,
       simpleLineFit,
     );
+
+    currentFit = {
+      fits,
+      state: FULL_STATE,
+    };
+
+    return fits;
   }
 
-  let nextSearchIndex =
-    searchIndex?.prepared === prepared && searchIndex.body === body ? searchIndex : null;
   if (!nextSearchIndex) {
     applyFullCandidate();
-    nextSearchIndex = createSearchIndex(prepared, body, getStyleSheetSignature);
+    nextSearchIndex = searchIndexFromSource(inspectLayout(body, getStyleSheetSignature));
   }
 
   if (!nextSearchIndex) {
     // Unsupported inline layout falls back to the original HTML instead of
     // risking a structurally valid but visually wrong clamp.
-    return fallbackResult(state);
+    return fallbackResult(sourceStateFor(state));
   }
 
   const canUseSimpleLineLayout = canUseBodyOnlyLineFit(content, body, lineLimit, maxHeight);
-  const styleSheetsChanged =
+  let styleSheetsChanged =
     nextSearchIndex.hasElements && nextSearchIndex.styleSheetSignature !== getStyleSheetSignature();
+  let shouldSkipFullFit = skipFullFit;
+  let simpleLineFontScale: number | null = null;
+  let simpleLineFit: SimpleLineFit | undefined;
+  let baseStyleForInspection: CSSStyleDeclaration | undefined;
+  if (styleSheetsChanged && probeModel) {
+    replaceWithFullPrepared(body, prepared);
+    currentFit = null;
+    checkedFullCandidate = false;
+    nextSearchIndex = searchIndexFromSource(inspectLayout(body, getStyleSheetSignature));
+    if (!nextSearchIndex) {
+      return fallbackResult(FULL_STATE);
+    }
+    styleSheetsChanged =
+      nextSearchIndex.hasElements &&
+      nextSearchIndex.styleSheetSignature !== getStyleSheetSignature();
+  }
+
   const hasSimpleLineFit = canUseSimpleLineLayout && nextSearchIndex.simpleLineFit !== undefined;
   const displayDependsOnStyle = nextSearchIndex.hasStyleDependentDisplay;
   const lineMetricsDependOnStyle = nextSearchIndex.hasStyleDependentLineMetrics;
-  let simpleLineFit: SimpleLineFit | undefined;
-  let baseStyleForInspection: CSSStyleDeclaration | undefined;
+  const previousSimpleLineStyleKey = nextSearchIndex.simpleLineStyleKey;
   let inspectLayoutAgain = displayDependsOnStyle || lineMetricsDependOnStyle || styleSheetsChanged;
+
   if (hasSimpleLineFit) {
     if (
       reuseSimpleLineFit &&
@@ -1854,7 +2226,7 @@ export function clampRich({
     const inspection = inspectLayout(body, getStyleSheetSignature, baseStyleForInspection);
     if (!inspection) {
       applyFullCandidate();
-      return fallbackResult(state);
+      return fallbackResult(sourceStateFor(state));
     }
 
     if (
@@ -1868,10 +2240,11 @@ export function clampRich({
         body,
         getStyleSheetSignature,
         inspection,
+        probeModel,
       );
       if (!refreshedSearchIndex) {
         applyFullCandidate();
-        return fallbackResult(state);
+        return fallbackResult(sourceStateFor(state));
       }
 
       nextSearchIndex = refreshedSearchIndex;
@@ -1880,6 +2253,12 @@ export function clampRich({
     const nextSimpleLine = canUseSimpleLineLayout
       ? textOnlySimpleLineFit(inspection, nextSearchIndex.runs)
       : null;
+    if (previousSimpleLineStyleKey !== undefined && nextSimpleLine?.styleKey !== undefined) {
+      simpleLineFontScale = fontScaleFromMetricKeys(
+        previousSimpleLineStyleKey,
+        nextSimpleLine.styleKey,
+      );
+    }
     nextSearchIndex = searchIndexWithSimpleLineFit(
       nextSearchIndex,
       nextSimpleLine?.fit,
@@ -1892,15 +2271,40 @@ export function clampRich({
   }
 
   const { rankPoints, runs } = nextSearchIndex;
+  if (
+    checkFullFitFirst &&
+    shouldSkipFullFit &&
+    simpleLineFontScale !== null &&
+    simpleLineFontScale < 1 &&
+    probeHint?.kind === "clamped" &&
+    rankPoints
+  ) {
+    const hintRank = rankForState(probeHint, rankPoints);
+    if (
+      hintRank !== undefined &&
+      hintRank < rankPoints.length &&
+      simpleLineFontScale * rankPoints.length <= hintRank
+    ) {
+      shouldSkipFullFit = false;
+    }
+  }
 
-  if (!skipFullFit && fitsFullCandidate()) {
+  if (!shouldSkipFullFit && fitsFullCandidate()) {
     // The full rich tree fits and its layout is safe for the rich search model.
-    return unrankedResult(state, nextSearchIndex);
+    return unrankedProbeResult(state);
   }
 
   function fitsCandidate(endPoint: BoundaryPoint): boolean {
+    const candidate: RichState = {
+      kind: "clamped",
+      point: endPoint,
+    };
+    if (currentFit && sameState(state, candidate) && sameState(currentFit.state, candidate)) {
+      return currentFit.fits;
+    }
+
     applyCandidate(endPoint);
-    return fitsContent(
+    const fits = fitsContent(
       root,
       content,
       lineLimit,
@@ -1909,36 +2313,54 @@ export function clampRich({
       visibleBoundsCache,
       simpleLineFit,
     );
+
+    currentFit = {
+      fits,
+      state: candidate,
+    };
+
+    return fits;
   }
 
   if (runs.length === 0) {
     // Rich content can be all comments/empty text; in that case the full patched
     // state is already the only meaningful answer.
     applyFullCandidate();
-    return unrankedResult(state, nextSearchIndex);
+    return unrankedProbeResult(state);
   }
 
   function currentResult(): RichClampResult {
     if (!state || !rankPoints) {
-      return unrankedResult(state, nextSearchIndex);
+      return unrankedProbeResult(state);
+    }
+
+    const sourceState = sourceStateFor(state);
+    if (!sourceState) {
+      return fallbackResult(FULL_STATE);
     }
 
     const stateRank = rankForState(state, rankPoints);
     if (stateRank === undefined) {
-      return unsafeRankResult(state, nextSearchIndex);
+      return {
+        fallback: false,
+        searchIndex: nextSearchIndex,
+        state: sourceState,
+        textRankSafe: false,
+      };
     }
 
-    return rankedResult(
-      state,
-      nextSearchIndex,
-      stateRank,
-      rankPoints.length,
-      textRankSafeForState(state, runs, prepared.root),
-    );
+    return {
+      fallback: false,
+      rank: stateRank,
+      rankCount: rankPoints.length,
+      searchIndex: nextSearchIndex,
+      state: sourceState,
+      textRankSafe: textRankSafeForState(state, runs, probePrepared.root),
+    };
   }
 
   function clampedResult(point: BoundaryPoint): RichClampResult {
-    if (skipFullFit && verifyFullCandidate && !checkedFullCandidate) {
+    if (shouldSkipFullFit && verifyFullCandidate && !checkedFullCandidate) {
       if (fitsFullCandidate()) {
         return currentResult();
       }
@@ -1949,16 +2371,16 @@ export function clampRich({
   }
 
   const useHintedTextRun = preferHintedTextRun !== undefined ? preferHintedTextRun : hint === from;
-  let coarseHint = runHintForState(runs, hint);
+  let coarseHint = runHintForState(runs, probeHint);
 
-  if (useHintedTextRun && hint?.kind === "clamped") {
-    const hintedRunIndex = textRunIndexForPoint(runs, hint.point);
+  if (useHintedTextRun && probeHint?.kind === "clamped") {
+    const hintedRunIndex = textRunIndexForPoint(runs, probeHint.point);
 
     if (hintedRunIndex !== null) {
       const hintedRun = runs[hintedRunIndex]!;
 
       if (hintedRun.kind === "text") {
-        const fineHint = boundaryPointIndex(hintedRun.textCuts, hint.point);
+        const fineHint = boundaryPointIndex(hintedRun.textCuts, probeHint.point);
         const runEndIndex = hintedRun.textCuts.length - 1;
         const fineIndex = findLastFittingIndex(
           hintedRun.textCuts.length,
@@ -1996,7 +2418,7 @@ export function clampRich({
 
         const fallbackTextCuts = hintedRun.fallbackTextCuts;
         if (fineIndex < 0 && fallbackTextCuts) {
-          const fallbackHint = boundaryPointIndex(fallbackTextCuts, hint.point);
+          const fallbackHint = boundaryPointIndex(fallbackTextCuts, probeHint.point);
           const fallbackIndex = findLastFittingIndex(
             fallbackTextCuts.length,
             (index) => fitsCandidate(fallbackTextCuts[index]!),
@@ -2020,7 +2442,7 @@ export function clampRich({
     }
   }
 
-  const coarseSearchCount = runs.length + (skipFullFit ? 1 : 0);
+  const coarseSearchCount = runs.length + (shouldSkipFullFit ? 1 : 0);
   // Coarse search skips over complete logical runs first so refinement only has
   // to slice the one text run that crosses the fit boundary.
   const coarseIndex = findLastFittingIndex(
@@ -2049,7 +2471,7 @@ export function clampRich({
   }
 
   const fineHint =
-    hint?.kind === "clamped" ? boundaryPointIndex(nextRun.textCuts, hint.point) : null;
+    probeHint?.kind === "clamped" ? boundaryPointIndex(nextRun.textCuts, probeHint.point) : null;
   // Fine search is limited to text cuts inside the first overflowing text run.
   const fineIndex = findLastFittingIndex(
     nextRun.textCuts.length,
@@ -2064,7 +2486,7 @@ export function clampRich({
     // Word boundary mode retries with grapheme cuts only when no whole-word cut
     // in the overflowing run can fit.
     const fallbackHint =
-      hint?.kind === "clamped" ? boundaryPointIndex(fallbackTextCuts, hint.point) : null;
+      probeHint?.kind === "clamped" ? boundaryPointIndex(fallbackTextCuts, probeHint.point) : null;
     const fallbackIndex = findLastFittingIndex(
       fallbackTextCuts.length,
       (index) => fitsCandidate(fallbackTextCuts[index]!),
@@ -2075,4 +2497,11 @@ export function clampRich({
   }
 
   return clampedResult(finePoint);
+}
+
+function fontScaleFromMetricKeys(previous: string, current: string): number | null {
+  const previousSize = numericPx(previous);
+  const currentSize = numericPx(current);
+
+  return previousSize !== null && currentSize !== null ? currentSize / previousSize : null;
 }

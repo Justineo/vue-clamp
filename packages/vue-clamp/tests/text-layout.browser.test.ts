@@ -6,10 +6,22 @@ import {
   simpleLineFitFromStyle,
   visibleRootTop,
 } from "../src/layout.ts";
-import { clampTextToLayout, prepareText } from "../src/text.ts";
+import {
+  estimateTargetRankInterval,
+  estimateTargetRankLocalInterval,
+  estimateWarmSearchProbeCount,
+  estimateWarmSearchWidthRoom,
+  warmSearchDecision,
+} from "./search-model.ts";
+import {
+  clampTextToFit,
+  clampTextToLayout,
+  displayTextForKeptCount,
+  prepareText,
+} from "../src/text.ts";
 
 import type { SimpleLineFit } from "../src/layout.ts";
-import type { TextClampLayoutInput, TextClampResult } from "../src/text.ts";
+import type { PreparedText, TextClampLayoutInput, TextClampResult } from "../src/text.ts";
 
 type LayoutHost = {
   readonly container: HTMLElement;
@@ -140,20 +152,235 @@ function countClientRectsDuring(element: Element, run: () => void): number {
   return calls;
 }
 
-function countClientTopDuring(element: Element, run: () => void): number {
+type TextFitCostClass = "exact-rect-list" | "max-height-bounds" | "simple-height";
+
+type FitCostSample = {
+  readonly clientHeightReads: number;
+  readonly clientRectEntries: number;
+  readonly clientRectReads: number;
+  readonly clientTopReads: number;
+  readonly contentBoundingRectReads: number;
+  readonly rootBoundingRectReads: number;
+};
+
+function elementNumberAccessor(
+  element: Element,
+  property: "clientHeight" | "clientTop",
+): {
+  descriptor: PropertyDescriptor & { get(this: Element): number };
+  owner: object;
+} {
   let owner: object | null = element;
   let descriptor: PropertyDescriptor | undefined;
 
   while (owner && !descriptor) {
-    descriptor = Object.getOwnPropertyDescriptor(owner, "clientTop");
+    descriptor = Object.getOwnPropertyDescriptor(owner, property);
     if (!descriptor) {
       owner = Object.getPrototypeOf(owner);
     }
   }
 
   if (!owner || !descriptor?.get) {
-    throw new Error("Expected clientTop to be an accessor property.");
+    throw new Error(`Expected ${property} to be an accessor property.`);
   }
+
+  return {
+    descriptor: descriptor as PropertyDescriptor & { get(this: Element): number },
+    owner,
+  };
+}
+
+function sampleFitCostDuring(root: HTMLElement, content: Element, run: () => void): FitCostSample {
+  const boundingRectDescriptor = Object.getOwnPropertyDescriptor(
+    Element.prototype,
+    "getBoundingClientRect",
+  );
+  const getBoundingClientRect = boundingRectDescriptor?.value as
+    | ((this: Element) => DOMRect)
+    | undefined;
+  const rectsDescriptor = Object.getOwnPropertyDescriptor(Element.prototype, "getClientRects");
+  const getClientRects = rectsDescriptor?.value as ((this: Element) => DOMRectList) | undefined;
+  if (!boundingRectDescriptor || !getBoundingClientRect || !rectsDescriptor || !getClientRects) {
+    throw new Error("Expected layout probe methods to be patchable.");
+  }
+
+  const clientHeight = elementNumberAccessor(root, "clientHeight");
+  const clientTop = elementNumberAccessor(root, "clientTop");
+  const sample = {
+    clientHeightReads: 0,
+    clientRectEntries: 0,
+    clientRectReads: 0,
+    clientTopReads: 0,
+    contentBoundingRectReads: 0,
+    rootBoundingRectReads: 0,
+  };
+
+  Object.defineProperty(Element.prototype, "getBoundingClientRect", {
+    ...boundingRectDescriptor,
+    value(this: Element): DOMRect {
+      if (this === content) {
+        sample.contentBoundingRectReads += 1;
+      } else if (this === root) {
+        sample.rootBoundingRectReads += 1;
+      }
+
+      return getBoundingClientRect.call(this);
+    },
+  });
+  Object.defineProperty(Element.prototype, "getClientRects", {
+    ...rectsDescriptor,
+    value(this: Element): DOMRectList {
+      const result = getClientRects.call(this);
+
+      if (this === content) {
+        sample.clientRectReads += 1;
+        sample.clientRectEntries += result.length;
+      }
+
+      return result;
+    },
+  });
+  Object.defineProperty(clientHeight.owner, "clientHeight", {
+    ...clientHeight.descriptor,
+    get(this: Element): number {
+      if (this === root) {
+        sample.clientHeightReads += 1;
+      }
+
+      return clientHeight.descriptor.get.call(this);
+    },
+  });
+  Object.defineProperty(clientTop.owner, "clientTop", {
+    ...clientTop.descriptor,
+    get(this: Element): number {
+      if (this === root) {
+        sample.clientTopReads += 1;
+      }
+
+      return clientTop.descriptor.get.call(this);
+    },
+  });
+
+  try {
+    run();
+  } finally {
+    Object.defineProperty(Element.prototype, "getBoundingClientRect", boundingRectDescriptor);
+    Object.defineProperty(Element.prototype, "getClientRects", rectsDescriptor);
+    Object.defineProperty(clientHeight.owner, "clientHeight", clientHeight.descriptor);
+    Object.defineProperty(clientTop.owner, "clientTop", clientTop.descriptor);
+  }
+
+  return sample;
+}
+
+function predictTextFitCostClass(
+  lineLimit: number | undefined,
+  maxHeight: TextClampLayoutInput["maxHeight"],
+  simpleLineFit?: SimpleLineFit,
+): TextFitCostClass {
+  if (lineLimit === undefined && maxHeight !== undefined) {
+    return "max-height-bounds";
+  }
+
+  return maxHeight === undefined &&
+    lineLimit !== undefined &&
+    simpleLineFit?.maxLineBoxHeight !== undefined
+    ? "simple-height"
+    : "exact-rect-list";
+}
+
+function expectObservedTextFitCostClass(sample: FitCostSample, costClass: TextFitCostClass): void {
+  if (costClass === "simple-height") {
+    expect(sample.contentBoundingRectReads).toBeGreaterThan(0);
+    expect(sample.clientRectReads).toBe(0);
+    expect(sample.rootBoundingRectReads).toBe(0);
+    expect(sample.clientHeightReads).toBe(0);
+    expect(sample.clientTopReads).toBe(0);
+    return;
+  }
+
+  if (costClass === "exact-rect-list") {
+    expect(sample.clientRectReads).toBeGreaterThan(0);
+    expect(sample.clientRectEntries).toBeGreaterThan(0);
+    expect(sample.contentBoundingRectReads).toBe(0);
+    expect(sample.rootBoundingRectReads).toBe(0);
+    expect(sample.clientHeightReads).toBe(0);
+    expect(sample.clientTopReads).toBe(0);
+    return;
+  }
+
+  expect(sample.contentBoundingRectReads).toBeGreaterThan(0);
+  expect(sample.rootBoundingRectReads).toBeGreaterThan(0);
+  expect(sample.clientHeightReads).toBeGreaterThan(0);
+  expect(sample.clientTopReads).toBeGreaterThan(0);
+  expect(sample.clientRectReads).toBe(0);
+}
+
+type MutationSummary = {
+  readonly characterData: number;
+  readonly childList: number;
+  readonly records: number;
+};
+
+function summarizeMutations(records: readonly MutationRecord[]): MutationSummary {
+  return records.reduce<MutationSummary>(
+    (summary, record) => ({
+      characterData: summary.characterData + (record.type === "characterData" ? 1 : 0),
+      childList: summary.childList + (record.type === "childList" ? 1 : 0),
+      records: summary.records + 1,
+    }),
+    {
+      characterData: 0,
+      childList: 0,
+      records: 0,
+    },
+  );
+}
+
+function collectTextProbeMutationsDuring(
+  content: Element,
+  target: Node,
+  run: () => void,
+): MutationSummary[] {
+  const descriptor = Object.getOwnPropertyDescriptor(Element.prototype, "getClientRects");
+  const original = descriptor?.value as ((this: Element) => DOMRectList) | undefined;
+  if (!descriptor || !original) {
+    throw new Error("Expected Element.prototype.getClientRects to be patchable.");
+  }
+
+  const observer = new MutationObserver(() => {});
+  const samples: MutationSummary[] = [];
+
+  observer.observe(target, {
+    characterData: true,
+    childList: true,
+    subtree: true,
+  });
+  Object.defineProperty(Element.prototype, "getClientRects", {
+    ...descriptor,
+    value(this: Element): DOMRectList {
+      const result = original.call(this);
+
+      if (this === content) {
+        samples.push(summarizeMutations(observer.takeRecords()));
+      }
+
+      return result;
+    },
+  });
+
+  try {
+    run();
+  } finally {
+    Object.defineProperty(Element.prototype, "getClientRects", descriptor);
+    observer.disconnect();
+  }
+
+  return samples;
+}
+
+function countClientTopDuring(element: Element, run: () => void): number {
+  const { descriptor, owner } = elementNumberAccessor(element, "clientTop");
 
   let calls = 0;
   Object.defineProperty(owner, "clientTop", {
@@ -213,6 +440,132 @@ function measuredTextWidth(text: string, style: string): number {
   } finally {
     span.remove();
   }
+}
+
+function averageUnitWidth(unit: string, style: string, count = 20): number {
+  return measuredTextWidth(unit.repeat(count), style) / count;
+}
+
+function largestFittingKept(boundaryCount: number, fits: (kept: number) => boolean): number {
+  let target = -1;
+
+  for (let kept = 0; kept < boundaryCount; kept += 1) {
+    if (fits(kept)) {
+      target = kept;
+    }
+  }
+
+  return target;
+}
+
+function fittingRankForLayout(
+  host: LayoutHost,
+  prepared: PreparedText,
+  width: number,
+  lineLimit: number | undefined,
+  maxHeight?: TextClampLayoutInput["maxHeight"],
+): number {
+  const ellipsis = "…";
+  const ratio = 1;
+  host.root.style.width = `${width}px`;
+
+  return largestFittingKept(prepared.boundaryOffsets.length - 1, (kept) => {
+    host.text.textContent = displayTextForKeptCount(prepared, ratio, ellipsis, kept);
+
+    return fitsContent(host.root, host.content, lineLimit, maxHeight, true);
+  });
+}
+
+type CandidateAdvanceStats = {
+  readonly max: number;
+  readonly min: number;
+};
+
+function candidateAdvanceStats(
+  prepared: PreparedText,
+  style: string,
+  ratio = 1,
+  ellipsis = "…",
+): CandidateAdvanceStats {
+  let previous = measuredTextWidth(displayTextForKeptCount(prepared, ratio, ellipsis, 0), style);
+  let minAdvance = Number.POSITIVE_INFINITY;
+  let maxAdvance = 0;
+
+  for (let kept = 1; kept < prepared.boundaryOffsets.length; kept += 1) {
+    const width = measuredTextWidth(
+      displayTextForKeptCount(prepared, ratio, ellipsis, kept),
+      style,
+    );
+    const advance = width - previous;
+    if (advance > 0.5) {
+      minAdvance = Math.min(minAdvance, advance);
+      maxAdvance = Math.max(maxAdvance, advance);
+    }
+    previous = width;
+  }
+
+  return {
+    max: maxAdvance,
+    min: minAdvance,
+  };
+}
+
+function candidateSearchAdvances(
+  prepared: PreparedText,
+  style: string,
+  ratio = 1,
+  ellipsis = "…",
+): number[] {
+  const rankCount = prepared.boundaryOffsets.length - 1;
+  const advances: number[] = [];
+  let previous = measuredTextWidth(displayTextForKeptCount(prepared, ratio, ellipsis, 0), style);
+
+  for (let kept = 1; kept < rankCount; kept += 1) {
+    const width = measuredTextWidth(
+      displayTextForKeptCount(prepared, ratio, ellipsis, kept),
+      style,
+    );
+    advances.push(width - previous);
+    previous = width;
+  }
+
+  return advances;
+}
+
+function advanceStats(advances: readonly number[]): CandidateAdvanceStats {
+  let max = 0;
+  let min = Number.POSITIVE_INFINITY;
+
+  for (const advance of advances) {
+    if (advance > 0.5) {
+      max = Math.max(max, advance);
+      min = Math.min(min, advance);
+    }
+  }
+
+  if (!Number.isFinite(min) || min <= 0 || max <= 0) {
+    throw new Error("Expected positive candidate advances.");
+  }
+
+  return { max, min };
+}
+
+function estimateTextRankInterval(
+  prepared: PreparedText,
+  style: string,
+  previousRank: number,
+  previousWidth: number,
+  nextWidth: number,
+  lineCapacity: number,
+): ReturnType<typeof estimateTargetRankInterval> {
+  return estimateTargetRankInterval({
+    advance: candidateAdvanceStats(prepared, style),
+    lineCapacity,
+    nextWidth,
+    previousRank,
+    previousWidth,
+    rankCount: prepared.boundaryOffsets.length - 1,
+  });
 }
 
 async function expectStaleHintIgnored(
@@ -284,7 +637,7 @@ afterEach(() => {
 });
 
 describe("text layout helpers", () => {
-  it("avoids text rect-list line counting for simple text with roomy line metrics", async () => {
+  it("calibrates text line boxes before using simple-height fits", async () => {
     await document.fonts?.ready;
 
     const prepared = prepareText(longWordText(), "word");
@@ -309,10 +662,26 @@ describe("text layout helpers", () => {
         target: host.text,
       });
     });
+    const secondCalls = countClientRectsDuring(host.content, () => {
+      clampTextToLayout({
+        content: host.content,
+        ellipsis: "…",
+        lineCapacity: 3,
+        lineLimit: 3,
+        maxHeight: undefined,
+        prepared,
+        ratio: 1,
+        root: host.root,
+        rootWidth: host.width,
+        simpleLineFit,
+        target: host.text,
+      });
+    });
 
     expect(simpleLineFit.lineHeight).toBe(20);
-    expect(simpleLineFit.maxLineBoxHeight).toBe(20);
-    expect(calls).toBe(0);
+    expect(calls).toBeGreaterThan(0);
+    expect(simpleLineFit.maxLineBoxHeight).toBeGreaterThan(0);
+    expect(secondCalls).toBe(0);
   });
 
   it("keeps exact text rect-list counting when font boxes can exceed line height", async () => {
@@ -395,6 +764,506 @@ describe("text layout helpers", () => {
     expect(secondCalls).toBe(0);
   });
 
+  it("matches declared text fit classes to observed layout reads", async () => {
+    await document.fonts?.ready;
+
+    const simpleHost = mountLayoutHost(180);
+    simpleHost.text.textContent = "Release dashboards keep response ownership visible";
+    const simpleLineFit = simpleLineFitFromStyle(getComputedStyle(simpleHost.text));
+    if (!simpleLineFit) {
+      throw new Error("Expected roomy text metrics to expose a simple line fit.");
+    }
+    expect(predictTextFitCostClass(3, undefined, simpleLineFit)).toBe("exact-rect-list");
+    expectObservedTextFitCostClass(
+      sampleFitCostDuring(simpleHost.root, simpleHost.content, () => {
+        fitsContent(
+          simpleHost.root,
+          simpleHost.content,
+          3,
+          undefined,
+          true,
+          undefined,
+          simpleLineFit,
+        );
+      }),
+      "exact-rect-list",
+    );
+    expect(simpleLineFit.maxLineBoxHeight).toBeGreaterThan(0);
+    expect(predictTextFitCostClass(3, undefined, simpleLineFit)).toBe("simple-height");
+    expectObservedTextFitCostClass(
+      sampleFitCostDuring(simpleHost.root, simpleHost.content, () => {
+        fitsContent(
+          simpleHost.root,
+          simpleHost.content,
+          3,
+          undefined,
+          true,
+          undefined,
+          simpleLineFit,
+        );
+      }),
+      "simple-height",
+    );
+
+    const exactHost = mountLayoutHost(140);
+    exactHost.text.textContent = "Release dashboards keep response ownership visible";
+    expect(predictTextFitCostClass(2, undefined)).toBe("exact-rect-list");
+    expectObservedTextFitCostClass(
+      sampleFitCostDuring(exactHost.root, exactHost.content, () => {
+        fitsContent(exactHost.root, exactHost.content, 2, undefined, true);
+      }),
+      "exact-rect-list",
+    );
+
+    const maxHeightHost = mountLayoutHost(140);
+    maxHeightHost.root.style.maxHeight = "40px";
+    maxHeightHost.root.style.overflow = "hidden";
+    maxHeightHost.text.textContent = "Release dashboards keep response ownership visible";
+    expect(predictTextFitCostClass(undefined, "40px")).toBe("max-height-bounds");
+    expectObservedTextFitCostClass(
+      sampleFitCostDuring(maxHeightHost.root, maxHeightHost.content, () => {
+        fitsContent(maxHeightHost.root, maxHeightHost.content, undefined, "40px");
+      }),
+      "max-height-bounds",
+    );
+  });
+
+  it("reports content bounds from an existing simple-height fit read", async () => {
+    await document.fonts?.ready;
+
+    const host = mountLayoutHost(180);
+    host.text.textContent = "Release dashboards keep response ownership visible";
+    const simpleLineFit = simpleLineFitFromStyle(getComputedStyle(host.text));
+    const bounds: DOMRect[] = [];
+
+    if (!simpleLineFit) {
+      throw new Error("Expected roomy text metrics to expose a simple line fit.");
+    }
+
+    fitsContent(host.root, host.content, 3, undefined, true, undefined, simpleLineFit);
+
+    const sample = sampleFitCostDuring(host.root, host.content, () => {
+      expect(
+        fitsContent(
+          host.root,
+          host.content,
+          3,
+          undefined,
+          true,
+          undefined,
+          simpleLineFit,
+          (probe) => {
+            if (probe.bounds) {
+              bounds.push(probe.bounds);
+            }
+          },
+        ),
+      ).toBe(true);
+    });
+    const firstBounds = bounds[0];
+
+    expect(firstBounds?.width).toBeGreaterThan(0);
+    expect(firstBounds?.height).toBeGreaterThan(0);
+    expect(sample.contentBoundingRectReads).toBe(1);
+    expect(sample.clientRectReads).toBe(0);
+  });
+
+  it("matches the warm probe model against browser line-fit probes", async () => {
+    await document.fonts?.ready;
+
+    const prepared = prepareText(longWordText(), "word");
+    const host = mountLayoutHost(240);
+    const boundaryCount = prepared.boundaryOffsets.length - 1;
+    const ellipsis = "…";
+    const lineLimit = 3;
+    const ratio = 1;
+
+    function fitsKept(kept: number): boolean {
+      host.text.textContent = displayTextForKeptCount(prepared, ratio, ellipsis, kept);
+
+      return fitsContent(host.root, host.content, lineLimit, undefined, true);
+    }
+
+    const target = largestFittingKept(boundaryCount, fitsKept);
+    const hintKept = Math.max(0, target - 1);
+    let probes = 0;
+
+    expect(target).toBeGreaterThan(0);
+    expect(target).toBeLessThan(boundaryCount - 1);
+
+    const clientRectReads = countClientRectsDuring(host.content, () => {
+      clampTextToFit({
+        ellipsis,
+        fits(candidate) {
+          probes += 1;
+          host.text.textContent = candidate;
+
+          return fitsContent(host.root, host.content, lineLimit, undefined, true);
+        },
+        hint: {
+          boundaryOffsets: prepared.boundaryOffsets,
+          ellipsis,
+          kept: hintKept,
+          ratio,
+          spacing: "trim",
+        },
+        prepared,
+        ratio,
+        spacing: "trim",
+      });
+    });
+
+    expect(probes).toBe(estimateWarmSearchProbeCount(boundaryCount, hintKept, target));
+    expect(clientRectReads).toBe(probes);
+  });
+
+  it("captures text probe mutations during actual layout fitting", async () => {
+    await document.fonts?.ready;
+
+    const prepared = prepareText(longWordText(), "word");
+    const host = mountLayoutHost(180);
+    const state: { result: TextClampResult | null } = { result: null };
+    const samples = collectTextProbeMutationsDuring(host.content, host.text, () => {
+      state.result = clampTextToLayout({
+        content: host.content,
+        ellipsis: "…",
+        lineCapacity: 3,
+        lineLimit: 3,
+        maxHeight: undefined,
+        prepared,
+        ratio: 1,
+        root: host.root,
+        rootWidth: host.width,
+        target: host.text,
+      });
+    });
+
+    expect(state.result?.text).not.toBe(prepared.text);
+    expect(samples.length).toBeGreaterThan(1);
+    expect(samples.some((sample) => sample.childList > 0)).toBe(true);
+    expect(samples.some((sample) => sample.characterData > 0 && sample.childList === 0)).toBe(true);
+  });
+
+  it("observes line count as a target-rank slope input", async () => {
+    await document.fonts?.ready;
+
+    const text = Array.from({ length: 60 }, (_, index) => `word${index + 1}`).join(" ");
+    const prepared = prepareText(text, "word");
+    const host = mountLayoutHost(160);
+    const boundaryCount = prepared.boundaryOffsets.length - 1;
+
+    const oneLineNarrow = fittingRankForLayout(host, prepared, 160, 1);
+    const oneLineWide = fittingRankForLayout(host, prepared, 240, 1);
+    const threeLineNarrow = fittingRankForLayout(host, prepared, 160, 3);
+    const threeLineWide = fittingRankForLayout(host, prepared, 240, 3);
+    const oneLineMove = oneLineWide - oneLineNarrow;
+    const threeLineMove = threeLineWide - threeLineNarrow;
+
+    expect(oneLineNarrow).toBeGreaterThan(0);
+    expect(oneLineWide).toBeLessThan(boundaryCount - 1);
+    expect(threeLineNarrow).toBeGreaterThan(oneLineNarrow);
+    expect(threeLineWide).toBeLessThan(boundaryCount - 1);
+    expect(threeLineMove).toBeGreaterThan(oneLineMove);
+  });
+
+  it("observes boundary density as a target-rank slope input", async () => {
+    await document.fonts?.ready;
+
+    const densePrepared = prepareText(
+      Array.from({ length: 80 }, (_, index) => `w${index + 1}`).join(" "),
+      "word",
+    );
+    const longPrepared = prepareText(
+      Array.from({ length: 24 }, (_, index) => `observabilityPlatform${index + 1}`).join(" "),
+      "word",
+    );
+    const host = mountLayoutHost(160);
+
+    const denseMove =
+      fittingRankForLayout(host, densePrepared, 240, 3) -
+      fittingRankForLayout(host, densePrepared, 160, 3);
+    const longMove =
+      fittingRankForLayout(host, longPrepared, 240, 3) -
+      fittingRankForLayout(host, longPrepared, 160, 3);
+
+    expect(denseMove).toBeGreaterThan(0);
+    expect(longMove).toBeGreaterThanOrEqual(0);
+    expect(denseMove).toBeGreaterThan(longMove);
+  });
+
+  it("bounds target-rank growth from visible capacity and candidate density", async () => {
+    await document.fonts?.ready;
+
+    const style = "font:16px Georgia, serif;line-height:20px";
+    const densePrepared = prepareText(
+      Array.from({ length: 80 }, (_, index) => `w${index + 1}`).join(" "),
+      "word",
+    );
+    const longPrepared = prepareText(
+      Array.from({ length: 24 }, (_, index) => `observabilityPlatform${index + 1}`).join(" "),
+      "word",
+    );
+    const host = mountLayoutHost(160);
+    const lineCapacity = 3;
+    const previousWidth = 160;
+    const nextWidth = 240;
+
+    const denseNarrow = fittingRankForLayout(host, densePrepared, previousWidth, lineCapacity);
+    const denseWide = fittingRankForLayout(host, densePrepared, nextWidth, lineCapacity);
+    const longNarrow = fittingRankForLayout(host, longPrepared, previousWidth, lineCapacity);
+    const longWide = fittingRankForLayout(host, longPrepared, nextWidth, lineCapacity);
+    const denseInterval = estimateTextRankInterval(
+      densePrepared,
+      style,
+      denseNarrow,
+      previousWidth,
+      nextWidth,
+      lineCapacity,
+    );
+    const longInterval = estimateTextRankInterval(
+      longPrepared,
+      style,
+      longNarrow,
+      previousWidth,
+      nextWidth,
+      lineCapacity,
+    );
+
+    expect(denseWide).toBeGreaterThanOrEqual(denseNarrow);
+    expect(longWide).toBeGreaterThanOrEqual(longNarrow);
+    expect(denseWide).toBeLessThanOrEqual(denseInterval.max);
+    expect(longWide).toBeLessThanOrEqual(longInterval.max);
+    expect(denseInterval.max - denseNarrow).toBeGreaterThan(longInterval.max - longNarrow);
+  });
+
+  it("does not bound text shrink from candidate density alone", async () => {
+    await document.fonts?.ready;
+
+    const style = "font:16px Georgia, serif;line-height:20px";
+    const densePrepared = prepareText(
+      Array.from({ length: 80 }, (_, index) => `w${index + 1}`).join(" "),
+      "word",
+    );
+    const longPrepared = prepareText(
+      Array.from({ length: 24 }, (_, index) => `observabilityPlatform${index + 1}`).join(" "),
+      "word",
+    );
+    const host = mountLayoutHost(240);
+    const lineCapacity = 3;
+    const previousWidth = 240;
+    const nextWidth = 160;
+
+    const denseWide = fittingRankForLayout(host, densePrepared, previousWidth, lineCapacity);
+    const denseNarrow = fittingRankForLayout(host, densePrepared, nextWidth, lineCapacity);
+    const longWide = fittingRankForLayout(host, longPrepared, previousWidth, lineCapacity);
+    const longNarrow = fittingRankForLayout(host, longPrepared, nextWidth, lineCapacity);
+    const denseInterval = estimateTextRankInterval(
+      densePrepared,
+      style,
+      denseWide,
+      previousWidth,
+      nextWidth,
+      lineCapacity,
+    );
+    const longInterval = estimateTextRankInterval(
+      longPrepared,
+      style,
+      longWide,
+      previousWidth,
+      nextWidth,
+      lineCapacity,
+    );
+
+    expect(denseNarrow).toBeLessThanOrEqual(denseWide);
+    expect(longNarrow).toBeLessThanOrEqual(longWide);
+    expect(denseNarrow).toBeLessThan(denseInterval.min);
+    expect(longInterval.min).toBeLessThanOrEqual(longWide);
+  });
+
+  it("bounds target-rank movement across held-out combined layouts", async () => {
+    await document.fonts?.ready;
+
+    const style = "font:16px Georgia, serif;line-height:20px";
+    const cases = [
+      {
+        affix: true,
+        boundary: "grapheme",
+        from: 170,
+        lineLimit: 2,
+        text: "界".repeat(140),
+        to: 230,
+      },
+      {
+        affix: true,
+        boundary: "grapheme",
+        from: 260,
+        maxHeight: "60px",
+        text: "🙂".repeat(140),
+        to: 180,
+      },
+      {
+        boundary: "word",
+        from: 140,
+        lineLimit: 4,
+        text: Array.from({ length: 90 }, (_, index) => `x${index + 1}`).join(" "),
+        to: 210,
+      },
+    ] as const;
+
+    for (const item of cases) {
+      const prepared = prepareText(item.text, item.boundary);
+      const host = mountLayoutHost(item.from);
+      const lineLimit = "lineLimit" in item ? item.lineLimit : undefined;
+      const maxHeight = "maxHeight" in item ? item.maxHeight : undefined;
+      const lineCapacity = estimateLineCapacity(host.text, maxHeight, lineLimit);
+      if (lineCapacity === undefined) {
+        throw new Error("Expected a finite visible line capacity.");
+      }
+
+      if ("affix" in item && item.affix) {
+        const before = document.createElement("span");
+        const after = document.createElement("span");
+        before.style.cssText = "display:inline-block;width:42px;height:16px";
+        after.style.cssText = "display:inline-block;width:34px;height:16px";
+        host.content.prepend(before);
+        host.content.append(after);
+      }
+
+      if (maxHeight !== undefined) {
+        host.root.style.overflow = "hidden";
+        host.root.style.maxHeight = maxHeight;
+      }
+
+      const fromRank = fittingRankForLayout(host, prepared, item.from, lineLimit, maxHeight);
+      const toRank = fittingRankForLayout(host, prepared, item.to, lineLimit, maxHeight);
+      const interval =
+        item.to > item.from
+          ? estimateTextRankInterval(prepared, style, fromRank, item.from, item.to, lineCapacity)
+          : null;
+
+      expect(fromRank).toBeGreaterThan(0);
+      expect(toRank).toBeGreaterThan(0);
+
+      if (item.to > item.from) {
+        expect(toRank).toBeGreaterThanOrEqual(fromRank);
+        expect(toRank).toBeLessThanOrEqual(interval!.max);
+      } else {
+        expect(toRank).toBeLessThanOrEqual(fromRank);
+      }
+    }
+  });
+
+  it("does not treat text candidate widths as a complete line-break model", async () => {
+    await document.fonts?.ready;
+
+    const style = "font:16px Georgia, serif;line-height:20px";
+    const text = "alpha beta gamma delta epsilon zeta eta theta iota kappa lambda";
+    const prepared = prepareText(text, "word");
+    const host = mountLayoutHost(150);
+    const previousWidth = 150;
+    const lineCapacity = 1;
+    const previousRank = fittingRankForLayout(host, prepared, previousWidth, lineCapacity);
+    const advances = candidateSearchAdvances(prepared, style);
+    const advance = advanceStats(advances);
+    const previousCandidate = displayTextForKeptCount(prepared, 1, "…", previousRank);
+    const packingSlack = Math.max(0, previousWidth - measuredTextWidth(previousCandidate, style));
+    const room = estimateWarmSearchWidthRoom({
+      advances,
+      count: prepared.boundaryOffsets.length - 1,
+      hint: previousRank,
+      lineCapacity,
+      packingSlack,
+    });
+    const insideWidth = previousWidth + room.widthDeltaLimit - 0.001;
+    const insideRank = fittingRankForLayout(host, prepared, insideWidth, lineCapacity);
+    const insideInterval = estimateTargetRankLocalInterval({
+      advance,
+      advances,
+      lineCapacity,
+      nextWidth: insideWidth,
+      packingSlack,
+      previousRank,
+      previousWidth,
+      rankCount: prepared.boundaryOffsets.length - 1,
+    });
+
+    expect(room.useWarm).toBe(true);
+    expect(room.widthDeltaLimit).toBeGreaterThan(0);
+    expect(insideInterval.max).toBe(previousRank + room.maxRankMove);
+    expect(insideRank).toBeGreaterThan(insideInterval.max);
+    expect(
+      warmSearchDecision({
+        count: prepared.boundaryOffsets.length - 1,
+        hint: previousRank,
+        interval: insideInterval,
+      }).useWarm,
+    ).toBe(true);
+  });
+
+  it("observes CJK and emoji grapheme width as a target-rank slope input", async () => {
+    await document.fonts?.ready;
+
+    const style = "font:16px Georgia, serif;line-height:20px";
+    const cjk = { unit: "界", width: averageUnitWidth("界", style) };
+    const emoji = { unit: "🙂", width: averageUnitWidth("🙂", style) };
+    const [narrow, wide] = cjk.width <= emoji.width ? [cjk, emoji] : [emoji, cjk];
+    const narrowPrepared = prepareText(narrow.unit.repeat(120), "grapheme");
+    const widePrepared = prepareText(wide.unit.repeat(120), "grapheme");
+    const host = mountLayoutHost(160);
+
+    const narrowMove =
+      fittingRankForLayout(host, narrowPrepared, 240, 3) -
+      fittingRankForLayout(host, narrowPrepared, 160, 3);
+    const wideMove =
+      fittingRankForLayout(host, widePrepared, 240, 3) -
+      fittingRankForLayout(host, widePrepared, 160, 3);
+
+    expect(Math.abs(cjk.width - emoji.width)).toBeGreaterThan(1);
+    expect(narrowMove).toBeGreaterThan(0);
+    expect(wideMove).toBeGreaterThan(0);
+    expect(narrowMove).toBeGreaterThan(wideMove);
+  });
+
+  it("observes affix occupancy as a target-rank input", async () => {
+    await document.fonts?.ready;
+
+    const prepared = prepareText(
+      Array.from({ length: 60 }, (_, index) => `word${index + 1}`).join(" "),
+      "word",
+    );
+    const host = mountLayoutHost(240);
+    const noAffixRank = fittingRankForLayout(host, prepared, 240, 3);
+    const before = document.createElement("span");
+    const after = document.createElement("span");
+    before.style.cssText = "display:inline-block;width:56px;height:16px";
+    after.style.cssText = "display:inline-block;width:48px;height:16px";
+    host.content.prepend(before);
+    host.content.append(after);
+    const affixRank = fittingRankForLayout(host, prepared, 240, 3);
+
+    expect(noAffixRank).toBeGreaterThan(0);
+    expect(affixRank).toBeGreaterThan(0);
+    expect(affixRank).toBeLessThan(noAffixRank);
+  });
+
+  it("observes max height as a target-rank input", async () => {
+    await document.fonts?.ready;
+
+    const prepared = prepareText(
+      Array.from({ length: 60 }, (_, index) => `word${index + 1}`).join(" "),
+      "word",
+    );
+    const host = mountLayoutHost(200);
+    host.root.style.overflow = "hidden";
+    host.root.style.maxHeight = "40px";
+    const fortyPxRank = fittingRankForLayout(host, prepared, 200, undefined, "40px");
+    host.root.style.maxHeight = "60px";
+    const sixtyPxRank = fittingRankForLayout(host, prepared, 200, undefined, "60px");
+
+    expect(fortyPxRank).toBeGreaterThan(0);
+    expect(sixtyPxRank).toBeGreaterThan(fortyPxRank);
+  });
+
   it("keeps calibrated tight line boxes equivalent to exact line counting", async () => {
     await document.fonts?.ready;
 
@@ -434,6 +1303,41 @@ describe("text layout helpers", () => {
 
     expect(fastTwoLines).toBe(exactTwoLines);
     expect(fastThreeLines).toBe(exactThreeLines);
+  });
+
+  it("calibrates line boxes before accepting an exact-limit RTL fit", async () => {
+    await document.fonts?.ready;
+
+    const host = mountLayoutHost(420);
+    host.root.style.direction = "rtl";
+    host.root.style.textAlign = "start";
+    host.text.textContent =
+      "فرق الاستجابة تراجع incident 4721 و API latency وتبقي ownership واضحا أثناء تغيّر العرض. #1";
+    const simpleLineFit = simpleLineFitFromStyle(getComputedStyle(host.text));
+    if (!simpleLineFit) {
+      throw new Error("Expected text metrics to expose a simple line fit.");
+    }
+
+    const exactFit = fitsContent(host.root, host.content, 3, undefined, true);
+    const calibratedFit = fitsContent(
+      host.root,
+      host.content,
+      3,
+      undefined,
+      true,
+      undefined,
+      simpleLineFit,
+    );
+    const fastSample = sampleFitCostDuring(host.root, host.content, () => {
+      expect(
+        fitsContent(host.root, host.content, 3, undefined, true, undefined, simpleLineFit),
+      ).toBe(true);
+    });
+
+    expect(exactFit).toBe(true);
+    expect(calibratedFit).toBe(true);
+    expect(simpleLineFit.maxLineBoxHeight).toBeGreaterThan(0);
+    expectObservedTextFitCostClass(fastSample, "simple-height");
   });
 
   it("keeps calibrated affix line boxes equivalent to exact line counting", async () => {
@@ -760,6 +1664,57 @@ describe("text layout helpers", () => {
     expect(writes[0]).toBe("…");
   });
 
+  it("reuses a stable full-text fit when width grows", async () => {
+    const text = "Release ownership stays visible.";
+    const prepared = prepareText(text, "word");
+    const host = mountLayoutHost(280);
+    const hint: TextClampResult = {
+      boundaryOffsets: prepared.boundaryOffsets,
+      ellipsis: "…",
+      kept: prepared.boundaryOffsets.length - 1,
+      layoutKey: noAffixLayoutKey,
+      lineCapacity: 3,
+      lineLimit: 3,
+      maxHeight: undefined,
+      ratio: 1,
+      rootWidth: 220,
+      spacing: "trim",
+      text,
+    };
+    const state: { result: TextClampResult | null } = { result: null };
+
+    host.text.textContent = text;
+    const sample = sampleFitCostDuring(host.root, host.content, () => {
+      state.result = clampTextToLayout({
+        content: host.content,
+        ellipsis: "…",
+        hint,
+        lineCapacity: 3,
+        layoutKey: noAffixLayoutKey,
+        lineLimit: 3,
+        maxHeight: undefined,
+        prepared,
+        ratio: 1,
+        root: host.root,
+        rootWidth: host.width,
+        reuseFullFitOnGrow: true,
+        target: host.text,
+      });
+    });
+    const result = state.result;
+
+    if (!result) {
+      throw new Error("Expected full-text grow reuse to return a result.");
+    }
+
+    expect(result.text).toBe(text);
+    expect(result.kept).toBe(prepared.boundaryOffsets.length - 1);
+    expect(result.rootWidth).toBe(host.width);
+    expect(sample.contentBoundingRectReads).toBe(0);
+    expect(sample.rootBoundingRectReads).toBe(0);
+    expect(sample.clientRectReads).toBe(0);
+  });
+
   it("verifies same-width full text before accepting a clamped warm result", async () => {
     await document.fonts?.ready;
 
@@ -802,6 +1757,49 @@ describe("text layout helpers", () => {
 
     expect(result?.text).toBe(text);
     expect(result?.kept).toBe(prepared.boundaryOffsets.length - 1);
+  });
+
+  it("checks same-width full text before warm search", async () => {
+    await document.fonts?.ready;
+
+    const text = "abci";
+    const ellipsis = "WWWW";
+    const prepared = prepareText(text);
+    const width = Math.ceil(measuredTextWidth(text, "font:16px Georgia, serif") + 1);
+    const host = mountLayoutHost(width);
+    const hint: TextClampResult = {
+      boundaryOffsets: prepared.boundaryOffsets,
+      ellipsis,
+      kept: 3,
+      layoutKey: noAffixLayoutKey,
+      lineCapacity: 1,
+      lineLimit: 1,
+      maxHeight: undefined,
+      ratio: 1,
+      rootWidth: width,
+      spacing: "trim",
+      text: `abc${ellipsis}`,
+    };
+
+    const writes = textWritesDuring(host.text, () =>
+      clampTextToLayout({
+        checkFullFitFirst: true,
+        content: host.content,
+        ellipsis,
+        hint,
+        lineCapacity: 1,
+        layoutKey: noAffixLayoutKey,
+        lineLimit: 1,
+        maxHeight: undefined,
+        prepared,
+        ratio: 1,
+        root: host.root,
+        rootWidth: width,
+        target: host.text,
+      }),
+    );
+
+    expect(writes).toEqual([text]);
   });
 
   it("warm-starts fallback grapheme search on word-boundary shrinks", async () => {

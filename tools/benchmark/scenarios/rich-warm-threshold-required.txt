@@ -1,0 +1,32 @@
+# Required RichLineClamp scenarios for warm-threshold / mixed-rank runtime candidates.
+# Use with tools/benchmark/scripts/compare-matrix-summary.mjs --require-scenarios-file.
+# Run the benchmark with these same scenarios before comparing summaries.
+# Keep this list focused on input-shape coverage, not on rows that merely look favorable.
+
+# Focused long-token warm-search rows.
+rich-word-long-token-batch-jumps
+rich-word-long-token-lines1-batch-jumps
+rich-word-long-token-lines5-batch-jumps
+rich-word-long-token-tight-font-batch-jumps
+
+# Line-capacity and ordinary word-density controls.
+rich-word-copy-lines1-batch-jumps
+rich-word-copy-lines5-batch-jumps
+
+# Held-out width paths and boundary density.
+rich-word-long-token-batch-novel-jitter
+rich-word-cjk-batch-novel-jitter
+rich-word-copy-batch-novel-jitter
+
+# Held-out DOM shape and patch-cost controls.
+rich-word-class-atomic-batch-jumps
+rich-word-dynamic-atomic-batch-jumps
+rich-metadata-affix-batch-novel-jitter
+
+# Height and affix clipping controls.
+rich-height-card-batch-jumps
+rich-lines-height-card-batch-jumps
+rich-word-height-card-batch-jumps
+rich-height-affix-card-batch-jumps
+rich-lines-height-affix-card-batch-jumps
+rich-word-long-token-affix-lines5-grow-full

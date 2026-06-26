@@ -14,6 +14,7 @@ import {
   borderBoxSizeSignature,
   createCoalescingRunner,
   emptyBorderBoxSignature,
+  hasUnresolvedInlineTextWidthStyle,
   listenForFontLoads,
   observedBorderBoxSizeSnapshot,
 } from "./layout.ts";
@@ -32,6 +33,11 @@ export type MultilineFrameRefs = {
 
 type ShellState = MultilineFrameRefs & {
   readonly isClamped: Ref<boolean>;
+};
+
+type FontEventPlan = {
+  readonly canUseLayoutProof: boolean;
+  readonly clearFontState: boolean;
 };
 
 export type MultilineAffixRefSetter = (element: ComponentPublicInstance | Element | null) => void;
@@ -105,6 +111,8 @@ export function useMultilineClamp(options: MultilineShellOptions): MultilineShel
   let recomputeEpoch = 0;
   let fontRecomputeEpoch = 0;
   let fontRecomputeFrame: number | null = null;
+  let fontRecomputeCanUseLayoutProof = false;
+  let fontRecomputeClearedState = false;
 
   function readRootSnapshot(): BorderBoxSizeSnapshot {
     const snapshot = borderBoxSizeSnapshot(state.rootRef.value);
@@ -229,6 +237,127 @@ export function useMultilineClamp(options: MultilineShellOptions): MultilineShel
     };
   }
 
+  function hasUnresolvedFontStyle(root: HTMLElement): boolean {
+    if (hasUnresolvedInlineTextWidthStyle(root.style)) {
+      return true;
+    }
+
+    for (const element of root.querySelectorAll<HTMLElement>("[style]")) {
+      if (hasUnresolvedInlineTextWidthStyle(element.style)) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  function normalizeFontFamily(value: string): string {
+    const trimmed = value.trim();
+    const quote = trimmed[0];
+    const unquoted =
+      (quote === '"' || quote === "'") && trimmed.at(-1) === quote ? trimmed.slice(1, -1) : trimmed;
+
+    return unquoted.toLowerCase();
+  }
+
+  function fontFamilyList(value: string): string[] {
+    const families: string[] = [];
+    let token = "";
+    let quote = "";
+
+    for (const char of value) {
+      if (quote) {
+        token += char;
+        if (char === quote) {
+          quote = "";
+        }
+      } else if (char === '"' || char === "'") {
+        quote = char;
+        token += char;
+      } else if (char === ",") {
+        families.push(normalizeFontFamily(token));
+        token = "";
+      } else {
+        token += char;
+      }
+    }
+
+    families.push(normalizeFontFamily(token));
+
+    return families.filter(Boolean);
+  }
+
+  function loadedFontFamilies(event: Event): Set<string> | null {
+    if (!("fontfaces" in event)) {
+      return null;
+    }
+
+    const fontfaces = (event as { readonly fontfaces?: readonly FontFace[] }).fontfaces;
+    return new Set(
+      fontfaces
+        ?.filter((face) => face.status === "loaded")
+        .map((face) => normalizeFontFamily(face.family)) ?? [],
+    );
+  }
+
+  function usesFontFamily(root: HTMLElement, families: ReadonlySet<string>): boolean {
+    if (families.size === 0) {
+      return false;
+    }
+
+    function usesFamily(element: HTMLElement): boolean {
+      return fontFamilyList(getComputedStyle(element).fontFamily).some((family) =>
+        families.has(family),
+      );
+    }
+
+    if (usesFamily(root)) {
+      return true;
+    }
+
+    for (const element of root.querySelectorAll("*")) {
+      if (element instanceof HTMLElement && usesFamily(element)) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  function fontEventPlan(event: Event | undefined): FontEventPlan {
+    const root = state.rootRef.value;
+    if (!root || event === undefined || hasUnresolvedFontStyle(root)) {
+      return {
+        canUseLayoutProof: false,
+        clearFontState: true,
+      };
+    }
+
+    const families = loadedFontFamilies(event);
+    if (families === null || !usesFontFamily(root, families)) {
+      return {
+        canUseLayoutProof: true,
+        clearFontState: false,
+      };
+    }
+
+    return {
+      canUseLayoutProof: !state.isClamped.value,
+      clearFontState: true,
+    };
+  }
+
+  function hasFontLayoutChanged(): boolean {
+    const previousRootSizeSignature = lastRootSizeSignature;
+    const rootSnapshot = readRootSnapshot();
+    const nextLayoutSignature = readLayoutSignature();
+
+    return (
+      rootSnapshot.signature !== previousRootSizeSignature ||
+      nextLayoutSignature !== lastLayoutSignature
+    );
+  }
+
   const requestRecomputeRunner = createCoalescingRunner(async () => {
     const rootWidth = pendingRootWidth;
     const affixSignaturesFresh = pendingAffixSignaturesFresh;
@@ -255,20 +384,47 @@ export function useMultilineClamp(options: MultilineShellOptions): MultilineShel
     fontRecomputeFrame = null;
   }
 
-  function requestFontRecompute(): void {
-    onFontLoad?.();
+  function requestFontRecompute(event?: Event): void {
+    const plan = fontEventPlan(event);
+    if (plan.clearFontState) {
+      onFontLoad?.();
+    }
+
     fontRecomputeEpoch = recomputeEpoch;
+    if (fontRecomputeFrame === null) {
+      fontRecomputeCanUseLayoutProof = plan.canUseLayoutProof;
+      fontRecomputeClearedState = plan.clearFontState;
+    } else {
+      fontRecomputeCanUseLayoutProof &&= plan.canUseLayoutProof;
+      fontRecomputeClearedState ||= plan.clearFontState;
+    }
 
     if (fontRecomputeFrame !== null) {
       return;
     }
 
     fontRecomputeFrame = requestAnimationFrame(() => {
+      const canUseLayoutProof = fontRecomputeCanUseLayoutProof;
+      const clearedFontState = fontRecomputeClearedState;
       fontRecomputeFrame = null;
+      fontRecomputeCanUseLayoutProof = false;
+      fontRecomputeClearedState = false;
 
       // Font events often arrive immediately before a Vue width update. If any
       // reclamp has already run in that frame, it measured the current fonts.
       if (fontRecomputeEpoch === recomputeEpoch) {
+        if (canUseLayoutProof) {
+          if (!hasFontLayoutChanged()) {
+            return;
+          }
+
+          if (!clearedFontState) {
+            onFontLoad?.();
+          }
+          requestRecompute();
+          return;
+        }
+
         requestRecompute();
       }
     });

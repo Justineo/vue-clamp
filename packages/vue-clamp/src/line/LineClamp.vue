@@ -2,11 +2,22 @@
 import { computed, h, mergeProps, nextTick, shallowRef, useAttrs, watch } from "vue";
 import { trueOrUndefined } from "../attributes.ts";
 import {
+  exactResultCacheEntryLimit,
+  rememberCacheEntry,
+  touchCacheEntry,
+  tupleCacheKey,
+} from "../cache.ts";
+import {
   borderBoxWidth,
   cssLength,
   estimateLineCapacity,
   hasBorderBoxSize,
+  hasInlineFontMetrics,
+  hasInlineLineMetrics,
+  hasUnresolvedInlineTextWidthStyle,
+  isContentIndependentWidth,
   normalizeLineLimit,
+  numericPx,
   simpleLineFitFromStyle,
 } from "../layout.ts";
 import { useMultilineClamp } from "../multiline.ts";
@@ -31,6 +42,18 @@ import type { TextClampResult } from "../text.ts";
 
 type AffixLayout = {
   readonly hasAffixes: boolean;
+  readonly key: string;
+};
+
+type LineFitResult = {
+  readonly fit: SimpleLineFit | undefined;
+  readonly fontScale: number | null;
+  readonly metricsChanged: boolean;
+};
+
+type LineFitInput = {
+  readonly fit: SimpleLineFit | undefined;
+  readonly fontSize: number | null;
   readonly key: string;
 };
 
@@ -63,6 +86,9 @@ const multilineBodyStyle: CSSProperties = { position: "relative" };
 const overflowHiddenRootStyle: CSSProperties = { overflow: "hidden" };
 let lastTextClamp: TextClampResult | null = null;
 let lineFitCache: { fit: SimpleLineFit; key: string } | null = null;
+let lineFitFontSize: number | null = null;
+let lineFitKey: string | null = null;
+const resultCache = new Map<string, TextClampResult>();
 
 const lineLimit = computed(() => normalizeLineLimit(maxLines));
 const preparedText = computed(() => prepareText(text, boundary));
@@ -86,6 +112,7 @@ const {
   expanded,
   onFontLoad: () => {
     resetLineFitCache();
+    resultCache.clear();
   },
   onClampedChange: (value) => {
     emit("clampchange", value);
@@ -132,23 +159,38 @@ const {
     const affixLayout = currentAffixLayout();
     const layoutKey = affixLayout.key;
     const lineCapacity = estimateLineCapacity(rootElement, maxHeight, currentLineLimit);
-    const simpleLineFit = lineFit(currentLineLimit, textElement, layoutKey);
-    const nextResult = clampTextToLayout({
-      content: contentElement,
-      ellipsis,
-      hasAffixes: affixLayout.hasAffixes,
-      hint: lastTextClamp,
-      lineCapacity,
-      layoutKey,
-      lineLimit: currentLineLimit,
-      maxHeight,
+    const lineFitResult = lineFit(currentLineLimit, rootElement, textElement, layoutKey);
+    const cacheKey = resultCacheKey(
       prepared,
-      ratio: locationRatio,
-      root: rootElement,
+      rootElement,
+      rootWidthSnapshot !== undefined,
       rootWidth,
-      simpleLineFit,
-      target: textElement,
-    });
+      layoutKey,
+      currentLineLimit,
+      locationRatio,
+    );
+    const cachedResult = cacheKey ? (touchCacheEntry(resultCache, cacheKey) ?? null) : null;
+    const nextResult =
+      cachedResult ??
+      clampTextToLayout({
+        checkFullFitFirst: shouldCheckFullFitFirst(lineFitResult, prepared, rootWidth),
+        content: contentElement,
+        ellipsis,
+        hasAffixes: affixLayout.hasAffixes,
+        hint: lastTextClamp,
+        lineCapacity,
+        layoutKey,
+        lineLimit: currentLineLimit,
+        maxHeight,
+        prepared,
+        ratio: locationRatio,
+        root: rootElement,
+        rootWidth,
+        reuseFullFitOnGrow:
+          !lineFitResult.metricsChanged && !affixLayout.hasAffixes && maxHeight === undefined,
+        simpleLineFit: lineFitResult.fit,
+        target: textElement,
+      });
 
     if (nextResult === null) {
       // A zero-width root cannot produce a stable clamp; keep source text until
@@ -158,6 +200,9 @@ const {
     }
 
     lastTextClamp = nextResult;
+    if (!cachedResult) {
+      rememberCacheEntry(resultCache, cacheKey, nextResult, exactResultCacheEntryLimit);
+    }
     await applyTextState(nextResult.text, nextResult.text !== prepared.text);
   },
 });
@@ -189,7 +234,8 @@ async function resetClamp(): Promise<void> {
 
 function resetTextClampHint(): void {
   lastTextClamp = null;
-  resetLineFitCache();
+  resetLineFitState();
+  resultCache.clear();
 }
 
 function currentAffixLayout(): AffixLayout {
@@ -224,23 +270,85 @@ function getNativeMode(
 
 function lineFit(
   currentLineLimit: number | undefined,
+  rootElement: HTMLElement,
   textElement: HTMLElement,
   layoutKey: string,
-): SimpleLineFit | undefined {
+): LineFitResult {
   if (currentLineLimit === undefined || maxHeight !== undefined) {
-    return undefined;
+    return {
+      fit: undefined,
+      fontScale: null,
+      metricsChanged: false,
+    };
+  }
+
+  const inlineFit = inlineRootLineFit(rootElement, layoutKey);
+  if (inlineFit) {
+    return applyLineFit(inlineFit);
   }
 
   const style = getComputedStyle(textElement);
-  const simpleLineFit = simpleLineFitFromStyle(style);
-  const key = lineFitCacheKey(style, layoutKey);
-  if (lineFitCache?.key === key) {
-    return lineFitCache.fit;
+  return applyLineFit({
+    fit: simpleLineFitFromStyle(style),
+    fontSize: numericPx(style.fontSize),
+    key: lineFitCacheKey(style, layoutKey),
+  });
+}
+
+function inlineRootLineFit(rootElement: HTMLElement, layoutKey: string): LineFitInput | null {
+  const style = rootElement.style;
+
+  if (
+    (rootElement.getAttribute("class") ?? "").trim() !== "" ||
+    !hasInlineFontMetrics(style) ||
+    !hasInlineLineMetrics(style) ||
+    hasUnresolvedInlineTextWidthStyle(style)
+  ) {
+    return null;
   }
 
-  if (!simpleLineFit || (beforeRef.value === null && afterRef.value === null)) {
-    lineFitCache = simpleLineFit ? { fit: simpleLineFit, key } : null;
-    return simpleLineFit;
+  const fit = simpleLineFitFromStyle(style);
+  if (!fit) {
+    return null;
+  }
+
+  return {
+    fit,
+    fontSize: numericPx(style.fontSize),
+    key: lineFitCacheKey(style, layoutKey),
+  };
+}
+
+function applyLineFit({ fit: simpleLineFit, fontSize, key }: LineFitInput): LineFitResult {
+  const fontScale =
+    lineFitFontSize !== null && fontSize !== null ? fontSize / lineFitFontSize : null;
+  const metricsChanged = lineFitKey !== null && lineFitKey !== key;
+  lineFitFontSize = fontSize;
+  lineFitKey = key;
+
+  if (lineFitCache?.key === key) {
+    return {
+      fit: lineFitCache.fit,
+      fontScale,
+      metricsChanged,
+    };
+  }
+
+  if (!simpleLineFit) {
+    return {
+      fit: undefined,
+      fontScale,
+      metricsChanged,
+    };
+  }
+
+  if (beforeRef.value === null && afterRef.value === null) {
+    lineFitCache = { fit: simpleLineFit, key };
+    return {
+      fit: simpleLineFit,
+      fontScale,
+      metricsChanged,
+    };
   }
 
   const fit = {
@@ -249,7 +357,31 @@ function lineFit(
   };
   lineFitCache = { fit, key };
 
-  return fit;
+  return {
+    fit,
+    fontScale,
+    metricsChanged,
+  };
+}
+
+function shouldCheckFullFitFirst(
+  lineFitResult: LineFitResult,
+  prepared: ReturnType<typeof prepareText>,
+  rootWidth: number,
+): boolean {
+  const hint = lastTextClamp;
+  const fontScale = lineFitResult.fontScale;
+  const boundaryCount = prepared.boundaryOffsets.length - 1;
+
+  return (
+    lineFitResult.metricsChanged &&
+    fontScale !== null &&
+    fontScale < 1 &&
+    hint !== null &&
+    hint.rootWidth === rootWidth &&
+    hint.kept < boundaryCount &&
+    fontScale * boundaryCount <= hint.kept
+  );
 }
 
 function lineFitCacheKey(style: CSSStyleDeclaration, layoutKey: string): string {
@@ -273,6 +405,55 @@ function lineFitCacheKey(style: CSSStyleDeclaration, layoutKey: string): string 
 
 function resetLineFitCache(): void {
   lineFitCache = null;
+}
+
+function resetLineFitState(): void {
+  resetLineFitCache();
+  lineFitFontSize = null;
+  lineFitKey = null;
+}
+
+function resultCacheKey(
+  prepared: ReturnType<typeof prepareText>,
+  root: HTMLElement,
+  hasWidthSnapshot: boolean,
+  rootWidth: number,
+  layoutKey: string,
+  currentLineLimit: number | undefined,
+  locationRatio: number,
+): string | undefined {
+  if (
+    !hasWidthSnapshot ||
+    maxHeight !== undefined ||
+    currentLineLimit === undefined ||
+    !canCacheResult(root)
+  ) {
+    return undefined;
+  }
+
+  return tupleCacheKey([
+    rootWidth,
+    layoutKey,
+    prepared.boundary,
+    prepared.text,
+    currentLineLimit,
+    locationRatio,
+    ellipsis,
+    root.getAttribute("class") ?? "",
+    root.getAttribute("style") ?? "",
+  ]);
+}
+
+function canCacheResult(root: HTMLElement): boolean {
+  if (
+    !isContentIndependentWidth(root.style.width.trim()) ||
+    (root.getAttribute("class") ?? "").trim() !== "" ||
+    hasUnresolvedInlineTextWidthStyle(root.style)
+  ) {
+    return false;
+  }
+
+  return hasInlineFontMetrics(root.style) && hasInlineLineMetrics(root.style);
 }
 
 function renderAffixSlot(part: "before" | "after", slotStyle: CSSProperties): VNodeChild | null {

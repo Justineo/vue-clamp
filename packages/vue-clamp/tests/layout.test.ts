@@ -2,16 +2,22 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   createCoalescingRunner,
   hasInlineFontMetrics,
+  hasInlineLineMetrics,
   hasUnresolvedInlineTextWidthStyle,
   hasUnresolvedStyleReference,
   isContentIndependentWidth,
 } from "../src/layout.ts";
 
-function fontMetricsStyle(font: string, fontFamily = "", fontSize = ""): CSSStyleDeclaration {
+function fontMetricsStyle(fontFamily = "", fontSize = ""): CSSStyleDeclaration {
   return {
-    font,
     fontFamily,
     fontSize,
+  } as CSSStyleDeclaration;
+}
+
+function lineMetricsStyle(lineHeight = ""): CSSStyleDeclaration {
+  return {
+    lineHeight,
   } as CSSStyleDeclaration;
 }
 
@@ -53,16 +59,25 @@ describe("layout style helpers", () => {
   });
 
   it("requires direct inline font metrics before trusting exact result caches", () => {
-    expect(hasInlineFontMetrics(fontMetricsStyle("16px Georgia, serif"))).toBe(true);
-    expect(hasInlineFontMetrics(fontMetricsStyle("", "Georgia, serif", "16px"))).toBe(true);
-    expect(hasInlineFontMetrics(fontMetricsStyle("", "Georgia, serif"))).toBe(false);
-    expect(hasInlineFontMetrics(fontMetricsStyle("", "", "16px"))).toBe(false);
-    expect(hasInlineFontMetrics(fontMetricsStyle("var(--inline-font)"))).toBe(false);
-    expect(hasInlineFontMetrics(fontMetricsStyle("", "Georgia, serif", "var(--font-size)"))).toBe(
+    expect(hasInlineFontMetrics(fontMetricsStyle("Georgia, serif", "16px"))).toBe(true);
+    expect(hasInlineFontMetrics(fontMetricsStyle("Georgia, serif"))).toBe(false);
+    expect(hasInlineFontMetrics(fontMetricsStyle("", "16px"))).toBe(false);
+    expect(hasInlineFontMetrics(fontMetricsStyle("Georgia, serif", "1em"))).toBe(false);
+    expect(hasInlineFontMetrics(fontMetricsStyle("Georgia, serif", "var(--font-size)"))).toBe(
       false,
     );
-    expect(hasInlineFontMetrics(fontMetricsStyle("", "var(--font-family)", "16px"))).toBe(false);
-    expect(hasInlineFontMetrics(fontMetricsStyle(""))).toBe(false);
+    expect(hasInlineFontMetrics(fontMetricsStyle("var(--font-family)", "16px"))).toBe(false);
+    expect(hasInlineFontMetrics(fontMetricsStyle())).toBe(false);
+  });
+
+  it("requires direct inline line metrics for multiline exact result caches", () => {
+    expect(hasInlineLineMetrics(lineMetricsStyle("20px"))).toBe(true);
+    expect(hasInlineLineMetrics(lineMetricsStyle("1.4"))).toBe(true);
+    expect(hasInlineLineMetrics(lineMetricsStyle("normal"))).toBe(true);
+    expect(hasInlineLineMetrics(lineMetricsStyle("1em"))).toBe(false);
+    expect(hasInlineLineMetrics(lineMetricsStyle("1rem"))).toBe(false);
+    expect(hasInlineLineMetrics(lineMetricsStyle("var(--line-height)"))).toBe(false);
+    expect(hasInlineLineMetrics(lineMetricsStyle())).toBe(false);
   });
 
   it("checks unresolved inline text width styles without rejecting unrelated styles", () => {

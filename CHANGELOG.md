@@ -2,6 +2,28 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.6.0]
+
+Minor release focused on making measured clamping faster and more reliable during layout changes.
+No API changes are required.
+
+### Improved
+
+- `<LineClamp>`, `<RichLineClamp>`, and `<InlineClamp>` update faster when many instances resize
+  together, such as responsive tables, cards, and sidebars.
+- `<RichLineClamp>` handles rich HTML with many inline wrapper elements more efficiently without
+  changing the authored HTML or visible output.
+- `<LineClamp>` does less repeated work when layouts return to the same fixed width, such as when a
+  sidebar or table column is toggled.
+- `<LineClamp>` and `<RichLineClamp>` avoid unnecessary updates when unrelated fonts finish loading.
+- Fractional-width layout changes are detected more reliably, improving behavior under browser
+  zoom, high-DPI displays, and flex/grid layouts.
+
+### Fixed
+
+- `<LineClamp>` and `<RichLineClamp>` can restore the full text after a same-width font change makes
+  previously clamped content fit.
+
 ## [1.5.1]
 
 Patch release focused on performance improvements. No API changes are required.

@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "compare": "node scripts/compare-matrix-summary.mjs",
     "package": "node scripts/benchmark-package.mjs",
     "report": "node scripts/render-matrix-report.mjs"
   },
