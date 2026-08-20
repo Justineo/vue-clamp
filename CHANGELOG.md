@@ -9,13 +9,19 @@ No API changes are required.
 
 ### Improved
 
-- `<LineClamp>`, `<RichLineClamp>`, and `<InlineClamp>` update faster when many instances resize
-  together, such as responsive tables, cards, and sidebars.
-- `<RichLineClamp>` handles rich HTML with many inline wrapper elements more efficiently without
-  changing the authored HTML or visible output.
-- `<LineClamp>` does less repeated work when layouts return to the same fixed width, such as when a
-  sidebar or table column is toggled.
-- `<LineClamp>` and `<RichLineClamp>` avoid unnecessary updates when unrelated fonts finish loading.
+- `<InlineClamp>` keeps the full source DOM and uses native overflow for its default unsplit end
+  mode; measured middle, word, and custom-ellipsis modes also do less work across repeated large
+  resizes.
+- `<RichLineClamp>` can use browser-native clamping for supported default `maxLines` cases, keeping
+  the authored rich DOM intact and avoiding duplicate measurement content.
+- `<RichLineClamp>` handles rich HTML with many inline wrapper elements more efficiently on its
+  measured path.
+- `<LineClamp>` and `<RichLineClamp>` coalesce font-readiness and same-frame layout updates while
+  conservatively remeasuring font-only changes.
+- Measured `<LineClamp>`, `<InlineClamp>`, and `<RichLineClamp>` modes do less work when long text or
+  rich content changes without a width change.
+- Expanded, empty, and unconstrained clamps avoid background layout and font observation until
+  clamping becomes active again.
 - Fractional-width layout changes are detected more reliably, improving behavior under browser
   zoom, high-DPI displays, and flex/grid layouts.
 
@@ -23,6 +29,11 @@ No API changes are required.
 
 - `<LineClamp>` and `<RichLineClamp>` can restore the full text after a same-width font change makes
   previously clamped content fit.
+- `<LineClamp>`, `<RichLineClamp>`, and `<InlineClamp>` remeasure repeated widths when inherited text
+  metrics change instead of returning a stale result.
+- `<RichLineClamp>` leaves source content unchanged when measured clamping would require unsafe
+  connected clones, including custom elements, duplicate IDs, named form controls, and embedded
+  active content.
 
 ## [1.5.1]
 

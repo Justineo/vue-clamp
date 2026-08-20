@@ -203,8 +203,9 @@
   - `InlineClamp`: `root`, `start`, `body`, `end`
   - `WrapClamp`: `root`, `content`, `before`, `item`, `after`
 - DOM nesting is intentionally not part of the styling contract.
-- `InlineClamp` is single-line-only and uses live DOM measurement instead of native
-  `text-overflow`.
+- `InlineClamp` is single-line-only. Its exact default unsplit end/grapheme/`…` subset uses native
+  `text-overflow`; split, start/middle, word-boundary, and custom-ellipsis modes use live DOM
+  measurement.
 - `InlineClamp` accepts:
   - `text`
   - `ellipsis`
@@ -333,7 +334,10 @@
   - font-load invalidation is coalesced at the multiline shell: a font event schedules a font-only
     reclamp for the next animation frame, but if a width, prop, slot, or ResizeObserver reclamp has
     already run before then, the delayed font-only reclamp is skipped because that pass measured the
-    current font metrics. Font-only changes still reclamp on the next frame.
+    current font metrics. Font-only changes still reclamp on the next frame. The shell deliberately
+    does not parse `FontFace.family`, scan descendant font declarations, or treat unchanged outer
+    box signatures as proof: cross-origin/cascade context can change glyph metrics without making
+    those partial identities complete.
   - the shared coalescing runner serializes recomputes while preserving a follow-up request made
     during an active clamp pass; `packages/vue-clamp/tests/layout.test.ts` guards that multiple
     requests during a running task become one later pass and never run concurrently
@@ -360,18 +364,26 @@
 - Native CSS clamp eligibility and style details stay outside `LineClamp.vue`; the component only
   resolves the mode for the current render/recompute and applies the resulting text state.
 - Native LineClamp overflow measurement avoids extra root `getBoundingClientRect()` reads. Native
-  multiline may receive the shell's fresh subpixel root width as an additional unmeasurable-layout
-  guard, but the content element's own `clientWidth` must still be positive before scroll height is
-  trusted; root padding or external width snapshots cannot make a zero-width content box measurable.
-  Native single-line still reads the text cell's own client width because affix slots can make it
-  narrower than the root.
+  multiline reads the content element's own `clientWidth` before trusting scroll height; root
+  padding or an external root-width snapshot cannot make a zero-width content box measurable.
+  When a fresh root-width snapshot is available it remains an additional positive-width guard, not
+  a replacement for the content read.
+  Native single-line likewise reads the text cell's own client width because affix slots can make
+  it narrower than the root. Replacing the multiline content read with a fresh root-width snapshot
+  was tested and rejected: it removed a getter but weakened this zero-content-width proof without a
+  stable timing win.
 - Native multiline content styles are cached per normalized line limit so repeated native width
   sweeps keep stable style object identity instead of asking Vue to diff an equivalent freshly
   allocated style object on every render.
 - Multiline native `line-clamp` allows `before` slot content because it is a prefix inside the same
   formatting context. It excludes `after` slot content because native CSS cannot reserve suffix
   space while clamping the body.
-- `InlineClamp` is a small measured single-line component:
+- `InlineClamp` is a small single-line component with a native default partition and measured
+  specialized modes:
+  - without `split`, the exact end/grapheme/default-ellipsis combination keeps the full body text in
+    the DOM and uses native `text-overflow`; it installs neither ResizeObserver nor font listeners
+    while that mode is active
+  - `split`, start/middle, word-boundary, and custom-ellipsis semantics stay on the measured path
   - one `inline-block` root that clips to its available width
   - optional fixed `start` and `end` segments in normal inline flow
   - one rewritten `body` segment found by boundary-aware binary search against the live inline
@@ -416,28 +428,23 @@
   - inline candidate probes route body text writes through a small local guard, matching the shared
     text helper's behavior and avoiding no-op `textContent` mutations when the current candidate is
     already rendered
-  - for fixed-width roots whose text metrics are declared directly on the root inline style,
-    InlineClamp keeps a tiny exact-result cache keyed by the parent/root layout signature plus root
-    class/style attributes. The cache is intentionally narrow: non-empty root classes, percentage or
-    CSS-variable widths, unresolved `%` or `var(...)` references in inline text-width declarations,
-    missing inline font metrics, font-load invalidations, and ResizeObserver invalidations all
-    bypass or clear it. It only targets repeated exact-width Vue style churn; novel widths still run
-    the normal measured search. Exact-result cache keys are tuple-encoded rather than
-    delimiter-joined so attribute or stylesheet text cannot blur field boundaries. The shared
-    content-independent-width gate is covered by
-    `packages/vue-clamp/tests/layout.test.ts`: absolute numeric/calc/clamp widths are accepted,
-    while percentage and CSS-variable widths are rejected so shrink-to-fit content cannot become its
-    own stale width limit. The same test file guards the inline-font-metrics gate: exact-result
-    caches require direct `font-family` plus pixel `font-size` declarations on the root inline
-    style; relative font sizes such as `em`/`rem` are rejected because their metrics can change when
-    ancestor or viewport context changes while the root style string stays the same. The same helper
-    rejects unresolved `letter-spacing` / word-spacing / font longhand declarations that can change
-    one-line text width, but it does not reject unrelated declarations such as the component-owned
-    `max-width:100%`.
-  - root-width snapshots and exact-result cache entries share the same freshness boundary: only
-    same-flush Vue layout snapshots may carry a pending root width into `clampBody`; font,
-    ResizeObserver, mount, and semantic invalidations clear both the pending width and cache so a
-    stale width cannot survive after the cache has been invalidated
+  - on a cold measured unsplit search, a failed full-body `scrollWidth` read is reused as a
+    proportional first-rank hint when more than 16 searchable boundaries exist. Word mode switches
+    to its grapheme fallback rank space when the whole-word space is too small to benefit. The
+    browser still measures every candidate and the final result; split layouts are excluded because
+    fixed prefix/suffix occupancy breaks the bare body-width ratio.
+  - InlineClamp does not keep authoritative results across reclamps. A previous result may warm the
+    measured search, but every returned candidate is checked against the current browser layout.
+    This avoids treating root/parent size and attribute strings as a complete identity for inherited
+    text metrics, ancestor selectors, container context, or other CSS inputs.
+  - measured unsplit modes keep at most eight compact exact-width boundary-rank hints. They store no
+    output strings and are used only when a prior clamped rank is outside the latest result's normal
+    warm-search coverage; every returned candidate is still measured. Split modes and nearby-width
+    jitter stay on the latest-result hint because the broader history prototype increased work in
+    those controls.
+  - only same-flush Vue layout snapshots may carry a fresh root width into `clampBody`; font,
+    ResizeObserver, mount, and semantic invalidations measure again rather than trusting a stale
+    width
   - `ResizeObserver` and font-load invalidation keep the measured result current
   - parent/root layout invalidation uses subpixel border-box signatures, and ResizeObserver
     callbacks compare `borderBoxSize` entries against the last settled signature so fractional
@@ -732,8 +739,7 @@
     a stale warm hint after large width jumps without the component keeping a parallel width cache
   - `clampTextToLayout` owns the normal full-source skip decision from the same context it uses for
     text hint identity; `LineClamp` passes affix, line-capacity, limit, and max-height inputs once
-    instead of separately reconstructing that internal context. Direct helper tests that need the
-    guarded skip path use the explicit `forceSkipFullFit` input.
+    instead of separately reconstructing that internal context.
   - warm resize passes that are still clearly clamped may skip the separate full-source fit probe
     and let the candidate search include the full-source candidate instead; shrinking widths are
     monotonic, so a previous clamped result proves the full source still cannot fit at the smaller
@@ -743,11 +749,10 @@
     width is no wider than a previously observed clamped width under the same text, ellipsis,
     ratio, spacing, line limit, max-height, and affix layout key. A width where the full source
     fitted never counts as such proof.
-  - same-width text recomputes may move that mandatory full-source verification before warm search
-    only when the current computed font-size shrank, the previous clamped rank is close enough that
-    `fontScale * fullRank <= previousRank`, and the width, text context, and line-fit key otherwise
-    match. This targets real full-recovery font invalidations without making all same-width font
-    ticks pay the full-first patch cost.
+  - same-width text recomputes keep one correctness boundary: if warm search does not reach the full
+    candidate, the full source is verified before a clamped result is returned. A removed
+    font-size/rank heuristic used to move that verification before warm search; it saved work in one
+    recovery shape but duplicated policy and depended on a partial metric model.
   - when `boundary="word"` previously fell back to grapheme cuts, later narrower widths can
     warm-start directly in the grapheme fallback search. A narrower container cannot make a whole
     word candidate that previously failed start fitting, so the primary word search would only
@@ -768,20 +773,21 @@
     structure. This does not reduce the number of candidate text writes, but it turns most measured
     text rewrites from child-list node replacement into character-data mutation and avoids repeated
     text-node allocation/removal in LineClamp and InlineClamp hot paths.
+  - ASCII preparation validates the accepted ASCII range and fills grapheme offsets in one pass.
+    Non-ASCII text still delegates to `Intl.Segmenter`; word preparation keeps the same grapheme-safe
+    fallback metadata.
+  - a cold failed full-text layout probe may reuse its already-paid physical line count, or bounding
+    height for `maxHeight`, as a proportional first-rank hint. The hint is enabled only when the full
+    source is at least three times the measured capacity and more than 16 candidate boundaries
+    remain, so near-boundary layouts stay on ordinary binary search. It narrows search only; the
+    browser fit predicate remains authoritative.
   - text and rich fit probes can use a rect-count shortcut when only `maxLines` is active: if the
     content fragment count is already no larger than the line limit, the candidate fits without
     allocating and comparing grouped line boxes
   - LineClamp may reuse a previously calibrated simple-line fit only when the text style key and
     before/after affix layout key are unchanged. The cache preserves the exact line-box height and
-    line pitch learned from the first rect-list pass. Separately, LineClamp keeps a narrow
-    exact-width result cache for same-flush width-snapshot reclamps when the root has no class, a
-    content-independent
-    inline width, direct inline font-family plus pixel font-size, direct inline line-height that is
-    `normal`, unitless, or `px`, and no unresolved inline text-width style. The result key includes
-    the width, affix layout, text, boundary, line limit, location, ellipsis, class, and style
-    attributes. `maxHeight`, mount or onUpdated reclamps without a fresh width snapshot, unresolved
-    font/text metrics, and font-load invalidations all bypass or clear the cache. The cache targets
-    repeated exact widths only; novel widths still run the measured search.
+    line pitch learned from the first rect-list pass. It does not reuse an earlier final clamp result
+    without a live fit check.
   - max-height-only fit probes compare the content bounding box with the root's visible bounds
     instead of materializing every inline fragment: if the union box is inside the clipped root,
     every child rect is inside it as well. Probes that also have a line limit still use exact
@@ -794,11 +800,20 @@
     already known
 - The rich clamp pass in `RichLineClamp`:
   - only end truncation is supported
+  - semantically exact default end/grapheme/default-ellipsis `maxLines` cases use browser-native
+    CSS before entering the measured pipeline:
+    - one-line content uses `text-overflow` and may include an `after` slot
+    - supported multiline content uses `line-clamp` and requires no rendered `after` slot
+    - the authored rich DOM stays intact, overflow state is measured directly, and no hidden probe
+      is rendered
+    - custom ellipsis, word boundaries, and `maxHeight` continue to use measured clamping
+    - switching from a measured structural result to native mode restores the full source DOM
+      before measuring overflow; a separate live-DOM marker survives logical cursor resets so a
+      boundary or limit change cannot leave shortened DOM under native CSS
   - support is behavior-based rather than tag-name-based:
-    - any node can participate if the runtime can clone it back into the DOM and its rendered
-      layout stays in inline flow
-    - leaf elements without light DOM content are treated as atomic inline units, including custom
-      elements
+    - after the passive-content safety preflight, standard elements can participate when their
+      rendered layout stays in inline flow
+    - empty elements without light DOM content are treated as atomic inline units
     - descendants with child content are searched only when they render as transparent inline
       wrappers (`display: inline` or `display: contents`)
     - inline formatting contexts such as `inline-block` or `inline-flex` are treated as atomic runs
@@ -823,6 +838,8 @@
     - the hidden probe keeps its root/content/body structure mounted across candidates and
       reclamps, and only rebuilds the content child list when affix presence or clone identity
       changes
+    - the probe's internal content/body elements carry the same public `data-part` hooks as the
+      visible elements, so supported descendant styling hooks participate in measured layout
     - the component sizes the hidden probe from a subpixel visible-root width, reusing the
       multiline shell's fresh root snapshot when available and measuring directly otherwise, so
       fractional root widths do not get rounded before rich measurement
@@ -864,6 +881,10 @@
       of using `innerHTML`
     - structural patches clone only the changed suffix under the shared patch anchor, so unchanged
       prefix descendants such as images are not recreated during width-only reclamps
+    - suffix patches use browser-native `Range.cloneContents()` between the prepared structural
+      boundaries instead of maintaining a second recursive JavaScript clone implementation. Probe
+      image sources are rewritten while the fragment is detached, and prepared rich state records
+      whether images exist so image-free candidates do not query every fragment.
     - when a clamped rich state grows from a boundary that already includes a complete source
       subtree, the patcher appends only the newly visible source fragment and preserves the live
       prefix nodes instead of deleting and rebuilding them
@@ -911,72 +932,23 @@
     - rich search now derives warm-start hints from the previous structural decision for nearby
       width changes; the hidden probe's current patch state and the search hint are separate so
       large width jumps can cold-search without resetting or repainting the visible tree
-    - after the first full-probe layout inspection for a prepared rich source and probe body,
-      RichLineClamp caches
-      the resulting searchable logical runs and word-rank points; warm passes can then patch the
-      hidden probe directly from its previous structural state to the first candidate instead of
-      rebuilding the full rich tree only to rediscover the same searchable layout
-    - when the cached search index came from a simple all-text inline layout, the same current-DOM
-      reinspection used for height-based line counting can also refresh the cached logical runs if
-      CSS has since made an inline wrapper atomic. A wrapper that becomes `inline-block` must be kept
-      or dropped as a unit; cached text cuts from the earlier transparent-inline layout must not
-      continue slicing inside it.
-    - cached rich logical runs also refresh when an atomic wrapper came from `display: var(...)`
-      (including declarations nested in active CSS grouping rules such as matching `@media`) and
-      the current CSS variable value makes it transparent inline again. Without that reverse
-      invalidation, a stale atomic run would keep returning only the ellipsis even though the
-      wrapper text can now be sliced and partially shown. Static class or inline-style atomics, and
-      variable declarations inside inactive media rules, do not pay this extra refresh path while
-      the stylesheet collection is stable.
-    - cached rich indexes with element descendants record a lightweight stylesheet signature from
-      their layout inspection: the stylesheet count, active grouping rule-list counts, and each
-      style rule's selector plus `display` and a combined line-metric key covering `font-size`,
-      `line-height`, and `vertical-align`. If an application inserts/removes a stylesheet or mutates
-      active CSSOM rules
-      before a later reclamp, the hidden probe is restored to the full rich tree and inspected once
-      before reusing the index, because a later cascade rule can turn a previously static atomic
-      wrapper back into searchable inline text or invalidate cached simple-line metrics. Media query
-      match-state changes are covered by the same rule because inactive grouping bodies are omitted
-      from the signature and active grouping bodies are included.
-    - a single rich clamp pass shares one lazy stylesheet signature between variable-display cache
-      invalidation and cached search-index identity checks, so cached metadata refreshes do not
-      rescan the same stylesheet collection inside one synchronous reclamp.
-      All-text rich search indexes store an empty stylesheet signature and skip stylesheet scans
-      entirely because their logical runs cannot be invalidated by CSS selectors.
-      The same signature scan records active selectors whose `display` declaration contains
-      `var(...)`; style-dependent atomic detection matches against that selector list instead of
-      reading `cssRules` a second time.
-      If any stylesheet's rules are unreadable, rich atomic descendants are treated as
-      style-dependent for this purpose because the runtime cannot prove whether an inaccessible rule
-      uses `display: var(...)`.
-      Active stylesheet declarations that use `var(...)` in `font-size`, `line-height`, or
-      `vertical-align` conservatively disable the trusted width-only simple-line reuse path because
-      a CSS variable value can change child line metrics without changing the stylesheet signature.
-      The stylesheet walk must still visit every active stylesheet and grouping rule after it finds
-      such a line-metric variable, because the same pass also appends the signature and collects
-      later `display: var(...)` selectors.
-    - trusted width-only RichLineClamp reclamps can reuse a cached simple-line fit by reading only
-      the rich body style and comparing its `font-size`, `line-height`, and `vertical-align` key.
-      If the key changed, if style-dependent display or line metrics may be present, or if the
-      reclamp did not come with a root-width snapshot, RichLineClamp falls back to full rich layout
-      inspection before using the cached search index.
-      This simple-line shortcut remains limited to the no-affix `content -> body` probe shape:
-      broadening it to affix-bearing metadata rows did not reduce rect-list counters, so those rows
-      still need a separate affix-aware line-count proof before their exact rect cost can be cut.
-      Rich atomic runs also cannot reuse LineClamp's `verifyOverflow` affix line-fit cache directly:
-      a tested version changed inline-block keep/drop behavior, so any future proof must preserve
-      atomic-run boundaries explicitly.
-    - RichLineClamp keeps a narrow exact-width result cache for repeated Vue-driven width updates.
-      A cached structural result may be reused only when the reclamp comes with a fresh root-width
-      snapshot, the root has a fixed inline width/font style and no class, the affix signature is
-      part of the cache key, the cached rich search index has no style-dependent display or line
-      metrics, source inline styles do not contain unresolved `%` or `var(...)` references, active
-      stylesheets are readable and contain no `var(...)` declarations, and the key includes the
-      current stylesheet rule text plus root/ancestor id/class/style context. Font-load
-      invalidations clear this cache before the next reclamp. This cache targets repeated exact
-      widths only; novel-width Rich searches still measure live candidates. Exact-result cache keys
-      are tuple-encoded rather than delimiter-joined so attribute or stylesheet text cannot blur
-      field boundaries.
+    - all-text Rich content may reuse its structural logical runs and word-rank points because CSS
+      cannot change where element boundaries occur; the body line-metric key is still read from the
+      current DOM before a simple-line fit is reused.
+    - Rich content with element descendants restores the full hidden-probe tree and reruns local
+      computed-style inspection on every reclamp. Atomic paths, logical runs, and simple-line
+      eligibility are rebuilt from the browser's final `display`, positioning, float, font-size,
+      line-height, and vertical-align values before candidate search.
+    - Rich layout correctness does not depend on reading `document.styleSheets`. Cross-origin
+      stylesheets, CSSOM mutation, ancestor attribute selectors, media/container context, and shadow
+      stylesheet boundaries therefore do not need to be represented in a stylesheet fingerprint.
+      Browser-computed style is the source of truth for the small Rich subtree.
+    - the hidden probe preserves source wrapper structure. The earlier normalized representation
+      that unwrapped transparent spans was removed because reliable per-reclamp inspection would
+      otherwise require rebuilding both the full and normalized trees on every pass, multiplying
+      style reads and connected-DOM churn for wrapper-heavy content.
+    - Line, Inline, and Rich final-result caches were removed. Previous states remain search hints,
+      but a reclamp never returns an earlier final result without current browser measurement.
     - when a hinted rich text run reaches its end and the following atomic run has already been
       measured as fitting, the subsequent coarse search starts from that proven atomic run instead
       of restarting from the previous complete run; the search helper still revalidates the hint, so
@@ -1022,11 +994,6 @@
       proving lower total mutation work. Even in the hidden probe, that strategy needs a new
       representation contract because the shared Rich patcher assumes clamped suffix nodes are
       physically removed and the ellipsis is the rich body root's last text node.
-    - Rich same-width font-shrink recomputes may also check the full candidate before warm search
-      when the cached simple-line metric key proves a numeric font-size decrease and the previous
-      ranked rich state is close enough to full under the same `fontScale * fullRank <= previousRank`
-      bound. A focused structural gate keeps adjacent long-token font-tick rows unchanged while the
-      same-width recovery row drops hidden-probe mutation work.
     - LineClamp uses the same slope-preservation rule for same-width font invalidations through
       `previousRankSlope`; the public matrix keeps a matching Line long-token font-tick row so this
       input shape is guarded rather than only inferred from the implementation
@@ -1062,6 +1029,11 @@
     - RichLineClamp uses a slightly wider local warm-search expansion window than the shared text
       helper because logical runs are coarser than text boundaries; the shared helper default stays
       narrower for LineClamp, InlineClamp, and WrapClamp
+    - a cold failed full-rich line probe can seed the rank search from the number of physical line
+      boxes already returned by the browser. Rich fragments on one visual line are grouped with the
+      same vertical tolerance as final fit checks; raw `DOMRectList.length` is not used because
+      nested inline fragments can outnumber physical lines. The same three-times-capacity and
+      16-boundary gates used by text keep this a conservative hint rather than layout proof.
   - sanitization stays the caller's responsibility
   - the runtime measures rich candidates in a connected hidden probe so the visible rich subtree is
     not mutated during binary search
@@ -1135,6 +1107,9 @@
       estimate
     - both paths are hints, not proofs: final acceptance still goes through the existing
       materialized/live DOM settlement and verification
+    - no-affix and before-only uniform predictions share one static-flow hint function. The before
+      box is treated as zero when absent and measured when present; one simulation and one acceptance
+      rule replace parallel branches without changing the live verification boundary.
   - stable `before` grow is now included in the materialized grow path when `after` is absent:
     - stable means observed-stable inside the current solve, not inferred-static as a public
       contract; without a user hint the component cannot know a slot is generally static
@@ -1260,6 +1235,19 @@
   - text changes
   - relevant prop changes
   - font readiness events when available
+- Invalidation is active only while a clamp decision exists:
+  - expanded, empty, and unlimited Line/Rich/Wrap states do not install ResizeObserver or font
+    listeners and skip generic `onUpdated` layout-signature reads
+  - empty measured Inline bodies use the same inactive partition; native Inline already owns no
+    measured invalidation graph
+  - source, limit, item, and expansion watchers still reset inactive output or activate a fresh
+    measurement, so returning to a clamped state measures the current DOM rather than trusting
+    geometry from before the inactive interval
+  - a 400-instance expanded benchmark removes `12,800` bounding-rect reads, 400 observer instances,
+    800 observer callbacks, and 400 font listeners across mount, updates, resize, and font delivery
+  - a shared module-level observer/font hub was rejected: it collapsed callback/listener counts but
+    left active elapsed work effectively flat while adding about `2.1 kB` raw / `401 B` gzip and
+    cross-instance subscription coupling
 - `RichLineClamp` follows the same invalidation model, but tracks `html` source changes instead of
   text-location changes. Inline rich images must provide stable layout dimensions up front; image
   loading does not schedule an extra clamp pass.
@@ -1340,6 +1328,16 @@
   - inline formatting contexts such as `inline-block` are treated atomically during search
   - fallback is reserved for rendered layout that exits inline flow or otherwise breaks the clamp
     model
+- Eligible default-ellipsis `maxLines` Rich cases use native CSS and keep the authored DOM. The
+  measured fallback still clones source and affix DOM into a connected hidden probe, but only under
+  an explicit passive-content contract.
+- Potential custom elements, customized built-ins, duplicate IDs, named/form-associated content,
+  inline event handlers, active embedded resources, and active SVG content fall back to unclamped
+  source instead of being cloned. The probe is also `inert`; that is defense in depth rather than
+  the safety predicate.
+- Clone-safety fallback is latched until clamp inputs change. This prevents a `clamped`-conditional
+  unsafe affix from alternating forever between "safe with no affix" and "unsafe after the affix
+  appears." The implementation does not attempt a tag-by-tag inert emulation layer.
 - A small amount of duplicated logic inside the component is still preferred over a large internal
   base runtime, but the repeated multiline shell is now shared because that abstraction
   stayed narrow and direct.
@@ -1386,15 +1384,23 @@
     and Rich metadata affix shapes. These rows keep the same slot-heavy public scenarios as the
     repeated-width hotspots, but force fresh pixel widths and large jumps so affix-path evidence is
     not limited to revisiting a small width set.
+  - Line, Inline, and Rich each include an external-parent resize row. The parent grid changes width
+    while component roots remain `width:100%`, so ResizeObserver and native CSS paths are measured
+    without a component prop-style update.
   - Rich height coverage separates `maxHeight`-only rows from explicit `maxLines + maxHeight`
     mixed rows. Height-only rows exercise the visible-bounds bounding-box predicate, while mixed
     rows preserve exact client-rect line counting under the same width churn and affix shapes.
   - benchmark layout-read counters distinguish bounding rects, client rect calls, client rect
-    entries, client box getters, offset box getters, and computed-style reads; rect entries are
+    entries, client box getters, scroll height/width, offset box getters, and computed-style reads;
+    rect entries are
     tracked separately because one `getClientRects()` call can materialize many inline fragments in
     maxHeight, affix, and rich markup scenarios, while `offsetWidth` / `offsetHeight` and
     `getComputedStyle` are tracked explicitly because signature-style invalidation and Rich layout
-    inspection can otherwise hide synchronous layout/style work
+    inspection can otherwise hide synchronous layout/style work. Time attribution separately records
+    bounding-rect, client-rect, layout-getter, and computed-style duration plus slow-call counts.
+    Element cloning is counted globally inside the isolated measured window because Rich source
+    nodes live in a detached `DOMParser` document outside the tracked component root; clone duration
+    is reported separately from layout time.
   - package timing uses schema v3 and keeps multiple signals:
     `updateMs` measures the width change through Vue flush, `activeMs` measures through the last
     root-local DOM mutation / ResizeObserver / Vue-flush activity, `totalMs` / `meanStepMs`
@@ -1578,11 +1584,11 @@
     mutation counters are the primary proof that workload changed, while small active-time deltas
     need non-overlapping uncertainty or a counters-off timing check before they are described as an
     elapsed-time optimization
-  - after the Line/Inline/Rich warm-search, exact-width cache, font-event, and normalized-probe
-    passes, local performance work is considered converged unless a change starts from a new
-    structural hypothesis and proves reduced browser work in a same-process A/B or a broader
-    input-space matrix. Do not keep tuning RichLineClamp cache guards, warm-rank thresholds,
-    simple-line gates, or helper shape without new evidence.
+  - after the reliability audit, local performance work must preserve a simple rule: cached state
+    may guide search but cannot prove a final layout result. A new optimization needs a sound local
+    eligibility predicate, a safe measured fallback, and reduced browser work in same-process A/B
+    evidence. Do not rebuild CSS-environment fingerprints or tune cache guards around an incomplete
+    layout identity.
   - the current warm-search rule does not claim the fixed local pixel window is globally optimal.
     Fixed windows remain conservative bootstraps. Wider dynamic reuse must be justified by the
     shared search model: target-rank bounds, fit-cost class, patch-cost class, and a warm/cold
@@ -1594,74 +1600,113 @@
     still verify the full candidate; growing widths may skip only when a previous clamped result
     proves the full source still could not fit under the same text, ellipsis, spacing, limit,
     max-height, and affix layout identity.
-  - `LineClamp` has a narrow exact-width result cache for repeated fixed-width reclamps. It applies
-    only to same-flush width-snapshot reclamps with content-independent inline width, no class,
-    resolved inline text-width styles, direct inline font-family, pixel font-size, and direct
-    line-height that is `normal`, unitless, or `px`. It targets repeated exact widths, not novel
-    widths, and font events clear or bypass it.
+  - native default Inline clamping reduced the two counters-off continuous/jump rows from
+    `581.0 ms` to `140.6 ms` in aggregate (`-75.8%`). The external-parent resize row reduced active
+    time from `105.3 ms` to `2.8 ms`, removed all 864 bounding-rect and 2,688 scroll-width reads,
+    and reduced mutations from 2,994 to 18 because native CSS requires no observer-driven search.
+  - measured Inline exact-width rank history is bounded and selective. In middle, word, and custom
+    ellipsis repeated-jump rows it reduced scroll-width reads by roughly 43-50%; middle-jitter and
+    split controls kept identical structural counters. A counters-off rerun of the three affected
+    rows reduced aggregate active median from `302.9 ms` to `264.1 ms` (`-12.8%`).
+  - `LineClamp`, `InlineClamp`, and `RichLineClamp` do not keep authoritative final-result
+    caches across reclamps. Repeated-width pressure rows became slower after removal, but novel-width
+    rows stayed neutral and the former keys could not completely represent inherited metrics,
+    ancestor selectors, or CSS layout context. Inline's retained exact-width rank history is only a
+    measured search start, not a verified-result cache; Line and Rich did not show a broad enough
+    held-out win to justify the same state.
   - `LineClamp` may reuse a previous full-text fit when width grows, line metrics are unchanged,
     no affixes participate, and no max-height clipping is active. This is the monotone horizontal
-    text-wrapping case; it does not change same-width font recovery or clamped warm search.
+    text-wrapping case; same-width recovery still relies on final full-candidate verification.
   - `LineClamp` simple-height fitting now treats computed `line-height` as a starting budget, not a
     browser-layout proof. The first exact rect-list calibration records observed line-box height
     and line pitch; later BBox-only checks reuse that browser-observed model.
-  - generic `document.fonts.loadingdone` events with no real `fontfaces` payload are treated as
-    no-op invalidations only when the next-frame root/content/affix border-box signature is
-    unchanged and the component root subtree has no unresolved inline font/text-width style such as
-    `font-size:var(...)`. Real `document.fonts.ready` notifications stay conservative.
-  - real `FontFaceSetLoadEvent` payloads are guarded when every loaded `FontFace.family` is absent
-    from computed `font-family` values inside the component root. Used families still recompute
-    while content is clamped. If used-family content is currently unclamped, the full source is
-    visible and an unchanged next-frame layout signature can prove a no-op after clearing
-    font-sensitive state.
-  - `FontFaceSetLoadEvent.fontfaces` entries whose `FontFace.status` is not `"loaded"` are ignored
-    as completed-load evidence. Benchmark helpers must await `FontFace.load()` before dispatching
-    loaded-family rows.
-  - same-width font shrink has a narrow full-first recovery rule for `LineClamp` and
-    `RichLineClamp`: if numeric computed font size shrank and `fontScale * fullRank <= previousRank`
-    under the same layout identity, the full candidate is checked before warm search. This is a
-    correctness-first recovery path; older versions may look faster in those rows because they did
-    not always reach the recovered full visible state.
+  - every delivered font-readiness event conservatively clears component font-sensitive state and
+    schedules a measured reclamp. The only skipped pass is a duplicate when another same-frame
+    invalidation already reclamped. This intentionally gives up the synthetic generic/unused-font
+    no-op fast path: family lists, readable inline styles, and outer box signatures are not a
+    complete proof for inherited, cross-origin, container-dependent, or fallback-font layout.
+  - same-width font shrink still restores full Line/Rich content correctly. Warm search may run
+    first, but the shared full-candidate verification rule checks the source before returning a
+    clamped result.
   - `RichLineClamp` keeps the hidden probe connected and separate from the visible rich body.
     Width-only visible commits patch structural states directly instead of serializing rich HTML,
     and prefix-preserving patch paths keep stable rich descendants where possible.
-  - `RichLineClamp` can reuse cached rich layout inspection and word-rank points across compatible
-    reclamps. The cache is invalidated or rechecked for style-dependent display, line metrics,
-    atomic wrapper changes, stylesheet signature changes, affix geometry changes, and max-height
-    differences.
-  - `RichLineClamp` now supports a conservative normalized hidden-probe representation: no-attribute
-    inline `span` wrappers whose box and text-flow metrics match the parent can be unwrapped only in
-    the hidden probe. Visible output and public state stay in source DOM coordinates through an
-    explicit source/probe text-point map. Atomic paths and style-dependent display or line metrics
-    do not create normalized probes.
-  - normalized rich probing is a proven workload reduction for transparent-span long-token inputs,
-    not a blanket full-matrix timing claim. It reduces hidden child-list churn and rect entries in
-    the target class while held-out rich shapes remain structurally neutral. Broadening eligibility
-    requires a new source/probe invariant for styled wrappers, atomic descendants, or
-    stylesheet-dependent layout.
+  - `RichLineClamp` bypasses that measured pipeline entirely for native-eligible default Rich
+    cases. A same-process five-scenario comparison against the pre-audit exact-cache build reduced
+    active time from `1138.5 ms` to `610.1 ms`, mutation records from `28762` to `13296`, and removed
+    all client-rect, style, hidden-mutation, and child-list work in those rows.
+  - native Rich mode is resolved before prepared HTML is evaluated. Native mounts and HTML updates
+    therefore keep the authored DOM without invoking `DOMParser`; a browser spy proves preparation
+    begins only after switching to a measured semantic such as `boundary="word"`. The focused
+    native HTML-update row improved by about 26% for a final sprint-wide cost of only `24 B` raw /
+    `17 B` gzip after equivalent size cleanups.
+  - `RichLineClamp` reuses structural inspection only for all-text content. Element-bearing content
+    restores the full probe and inspects local computed styles every reclamp, then rebuilds atomic
+    paths and logical runs. It never scans stylesheet rules or assumes that readable CSSOM is the
+    complete layout dependency graph.
+  - Rich probe normalization has been removed. Under the reliable element-reinspection policy, the
+    normalized/full round trip made the wrapper-heavy long-token row roughly three times slower.
+    Keeping source wrappers reduced that focused row from about `348 ms` to `174 ms` while keeping
+    metadata, continuous markup, and atomic rows broadly neutral in the same-process comparison.
   - `RichLineClamp` deduplicates repeated fit checks inside one `clampRich` pass only when the
     hidden probe DOM is already at the same candidate state. This is retained as duplicate
     rect-list avoidance, not as a broad timing headline.
-  - retained build-size cleanup in the rich normalized-probe path removed one-use wrappers and
-    helpers where the name did not carry a domain boundary. Remaining single-use helpers are kept
-    where they encode stylesheet signature collection, variable-display caching, patch direction,
-    rank instrumentation, line-fit gating, or source/probe mapping.
+  - the bare-minimal convergence pass reduced the built runtime from the post-audit
+    `141.56 kB` raw / `30.39 kB` gzip to `132.49 kB` raw / `28.66 kB` gzip. It flattened duplicate
+    Text/Rich warm-policy wrappers, centralized shared hint/full-verification rules, removed the
+    partial font-family invalidation proof, and deleted the pre-search font-scale recovery heuristic.
+    Prefix-preserving Rich patch paths were retained because removing them broke live descendant
+    identity and increased held-out mutation/clone work.
+  - the final current-versus-`main` counters-off smoke passes `124/124` scenarios and reduces summed
+    median active time from `21207.7 ms` to `16560.9 ms` (`-21.9%`): Line `-19.9%`, Inline `-37.8%`,
+    Rich `-25.1%`, and Wrap `-8.6%`. The added same-width semantic-update rows include the native
+    Rich HTML-update partition as well as measured cold-search coverage. A prior independent full
+    run reported a larger `-30.9%` total; individual elapsed-time rows remain noisy, so broad totals
+    and structural counters remain the decision signal. Synthetic same-width font events remain
+    intentionally slower because `main` can leave stale output.
+  - the final production-minified consumer harness reports `19.250 kB` gzip for all components
+    versus `10.240 kB` on `main`, a `+9.010 kB` delta. Shapley attribution across all component
+    subsets assigns `2.519 kB` to Line, `1.274 kB` to Inline, `4.927 kB` to Rich, and `0.290 kB` to
+    Wrap. Rich remains the largest byte cost, but its guarded predictors and identity-preserving
+    patch paths fail held-out gates when removed; Wrap remains a small byte contributor.
+  - against the Range-only pre-cold-hint checkpoint, the second wave adds `0.288 kB` gzip to the
+    all-component consumer bundle: Line `+0.144 kB`, Inline `+0.082 kB`, Rich `+0.176 kB`, while the
+    consolidated Wrap static-flow implementation saves `0.094 kB`. The new cold semantic rows reduce
+    median active time by `31.0%`, `19.4%`, and `16.8%` for Line, Inline, and Rich respectively;
+    their authoritative layout reads fall by roughly `30-33%`.
   - benchmark coverage now includes novel-width jitter, CJK, emoji/ZWJ, RTL/bidi, font-event,
     unused/used fontface, same-width affix resize, and nested inline metric rows for Line/Rich. The
     matrix reports timing uncertainty and structural counters, and structural counter movement is
     the primary proof of workload change.
-  - the latest full `117/117` package matrix comparing `1.5.1` with the current implementation
-    reports total active time `19539.1 ms -> 12954.4 ms` (`-33.7%`), with many active rows marked
-    low confidence. The stronger evidence is structural: client-rect reads `246879 -> 22075`,
-    client-rect entries `1905802 -> 68983`, mutation records `1469288 -> 473032`, style reads
-    `219728 -> 90144`, and offset reads removed entirely. LineClamp and RichLineClamp account for
-    most of the active-time reduction.
+  - the final full package smoke passes `124/124` scenarios. The three added external-parent resize
+    rows change a parent grid width while Line, Inline, and Rich remain `width:100%`, covering
+    ResizeObserver and native CSS behavior independently of component prop-style updates. A
+    separate all-`41` Rich scenario smoke and five-scenario pre-audit comparison cover the native
+    Rich partition. The later semantic-update rows exercise fresh text/HTML at fixed width for
+    Line, Inline, measured Rich, and native Rich. Structural counters remain the primary evidence;
+    timing must retain its uncertainty markers.
+  - benchmark layout timing now attributes bounding-rect, client-rect, layout-getter, computed-style,
+    and clone construction time. Three focused Rich rows spend about 52% of active time in layout
+    reads, while 2,304 detached source element clones in the metadata-affix jump row take about
+    0.7 ms versus 53.1 ms in layout reads. Clone construction is measurable but not the primary
+    target.
+  - multi-target package benchmarks alternate forward and reverse target order across warmup and
+    measured rounds. A four-scenario `current,current` smoke after this change kept structural
+    counters identical and reduced the aggregate column gap from the earlier roughly `15%` bias to
+    about `1.5%`; per-row timing can still be noisy and must retain uncertainty reporting.
   - rejected directions for this branch include candidate-width-only dynamic thresholds, broad
-    Rich rank-window replacement, atomic-rich broad tie-break guards, exact-result cache capacity
-    increases, content-level Rich simple-line fitting for affix/atomic rows, transparent-wrapper
-    run splitting, hidden-probe wrapper-preservation by clearing text nodes, shell-level layout
-    signature skipping, and local helper rewrites that increase size without structural counter
-    movement.
+    Rich rank-window replacement, atomic-rich broad tie-break guards, authoritative exact-result
+    caching, CSS-environment fingerprinting, content-level Rich simple-line fitting for affix/atomic
+    rows, cross-instance candidate batching without semantic isolation, transparent-wrapper run
+    splitting, hidden-probe wrapper-preservation by clearing text nodes, shell-level layout signature
+    skipping, and local helper rewrites that increase size without structural counter movement.
+  - the final architecture sprint also rejected Rich probe layout containment, full-tree Range
+    geometry hints, `Range.deleteContents()` patch unification, visible-source full-fit preflights,
+    fused preparation/safety walks, typed boundary arrays, and manual preparation memos. The common
+    failure was either altered layout semantics, duplicated authoritative reads, or lower source
+    size paired with worse browser mutation work. The durable next-level rule is to partition modes
+    before constructing representations; a further large step requires an explicit native-only
+    entry or a new Rich DOM/accessibility representation contract rather than another local cache.
   - convergence-phase code cleanup is still valuable only when it reduces drift risk around retained
     behavior, such as naming guard differences, making mutable-state snapshots explicit, or
     centralizing shared input construction. These cleanups carry no performance claim and should be
@@ -1669,12 +1714,41 @@
   - convergence-phase cleanup should favor deletion, directness, and precise local names over new
     abstraction. Do not keep compatibility paths for obsolete internal contracts, and introduce a
     helper only when it removes real duplication or makes a retained invariant harder to break.
-  - RichLineClamp state naming now deliberately separates the latest measured result
-    (`measuredState`, `measuredWidth`, and related hints) from the hidden probe DOM patch origin
-    (`probeDomState`). Cached-result hits may update the measured state without patching the hidden
-    probe body, so future cleanup should preserve this distinction.
+  - the production warm-search cost gate counts probes by invoking `findLastFittingIndex` against a
+    synthetic monotonic predicate. It no longer duplicates the real grow, shrink, expansion-limit,
+    and binary-fallback control flow. Exhaustive model/search tests and a same-process A/B with
+    identical structural counters make this a behavior-preserving drift reduction.
+  - do not simplify Rich by deleting its observed word-rank slope or same-text-run refinement. The
+    slope-deletion ablation saved `2.68 kB` raw / `0.63 kB` gzip, but the held-out long-token jump
+    row increased client-rect entries from `6144` to `24160` and active time from `209.2 ms` to
+    `290.3 ms`. Disabling same-run refinement increased continuous-row rect entries from `12768` to
+    `18160` and mutations from `34144` to `38672`. These predictors remain guarded hints; they do
+    not replace final measurement.
+  - RichLineClamp keeps the visible structural state separate from the hidden probe's measured state.
+    Without authoritative result-cache hits, the measured state is also the probe DOM patch origin;
+    no second logical probe cursor is needed.
+  - the benchmark emits a small `PACKAGE_MATRIX_TOTALS` payload after its detailed payloads. It
+    includes per-component aggregates and stays last so terminal truncation cannot hide structural
+    totals.
   - source-level direct-helper benchmarks remain under `packages/vue-clamp/tests` and are local
     diagnostics only, not cross-version comparison fixtures
+
+### Current reliability and performance queue
+
+- Do not ship cross-instance round batching under the current CSS contract. A 64-instance prototype
+  confirmed large layout-flush savings but failed browser correctness because candidates can share
+  selector, custom-property, ancestor-layout, and formatting-context dependencies. Containment or
+  shadow isolation would change public styling semantics. Reopen only with a semantics-preserving
+  isolation proof, not another scheduler tweak.
+- Do not add a second persistent Rich inspection tree merely to avoid restoring the measured probe.
+  Its CSS context would not be equivalent for structural selectors, and another connected clone
+  weakens the passive-content boundary. Reopen only with a sound context model and large measured
+  wins on the remaining word/custom-ellipsis/height/affix rows.
+- Keep offscreen recompute deferral application-level or explicit opt-in because it changes freshness.
+  Do not make it a core default optimization.
+- Do not reintroduce authoritative verified-result caches. Candidate history may be retained only as
+  a bounded first probe with current-layout verification and neutral held-out counters; the broader
+  Line and Rich variants did not meet that gate.
 
 ## Repo Standards
 
@@ -1693,7 +1767,7 @@
 - The website `RichLineClamp` demo is intentionally more realistic than the API snippet:
   - editable trusted inline HTML
   - preset content covering release notes, styled article excerpts with nested emphasis inside
-    links, `code`, `mark`, `br`, `wbr`, inline `svg`, and an inline custom wrapper example
+    links, `code`, `mark`, `br`, `wbr`, inline `svg`, and passive styled wrapper examples
   - the interactive demo surface now mirrors the three generic `LineClamp` examples:
     `max-lines` + `after`, `max-height` + `before` + external expanded control, and
     `clampchange`

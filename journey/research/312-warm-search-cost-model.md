@@ -120,6 +120,12 @@ Text and Rich runtime decisions use the narrow target-only helper in
 `packages/vue-clamp/tests/search-model.ts`, where browser and unit tests prove the model without
 adding proof-only APIs to the production source module.
 
+The production warm-cost check counts probes by running `findLastFittingIndex` itself against a
+synthetic monotonic target predicate. It does not maintain a second handwritten simulation of the
+grow, shrink, expansion-limit, and binary-fallback control flow. Exhaustive unit coverage compares
+the model and real probe count across candidate counts, target ranks, hints, and expansion budgets,
+so later search changes cannot silently leave the cost gate behind.
+
 Rich rank-state reconstruction is test evidence, not a runtime observer path. The production
 `clampRich` search loop has no fit-probe callback; browser tests rebuild rank candidates explicitly
 when they need bounds or line-box slack, and the helper is verified absent from the package output.
@@ -134,42 +140,46 @@ line-limit, max-height, and affix identity.
 
 ### Font Events
 
-Generic `document.fonts.loadingdone` events can skip reclamp only when the next-frame layout
-signature is unchanged and the component subtree has no unresolved inline font/text-width style.
-Loaded FontFace events can also skip when none of the loaded families are used by computed
-`font-family` values inside the component root. Used-family events remain conservative while content
-is clamped; for currently unclamped content, the full source is visible and an unchanged layout
-signature can prove a no-op after font-sensitive state is cleared.
+The final runtime treats every delivered font-readiness event as a conservative invalidation. A
+next-frame pass is skipped only when another width/prop/slot/observer reclamp already measured the
+current font in that frame. The earlier family-list and outer-layout-signature proof was removed:
+it optimized generic and unused-font synthetic rows, but could not completely represent inherited,
+cross-origin, fallback-font, or container-dependent layout.
 
 ### LineClamp
 
 LineClamp keeps:
 
-- an exact-width result cache for repeated fixed-width reclamps with resolved inline width and font
-  metrics
+- measured boundary hints that may seed search but never prove the final result
 - a narrow grow-only full-text reuse path when a previous full result, unchanged line metrics, no
   affixes, and no max-height clipping make horizontal text wrapping monotonic
 - simple-height fitting after exact rect calibration of observed line-box height and line pitch
-- same-width font-shrink full recovery when a numeric font-scale condition shows the full candidate
-  is plausibly now fitting
+- same-width font-shrink recovery through mandatory final full-candidate verification; the former
+  numeric font-scale precheck was removed as duplicate policy
 
 ### RichLineClamp
 
 RichLineClamp keeps:
 
-- cached rendered-layout inspection and rich search indexes across compatible width-only reclamps
+- all-text structural reuse; element-bearing content restores the full probe and reinspects local
+  computed styles on every reclamp
 - hidden-probe measurement so visible rich content is not mutated during search
 - prefix-preserving rich patch paths for width-only visible updates
 - duplicate fit-result reuse inside one clamp pass when the hidden probe is already at the same
   candidate state
-- a conservative normalized hidden probe that unwraps only no-attribute inline `span` wrappers whose
-  box and text-flow metrics match the parent
+- observed word-rank slope as a guarded warm-search hint when source, layout, direction, and
+  candidate-geometry identities remain compatible
+- same-text-run refinement when an internal text cut proves the adjacent boundary does not fit
 
-Normalized probing changes only hidden measurement DOM. Visible output and public states stay in
-source DOM coordinates through an explicit source/probe text-point map. Atomic paths and
-style-dependent display or line metrics do not create normalized probes.
+Rich source wrappers remain intact in the hidden probe. There is no normalized source/probe text
+map, stylesheet scan, or authoritative final-result cache.
 
-## Final Matrix Result
+## Pre-reliability Matrix Result
+
+The result below records the warm-search phase before the later reliability audit. It is retained
+as historical evidence for the search model, not as the current branch-versus-`main` headline.
+Current runtime rules and final comparisons are recorded in `journey/design.md` and
+`313-clamp-reliability-audit.md`.
 
 The latest complete package matrix compares `vue-clamp@1.5.1` with the current implementation over
 `117/117` scenarios. Total active time moved:
@@ -201,6 +211,27 @@ LineClamp and RichLineClamp account for most of the active-time reduction. The r
 font recovery and used-family rows are correctness-conservative recomputes, not pure performance
 regressions: the current implementation performs work needed to restore or verify the correct full
 visible state after real font metric changes.
+
+## Convergence Audit
+
+Three final ablations tested whether the retained warm-search machinery still paid for its size:
+
+- Replacing the duplicated production probe-count simulator with the real search implementation
+  reduced the built runtime by 1.10 kB raw / 0.11 kB gzip. Exhaustive search tests passed, and a
+  same-process five-scenario comparison kept every structural counter identical. A counters-off
+  three-hotspot follow-up moved the aggregate median from 452.5 ms to 431.8 ms; the timing change is
+  noisy, so the accepted claim is deletion and drift prevention, not a new speed headline.
+- Removing Rich's observed rank slope saved 2.68 kB raw / 0.63 kB gzip, but failed held-out rows. In
+  the long-token batch-jump row, active time moved from 209.2 ms to 290.3 ms, bounding-box reads from
+  2,928 to 4,560, client-rect entries from 6,144 to 24,160, and mutations from 28,224 to 30,960.
+  The slope remains worth its cost.
+- Disabling Rich's same-text-run refinement increased client-rect calls from 5,120 to 6,560,
+  entries from 12,768 to 18,160, and mutations from 34,144 to 38,672 in the continuous
+  metadata-affix row. The code is retained because it buys lower browser work in compatible text
+  runs; unsupported and novel-run shapes continue through the measured fallback.
+
+These ablations set the balancing point: remove duplicated proof machinery, but keep guarded Rich
+predictors that demonstrate material held-out reductions in expensive layout and mutation work.
 
 ## Benchmark Matrix Changes
 

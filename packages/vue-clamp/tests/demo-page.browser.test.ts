@@ -864,7 +864,7 @@ describe("Website demo page", () => {
     expect(input.value).toContain(
       '<a href="#components">the refreshed <strong>component tabs</strong> should scroll on narrow screens</a>',
     );
-    expect(input.value).toContain("<inline-note>");
+    expect(input.value).toContain('<span class="rich-note">');
     expect(input.value).toContain('src="/rich-demo-icon.svg"');
     expect(richPresetButton(mountedPage.container, "editorial").getAttribute("aria-pressed")).toBe(
       "true",

@@ -98,14 +98,19 @@ Rich clamping is intentionally scoped:
 - Rich content clamps from the end only.
 - `boundary` can be `grapheme` or `word`. Defaults to `grapheme`; `word` avoids partial words
   inside supported text runs.
-- Inline elements can participate when they can be cloned back into the DOM and stay in inline flow.
-- Leaf elements without light DOM content are treated as atomic inline units, including custom
-  elements.
+- Supported default-ellipsis `max-lines` cases use native CSS clamping. The authored rich DOM stays
+  intact and the ellipsis is visual rather than an inserted text node.
+- Passive inline elements can participate when they can be cloned back into the DOM and stay in
+  inline flow.
+- Empty elements without light DOM content are treated as atomic inline units.
 - `br`, `wbr`, `img`, and outer `svg` elements have explicit handling when they stay in inline
   flow.
 - Inline rich images must have deterministic rendered dimensions before loading, set by attributes
   or CSS.
-- Unsupported markup falls back to the original HTML unchanged.
+- When custom behavior requires measured clamping, custom elements, duplicate IDs or named form
+  controls, active embedded content, and inline event handlers fall back to the original HTML
+  because connected probe clones would not be reliably inert.
+- Markup unsupported by the measured inline-flow model falls back to the original HTML unchanged.
 
 `before` and `after` slots receive the same control props as `<LineClamp>`.
 
@@ -132,6 +137,11 @@ function splitFileName(text: string) {
   <InlineClamp :text="file" :split="splitFileName" location="middle" />
 </template>
 ```
+
+The default unsplit `location="end"`, `boundary="grapheme"`, and `ellipsis="…"` combination keeps
+the full source text in the DOM and uses native CSS overflow. `split`, start/middle truncation,
+word boundaries, and custom ellipsis strings use live browser measurement so their exact semantics
+are preserved.
 
 Useful props:
 
