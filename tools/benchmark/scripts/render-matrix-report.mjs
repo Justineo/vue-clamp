@@ -231,6 +231,7 @@ const workSignalKeys = [
   "medianReplaceChildrenCalls",
   "medianRemovedNodes",
   "medianResizeObserverCallbacks",
+  "medianScrollHeightReads",
   "medianScrollWidthReads",
   "medianStyleReads",
 ];
@@ -250,6 +251,7 @@ const structuralSignalDefinitions = [
   ["Client height reads", "medianClientHeightReads"],
   ["Client top reads", "medianClientTopReads"],
   ["Client width reads", "medianClientWidthReads"],
+  ["Scroll height reads", "medianScrollHeightReads"],
   ["Scroll width reads", "medianScrollWidthReads"],
   ["Before slot calls", "medianBeforeSlotCalls"],
   ["After slot calls", "medianAfterSlotCalls"],

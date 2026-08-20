@@ -3,10 +3,12 @@ import { nextTick } from "vue";
 export type BenchmarkMetrics = {
   addedNodes: number;
   attributeMutationRecords: number;
+  boundingRectReadMs: number;
   boundingRectReads: number;
   characterDataMutationRecords: number;
   childListMutationRecords: number;
   clientHeightReads: number;
+  clientRectReadMs: number;
   clientRectEntries: number;
   clientRectReads: number;
   clientTopReads: number;
@@ -16,7 +18,11 @@ export type BenchmarkMetrics = {
   hiddenMutationRecords: number;
   hiddenRemovedNodes: number;
   cloneNodeCalls: number;
+  cloneNodeMs: number;
   imageCloneCalls: number;
+  layoutReadMs: number;
+  layoutReadSlowCalls: number;
+  layoutGetterReadMs: number;
   mutationCallbacks: number;
   mutationRecords: number;
   offsetHeightReads: number;
@@ -24,8 +30,11 @@ export type BenchmarkMetrics = {
   replaceChildrenCalls: number;
   resizeObserverCallbacks: number;
   removedNodes: number;
+  scrollHeightReads: number;
   scrollWidthReads: number;
   styleReads: number;
+  styleReadMs: number;
+  styleReadSlowCalls: number;
 };
 
 export type StepDiagnostics = {
@@ -64,7 +73,10 @@ type GetterMetric =
   | "clientWidthReads"
   | "offsetHeightReads"
   | "offsetWidthReads"
+  | "scrollHeightReads"
   | "scrollWidthReads";
+
+type LayoutReadKind = "boundingRect" | "clientRect" | "getter";
 
 type GetterPatch = {
   descriptor: PropertyDescriptor;
@@ -131,6 +143,7 @@ let originalGetBoundingClientRectDescriptor: PropertyDescriptor | undefined;
 let originalGetClientRectsDescriptor: PropertyDescriptor | undefined;
 let originalReplaceChildrenDescriptor: PropertyDescriptor | undefined;
 let originalCloneNodeDescriptor: PropertyDescriptor | undefined;
+let originalRangeCloneDescriptor: PropertyDescriptor | undefined;
 let originalGetComputedStyle: typeof getComputedStyle | undefined;
 let originalResizeObserver: typeof ResizeObserver | undefined;
 let getterPatches: GetterPatch[] = [];
@@ -139,10 +152,12 @@ function emptyMetrics(): BenchmarkMetrics {
   return {
     addedNodes: 0,
     attributeMutationRecords: 0,
+    boundingRectReadMs: 0,
     boundingRectReads: 0,
     characterDataMutationRecords: 0,
     childListMutationRecords: 0,
     clientHeightReads: 0,
+    clientRectReadMs: 0,
     clientRectEntries: 0,
     clientRectReads: 0,
     clientTopReads: 0,
@@ -152,7 +167,11 @@ function emptyMetrics(): BenchmarkMetrics {
     hiddenMutationRecords: 0,
     hiddenRemovedNodes: 0,
     cloneNodeCalls: 0,
+    cloneNodeMs: 0,
     imageCloneCalls: 0,
+    layoutReadMs: 0,
+    layoutReadSlowCalls: 0,
+    layoutGetterReadMs: 0,
     mutationCallbacks: 0,
     mutationRecords: 0,
     offsetHeightReads: 0,
@@ -160,9 +179,44 @@ function emptyMetrics(): BenchmarkMetrics {
     replaceChildrenCalls: 0,
     resizeObserverCallbacks: 0,
     removedNodes: 0,
+    scrollHeightReads: 0,
     scrollWidthReads: 0,
     styleReads: 0,
+    styleReadMs: 0,
+    styleReadSlowCalls: 0,
   };
+}
+
+function recordLayoutReadDuration(kind: LayoutReadKind, startedAt: number): void {
+  if (!trackedMetrics) {
+    return;
+  }
+
+  const duration = performance.now() - startedAt;
+  trackedMetrics.layoutReadMs += duration;
+  if (kind === "boundingRect") {
+    trackedMetrics.boundingRectReadMs += duration;
+  } else if (kind === "clientRect") {
+    trackedMetrics.clientRectReadMs += duration;
+  } else {
+    trackedMetrics.layoutGetterReadMs += duration;
+  }
+
+  if (duration >= 0.1) {
+    trackedMetrics.layoutReadSlowCalls += 1;
+  }
+}
+
+function recordStyleReadDuration(startedAt: number): void {
+  if (!trackedMetrics) {
+    return;
+  }
+
+  const duration = performance.now() - startedAt;
+  trackedMetrics.styleReadMs += duration;
+  if (duration >= 0.1) {
+    trackedMetrics.styleReadSlowCalls += 1;
+  }
 }
 
 function descriptorInPrototypeChain(start: object, property: string): GetterPatch | null {
@@ -228,10 +282,16 @@ function patchElementMethod(
   Object.defineProperty(Element.prototype, property, {
     ...descriptor,
     value(this: Element): unknown {
+      const tracked = trackedMetrics !== null && isTrackedElement(this);
+      const startedAt = tracked ? performance.now() : 0;
       const result = original.call(this);
 
-      if (trackedMetrics && isTrackedElement(this)) {
+      if (trackedMetrics && tracked) {
         trackedMetrics[metric] += 1;
+        recordLayoutReadDuration(
+          property === "getBoundingClientRect" ? "boundingRect" : "clientRect",
+          startedAt,
+        );
 
         if (property === "getClientRects") {
           trackedMetrics.clientRectEntries += (result as DOMRectList).length;
@@ -257,8 +317,16 @@ function patchGetter(property: string, metric: GetterMetric): void {
   Object.defineProperty(patch.owner, property, {
     ...patch.descriptor,
     get(this: HTMLElement): unknown {
-      countTrackedElement(this, metric);
-      return Reflect.apply(originalGetter, this, []);
+      const tracked = trackedMetrics !== null && isTrackedElement(this);
+      const startedAt = tracked ? performance.now() : 0;
+      const result = Reflect.apply(originalGetter, this, []);
+
+      if (trackedMetrics && tracked) {
+        trackedMetrics[metric] += 1;
+        recordLayoutReadDuration("getter", startedAt);
+      }
+
+      return result;
     },
   });
 }
@@ -268,8 +336,16 @@ function patchGetComputedStyle(): void {
   originalGetComputedStyle = original;
 
   globalThis.getComputedStyle = ((element: Element, pseudoElt?: string | null) => {
-    countTrackedElement(element, "styleReads");
-    return original.call(globalThis, element, pseudoElt);
+    const tracked = trackedMetrics !== null && isTrackedElement(element);
+    const startedAt = tracked ? performance.now() : 0;
+    const result = original.call(globalThis, element, pseudoElt);
+
+    if (trackedMetrics && tracked) {
+      trackedMetrics.styleReads += 1;
+      recordStyleReadDuration(startedAt);
+    }
+
+    return result;
   }) as typeof getComputedStyle;
 }
 
@@ -305,15 +381,50 @@ function patchCloneNode(): void {
   Object.defineProperty(Node.prototype, "cloneNode", {
     ...descriptor,
     value(this: Node, deep?: boolean): Node {
-      if (trackedMetrics && this instanceof Element && isTrackedElement(this)) {
+      const tracked = trackedMetrics !== null && this instanceof Element;
+      const startedAt = tracked ? performance.now() : 0;
+      const result = original.call(this, deep);
+
+      // Rich source nodes live in a detached DOMParser document, outside the
+      // tracked component root. The measured window contains only the active
+      // scenario update, so count element clones globally within that window.
+      if (trackedMetrics && tracked) {
         trackedMetrics.cloneNodeCalls += 1;
+        trackedMetrics.cloneNodeMs += performance.now() - startedAt;
 
         if (this instanceof HTMLImageElement) {
           trackedMetrics.imageCloneCalls += 1;
         }
       }
 
-      return original.call(this, deep);
+      return result;
+    },
+  });
+}
+
+function patchRangeClone(): void {
+  const descriptor = Object.getOwnPropertyDescriptor(Range.prototype, "cloneContents");
+  const original = descriptor?.value as ((this: Range) => DocumentFragment) | undefined;
+
+  if (!descriptor || !original) {
+    throw new Error("Missing Range.prototype.cloneContents for benchmark metrics.");
+  }
+
+  originalRangeCloneDescriptor = descriptor;
+  Object.defineProperty(Range.prototype, "cloneContents", {
+    ...descriptor,
+    value(this: Range): DocumentFragment {
+      const tracked = trackedMetrics !== null;
+      const startedAt = tracked ? performance.now() : 0;
+      const fragment = original.call(this);
+
+      if (trackedMetrics && tracked) {
+        trackedMetrics.cloneNodeMs += performance.now() - startedAt;
+        trackedMetrics.cloneNodeCalls += fragment.querySelectorAll("*").length;
+        trackedMetrics.imageCloneCalls += fragment.querySelectorAll("img").length;
+      }
+
+      return fragment;
     },
   });
 }
@@ -377,10 +488,12 @@ export function installBenchmarkSpies(options: BenchmarkSpyOptions = {}): void {
     patchGetter("clientWidth", "clientWidthReads");
     patchGetter("offsetHeight", "offsetHeightReads");
     patchGetter("offsetWidth", "offsetWidthReads");
+    patchGetter("scrollHeight", "scrollHeightReads");
     patchGetter("scrollWidth", "scrollWidthReads");
     patchGetComputedStyle();
     patchReplaceChildren();
     patchCloneNode();
+    patchRangeClone();
   }
 
   patchResizeObserver();
@@ -414,6 +527,10 @@ export function restoreBenchmarkSpies(): void {
 
   if (originalCloneNodeDescriptor) {
     Object.defineProperty(Node.prototype, "cloneNode", originalCloneNodeDescriptor);
+  }
+
+  if (originalRangeCloneDescriptor) {
+    Object.defineProperty(Range.prototype, "cloneContents", originalRangeCloneDescriptor);
   }
 
   if (originalGetComputedStyle) {

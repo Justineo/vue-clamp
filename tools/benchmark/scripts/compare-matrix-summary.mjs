@@ -13,6 +13,7 @@ const structuralKeys = [
   "mutationRecords",
   "offsetHeightReads",
   "offsetWidthReads",
+  "scrollHeightReads",
   "scrollWidthReads",
   "styleReads",
   "childListMutationRecords",

@@ -36,6 +36,7 @@ type Counter = {
 };
 
 type MountedScenario = {
+  advanceContent?: () => void;
   app: App;
   collectExtraMetrics?: () => Record<string, number>;
   container: HTMLElement;
@@ -90,10 +91,12 @@ type CompactCounterSummary = {
   addedNodes: number;
   attributeMutationRecords: number;
   activeMs: number;
+  boundingRectReadMs: number;
   boundingRectReads: number;
   characterDataMutationRecords: number;
   childListMutationRecords: number;
   clientHeightReads: number;
+  clientRectReadMs: number;
   clientRectEntries: number;
   clientRectReads: number;
   clientTopReads: number;
@@ -102,12 +105,18 @@ type CompactCounterSummary = {
   hiddenChildListMutationRecords: number;
   hiddenMutationRecords: number;
   hiddenRemovedNodes: number;
+  layoutReadMs: number;
+  layoutReadSlowCalls: number;
+  layoutGetterReadMs: number;
   mutationRecords: number;
   offsetHeightReads: number;
   offsetWidthReads: number;
   removedNodes: number;
+  scrollHeightReads: number;
   scrollWidthReads: number;
   styleReads: number;
+  styleReadMs: number;
+  styleReadSlowCalls: number;
 };
 
 type CompactScenarioResult = {
@@ -324,6 +333,14 @@ async function toggleNestedInlineMetrics(
     stepIndex % 2 === 0 ? "19px" : "13px",
   );
   await flushVueUpdates();
+}
+
+function advanceContent(mounted: MountedScenario): void {
+  if (!mounted.advanceContent) {
+    throw new Error("The benchmark scenario does not support content updates.");
+  }
+
+  mounted.advanceContent();
 }
 
 function integerSamplingValue(name: keyof typeof __VUE_CLAMP_BENCH_SAMPLING__): number | null {
@@ -562,14 +579,14 @@ function novelJitterWidths(
   return widths;
 }
 
-function blockStyle(width: number, fontSize?: string, direction?: "ltr" | "rtl"): string {
+function blockStyle(width: number | string, fontSize?: string, direction?: "ltr" | "rtl"): string {
   const fontStyle = fontSize
     ? [`font-family:Georgia,serif`, `font-size:${fontSize}`]
     : ["font:16px Georgia,serif"];
 
   return [
     "display:block",
-    `width:${width}px`,
+    `width:${typeof width === "number" ? `${width}px` : width}`,
     ...fontStyle,
     "line-height:20px",
     "overflow-wrap:break-word",
@@ -577,9 +594,9 @@ function blockStyle(width: number, fontSize?: string, direction?: "ltr" | "rtl")
   ].join(";");
 }
 
-function inlineStyle(width: number): string {
+function inlineStyle(width: number | string): string {
   return [
-    `width:${width}px`,
+    `width:${typeof width === "number" ? `${width}px` : width}`,
     "font:16px Georgia,serif",
     "line-height:20px",
     "overflow-wrap:break-word",
@@ -627,8 +644,10 @@ type LineClampBatchOptions = {
   after?: boolean | "dynamic-width";
   before?: boolean;
   boundary?: "grapheme" | "word";
+  contentUpdates?: boolean;
   direction?: "ltr" | "rtl";
   ellipsis?: string;
+  externalWidth?: boolean;
   fontSize?: string;
   location?: "start" | "middle" | "end" | number;
   maxHeight?: string;
@@ -638,7 +657,9 @@ type LineClampBatchOptions = {
 
 type InlineClampBatchOptions = {
   boundary?: "grapheme" | "word";
+  contentUpdates?: boolean;
   ellipsis?: string;
+  externalWidth?: boolean;
   location?: "start" | "middle" | "end" | number;
   split?: (text: string) => { body: string; end?: string; start?: string };
   text?: string;
@@ -648,9 +669,11 @@ type RichLineClampBatchOptions = {
   after?: boolean | "dynamic-width";
   before?: boolean;
   boundary?: "grapheme" | "word";
+  contentUpdates?: boolean;
   css?: string;
   direction?: "ltr" | "rtl";
   ellipsis?: string;
+  externalWidth?: boolean;
   fontSize?: string;
   html?: string;
   maxHeight?: string;
@@ -694,6 +717,7 @@ async function mountLineClampBatch(
   options: LineClampBatchOptions = {},
 ): Promise<MountedScenario> {
   const width = ref(initialWidth);
+  const contentRevision = ref(0);
   const beforeSlotCalls = createCounter();
   const afterSlotCalls = createCounter();
   const container = document.createElement("div");
@@ -705,13 +729,23 @@ async function mountLineClampBatch(
       return () =>
         h(
           "div",
-          { style: batchHostStyle() },
+          {
+            style: options.externalWidth
+              ? `${batchHostStyle()};width:${width.value}px`
+              : batchHostStyle(),
+          },
           instances.map((index) => {
             const props: Record<string, unknown> = {
               key: index,
               maxLines: options.maxLines,
-              style: blockStyle(width.value, options.fontSize, options.direction),
-              text: textVariant(options.text ?? text, index),
+              style: blockStyle(
+                options.externalWidth ? "100%" : width.value,
+                options.fontSize,
+                options.direction,
+              ),
+              text: options.contentUpdates
+                ? `${options.text ?? text}${contentRevision.value % 2}${index}`
+                : textVariant(options.text ?? text, index),
             };
             const slots: Record<string, () => VNodeChild> = {};
 
@@ -768,6 +802,13 @@ async function mountLineClampBatch(
   await flushVueUpdates();
 
   return {
+    ...(options.contentUpdates
+      ? {
+          advanceContent: () => {
+            contentRevision.value += 1;
+          },
+        }
+      : {}),
     app,
     collectExtraMetrics: () => ({
       afterSlotCalls: afterSlotCalls.value(),
@@ -790,6 +831,7 @@ async function mountInlineClampBatch(
   options: InlineClampBatchOptions = {},
 ): Promise<MountedScenario> {
   const width = ref(initialWidth);
+  const contentRevision = ref(0);
   const container = document.createElement("div");
   document.body.append(container);
   const instances = Array.from({ length: inlineBatchSize }, (_, index) => index);
@@ -799,7 +841,11 @@ async function mountInlineClampBatch(
       return () =>
         h(
           "div",
-          { style: batchHostStyle() },
+          {
+            style: options.externalWidth
+              ? `${batchHostStyle()};width:${width.value}px`
+              : batchHostStyle(),
+          },
           instances.map((index) =>
             h(component, {
               boundary: options.boundary,
@@ -807,8 +853,10 @@ async function mountInlineClampBatch(
               key: index,
               location: options.location ?? "end",
               split: options.split,
-              style: inlineStyle(width.value),
-              text: textVariant(options.text ?? inlineText, index),
+              style: inlineStyle(options.externalWidth ? "100%" : width.value),
+              text: options.contentUpdates
+                ? `${options.text ?? inlineText}${contentRevision.value % 2}${index}`
+                : textVariant(options.text ?? inlineText, index),
             }),
           ),
         );
@@ -820,6 +868,13 @@ async function mountInlineClampBatch(
   await flushVueUpdates();
 
   return {
+    ...(options.contentUpdates
+      ? {
+          advanceContent: () => {
+            contentRevision.value += 1;
+          },
+        }
+      : {}),
     app,
     collectExtraMetrics: () => ({ componentInstances: inlineBatchSize }),
     container,
@@ -834,6 +889,7 @@ async function mountRichLineClampBatch(
   options: RichLineClampBatchOptions = {},
 ): Promise<MountedScenario> {
   const width = ref(initialWidth);
+  const contentRevision = ref(0);
   const beforeSlotCalls = createCounter();
   const afterSlotCalls = createCounter();
   const container = document.createElement("div");
@@ -843,54 +899,73 @@ async function mountRichLineClampBatch(
   const Host = defineComponent({
     setup() {
       return () =>
-        h("div", { style: batchHostStyle() }, [
-          options.css ? h("style", options.css) : null,
-          ...instances.map((index) => {
-            const props: Record<string, unknown> = {
-              html: richHtmlVariant(options.html ?? richHtml, index),
-              key: index,
-              style: blockStyle(width.value, options.fontSize, options.direction),
-            };
-            const slots: Record<string, () => VNodeChild> = {};
-
-            if (options.maxLines === undefined && options.maxHeight === undefined) {
-              props.maxLines = 2;
-            }
-            if (options.maxLines !== undefined) {
-              props.maxLines = options.maxLines;
-            }
-            if (options.maxHeight !== undefined) {
-              props.maxHeight = options.maxHeight;
-            }
-            if (options.boundary !== undefined) {
-              props.boundary = options.boundary;
-            }
-            if (options.ellipsis !== undefined) {
-              props.ellipsis = options.ellipsis;
-            }
-
-            if (options.after) {
-              slots.after = () => {
-                afterSlotCalls.increment();
-                const style =
-                  options.after === "dynamic-width"
-                    ? "display:inline-block;width:var(--bench-affix-width,32px);margin-left:4px;white-space:nowrap"
-                    : "margin-left:4px";
-
-                return h("span", { style }, "details");
+        h(
+          "div",
+          {
+            style: options.externalWidth
+              ? `${batchHostStyle()};width:${width.value}px`
+              : batchHostStyle(),
+          },
+          [
+            options.css ? h("style", options.css) : null,
+            ...instances.map((index) => {
+              const props: Record<string, unknown> = {
+                html: richHtmlVariant(
+                  `${options.html ?? richHtml}${
+                    options.contentUpdates
+                      ? ` <span>Revision ${contentRevision.value % 2}</span>`
+                      : ""
+                  }`,
+                  index,
+                ),
+                key: index,
+                style: blockStyle(
+                  options.externalWidth ? "100%" : width.value,
+                  options.fontSize,
+                  options.direction,
+                ),
               };
-            }
+              const slots: Record<string, () => VNodeChild> = {};
 
-            if (options.before) {
-              slots.before = () => {
-                beforeSlotCalls.increment();
-                return h("strong", { style: "margin-right:4px" }, "SLO");
-              };
-            }
+              if (options.maxLines === undefined && options.maxHeight === undefined) {
+                props.maxLines = 2;
+              }
+              if (options.maxLines !== undefined) {
+                props.maxLines = options.maxLines;
+              }
+              if (options.maxHeight !== undefined) {
+                props.maxHeight = options.maxHeight;
+              }
+              if (options.boundary !== undefined) {
+                props.boundary = options.boundary;
+              }
+              if (options.ellipsis !== undefined) {
+                props.ellipsis = options.ellipsis;
+              }
 
-            return h(component, props, slots);
-          }),
-        ]);
+              if (options.after) {
+                slots.after = () => {
+                  afterSlotCalls.increment();
+                  const style =
+                    options.after === "dynamic-width"
+                      ? "display:inline-block;width:var(--bench-affix-width,32px);margin-left:4px;white-space:nowrap"
+                      : "margin-left:4px";
+
+                  return h("span", { style }, "details");
+                };
+              }
+
+              if (options.before) {
+                slots.before = () => {
+                  beforeSlotCalls.increment();
+                  return h("strong", { style: "margin-right:4px" }, "SLO");
+                };
+              }
+
+              return h(component, props, slots);
+            }),
+          ],
+        );
     },
   });
 
@@ -899,6 +974,13 @@ async function mountRichLineClampBatch(
   await flushVueUpdates();
 
   return {
+    ...(options.contentUpdates
+      ? {
+          advanceContent: () => {
+            contentRevision.value += 1;
+          },
+        }
+      : {}),
     app,
     collectExtraMetrics: () => ({
       afterSlotCalls: afterSlotCalls.value(),
@@ -1269,6 +1351,13 @@ function scenarios(): PublicScenario[] {
     {
       component: "LineClamp",
       group: "line",
+      mount: lineClampBatch({ after: true, externalWidth: true, maxLines: 3 }),
+      name: "line-cta-affix-external-resize-batch-jumps",
+      widths: lineFeatureWidths,
+    },
+    {
+      component: "LineClamp",
+      group: "line",
       mount: lineClampBatch({ location: "middle", maxLines: 3 }),
       name: "line-middle-log-batch-jumps",
       widths: lineFeatureWidths,
@@ -1627,6 +1716,22 @@ function scenarios(): PublicScenario[] {
       widths: lineFeatureWidths,
     },
     {
+      beforeStep: advanceContent,
+      component: "LineClamp",
+      group: "line",
+      minVersion: "1.3.0",
+      mount: lineClampBatch({
+        boundary: "word",
+        contentUpdates: true,
+        ellipsis: "...",
+        maxLines: 3,
+        text: fallbackWordBoundaryText,
+      }),
+      name: "line-cold-text-update-batch-same-width",
+      unsupportedReason: 'LineClamp boundary="word" was added in vue-clamp 1.3.0.',
+      widths: [180, 180, 180, 180, 180, 180, 180],
+    },
+    {
       component: "InlineClamp",
       group: "inline",
       minVersion: "1.1.0",
@@ -1642,6 +1747,13 @@ function scenarios(): PublicScenario[] {
       mount: inlineClampBatch({ location: "end" }),
       name: "inline-path-end-batch-jumps",
       unsupportedReason: inlineMeasuredReason,
+      widths: inlineFeatureWidths,
+    },
+    {
+      component: "InlineClamp",
+      group: "inline",
+      mount: inlineClampBatch({ externalWidth: true, location: "end" }),
+      name: "inline-path-end-external-resize-batch-jumps",
       widths: inlineFeatureWidths,
     },
     {
@@ -1712,6 +1824,22 @@ function scenarios(): PublicScenario[] {
       widths: inlineFeatureWidths,
     },
     {
+      beforeStep: advanceContent,
+      component: "InlineClamp",
+      group: "inline",
+      minVersion: "1.3.0",
+      mount: inlineClampBatch({
+        boundary: "word",
+        contentUpdates: true,
+        ellipsis: "...",
+        location: "middle",
+        text: fallbackWordBoundaryText,
+      }),
+      name: "inline-cold-text-update-batch-same-width",
+      unsupportedReason: 'InlineClamp boundary="word" was added in vue-clamp 1.3.0.',
+      widths: [160, 160, 160, 160, 160, 160, 160],
+    },
+    {
       component: "RichLineClamp",
       group: "rich",
       mount: mountRichFitLineClamp,
@@ -1744,6 +1872,18 @@ function scenarios(): PublicScenario[] {
       group: "rich",
       mount: richLineClampBatch({ after: true, before: true, maxLines: 2 }),
       name: "rich-metadata-affix-batch-jumps",
+      widths: richFeatureWidths,
+    },
+    {
+      component: "RichLineClamp",
+      group: "rich",
+      mount: richLineClampBatch({
+        after: true,
+        before: true,
+        externalWidth: true,
+        maxLines: 2,
+      }),
+      name: "rich-metadata-affix-external-resize-batch-jumps",
       widths: richFeatureWidths,
     },
     {
@@ -1946,6 +2086,33 @@ function scenarios(): PublicScenario[] {
       name: "rich-word-long-token-batch-jumps",
       unsupportedReason: 'RichLineClamp boundary="word" was added in vue-clamp 1.3.0.',
       widths: richLongTokenWidths,
+    },
+    {
+      beforeStep: advanceContent,
+      component: "RichLineClamp",
+      group: "rich",
+      mount: richLineClampBatch({
+        contentUpdates: true,
+        maxLines: 2,
+      }),
+      name: "rich-native-html-update-batch-same-width",
+      widths: [180, 180, 180, 180, 180, 180, 180],
+    },
+    {
+      beforeStep: advanceContent,
+      component: "RichLineClamp",
+      group: "rich",
+      minVersion: "1.3.0",
+      mount: richLineClampBatch({
+        boundary: "word",
+        contentUpdates: true,
+        ellipsis: "...",
+        html: richLongTokenHtml,
+        maxLines: 2,
+      }),
+      name: "rich-cold-html-update-batch-same-width",
+      unsupportedReason: 'RichLineClamp boundary="word" was added in vue-clamp 1.3.0.',
+      widths: [180, 180, 180, 180, 180, 180, 180],
     },
     {
       beforeStep: toggleAffixWidth,
@@ -2739,10 +2906,12 @@ const compactCounterMedianKeys = new Set([
   "medianAddedNodes",
   "medianAttributeMutationRecords",
   "medianActiveMs",
+  "medianBoundingRectReadMs",
   "medianBoundingRectReads",
   "medianCharacterDataMutationRecords",
   "medianChildListMutationRecords",
   "medianClientHeightReads",
+  "medianClientRectReadMs",
   "medianClientRectEntries",
   "medianClientRectReads",
   "medianClientTopReads",
@@ -2751,12 +2920,18 @@ const compactCounterMedianKeys = new Set([
   "medianHiddenChildListMutationRecords",
   "medianHiddenMutationRecords",
   "medianHiddenRemovedNodes",
+  "medianLayoutReadMs",
+  "medianLayoutReadSlowCalls",
+  "medianLayoutGetterReadMs",
   "medianMutationRecords",
   "medianOffsetHeightReads",
   "medianOffsetWidthReads",
   "medianRemovedNodes",
+  "medianScrollHeightReads",
   "medianScrollWidthReads",
   "medianStyleReads",
+  "medianStyleReadMs",
+  "medianStyleReadSlowCalls",
 ]);
 
 function runMetricKey(summaryKey: string): string {
@@ -2770,6 +2945,7 @@ function isCompactExtraMetric(summaryKey: string): boolean {
 
   return (
     metricKey === "componentInstances" ||
+    metricKey === "cloneNodeMs" ||
     metricKey.endsWith("Calls") ||
     metricKey.endsWith("Callbacks") ||
     metricKey.endsWith("Nodes") ||
@@ -2801,10 +2977,12 @@ function compactCounters(summary: BenchmarkSummary): CompactCounterSummary {
     addedNodes: summaryNumber(summary, "medianAddedNodes"),
     attributeMutationRecords: summaryNumber(summary, "medianAttributeMutationRecords"),
     activeMs: summaryNumber(summary, "medianActiveMs"),
+    boundingRectReadMs: summaryNumber(summary, "medianBoundingRectReadMs"),
     boundingRectReads: summaryNumber(summary, "medianBoundingRectReads"),
     characterDataMutationRecords: summaryNumber(summary, "medianCharacterDataMutationRecords"),
     childListMutationRecords: summaryNumber(summary, "medianChildListMutationRecords"),
     clientHeightReads: summaryNumber(summary, "medianClientHeightReads"),
+    clientRectReadMs: summaryNumber(summary, "medianClientRectReadMs"),
     clientRectEntries: summaryNumber(summary, "medianClientRectEntries"),
     clientRectReads: summaryNumber(summary, "medianClientRectReads"),
     clientTopReads: summaryNumber(summary, "medianClientTopReads"),
@@ -2813,12 +2991,18 @@ function compactCounters(summary: BenchmarkSummary): CompactCounterSummary {
     hiddenChildListMutationRecords: summaryNumber(summary, "medianHiddenChildListMutationRecords"),
     hiddenMutationRecords: summaryNumber(summary, "medianHiddenMutationRecords"),
     hiddenRemovedNodes: summaryNumber(summary, "medianHiddenRemovedNodes"),
+    layoutReadMs: summaryNumber(summary, "medianLayoutReadMs"),
+    layoutReadSlowCalls: summaryNumber(summary, "medianLayoutReadSlowCalls"),
+    layoutGetterReadMs: summaryNumber(summary, "medianLayoutGetterReadMs"),
     mutationRecords: summaryNumber(summary, "medianMutationRecords"),
     offsetHeightReads: summaryNumber(summary, "medianOffsetHeightReads"),
     offsetWidthReads: summaryNumber(summary, "medianOffsetWidthReads"),
     removedNodes: summaryNumber(summary, "medianRemovedNodes"),
+    scrollHeightReads: summaryNumber(summary, "medianScrollHeightReads"),
     scrollWidthReads: summaryNumber(summary, "medianScrollWidthReads"),
     styleReads: summaryNumber(summary, "medianStyleReads"),
+    styleReadMs: summaryNumber(summary, "medianStyleReadMs"),
+    styleReadSlowCalls: summaryNumber(summary, "medianStyleReadSlowCalls"),
   };
 }
 
@@ -2927,11 +3111,13 @@ function addCompactCounters(
     addedNodes: left.addedNodes + right.addedNodes,
     attributeMutationRecords: left.attributeMutationRecords + right.attributeMutationRecords,
     activeMs: left.activeMs + right.activeMs,
+    boundingRectReadMs: left.boundingRectReadMs + right.boundingRectReadMs,
     boundingRectReads: left.boundingRectReads + right.boundingRectReads,
     characterDataMutationRecords:
       left.characterDataMutationRecords + right.characterDataMutationRecords,
     childListMutationRecords: left.childListMutationRecords + right.childListMutationRecords,
     clientHeightReads: left.clientHeightReads + right.clientHeightReads,
+    clientRectReadMs: left.clientRectReadMs + right.clientRectReadMs,
     clientRectEntries: left.clientRectEntries + right.clientRectEntries,
     clientRectReads: left.clientRectReads + right.clientRectReads,
     clientTopReads: left.clientTopReads + right.clientTopReads,
@@ -2941,12 +3127,18 @@ function addCompactCounters(
       left.hiddenChildListMutationRecords + right.hiddenChildListMutationRecords,
     hiddenMutationRecords: left.hiddenMutationRecords + right.hiddenMutationRecords,
     hiddenRemovedNodes: left.hiddenRemovedNodes + right.hiddenRemovedNodes,
+    layoutReadMs: left.layoutReadMs + right.layoutReadMs,
+    layoutReadSlowCalls: left.layoutReadSlowCalls + right.layoutReadSlowCalls,
+    layoutGetterReadMs: left.layoutGetterReadMs + right.layoutGetterReadMs,
     mutationRecords: left.mutationRecords + right.mutationRecords,
     offsetHeightReads: left.offsetHeightReads + right.offsetHeightReads,
     offsetWidthReads: left.offsetWidthReads + right.offsetWidthReads,
     removedNodes: left.removedNodes + right.removedNodes,
+    scrollHeightReads: left.scrollHeightReads + right.scrollHeightReads,
     scrollWidthReads: left.scrollWidthReads + right.scrollWidthReads,
     styleReads: left.styleReads + right.styleReads,
+    styleReadMs: left.styleReadMs + right.styleReadMs,
+    styleReadSlowCalls: left.styleReadSlowCalls + right.styleReadSlowCalls,
   };
 }
 
@@ -2955,10 +3147,12 @@ function emptyCompactCounters(): CompactCounterSummary {
     addedNodes: 0,
     attributeMutationRecords: 0,
     activeMs: 0,
+    boundingRectReadMs: 0,
     boundingRectReads: 0,
     characterDataMutationRecords: 0,
     childListMutationRecords: 0,
     clientHeightReads: 0,
+    clientRectReadMs: 0,
     clientRectEntries: 0,
     clientRectReads: 0,
     clientTopReads: 0,
@@ -2967,12 +3161,18 @@ function emptyCompactCounters(): CompactCounterSummary {
     hiddenChildListMutationRecords: 0,
     hiddenMutationRecords: 0,
     hiddenRemovedNodes: 0,
+    layoutReadMs: 0,
+    layoutReadSlowCalls: 0,
+    layoutGetterReadMs: 0,
     mutationRecords: 0,
     offsetHeightReads: 0,
     offsetWidthReads: 0,
     removedNodes: 0,
+    scrollHeightReads: 0,
     scrollWidthReads: 0,
     styleReads: 0,
+    styleReadMs: 0,
+    styleReadSlowCalls: 0,
   };
 }
 
@@ -3014,6 +3214,39 @@ function compactTargetReport(target: BenchmarkTarget, results: ScenarioResult[])
   };
 }
 
+function compactTotalsReport(report: ReturnType<typeof compactTargetReport>) {
+  const supportedScenarios = report.scenarios.filter(
+    (scenario): scenario is CompactScenarioResult & { summary: CompactCounterSummary } =>
+      scenario.summary !== undefined,
+  );
+  const components = Object.fromEntries(
+    (["LineClamp", "InlineClamp", "RichLineClamp", "WrapClamp"] as const).map((component) => {
+      const scenarios = supportedScenarios.filter((scenario) => scenario.component === component);
+
+      return [
+        component,
+        {
+          scenarioCount: scenarios.length,
+          totals: scenarios.reduce(
+            (total, scenario) => addCompactCounters(total, scenario.summary),
+            emptyCompactCounters(),
+          ),
+        },
+      ];
+    }),
+  );
+
+  return {
+    components,
+    counterTracking: report.counterTracking,
+    ...(report.extraTotals ? { extraTotals: report.extraTotals } : {}),
+    scenarioCount: report.scenarios.length,
+    supportedScenarioCount: supportedScenarios.length,
+    target: report.target,
+    totals: report.totals,
+  };
+}
+
 async function runTargetBenchmarks(
   scenario: PublicScenario,
   inputs: readonly BenchmarkTargetInput[],
@@ -3029,7 +3262,8 @@ async function runTargetBenchmarks(
   }
 
   for (let index = 0; index < benchmarkSamplingConfig.warmupRuns; index += 1) {
-    for (const input of inputs) {
+    const roundInputs = index % 2 === 0 ? inputs : [...inputs].reverse();
+    for (const input of roundInputs) {
       await runScenarioOnce(scenario, input.component);
     }
   }
@@ -3041,13 +3275,16 @@ async function runTargetBenchmarks(
     summary: null,
   }));
 
+  let round = 0;
   while (true) {
-    for (const state of states) {
+    const roundStates = round % 2 === 0 ? states : [...states].reverse();
+    for (const state of roundStates) {
       const startedAt = performance.now();
       const run = await runScenarioOnce(scenario, state.component);
       state.sampleWallMs += performance.now() - startedAt;
       state.runs.push(run);
     }
+    round += 1;
 
     for (const state of states) {
       state.summary = benchmarkSummary(state.runs, state.sampleWallMs);
@@ -3139,6 +3376,7 @@ function logScenarioResult(target: BenchmarkTarget, result: ScenarioResult): voi
       `hiddenAdded=${formatMetric(summary.medianHiddenAddedNodes)}`,
       `removedNodes=${formatMetric(summary.medianRemovedNodes)}`,
       `hiddenRemoved=${formatMetric(summary.medianHiddenRemovedNodes)}`,
+      `scrollHeightReads=${formatMetric(summary.medianScrollHeightReads)}`,
       `scrollWidthReads=${formatMetric(summary.medianScrollWidthReads)}`,
       `styleReads=${formatMetric(summary.medianStyleReads)}`,
       ...(extra ? [`extra=${JSON.stringify(extra)}`] : []),
@@ -3265,8 +3503,23 @@ describe("vue-clamp package benchmark", () => {
             schemaVersion: 2,
           };
 
+    const totalsReports = compactReports.map(compactTotalsReport);
+    const totalsReport =
+      totalsReports.length === 1
+        ? {
+            ...totalsReports[0],
+            schemaVersion: 1,
+          }
+        : {
+            reports: totalsReports,
+            schemaVersion: 1,
+          };
+
     console.error(`PACKAGE_MATRIX_SUMMARY ${JSON.stringify(compactReport)}`);
     console.error(`PACKAGE_MATRIX_BENCHMARK ${JSON.stringify(report)}`);
+    // Keep the small totals payload last so terminal truncation cannot hide the
+    // aggregate evidence behind the full per-run report.
+    console.error(`PACKAGE_MATRIX_TOTALS ${JSON.stringify(totalsReport)}`);
 
     expect(
       [...resultsByTarget.values()].some((results) =>
