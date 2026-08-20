@@ -127,6 +127,9 @@ export function measureNativeClamped(
   measurableWidth?: number,
 ): boolean | null {
   if (mode === "multi-line") {
+    // Both boxes matter: a visible root does not prove that consumer CSS has
+    // not collapsed the content, while a stale connected content box does not
+    // prove that the current root snapshot is measurable.
     const clientWidth = element.clientWidth;
     if (clientWidth <= 0 || (measurableWidth !== undefined && measurableWidth <= 0)) {
       return null;

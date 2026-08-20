@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 import {
+  countLineBoxes,
   createCoalescingRunner,
   hasInlineFontMetrics,
   hasInlineLineMetrics,
@@ -36,6 +37,17 @@ async function flushMicrotasks(): Promise<void> {
 }
 
 describe("layout style helpers", () => {
+  it("counts physical line boxes rather than inline fragments", () => {
+    const rects = [
+      { bottom: 20, height: 20, top: 0 },
+      { bottom: 20.2, height: 18, top: 0.2 },
+      { bottom: 40, height: 20, top: 20 },
+      { bottom: 0, height: 0, top: 0 },
+    ] as unknown as DOMRectList;
+
+    expect(countLineBoxes(rects)).toBe(2);
+  });
+
   it("detects unresolved width references", () => {
     expect(hasUnresolvedStyleReference("calc(100% - 8px)")).toBe(true);
     expect(hasUnresolvedStyleReference("var(--clamp-width)")).toBe(true);
@@ -58,7 +70,7 @@ describe("layout style helpers", () => {
     expect(isContentIndependentWidth("var(--clamp-width)")).toBe(false);
   });
 
-  it("requires direct inline font metrics before trusting exact result caches", () => {
+  it("identifies directly declared pixel font metrics", () => {
     expect(hasInlineFontMetrics(fontMetricsStyle("Georgia, serif", "16px"))).toBe(true);
     expect(hasInlineFontMetrics(fontMetricsStyle("Georgia, serif"))).toBe(false);
     expect(hasInlineFontMetrics(fontMetricsStyle("", "16px"))).toBe(false);
@@ -70,7 +82,7 @@ describe("layout style helpers", () => {
     expect(hasInlineFontMetrics(fontMetricsStyle())).toBe(false);
   });
 
-  it("requires direct inline line metrics for multiline exact result caches", () => {
+  it("identifies directly declared line metrics", () => {
     expect(hasInlineLineMetrics(lineMetricsStyle("20px"))).toBe(true);
     expect(hasInlineLineMetrics(lineMetricsStyle("1.4"))).toBe(true);
     expect(hasInlineLineMetrics(lineMetricsStyle("normal"))).toBe(true);

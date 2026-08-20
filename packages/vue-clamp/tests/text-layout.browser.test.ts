@@ -917,6 +917,83 @@ describe("text layout helpers", () => {
     expect(clientRectReads).toBe(probes);
   });
 
+  it("uses the failed full line count to seed a cold text search", async () => {
+    await document.fonts?.ready;
+
+    const prepared = prepareText("observability-platform ".repeat(32));
+    const host = mountLayoutHost(180);
+    const state: { result: TextClampResult | null } = { result: null };
+    const reads = countClientRectsDuring(host.content, () => {
+      state.result = clampTextToLayout({
+        content: host.content,
+        ellipsis: "...",
+        lineCapacity: 3,
+        lineLimit: 3,
+        maxHeight: undefined,
+        prepared,
+        ratio: 1,
+        root: host.root,
+        rootWidth: host.width,
+        target: host.text,
+      });
+    });
+
+    expect(state.result?.text).not.toBe(prepared.text);
+    expect(reads).toBeLessThanOrEqual(3);
+  });
+
+  it("seeds the grapheme fallback for a cold single-word text search", async () => {
+    await document.fonts?.ready;
+
+    const prepared = prepareText("observabilityPlatform".repeat(48), "word");
+    const host = mountLayoutHost(180);
+    const state: { result: TextClampResult | null } = { result: null };
+    const reads = countClientRectsDuring(host.content, () => {
+      state.result = clampTextToLayout({
+        content: host.content,
+        ellipsis: "...",
+        lineCapacity: 3,
+        lineLimit: 3,
+        maxHeight: undefined,
+        prepared,
+        ratio: 1,
+        root: host.root,
+        rootWidth: host.width,
+        target: host.text,
+      });
+    });
+
+    expect(state.result?.text).not.toBe(prepared.text);
+    expect(reads).toBeLessThanOrEqual(6);
+  });
+
+  it("uses the failed full bounds to seed a cold max-height search", async () => {
+    await document.fonts?.ready;
+
+    const prepared = prepareText("observability platform ".repeat(32));
+    const host = mountLayoutHost(180);
+    host.root.style.maxHeight = "60px";
+    host.root.style.overflow = "hidden";
+    const state: { result: TextClampResult | null } = { result: null };
+    const sample = sampleFitCostDuring(host.root, host.content, () => {
+      state.result = clampTextToLayout({
+        content: host.content,
+        ellipsis: "...",
+        lineCapacity: 3,
+        lineLimit: undefined,
+        maxHeight: "60px",
+        prepared,
+        ratio: 1,
+        root: host.root,
+        rootWidth: host.width,
+        target: host.text,
+      });
+    });
+
+    expect(state.result?.text).not.toBe(prepared.text);
+    expect(sample.contentBoundingRectReads).toBeLessThanOrEqual(3);
+  });
+
   it("captures text probe mutations during actual layout fitting", async () => {
     await document.fonts?.ready;
 
@@ -1656,12 +1733,11 @@ describe("text layout helpers", () => {
         ratio: 1,
         root: host.root,
         rootWidth: host.width,
-        forceSkipFullFit: true,
         target: host.text,
       }),
     );
 
-    expect(writes[0]).toBe("…");
+    expect(writes).toContain("…");
   });
 
   it("reuses a stable full-text fit when width grows", async () => {
@@ -1751,55 +1827,11 @@ describe("text layout helpers", () => {
       ratio: 1,
       root: host.root,
       rootWidth: width,
-      forceSkipFullFit: true,
       target: host.text,
     });
 
     expect(result?.text).toBe(text);
     expect(result?.kept).toBe(prepared.boundaryOffsets.length - 1);
-  });
-
-  it("checks same-width full text before warm search", async () => {
-    await document.fonts?.ready;
-
-    const text = "abci";
-    const ellipsis = "WWWW";
-    const prepared = prepareText(text);
-    const width = Math.ceil(measuredTextWidth(text, "font:16px Georgia, serif") + 1);
-    const host = mountLayoutHost(width);
-    const hint: TextClampResult = {
-      boundaryOffsets: prepared.boundaryOffsets,
-      ellipsis,
-      kept: 3,
-      layoutKey: noAffixLayoutKey,
-      lineCapacity: 1,
-      lineLimit: 1,
-      maxHeight: undefined,
-      ratio: 1,
-      rootWidth: width,
-      spacing: "trim",
-      text: `abc${ellipsis}`,
-    };
-
-    const writes = textWritesDuring(host.text, () =>
-      clampTextToLayout({
-        checkFullFitFirst: true,
-        content: host.content,
-        ellipsis,
-        hint,
-        lineCapacity: 1,
-        layoutKey: noAffixLayoutKey,
-        lineLimit: 1,
-        maxHeight: undefined,
-        prepared,
-        ratio: 1,
-        root: host.root,
-        rootWidth: width,
-        target: host.text,
-      }),
-    );
-
-    expect(writes).toEqual([text]);
   });
 
   it("warm-starts fallback grapheme search on word-boundary shrinks", async () => {
@@ -1838,13 +1870,11 @@ describe("text layout helpers", () => {
         ratio: 1,
         root: host.root,
         rootWidth: host.width,
-        forceSkipFullFit: true,
         target: host.text,
       }),
     );
 
-    expect(writes[0]).not.toBe("…");
-    expect(writes[0]).toContain("…");
+    expect(writes.some((value) => value !== "…" && value.includes("…"))).toBe(true);
   });
 
   it("warm-starts fallback grapheme search on word-boundary grows within a proved fallback width", async () => {
@@ -1884,13 +1914,11 @@ describe("text layout helpers", () => {
         ratio: 1,
         root: host.root,
         rootWidth: host.width,
-        forceSkipFullFit: true,
         target: host.text,
       }),
     );
 
-    expect(writes[0]).not.toBe("…");
-    expect(writes[0]).toContain("…");
+    expect(writes.some((value) => value !== "…" && value.includes("…"))).toBe(true);
   });
 
   it("estimates line capacity from numeric and px max-height values", () => {

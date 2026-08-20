@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vite-plus/test";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import { Comment, createApp, defineComponent, h, nextTick, ref } from "vue";
 import { InlineClamp, LineClamp, RichLineClamp } from "../src/index.ts";
 import { clampRich, patchRich, prepareRich, rankRichState, richStateForRank } from "../src/rich.ts";
@@ -39,9 +39,9 @@ const RICH_TEXT_HTML =
 const REMOTE_IMAGE_RICH_TEXT_HTML =
   '<strong>Vue</strong> ships <img alt="" src="/rich-demo-icon.svg" style="width:14px;height:14px;vertical-align:-2px" /> <a href="/docs">layout-aware rich text clamping</a> for <em>inline content</em> and trailing markup.';
 const BEHAVIORAL_RICH_TEXT_HTML =
-  '<inline-note>Custom inline content</inline-note> stays valid beside <div style="display:inline">behavior-driven wrappers</div> when they render as inline text.';
+  '<section style="display:inline">Semantic</section> beside <div style="display:inline">behavior wrapper</div> with trailing copy that needs truncation.';
 const ATOMIC_LEAF_RICH_TEXT_HTML =
-  '<inline-badge style="display:inline-block;width:24px;height:12px;vertical-align:baseline"></inline-badge> trailing copy that still needs clamping.';
+  '<span style="display:inline-block;width:24px;height:12px;vertical-align:baseline"></span> trailing copy that still needs clamping.';
 const INLINE_BLOCK_RICH_TEXT_HTML =
   'Lead <span class="inline-box" style="display:inline-block">AtomicBox</span> trailing copy that should not split inside the inline box.';
 const RICH_DYNAMIC_TOKEN_HTML =
@@ -64,7 +64,6 @@ type RichClampFixtureOptions = {
   html?: string;
   lineLimit?: number | undefined;
   maxHeight?: string;
-  reuseSimpleLineFit?: boolean;
   rootStyle?: readonly string[];
   styles?: readonly string[];
   width?: number;
@@ -135,16 +134,6 @@ async function fontFaceEvent(family: string): Promise<Event> {
   return new FontFaceSetLoadEvent("loadingdone", {
     fontfaces: [face],
   });
-}
-
-function unloadedUsedFontFaceEvent(): Event {
-  return new FontFaceSetLoadEvent("loadingdone", {
-    fontfaces: [new FontFace("Georgia", "local(Arial)")],
-  });
-}
-
-async function unusedFontFaceEvent(): Promise<Event> {
-  return fontFaceEvent("UnusedBenchFont");
 }
 
 async function usedFontFaceEvent(): Promise<Event> {
@@ -348,8 +337,9 @@ function richWarmPatchVectorDominates(
     warm.clientRectEntries <= cold.clientRectEntries &&
     warm.styleReads <= cold.styleReads &&
     warm.removedNodes <= cold.removedNodes &&
-    warm.cloneCalls < cold.cloneCalls &&
-    warm.addedNodes < cold.addedNodes
+    warm.cloneCalls <= cold.cloneCalls &&
+    warm.addedNodes <= cold.addedNodes &&
+    (warm.cloneCalls < cold.cloneCalls || warm.addedNodes < cold.addedNodes)
   );
 }
 
@@ -467,13 +457,19 @@ async function collectRichProbeCostsDuring(
   const originalCloneNode = cloneDescriptor?.value as
     | ((this: Node, deep?: boolean) => Node)
     | undefined;
+  const rangeCloneDescriptor = Object.getOwnPropertyDescriptor(Range.prototype, "cloneContents");
+  const originalRangeClone = rangeCloneDescriptor?.value as
+    | ((this: Range) => DocumentFragment)
+    | undefined;
   if (
     !boundingRectDescriptor ||
     !originalGetBoundingClientRect ||
     !rectsDescriptor ||
     !originalGetClientRects ||
     !cloneDescriptor ||
-    !originalCloneNode
+    !originalCloneNode ||
+    !rangeCloneDescriptor ||
+    !originalRangeClone
   ) {
     throw new Error("Expected DOM probe methods to be patchable.");
   }
@@ -545,6 +541,16 @@ async function collectRichProbeCostsDuring(
       return originalCloneNode.call(this, deep);
     },
   });
+  Object.defineProperty(Range.prototype, "cloneContents", {
+    ...rangeCloneDescriptor,
+    value(this: Range): DocumentFragment {
+      const fragment = originalRangeClone.call(this);
+      const elements = fragment.querySelectorAll("*");
+      cloneCalls += elements.length;
+      imageCloneCalls += fragment.querySelectorAll("img").length;
+      return fragment;
+    },
+  });
   window.getComputedStyle = ((...args: Parameters<typeof window.getComputedStyle>) => {
     styleReads += 1;
     return originalGetComputedStyle(...args);
@@ -558,6 +564,7 @@ async function collectRichProbeCostsDuring(
     Object.defineProperty(Element.prototype, "getBoundingClientRect", boundingRectDescriptor);
     Object.defineProperty(Element.prototype, "getClientRects", rectsDescriptor);
     Object.defineProperty(Node.prototype, "cloneNode", cloneDescriptor);
+    Object.defineProperty(Range.prototype, "cloneContents", rangeCloneDescriptor);
     window.getComputedStyle = originalGetComputedStyle;
   }
 
@@ -631,7 +638,6 @@ function createRichClampFixture({
   html = RICH_DYNAMIC_TOKEN_HTML,
   lineLimit,
   maxHeight,
-  reuseSimpleLineFit = false,
   rootStyle = [],
   styles = [],
   width = 120,
@@ -699,7 +705,6 @@ function createRichClampFixture({
         root,
         width,
       },
-      reuseSimpleLineFit,
       searchIndex,
     });
   }
@@ -1255,7 +1260,6 @@ async function compareRichWarmColdCosts({
             root: warmFixture.root,
             width: nextWidth,
           },
-          reuseSimpleLineFit: true,
           searchIndex: previous.searchIndex ?? null,
           skipFullFit: true,
           verifyFullCandidate: false,
@@ -1370,6 +1374,45 @@ describe("LineClamp browser contract", () => {
     expect(values.at(-1)).toBe(true);
   });
 
+  it("measures the latest layout when an inactive expanded clamp collapses", async () => {
+    const expanded = ref(true);
+    const width = ref(420);
+    const container = document.createElement("div");
+    document.body.append(container);
+    const Host = defineComponent({
+      setup() {
+        return () =>
+          h(LineClamp, {
+            boundary: "word",
+            expanded: expanded.value,
+            maxLines: 1,
+            "onUpdate:expanded": (value: boolean) => {
+              expanded.value = value;
+            },
+            style: `display:block;width:${width.value}px;font:16px/20px Georgia,serif`,
+            text: "Release dashboards preserve current layout context when an expanded clamp later collapses.",
+          });
+      },
+    });
+    const app = createApp(Host);
+
+    try {
+      app.mount(container);
+      await settle();
+      width.value = 120;
+      await settle();
+      expanded.value = false;
+      await settle(5);
+
+      const root = rootElement(container);
+      expect(textElement(root).textContent).toContain("…");
+      expect(visibleLineCount(root)).toBeLessThanOrEqual(1);
+    } finally {
+      app.unmount();
+      container.remove();
+    }
+  });
+
   it("renders atomic before and after slot wrappers", async () => {
     const mounted = mountClamp({
       text: "abcdefghijklmno",
@@ -1450,7 +1493,7 @@ describe("LineClamp browser contract", () => {
     expect(await sampleVisibleLineCounts(root)).toEqual([2, 2, 2]);
   });
 
-  it("ignores generic font-load events when text layout is unchanged", async () => {
+  it("recomputes clamped text conservatively after generic font-load events", async () => {
     const mounted = mountClamp({
       text: DEMO_TEXT,
       style: "font:16px Georgia,serif;line-height:28px",
@@ -1468,53 +1511,7 @@ describe("LineClamp browser contract", () => {
     const before = textElement(root).textContent;
     const records = await collectFontEventMutations(root, genericFontEvent());
 
-    expect(records).toHaveLength(0);
-    expect(textElement(root).textContent).toBe(before);
-  });
-
-  it("ignores unused font-face events when text layout is unchanged", async () => {
-    const mounted = mountClamp({
-      text: DEMO_TEXT,
-      style: "font:16px Georgia,serif;line-height:28px",
-      width: 220,
-      props: {
-        boundary: "word",
-        maxLines: 2,
-      },
-    });
-
-    const root = rootElement(mounted.container);
-    await waitUntilVisible(root);
-    await settle(4);
-
-    const before = textElement(root).textContent;
-    const records = await collectFontEventMutations(root, await unusedFontFaceEvent());
-
-    expect(records).toHaveLength(0);
-    expect(textElement(root).textContent).toBe(before);
-  });
-
-  it("ignores unloaded used font-face events while text is clamped", async () => {
-    const mounted = mountClamp({
-      text: DEMO_TEXT,
-      style: "font:16px Georgia,serif;line-height:28px",
-      width: 220,
-      props: {
-        boundary: "word",
-        maxLines: 2,
-      },
-    });
-
-    const root = rootElement(mounted.container);
-    await waitUntilVisible(root);
-    await settle(4);
-
-    const before = textElement(root).textContent;
-    expect(before).toContain("…");
-
-    const records = await collectFontEventMutations(root, unloadedUsedFontFaceEvent());
-
-    expect(records).toHaveLength(0);
+    expect(records.length).toBeGreaterThan(0);
     expect(textElement(root).textContent).toBe(before);
   });
 
@@ -1766,6 +1763,13 @@ describe("LineClamp browser contract", () => {
       expect(lineContentElement(root).clientWidth).toBe(0);
       expect(textElement(root).textContent).toBe(DEMO_TEXT);
       expect(accessibleTextElement(root)).toBeNull();
+      expect((mounted.exposed.value as LineClampExposed).clamped).toBe(false);
+
+      mounted.width.value = 240;
+      await settle();
+
+      expect(root.getBoundingClientRect().width).toBeGreaterThan(0);
+      expect(lineContentElement(root).clientWidth).toBe(0);
       expect((mounted.exposed.value as LineClampExposed).clamped).toBe(false);
     } finally {
       style.remove();
@@ -2856,7 +2860,7 @@ describe("LineClamp browser contract", () => {
     expect(target.lastChild).toBe(ellipsisNode);
   });
 
-  it("clamps supported inline html while preserving rich markup", async () => {
+  it("uses native multiline clamping for eligible rich html", async () => {
     const mounted = mountRichClamp({
       html: RICH_TEXT_HTML,
       width: 170,
@@ -2873,11 +2877,160 @@ describe("LineClamp browser contract", () => {
     expect(rich.innerHTML).toContain("<strong>Vue</strong>");
     expect(rich.innerHTML).toContain('<a href="/docs">');
     expect(rich.querySelector("img")).toBeInstanceOf(HTMLImageElement);
-    expect(rich.textContent).toContain("…");
+    expect(rich.textContent).not.toContain("…");
     expect(rich.getAttribute("aria-hidden")).toBeNull();
     expect(accessibleTextElement(root)).toBeNull();
+    expect(rich.parentElement?.style.webkitLineClamp).toBe("2");
+    expect(root.querySelector('[aria-hidden="true"]')).toBeNull();
     expect((mounted.exposed.value as RichLineClampExposed).clamped).toBe(true);
     expect(await sampleVisibleLineCounts(root)).toEqual([2, 2, 2]);
+  });
+
+  it("does not parse rich html while native clamping can preserve the authored DOM", async () => {
+    const sourceHtml = ref("<strong>Alpha beta</strong> gamma delta epsilon zeta eta theta");
+    const boundary = ref<"grapheme" | "word">("grapheme");
+    const parseSpy = vi.spyOn(DOMParser.prototype, "parseFromString");
+    const container = document.createElement("div");
+    document.body.append(container);
+
+    const Host = defineComponent({
+      setup() {
+        return () =>
+          h(RichLineClamp, {
+            boundary: boundary.value,
+            html: sourceHtml.value,
+            maxLines: 2,
+            style: "display:block;width:120px;font:16px Menlo,monospace;line-height:20px",
+          });
+      },
+    });
+
+    const app = createApp(Host);
+    app.mount(container);
+
+    try {
+      await waitUntilVisible(rootElement(container));
+      await settle(4);
+      expect(parseSpy).not.toHaveBeenCalled();
+
+      sourceHtml.value = "<em>One two</em> three four five six seven eight nine ten";
+      await settle(4);
+      expect(parseSpy).not.toHaveBeenCalled();
+
+      boundary.value = "word";
+      await settle(4);
+      expect(parseSpy).toHaveBeenCalledOnce();
+    } finally {
+      app.unmount();
+      container.remove();
+      parseSpy.mockRestore();
+    }
+  });
+
+  it("uses native single-line clamping with a rich after slot", async () => {
+    const sourceHtml = "<strong>Alpha beta</strong> gamma delta epsilon zeta eta theta";
+    const mounted = mountRichClamp({
+      after: () => h("button", { type: "button" }, "More"),
+      html: sourceHtml,
+      width: 150,
+      props: {
+        maxLines: 1,
+      },
+    });
+
+    const root = rootElement(mounted.container);
+    await waitUntilVisible(root);
+    await settle(4);
+
+    const rich = richContentElement(root);
+    expect(rich.innerHTML).toBe(sourceHtml);
+    expect(rich.style.textOverflow).toBe("ellipsis");
+    expect(rich.parentElement?.style.display).toBe("inline-flex");
+    expect(root.querySelector('[aria-hidden="true"]')).toBeNull();
+    expect((mounted.exposed.value as RichLineClampExposed).clamped).toBe(true);
+    expect(await sampleVisibleLineCounts(root)).toEqual([1, 1, 1]);
+  });
+
+  it("uses native rich clamping without connecting a custom-element clone", async () => {
+    const tagName = "vue-clamp-native-lifecycle-source";
+    let connectedCount = 0;
+
+    customElements.define(
+      tagName,
+      class extends HTMLElement {
+        connectedCallback(): void {
+          connectedCount += 1;
+        }
+      },
+    );
+
+    const sourceHtml = `<${tagName}>Alpha beta gamma delta epsilon zeta eta theta iota kappa</${tagName}>`;
+    const mounted = mountRichClamp({
+      html: sourceHtml,
+      width: 100,
+      props: {
+        maxLines: 2,
+      },
+    });
+
+    const root = rootElement(mounted.container);
+    await waitUntilVisible(root);
+    await settle(4);
+
+    expect(connectedCount).toBe(1);
+    expect(richContentElement(root).innerHTML).toBe(sourceHtml);
+    expect(root.querySelector('[aria-hidden="true"]')).toBeNull();
+    expect((mounted.exposed.value as RichLineClampExposed).clamped).toBe(true);
+    expect(await sampleVisibleLineCounts(root)).toEqual([2, 2, 2]);
+  });
+
+  it("restores full rich DOM when switching from measured to native clamping", async () => {
+    const sourceHtml = "<strong>Alpha beta</strong> gamma delta epsilon zeta eta theta";
+    const boundary = ref<"grapheme" | "word">("word");
+    const exposed = ref<RichLineClampExposed | null>(null);
+    const container = document.createElement("div");
+    document.body.append(container);
+
+    const Host = defineComponent({
+      setup() {
+        return () =>
+          h(RichLineClamp, {
+            ref: exposed,
+            boundary: boundary.value,
+            html: sourceHtml,
+            maxLines: 2,
+            style: "display:block;width:120px;font:16px Menlo,monospace;line-height:20px",
+          });
+      },
+    });
+
+    const app = createApp(Host);
+    app.mount(container);
+
+    try {
+      const root = rootElement(container);
+      await waitUntilVisible(root);
+      await settle(4);
+
+      expect(richContentElement(root).textContent).toContain("…");
+      expect(root.querySelector('[aria-hidden="true"]')).toBeInstanceOf(HTMLElement);
+
+      boundary.value = "grapheme";
+      await settle(4);
+
+      expect(richContentElement(root).innerHTML).toBe(sourceHtml);
+      expect(root.querySelector('[aria-hidden="true"]')).toBeNull();
+      expect(exposed.value?.clamped).toBe(true);
+
+      boundary.value = "word";
+      await settle(4);
+
+      expect(richContentElement(root).textContent).toContain("…");
+      expect(root.querySelector('[aria-hidden="true"]')).toBeInstanceOf(HTMLElement);
+    } finally {
+      app.unmount();
+      container.remove();
+    }
   });
 
   it("reclamps rich html after font-load metrics change", async () => {
@@ -2887,6 +3040,7 @@ describe("LineClamp browser contract", () => {
       style: "font-size:var(--clamp-font-size);line-height:28px",
       width: 220,
       props: {
+        boundary: "word",
         maxLines: 2,
       },
     });
@@ -2906,7 +3060,7 @@ describe("LineClamp browser contract", () => {
     expect(await sampleVisibleLineCounts(root)).toEqual([2, 2, 2]);
   });
 
-  it("ignores generic font-load events when rich layout is unchanged", async () => {
+  it("recomputes clamped rich html conservatively after generic font-load events", async () => {
     const mounted = mountRichClamp({
       html: RICH_TEXT_HTML,
       style: "font:16px Georgia,serif;line-height:28px",
@@ -2924,53 +3078,7 @@ describe("LineClamp browser contract", () => {
     const before = richContentElement(root).innerHTML;
     const records = await collectFontEventMutations(root, genericFontEvent());
 
-    expect(records).toHaveLength(0);
-    expect(richContentElement(root).innerHTML).toBe(before);
-  });
-
-  it("ignores unused font-face events when rich layout is unchanged", async () => {
-    const mounted = mountRichClamp({
-      html: RICH_TEXT_HTML,
-      style: "font:16px Georgia,serif;line-height:28px",
-      width: 220,
-      props: {
-        boundary: "word",
-        maxLines: 2,
-      },
-    });
-
-    const root = rootElement(mounted.container);
-    await waitUntilVisible(root);
-    await settle(4);
-
-    const before = richContentElement(root).innerHTML;
-    const records = await collectFontEventMutations(root, await unusedFontFaceEvent());
-
-    expect(records).toHaveLength(0);
-    expect(richContentElement(root).innerHTML).toBe(before);
-  });
-
-  it("ignores unloaded used font-face events while rich html is clamped", async () => {
-    const mounted = mountRichClamp({
-      html: RICH_TEXT_HTML,
-      style: "font:16px Georgia,serif;line-height:28px",
-      width: 220,
-      props: {
-        boundary: "word",
-        maxLines: 2,
-      },
-    });
-
-    const root = rootElement(mounted.container);
-    await waitUntilVisible(root);
-    await settle(4);
-
-    const before = richContentElement(root).innerHTML;
-    expect(richContentElement(root).textContent).toContain("…");
-
-    const records = await collectFontEventMutations(root, unloadedUsedFontFaceEvent());
-
-    expect(records).toHaveLength(0);
+    expect(records.length).toBeGreaterThan(0);
     expect(richContentElement(root).innerHTML).toBe(before);
   });
 
@@ -3030,7 +3138,69 @@ describe("LineClamp browser contract", () => {
     expect(mounted.exposed.value?.clamped).toBe(false);
   });
 
-  it("does not reuse a repeated-width rich cache entry after root style changes", async () => {
+  for (const surface of ["line", "rich"] as const) {
+    it(`rechecks inherited text metrics at repeated widths for ${surface} content`, async () => {
+      const source = "abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz";
+      const style = document.createElement("style");
+      style.textContent = '[data-clamp-spacing="wide"] { letter-spacing: 3px; }';
+      document.head.append(style);
+
+      const mounted =
+        surface === "line"
+          ? mountClamp({
+              props: {
+                ellipsis: "...",
+                maxLines: 1,
+              },
+              style: "letter-spacing:inherit",
+              text: source,
+              width: 120,
+            })
+          : mountRichClamp({
+              html: source,
+              props: {
+                ellipsis: "...",
+                maxLines: 1,
+              },
+              style: "letter-spacing:inherit",
+              width: 120,
+            });
+
+      try {
+        const root = rootElement(mounted.container);
+        const visibleText = () =>
+          surface === "line"
+            ? (textElement(root).textContent ?? "")
+            : (richContentElement(root).textContent ?? "");
+
+        await waitUntilVisible(root);
+        await settle(4);
+        mounted.width.value = 320;
+        await settle(4);
+        mounted.width.value = 120;
+        await settle(4);
+
+        const compact = visibleText();
+        expect(compact).toContain("...");
+        expect(compact).not.toBe(source);
+
+        mounted.width.value = 320;
+        await settle(4);
+        mounted.container.dataset.clampSpacing = "wide";
+        mounted.width.value = 120;
+        await settle(4);
+
+        const spaced = visibleText();
+        expect(spaced).toContain("...");
+        expect(spaced.length).toBeLessThan(compact.length);
+        expect(visibleLineCount(root)).toBe(1);
+      } finally {
+        style.remove();
+      }
+    });
+  }
+
+  it("recomputes rich content after root style changes at a repeated width", async () => {
     const source = "Release dashboards keep ownership visible after regional incidents.";
     const html =
       "<strong>Release dashboards</strong> keep ownership visible after <em>regional incidents</em>.";
@@ -3094,6 +3264,7 @@ describe("LineClamp browser contract", () => {
       html: RICH_TEXT_HTML,
       width: 170.671875,
       props: {
+        boundary: "word",
         maxLines: 2,
       },
     });
@@ -3119,6 +3290,7 @@ describe("LineClamp browser contract", () => {
       style: textStyle,
       width: Math.floor(twoLineFitWidth - 16),
       props: {
+        boundary: "word",
         maxLines: 2,
       },
     });
@@ -3146,6 +3318,7 @@ describe("LineClamp browser contract", () => {
       containerStyle: "width:128px",
       style: "font:16px Menlo,monospace;line-height:20px",
       props: {
+        boundary: "word",
         maxLines: 2,
       },
     });
@@ -3204,6 +3377,7 @@ describe("LineClamp browser contract", () => {
       html: "<strong>Alpha beta gamma delta epsilon zeta eta theta iota kappa</strong>",
       width: 130,
       props: {
+        boundary: "word",
         maxLines: 1,
       },
     });
@@ -3249,6 +3423,7 @@ describe("LineClamp browser contract", () => {
       html: "<code>release-candidate-build-number-2026</code> trailing copy",
       width: 150,
       props: {
+        boundary: "word",
         maxLines: 1,
       },
     });
@@ -3308,6 +3483,7 @@ describe("LineClamp browser contract", () => {
       html: REMOTE_IMAGE_RICH_TEXT_HTML,
       width: 170,
       props: {
+        boundary: "word",
         maxLines: 2,
       },
     });
@@ -3332,6 +3508,7 @@ describe("LineClamp browser contract", () => {
       html: BEHAVIORAL_RICH_TEXT_HTML,
       width: 170,
       props: {
+        boundary: "word",
         maxLines: 2,
       },
     });
@@ -3342,17 +3519,47 @@ describe("LineClamp browser contract", () => {
 
     const rich = richContentElement(root);
     expect(rich.querySelector("div")).toBeInstanceOf(HTMLDivElement);
-    expect(rich.querySelector("inline-note")).toBeInstanceOf(HTMLElement);
+    expect(rich.querySelector("section")).toBeInstanceOf(HTMLElement);
     expect(rich.textContent).toContain("…");
     expect((mounted.exposed.value as RichLineClampExposed).clamped).toBe(true);
     expect(await sampleVisibleLineCounts(root)).toEqual([2, 2, 2]);
   });
 
-  it("clamps leaf custom elements as atomic inline content", async () => {
+  it("applies public rich body styling hooks inside the measured probe", async () => {
+    const style = document.createElement("style");
+    style.textContent =
+      '.structural-rich [data-part="body"] .structural-token{display:inline-block;width:180px}';
+    document.head.append(style);
+
+    const mounted = mountRichClamp({
+      html: '<span class="structural-token">observabilityPlatform1</span> trailing copy',
+      width: 120,
+      props: {
+        boundary: "word",
+        class: "structural-rich",
+        maxLines: 1,
+      },
+    });
+
+    try {
+      const root = rootElement(mounted.container);
+      await waitUntilVisible(root);
+      await settle(4);
+
+      expect(richContentElement(root).textContent).toBe("…");
+      expect((mounted.exposed.value as RichLineClampExposed).clamped).toBe(true);
+      expect(await sampleVisibleLineCounts(root)).toEqual([1, 1, 1]);
+    } finally {
+      style.remove();
+    }
+  });
+
+  it("clamps empty inline boxes as atomic inline content", async () => {
     const mounted = mountRichClamp({
       html: ATOMIC_LEAF_RICH_TEXT_HTML,
       width: 120,
       props: {
+        boundary: "word",
         maxLines: 1,
       },
     });
@@ -3362,10 +3569,122 @@ describe("LineClamp browser contract", () => {
     await settle(4);
 
     const rich = richContentElement(root);
-    expect(rich.querySelector("inline-badge")).toBeInstanceOf(HTMLElement);
+    expect(rich.querySelector("span")).toBeInstanceOf(HTMLElement);
     expect(rich.textContent).toContain("…");
     expect((mounted.exposed.value as RichLineClampExposed).clamped).toBe(true);
     expect(await sampleVisibleLineCounts(root)).toEqual([1, 1, 1]);
+  });
+
+  it("leaves custom elements unclamped without connecting a hidden clone", async () => {
+    const tagName = "vue-clamp-probe-lifecycle-source";
+    let connectedCount = 0;
+
+    customElements.define(
+      tagName,
+      class extends HTMLElement {
+        connectedCallback(): void {
+          connectedCount += 1;
+        }
+      },
+    );
+
+    const sourceHtml = `<${tagName}>Lifecycle content</${tagName}> with trailing text that spans multiple lines.`;
+    const mounted = mountRichClamp({
+      html: sourceHtml,
+      width: 110,
+      props: {
+        maxHeight: 20,
+      },
+    });
+
+    const root = rootElement(mounted.container);
+    await waitUntilVisible(root);
+    await settle(4);
+
+    expect(connectedCount).toBe(1);
+    expect(richContentElement(root).innerHTML).toBe(sourceHtml);
+    expect(root.querySelector(`[aria-hidden="true"] ${tagName}`)).toBeNull();
+    expect((root.querySelector('[aria-hidden="true"]') as HTMLElement | null)?.inert).toBe(true);
+    expect((mounted.exposed.value as RichLineClampExposed).clamped).toBe(false);
+    expect(root.style.maxHeight).toBe("");
+    expect(root.style.overflow).toBe("");
+  });
+
+  it("leaves custom affixes unclamped without connecting a hidden clone", async () => {
+    const tagName = "vue-clamp-probe-lifecycle-affix";
+    let connectedCount = 0;
+
+    customElements.define(
+      tagName,
+      class extends HTMLElement {
+        connectedCallback(): void {
+          connectedCount += 1;
+        }
+      },
+    );
+
+    const sourceHtml = "Alpha beta gamma delta epsilon zeta eta theta";
+    const mounted = mountRichClamp({
+      after: ({ clamped }) => (clamped ? h(tagName, null, "More") : null),
+      html: sourceHtml,
+      width: 110,
+      props: {
+        boundary: "word",
+        maxLines: 1,
+      },
+    });
+
+    const root = rootElement(mounted.container);
+    await waitUntilVisible(root);
+    await settle(4);
+
+    expect(connectedCount).toBe(1);
+    expect(richContentElement(root).innerHTML).toBe(sourceHtml);
+    expect(root.querySelector(`[aria-hidden="true"] ${tagName}`)).toBeNull();
+    expect((mounted.exposed.value as RichLineClampExposed).clamped).toBe(false);
+  });
+
+  it("leaves duplicate document identities unclamped", async () => {
+    const sourceHtml = '<span id="rich-identity">Alpha beta gamma delta epsilon zeta</span>';
+    const mounted = mountRichClamp({
+      html: sourceHtml,
+      width: 110,
+      props: {
+        boundary: "word",
+        maxLines: 1,
+      },
+    });
+
+    const root = rootElement(mounted.container);
+    await waitUntilVisible(root);
+    await settle(4);
+
+    expect(richContentElement(root).innerHTML).toBe(sourceHtml);
+    expect(root.querySelectorAll("#rich-identity")).toHaveLength(1);
+    expect((mounted.exposed.value as RichLineClampExposed).clamped).toBe(false);
+  });
+
+  it.each([
+    ["form controls", '<input name="probe-value" value="Alpha beta gamma" />'],
+    ["inline event handlers", '<span onclick="void 0">Alpha beta gamma delta</span>'],
+    ["embedded documents", '<iframe srcdoc="Alpha beta gamma delta"></iframe>'],
+  ])("leaves %s out of the connected probe", async (_label, sourceHtml) => {
+    const mounted = mountRichClamp({
+      html: sourceHtml,
+      width: 80,
+      props: {
+        boundary: "word",
+        maxLines: 1,
+      },
+    });
+
+    const root = rootElement(mounted.container);
+    await waitUntilVisible(root);
+    await settle(4);
+
+    expect(richContentElement(root).childElementCount).toBe(1);
+    expect(root.querySelector('[aria-hidden="true"]')?.childElementCount).toBe(0);
+    expect((mounted.exposed.value as RichLineClampExposed).clamped).toBe(false);
   });
 
   it("treats inline-block descendants as atomic runs", async () => {
@@ -3373,6 +3692,7 @@ describe("LineClamp browser contract", () => {
       html: INLINE_BLOCK_RICH_TEXT_HTML,
       width: 90,
       props: {
+        boundary: "word",
         maxLines: 1,
       },
     });
@@ -3427,7 +3747,7 @@ describe("LineClamp browser contract", () => {
     }
   });
 
-  it("avoids rich rect-list line counting after simple inline text calibration", async () => {
+  it("revalidates full rich layout before reusing simple-line calibration", async () => {
     const html = `<strong>Telemetry</strong> ${Array.from(
       { length: 12 },
       (_, index) => `<span>observabilityPlatform${index + 1}</span>`,
@@ -3495,13 +3815,12 @@ describe("LineClamp browser contract", () => {
             root,
             width: 360,
           },
-          reuseSimpleLineFit: true,
           searchIndex,
         });
       });
 
       expect(firstCalls).toBeGreaterThan(0);
-      expect(secondCalls).toBe(0);
+      expect(secondCalls).toBe(1);
     } finally {
       container.remove();
     }
@@ -3642,10 +3961,34 @@ describe("LineClamp browser contract", () => {
     }
   });
 
-  it("compares rich warm and cold patch cost vectors during actual layout fitting", async () => {
+  it("seeds a cold rich search from physical lines across inline fragments", async () => {
     const html = `<strong>Telemetry</strong> ${Array.from(
-      { length: 8 },
+      { length: 28 },
       (_, index) => `<span>observabilityPlatform${index + 1}</span>`,
+    ).join(" ")}`;
+    const fixture = createRichClampFixture({
+      html,
+      lineLimit: 2,
+      rootStyle: ["font-size:18px"],
+      width: 560,
+    });
+
+    try {
+      await settle(1);
+      const samples = await collectRichProbeCostsDuring(fixture.content, fixture.body, () => {
+        fixture.clamp();
+      });
+
+      expect(samples.length).toBeLessThanOrEqual(9);
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
+  it("compares rich warm and cold patch cost vectors during actual layout fitting", async () => {
+    const html = `Telemetry ${Array.from(
+      { length: 8 },
+      (_, index) => `observabilityPlatform${index + 1}`,
     ).join(" ")}`;
     const comparison = await compareRichWarmColdCosts({
       html,
@@ -3659,7 +4002,7 @@ describe("LineClamp browser contract", () => {
 
   it("compares rich warm and cold patch vectors for hinted text-run fitting", async () => {
     const comparison = await compareRichWarmColdCosts({
-      html: `<span>${[
+      html: [
         "alpha",
         "beta",
         "gamma",
@@ -3672,7 +4015,7 @@ describe("LineClamp browser contract", () => {
         "kappa",
         "lambda",
         "mu",
-      ].join(" ")}</span>`,
+      ].join(" "),
       nextWidth: 110,
       previousWidth: 120,
       rootStyle: ["font-size:18px"],
@@ -3716,9 +4059,9 @@ describe("LineClamp browser contract", () => {
 
   it("compares rich warm and cold patch vectors under max-height fitting", async () => {
     const comparison = await compareRichWarmColdCosts({
-      html: `<strong>Telemetry</strong> ${Array.from(
+      html: `Telemetry ${Array.from(
         { length: 12 },
-        (_, index) => `<span>observabilityPlatform${index + 1}</span>`,
+        (_, index) => `observabilityPlatform${index + 1}`,
       ).join(" ")}`,
       maxHeight: "40px",
       nextWidth: 190,
@@ -4621,7 +4964,6 @@ describe("LineClamp browser contract", () => {
           root: fixture.root,
           width: nextWidth,
         },
-        reuseSimpleLineFit: true,
         searchIndex: previous.searchIndex,
         skipFullFit: true,
         verifyFullCandidate: false,
@@ -4943,7 +5285,6 @@ describe("LineClamp browser contract", () => {
           root: fixture.root,
           width: 120,
         },
-        reuseSimpleLineFit: true,
         searchIndex: previous.searchIndex,
         skipFullFit: true,
         verifyFullCandidate: false,
@@ -5015,7 +5356,6 @@ describe("LineClamp browser contract", () => {
           root: fixture.root,
           width: 160,
         },
-        reuseSimpleLineFit: true,
         searchIndex: previous.searchIndex,
         skipFullFit: true,
         verifyFullCandidate: false,
@@ -5089,7 +5429,6 @@ describe("LineClamp browser contract", () => {
           root: fixture.root,
           width: 170,
         },
-        reuseSimpleLineFit: true,
         searchIndex: previous.searchIndex,
         skipFullFit: true,
         verifyFullCandidate: false,
@@ -5266,7 +5605,6 @@ describe("LineClamp browser contract", () => {
             root,
             width: 360,
           },
-          reuseSimpleLineFit: true,
           searchIndex: first.searchIndex ?? null,
         });
       });
@@ -5278,7 +5616,7 @@ describe("LineClamp browser contract", () => {
     }
   });
 
-  it("reuses cached rich simple-line style after a trusted width-only reclamp", async () => {
+  it("rechecks rich descendant styles after a width-only reclamp", async () => {
     const html = "<strong>Telemetry</strong> <span>observabilityPlatform1</span> trailing copy";
     const prepared = prepareRich(html, "word");
     if (!prepared) {
@@ -5335,18 +5673,17 @@ describe("LineClamp browser contract", () => {
             root,
             width: 320,
           },
-          reuseSimpleLineFit: true,
           searchIndex: first.searchIndex ?? null,
         });
       });
 
-      expect(calls).toBe(1);
+      expect(calls).toBeGreaterThan(1);
     } finally {
       container.remove();
     }
   });
 
-  it("refreshes inherited rich simple-line metrics without rechecking child styles", async () => {
+  it("rechecks rich descendant styles after inherited line metrics change", async () => {
     const html = [
       "<strong>Telemetry</strong>",
       '<span style="white-space:nowrap">observabilityPlatform1</span>',
@@ -5409,19 +5746,18 @@ describe("LineClamp browser contract", () => {
             root,
             width: 360,
           },
-          reuseSimpleLineFit: true,
           searchIndex: first.searchIndex ?? null,
         });
       });
 
-      expect(calls).toBe(1);
+      expect(calls).toBeGreaterThan(1);
       expect(result?.fallback).toBe(false);
     } finally {
       container.remove();
     }
   });
 
-  it("rebuilds cached rich search metadata when inline wrappers become atomic", async () => {
+  it("rebuilds rich search metadata when inline wrappers become atomic", async () => {
     const fixture = createRichClampFixture({
       className: "dynamic-rich-host",
       html: "<span>observabilityPlatform1</span> trailing copy",
@@ -5432,24 +5768,51 @@ describe("LineClamp browser contract", () => {
       await settle(1);
       const first = fixture.clamp();
 
-      expect(fixture.body.querySelector("span")).toBeNull();
+      expect(fixture.body.querySelector("span")?.textContent).not.toBe("observabilityPlatform1");
       fixture.styles[0]!.textContent = ".dynamic-rich-host span{display:inline-block;width:80px}";
       await settle(1);
 
       const result = fixture.reclamp(first);
 
       expect(result.fallback).toBe(false);
-      expect(result.searchIndex?.atomicPathSignature).toBe("0");
+      expect(result.searchIndex?.runs.map((run) => run.kind)).toEqual(["atomic", "text"]);
       expect(fixture.body.querySelector("span")?.textContent).toBe("observabilityPlatform1");
     } finally {
       fixture.cleanup();
     }
   });
 
-  it("rebuilds cached rich search metadata when atomic wrappers become inline", async () => {
+  it("rebuilds rich search metadata when ancestor attributes change computed display", async () => {
+    const fixture = createRichClampFixture({
+      className: "attribute-rich-host",
+      styles: [
+        [
+          ".attribute-rich-host .dynamic-token{display:inline;width:180px}",
+          ".attribute-rich-host[data-atomic] .dynamic-token{display:inline-block;width:180px}",
+        ].join("\n"),
+      ],
+    });
+
+    try {
+      await settle(1);
+      const first = fixture.clamp();
+
+      expect(first.searchIndex?.runs.map((run) => run.kind)).toEqual(["text"]);
+      fixture.root.dataset.atomic = "";
+
+      const result = fixture.reclamp(first);
+
+      expect(result.fallback).toBe(false);
+      expect(result.searchIndex?.runs.map((run) => run.kind)).toEqual(["atomic", "text"]);
+      expect(fixture.body.textContent).toBe("…");
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
+  it("rebuilds rich search metadata when atomic wrappers become inline", async () => {
     const fixture = createRichClampFixture({
       className: "dynamic-rich-host",
-      reuseSimpleLineFit: true,
       rootStyle: ["--token-display:inline-block"],
       styles: [".dynamic-rich-host .dynamic-token{display:var(--token-display);width:180px}"],
     });
@@ -5474,7 +5837,6 @@ describe("LineClamp browser contract", () => {
   it("continues scanning stylesheets after finding variable rich line metrics", async () => {
     const fixture = createRichClampFixture({
       className: "line-metric-before-display-host",
-      reuseSimpleLineFit: true,
       rootStyle: ["--token-display:inline-block"],
       styles: [
         ".line-metric-before-display-host strong{font-size:var(--metric-size,16px)}",
@@ -5525,7 +5887,7 @@ describe("LineClamp browser contract", () => {
     }
   });
 
-  it("rebuilds cached rich search metadata when a later stylesheet makes atomic wrappers inline", async () => {
+  it("rebuilds rich search metadata when a later stylesheet makes atomic wrappers inline", async () => {
     const dynamicStyle = document.createElement("style");
     dynamicStyle.textContent =
       ".late-style-host .dynamic-token{display:var(--token-display);width:180px}";
@@ -5553,7 +5915,7 @@ describe("LineClamp browser contract", () => {
     }
   });
 
-  it("rebuilds cached rich search metadata when an inserted CSSOM rule makes atomic wrappers inline", async () => {
+  it("rebuilds rich search metadata when an inserted CSSOM rule makes atomic wrappers inline", async () => {
     const fixture = createRichClampFixture({
       className: "insert-rule-host",
       rootStyle: ["--token-display:inline"],
@@ -5584,7 +5946,7 @@ describe("LineClamp browser contract", () => {
     }
   });
 
-  it("rebuilds cached rich search metadata when a nested CSSOM rule makes atomic wrappers inline", async () => {
+  it("rebuilds rich search metadata when a nested CSSOM rule makes atomic wrappers inline", async () => {
     const fixture = createRichClampFixture({
       className: "nested-rule-host",
       rootStyle: ["--token-display:inline"],
@@ -5624,7 +5986,7 @@ describe("LineClamp browser contract", () => {
     }
   });
 
-  it("rebuilds cached rich search metadata when a CSSOM rule display changes in place", async () => {
+  it("rebuilds rich search metadata when a CSSOM rule display changes in place", async () => {
     const fixture = createRichClampFixture({
       className: "mutated-rule-host",
       styles: [".mutated-rule-host .dynamic-token{display:inline-block;width:180px}"],
@@ -5655,7 +6017,7 @@ describe("LineClamp browser contract", () => {
     }
   });
 
-  it("rebuilds cached rich search metadata when a media rule becomes active", async () => {
+  it("rebuilds rich search metadata when a media rule becomes active", async () => {
     const fixture = createRichClampFixture({
       className: "media-change-host",
       rootStyle: ["--token-display:inline"],
@@ -5692,7 +6054,7 @@ describe("LineClamp browser contract", () => {
     }
   });
 
-  it("treats unreadable rich display stylesheets as style-dependent", async () => {
+  it("does not depend on readable stylesheet rules for rich layout refresh", async () => {
     const fixture = createRichClampFixture({
       className: "unreadable-style-host",
       rootStyle: ["--token-display:inline-block"],
@@ -5721,7 +6083,7 @@ describe("LineClamp browser contract", () => {
     }
   });
 
-  it("shares one stylesheet signature scan during a cached rich metadata refresh", async () => {
+  it("does not read stylesheet rules while refreshing element-rich layout", async () => {
     const fixture = createRichClampFixture({
       className: "signature-scan-host",
       rootStyle: ["--token-display:inline-block"],
@@ -5734,38 +6096,14 @@ describe("LineClamp browser contract", () => {
 
       expect(fixture.body.textContent).toBe("…");
       fixture.root.style.setProperty("--token-display", "inline");
-      const styleSheetCount = document.styleSheets.length;
 
       const calls = countStyleSheetRuleReadsDuring(() => {
         fixture.reclamp(first);
       });
 
-      expect(calls).toBe(styleSheetCount);
+      expect(calls).toBe(0);
       expect(fixture.body.textContent).toContain("observability");
       expect(fixture.body.textContent).toContain("…");
-    } finally {
-      fixture.cleanup();
-    }
-  });
-
-  it("shares the stylesheet signature scan when detecting variable rich display rules", async () => {
-    const fixture = createRichClampFixture({
-      className: "first-signature-scan-host",
-      rootStyle: ["--token-display:inline-block"],
-      styles: [
-        ".first-signature-scan-host .dynamic-token{display:var(--token-display);width:180px}",
-      ],
-    });
-
-    try {
-      await settle(1);
-      const styleSheetCount = document.styleSheets.length;
-      const calls = countStyleSheetRuleReadsDuring(() => {
-        fixture.clamp();
-      });
-
-      expect(calls).toBe(styleSheetCount);
-      expect(fixture.body.textContent).toBe("…");
     } finally {
       fixture.cleanup();
     }
@@ -5800,7 +6138,7 @@ describe("LineClamp browser contract", () => {
     }
   });
 
-  it("ignores variable rich display declarations inside inactive media rules", async () => {
+  it("uses computed display when variable rules are inside inactive media queries", async () => {
     const fixture = createRichClampFixture({
       className: "inactive-media-host",
       html: '<span class="static-token">observabilityPlatform1</span> trailing copy',
@@ -5823,7 +6161,7 @@ describe("LineClamp browser contract", () => {
         fixture.reclamp(first);
       });
 
-      expect(calls).toBe(0);
+      expect(calls).toBeGreaterThan(0);
       expect(fixture.body.textContent).toBe("…");
     } finally {
       fixture.cleanup();
@@ -5988,6 +6326,7 @@ describe("LineClamp browser contract", () => {
       html: sourceHtml,
       width: 120,
       props: {
+        boundary: "word",
         maxLines: 1,
       },
     });

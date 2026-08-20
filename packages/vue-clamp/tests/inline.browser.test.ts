@@ -401,6 +401,52 @@ describe("InlineClamp browser contract", () => {
     expect(segment(root, "end")).toBeNull();
   });
 
+  it("uses native overflow only for the exact default end-clamp subset", async () => {
+    const source = "release-dashboard-observability-summary";
+    const text = ref(source);
+    const ellipsis = ref("…");
+    const container = document.createElement("div");
+    document.body.append(container);
+    const Host = defineComponent({
+      setup() {
+        return () =>
+          h(InlineClamp, {
+            ellipsis: ellipsis.value,
+            style: hostStyle(120),
+            text: text.value,
+          });
+      },
+    });
+    const app = createApp(Host);
+    app.mount(container);
+    mounted.add({ app, container, text });
+
+    await settle();
+
+    const root = rootElement(container);
+    const body = segment(root, "body");
+    if (!body) {
+      throw new Error("Expected inline clamp body segment.");
+    }
+
+    expect(body.textContent).toBe(source);
+    expect(getComputedStyle(body).textOverflow).toBe("ellipsis");
+    expect(body.scrollWidth).toBeGreaterThan(body.clientWidth);
+
+    ellipsis.value = "...";
+    await settle();
+
+    expect(getComputedStyle(body).textOverflow).toBe("clip");
+    expect(body.textContent).not.toBe(source);
+    expect(body.textContent?.endsWith("...")).toBe(true);
+
+    ellipsis.value = "…";
+    await settle();
+
+    expect(body.textContent).toBe(source);
+    expect(getComputedStyle(body).textOverflow).toBe("ellipsis");
+  });
+
   it("keeps the end segment visible while the body is measured into inline text", async () => {
     const mountedClamp = mountInlineClamp({
       text: "very-long-generated-types.d.ts",
@@ -650,7 +696,62 @@ describe("InlineClamp browser contract", () => {
     expect(body.textContent).toBe("very-long-generated-types");
   });
 
-  it("does not reuse a repeated-width cache entry after root style changes", async () => {
+  it("rechecks inherited text metrics at repeated widths", async () => {
+    const source = "abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz";
+    const width = ref(120);
+    const text = ref(source);
+    const container = document.createElement("div");
+    const style = document.createElement("style");
+    style.textContent = '[data-clamp-spacing="wide"] { letter-spacing: 3px; }';
+    document.head.append(style);
+    document.body.append(container);
+
+    const Host = defineComponent({
+      setup() {
+        return () =>
+          h(InlineClamp, {
+            ellipsis: "...",
+            style: hostStyle(width.value, "letter-spacing:inherit"),
+            text: text.value,
+          });
+      },
+    });
+    const app = createApp(Host);
+    app.mount(container);
+    mounted.add({ app, container, text });
+
+    try {
+      await settle();
+      const root = rootElement(container);
+      const body = segment(root, "body");
+      if (!body) {
+        throw new Error("Expected inline clamp body segment.");
+      }
+
+      width.value = 320;
+      await settle();
+      width.value = 120;
+      await settle();
+
+      const compact = body.textContent ?? "";
+      expect(compact).toContain("...");
+      expect(compact).not.toBe(source);
+
+      width.value = 320;
+      await settle();
+      container.dataset.clampSpacing = "wide";
+      width.value = 120;
+      await settle();
+
+      const spaced = body.textContent ?? "";
+      expect(spaced).toContain("...");
+      expect(spaced.length).toBeLessThan(compact.length);
+    } finally {
+      style.remove();
+    }
+  });
+
+  it("recomputes after root style changes at a repeated width", async () => {
     const bodySource = "generated-component-props";
     const end = ".d.ts";
     const fullText = `${bodySource}${end}`;
@@ -694,7 +795,7 @@ describe("InlineClamp browser contract", () => {
     expect(body.textContent).toBe(bodySource);
   });
 
-  it("does not reuse a repeated-width cache entry when root font metrics use CSS variables", async () => {
+  it("recomputes repeated widths when root font metrics use CSS variables", async () => {
     const bodySource = "generated-component-props";
     const end = ".d.ts";
     const fullText = `${bodySource}${end}`;
@@ -743,7 +844,7 @@ describe("InlineClamp browser contract", () => {
     expect(body.textContent).toBe(bodySource);
   });
 
-  it("does not reuse a repeated-width cache entry when root spacing uses CSS variables", async () => {
+  it("recomputes repeated widths when root spacing uses CSS variables", async () => {
     const bodySource = "generated-component-props";
     const end = ".d.ts";
     const fullText = `${bodySource}${end}`;
@@ -911,5 +1012,40 @@ describe("InlineClamp browser contract", () => {
     expect(Math.abs(renderedWidth - expectedWidth)).toBeLessThan(
       Math.abs(renderedWidth - collapsedWidth),
     );
+  });
+
+  it("uses the failed full-width read to seed a cold measured search", async () => {
+    const descriptor = Object.getOwnPropertyDescriptor(Element.prototype, "scrollWidth");
+    if (!descriptor?.get) {
+      throw new Error("Expected Element.prototype.scrollWidth to be patchable.");
+    }
+    const scrollWidthDescriptor = descriptor as PropertyDescriptor & {
+      get(this: Element): number;
+    };
+
+    let reads = 0;
+    Object.defineProperty(Element.prototype, "scrollWidth", {
+      ...scrollWidthDescriptor,
+      get(this: Element): number {
+        if (this instanceof HTMLElement && this.matches('[data-part="root"]')) {
+          reads += 1;
+        }
+        return Reflect.apply(scrollWidthDescriptor.get, this, []) as number;
+      },
+    });
+
+    try {
+      mountInlineClamp({
+        ellipsis: "...",
+        location: "middle",
+        text: "observability-platform-".repeat(32),
+        width: 160,
+      });
+      await settle();
+    } finally {
+      Object.defineProperty(Element.prototype, "scrollWidth", descriptor);
+    }
+
+    expect(reads).toBeLessThanOrEqual(8);
   });
 });

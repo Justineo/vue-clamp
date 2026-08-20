@@ -9,13 +9,12 @@ import {
 } from "vue";
 import { useClampControls } from "./controls.ts";
 import {
-  borderBoxObserverOptions,
   borderBoxSizeSnapshot,
   borderBoxSizeSignature,
   createCoalescingRunner,
   emptyBorderBoxSignature,
-  hasUnresolvedInlineTextWidthStyle,
   listenForFontLoads,
+  observeBorderBoxSizes,
   observedBorderBoxSizeSnapshot,
 } from "./layout.ts";
 
@@ -35,14 +34,10 @@ type ShellState = MultilineFrameRefs & {
   readonly isClamped: Ref<boolean>;
 };
 
-type FontEventPlan = {
-  readonly canUseLayoutProof: boolean;
-  readonly clearFontState: boolean;
-};
-
 export type MultilineAffixRefSetter = (element: ComponentPublicInstance | Element | null) => void;
 
 export type MultilineShellOptions = {
+  readonly active: Ref<boolean>;
   readonly expanded: Ref<boolean>;
   readonly onClampedChange: (value: boolean) => void;
   readonly onFontLoad?: () => void;
@@ -83,6 +78,7 @@ function createMultilineAffixRefSetter(
 // Keeping that shell here avoids two subtly divergent lifecycle implementations.
 export function useMultilineClamp(options: MultilineShellOptions): MultilineShell {
   const {
+    active,
     expanded,
     onClampedChange,
     onFontLoad,
@@ -99,8 +95,6 @@ export function useMultilineClamp(options: MultilineShellOptions): MultilineShel
     isClamped: shallowRef(false),
   };
 
-  let resizeObserver: ResizeObserver | null = null;
-  let stopFonts = () => {};
   let lastLayoutSignature: string | null = null;
   let lastRootSizeSignature = emptyBorderBoxSignature;
   let lastContentSizeSignature = emptyBorderBoxSignature;
@@ -111,8 +105,6 @@ export function useMultilineClamp(options: MultilineShellOptions): MultilineShel
   let recomputeEpoch = 0;
   let fontRecomputeEpoch = 0;
   let fontRecomputeFrame: number | null = null;
-  let fontRecomputeCanUseLayoutProof = false;
-  let fontRecomputeClearedState = false;
 
   function readRootSnapshot(): BorderBoxSizeSnapshot {
     const snapshot = borderBoxSizeSnapshot(state.rootRef.value);
@@ -237,127 +229,6 @@ export function useMultilineClamp(options: MultilineShellOptions): MultilineShel
     };
   }
 
-  function hasUnresolvedFontStyle(root: HTMLElement): boolean {
-    if (hasUnresolvedInlineTextWidthStyle(root.style)) {
-      return true;
-    }
-
-    for (const element of root.querySelectorAll<HTMLElement>("[style]")) {
-      if (hasUnresolvedInlineTextWidthStyle(element.style)) {
-        return true;
-      }
-    }
-
-    return false;
-  }
-
-  function normalizeFontFamily(value: string): string {
-    const trimmed = value.trim();
-    const quote = trimmed[0];
-    const unquoted =
-      (quote === '"' || quote === "'") && trimmed.at(-1) === quote ? trimmed.slice(1, -1) : trimmed;
-
-    return unquoted.toLowerCase();
-  }
-
-  function fontFamilyList(value: string): string[] {
-    const families: string[] = [];
-    let token = "";
-    let quote = "";
-
-    for (const char of value) {
-      if (quote) {
-        token += char;
-        if (char === quote) {
-          quote = "";
-        }
-      } else if (char === '"' || char === "'") {
-        quote = char;
-        token += char;
-      } else if (char === ",") {
-        families.push(normalizeFontFamily(token));
-        token = "";
-      } else {
-        token += char;
-      }
-    }
-
-    families.push(normalizeFontFamily(token));
-
-    return families.filter(Boolean);
-  }
-
-  function loadedFontFamilies(event: Event): Set<string> | null {
-    if (!("fontfaces" in event)) {
-      return null;
-    }
-
-    const fontfaces = (event as { readonly fontfaces?: readonly FontFace[] }).fontfaces;
-    return new Set(
-      fontfaces
-        ?.filter((face) => face.status === "loaded")
-        .map((face) => normalizeFontFamily(face.family)) ?? [],
-    );
-  }
-
-  function usesFontFamily(root: HTMLElement, families: ReadonlySet<string>): boolean {
-    if (families.size === 0) {
-      return false;
-    }
-
-    function usesFamily(element: HTMLElement): boolean {
-      return fontFamilyList(getComputedStyle(element).fontFamily).some((family) =>
-        families.has(family),
-      );
-    }
-
-    if (usesFamily(root)) {
-      return true;
-    }
-
-    for (const element of root.querySelectorAll("*")) {
-      if (element instanceof HTMLElement && usesFamily(element)) {
-        return true;
-      }
-    }
-
-    return false;
-  }
-
-  function fontEventPlan(event: Event | undefined): FontEventPlan {
-    const root = state.rootRef.value;
-    if (!root || event === undefined || hasUnresolvedFontStyle(root)) {
-      return {
-        canUseLayoutProof: false,
-        clearFontState: true,
-      };
-    }
-
-    const families = loadedFontFamilies(event);
-    if (families === null || !usesFontFamily(root, families)) {
-      return {
-        canUseLayoutProof: true,
-        clearFontState: false,
-      };
-    }
-
-    return {
-      canUseLayoutProof: !state.isClamped.value,
-      clearFontState: true,
-    };
-  }
-
-  function hasFontLayoutChanged(): boolean {
-    const previousRootSizeSignature = lastRootSizeSignature;
-    const rootSnapshot = readRootSnapshot();
-    const nextLayoutSignature = readLayoutSignature();
-
-    return (
-      rootSnapshot.signature !== previousRootSizeSignature ||
-      nextLayoutSignature !== lastLayoutSignature
-    );
-  }
-
   const requestRecomputeRunner = createCoalescingRunner(async () => {
     const rootWidth = pendingRootWidth;
     const affixSignaturesFresh = pendingAffixSignaturesFresh;
@@ -367,6 +238,10 @@ export function useMultilineClamp(options: MultilineShellOptions): MultilineShel
     recomputeEpoch += 1;
 
     await recompute(expanded, rootWidth);
+    if (!active.value) {
+      lastLayoutSignature = null;
+      return;
+    }
     readRootSignature();
     lastLayoutSignature = readLayoutSignature(
       affixSignaturesFresh && wasClamped === state.isClamped.value,
@@ -376,55 +251,20 @@ export function useMultilineClamp(options: MultilineShellOptions): MultilineShel
   const setAfterElement = createMultilineAffixRefSetter(state.afterRef, requestRecompute);
 
   function cancelFontRecompute(): void {
-    if (fontRecomputeFrame === null) {
-      return;
+    if (fontRecomputeFrame !== null) {
+      cancelAnimationFrame(fontRecomputeFrame);
+      fontRecomputeFrame = null;
     }
-
-    cancelAnimationFrame(fontRecomputeFrame);
-    fontRecomputeFrame = null;
   }
 
-  function requestFontRecompute(event?: Event): void {
-    const plan = fontEventPlan(event);
-    if (plan.clearFontState) {
-      onFontLoad?.();
-    }
-
+  function requestFontRecompute(): void {
+    onFontLoad?.();
     fontRecomputeEpoch = recomputeEpoch;
-    if (fontRecomputeFrame === null) {
-      fontRecomputeCanUseLayoutProof = plan.canUseLayoutProof;
-      fontRecomputeClearedState = plan.clearFontState;
-    } else {
-      fontRecomputeCanUseLayoutProof &&= plan.canUseLayoutProof;
-      fontRecomputeClearedState ||= plan.clearFontState;
-    }
-
-    if (fontRecomputeFrame !== null) {
-      return;
-    }
-
-    fontRecomputeFrame = requestAnimationFrame(() => {
-      const canUseLayoutProof = fontRecomputeCanUseLayoutProof;
-      const clearedFontState = fontRecomputeClearedState;
+    fontRecomputeFrame ??= requestAnimationFrame(() => {
       fontRecomputeFrame = null;
-      fontRecomputeCanUseLayoutProof = false;
-      fontRecomputeClearedState = false;
 
-      // Font events often arrive immediately before a Vue width update. If any
-      // reclamp has already run in that frame, it measured the current fonts.
+      // A same-frame resize/update pass already measured the current fonts.
       if (fontRecomputeEpoch === recomputeEpoch) {
-        if (canUseLayoutProof) {
-          if (!hasFontLayoutChanged()) {
-            return;
-          }
-
-          if (!clearedFontState) {
-            onFontLoad?.();
-          }
-          requestRecompute();
-          return;
-        }
-
         requestRecompute();
       }
     });
@@ -447,38 +287,46 @@ export function useMultilineClamp(options: MultilineShellOptions): MultilineShel
   );
 
   watchPostEffect((onCleanup) => {
-    resizeObserver ??= new ResizeObserver((entries) => {
-      // ResizeObserver is the async catch-all for layout changes not caused by
-      // Vue props, such as container resizes and slot content dimensions.
-      if (hasObservedSizeChange(entries)) {
-        requestRecompute();
-      }
-    });
-
-    const observed = [
-      state.rootRef.value,
-      state.contentRef.value,
-      state.beforeRef.value,
-      state.afterRef.value,
-    ].filter((element): element is HTMLElement => element instanceof HTMLElement);
-
-    for (const element of observed) {
-      resizeObserver.observe(element, borderBoxObserverOptions);
+    if (!active.value) {
+      return;
     }
 
-    onCleanup(() => {
-      for (const element of observed) {
-        resizeObserver?.unobserve(element);
-      }
-    });
+    const stopObserving = observeBorderBoxSizes(
+      [
+        state.rootRef.value,
+        state.contentRef.value,
+        state.beforeRef.value,
+        state.afterRef.value,
+      ].filter((element): element is HTMLElement => element instanceof HTMLElement),
+      (entries) => {
+        // ResizeObserver is the async catch-all for layout changes not caused by
+        // Vue props, such as container resizes and slot content dimensions.
+        if (hasObservedSizeChange(entries)) {
+          requestRecompute();
+        }
+      },
+    );
+
+    onCleanup(stopObserving);
+  });
+
+  watchPostEffect((onCleanup) => {
+    if (active.value) {
+      onCleanup(listenForFontLoads(requestFontRecompute));
+    }
   });
 
   onMounted(() => {
-    requestRecompute();
-    stopFonts = listenForFontLoads(requestFontRecompute);
+    if (active.value) {
+      requestRecompute();
+    }
   });
 
   onUpdated(() => {
+    if (!active.value) {
+      return;
+    }
+
     const previousRootSizeSignature = lastRootSizeSignature;
     const rootSnapshot = readRootSnapshot();
     if (rootSnapshot.signature !== previousRootSizeSignature) {
@@ -502,8 +350,6 @@ export function useMultilineClamp(options: MultilineShellOptions): MultilineShel
 
   onBeforeUnmount(() => {
     cancelFontRecompute();
-    resizeObserver?.disconnect();
-    stopFonts();
   });
 
   return {

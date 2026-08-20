@@ -2,6 +2,24 @@ import type { ClampLength } from "./types.ts";
 
 export const borderBoxObserverOptions: ResizeObserverOptions = { box: "border-box" };
 
+type BorderBoxResizeListener = (entries: readonly ResizeObserverEntry[]) => void;
+
+export function observeBorderBoxSizes(
+  elements: readonly Element[],
+  listener: BorderBoxResizeListener,
+): () => void {
+  // Keep delivery independent per clamp. A shared hub reduced callback objects
+  // but not measured active work, while coupling otherwise unrelated instances.
+  const observer = new ResizeObserver(listener);
+  for (const element of elements) {
+    observer.observe(element, borderBoxObserverOptions);
+  }
+
+  return () => {
+    observer.disconnect();
+  };
+}
+
 export function normalizeLineLimit(maxLines: number | undefined): number | undefined {
   if (maxLines === undefined || !Number.isFinite(maxLines) || maxLines <= 0) {
     return undefined;
@@ -104,12 +122,6 @@ function pixelLength(value: string | undefined): number | undefined {
   const match = /^([0-9]+(?:\.[0-9]+)?)px$/.exec(value ?? "");
 
   return match ? Number(match[1]) : undefined;
-}
-
-export function numericPx(value: string): number | null {
-  const number = Number.parseFloat(value);
-
-  return Number.isFinite(number) && number > 0 ? number : null;
 }
 
 export function estimateLineCapacity(
@@ -305,16 +317,16 @@ export function hasBorderBoxEntrySignatureChange(
   return false;
 }
 
-export function listenForFontLoads(onLoad: (event?: Event) => void): () => void {
+export function listenForFontLoads(onLoad: () => void): () => void {
   const fontFaceSet = document.fonts;
   if (!fontFaceSet) {
     return () => {};
   }
 
   let active = true;
-  const notify = (event?: Event) => {
+  const notify = () => {
     if (active) {
-      onLoad(event);
+      onLoad();
     }
   };
 
@@ -364,21 +376,32 @@ function sameLineBox(line: LineBox, rect: DOMRect): boolean {
   return Math.abs(line.top - rect.top) <= 0.5 && Math.abs(line.bottom - rect.bottom) <= 0.5;
 }
 
+export function countLineBoxes(rects: DOMRectList): number {
+  const lines: LineBox[] = [];
+
+  for (let index = 0; index < rects.length; index += 1) {
+    const rect = rects[index]!;
+    if (rect.height > 0 && !lines.some((line) => sameLineBox(line, rect))) {
+      lines.push({ bottom: rect.bottom, top: rect.top });
+    }
+  }
+
+  return lines.length;
+}
+
 function cacheSimpleLineBoxHeight(
   simpleLineFit: SimpleLineFit | undefined,
   rects: DOMRectList,
-  lineLimit?: number,
-  lineBoxHeight = 0,
 ): void {
   if (!simpleLineFit) {
     return;
   }
 
-  let maxLineBoxHeight = lineBoxHeight;
+  let maxLineBoxHeight = 0;
   const lines: LineBox[] = [];
   for (let index = 0; index < rects.length; index += 1) {
-    const rect = rects[index];
-    if (!rect || rect.height <= 0) {
+    const rect = rects[index]!;
+    if (rect.height <= 0) {
       continue;
     }
 
@@ -511,7 +534,7 @@ export function fitsContent(
     lineLimit !== undefined &&
     rects.length <= lineLimit
   ) {
-    cacheSimpleLineBoxHeight(simpleLineFit, rects, lineLimit);
+    cacheSimpleLineBoxHeight(simpleLineFit, rects);
     return true;
   }
 
@@ -548,15 +571,18 @@ export function fitsContent(
           bottom: rect.bottom,
           top: rect.top,
         });
-        cacheSimpleLineBoxHeight(simpleLineFit, rects, lineLimit, rect.bottom - rect.top);
-
         if (lines.length > lineLimit) {
+          cacheSimpleLineBoxHeight(simpleLineFit, rects);
           cacheSimpleOverflowHeight(simpleLineFit, lineLimit, heightVerifyHeight);
 
           return false;
         }
       }
     }
+  }
+
+  if (lineLimit !== undefined) {
+    cacheSimpleLineBoxHeight(simpleLineFit, rects);
   }
 
   return true;

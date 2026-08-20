@@ -11,27 +11,23 @@ import {
 } from "vue";
 import { trueOrUndefined } from "../attributes.ts";
 import {
-  exactResultCacheEntryLimit,
-  rememberCacheEntry,
-  touchCacheEntry,
-  tupleCacheKey,
-} from "../cache.ts";
-import {
-  borderBoxObserverOptions,
   borderBoxSizeSnapshot,
   borderBoxSizeSignature,
   createCoalescingRunner,
   emptyBorderBoxSignature,
   hasBorderBoxEntrySignatureChange,
-  hasInlineFontMetrics,
-  hasUnresolvedInlineTextWidthStyle,
   isContentIndependentWidth,
   listenForFontLoads,
+  observeBorderBoxSizes,
 } from "../layout.ts";
+import { nativeTextStyle, resolveNativeMode } from "../native.ts";
+import { shouldVerifyFullCandidate, warmSearchLocalCoverage } from "../search.ts";
 import { visuallyHiddenTextStyle } from "../styles.ts";
 import {
   canSkipFullTextFit,
   clampTextToFit,
+  matchingTextClampHint,
+  nextClampedMaxWidth,
   normalizeLocationRatio,
   prepareText,
   setElementText,
@@ -39,23 +35,15 @@ import {
 import { inlineClampRootStyle } from "./styles.ts";
 
 import type { InlineClampProps } from "./types.ts";
-import type { PreparedText, TextClampResult } from "../text.ts";
-
-type TextContext = {
-  readonly ellipsis: string;
-  readonly hasAffixes: false;
-  readonly lineCapacity: 1;
-  readonly lineLimit: undefined;
-  readonly maxHeight: undefined;
-  readonly ratio: number;
-  readonly spacing: "preserve-outer";
-};
+import type { TextClampContext, TextClampHint, TextClampResult } from "../text.ts";
 type LayoutSnapshot = {
   readonly rootWidth: number;
   readonly signature: string;
 };
+type HistoricalTextHint = Pick<TextClampHint, "boundaryOffsets" | "kept">;
 
 const fitTolerance = 0.5;
+const maxTextSearchHints = 8;
 
 defineOptions({
   name: "InlineClamp",
@@ -75,16 +63,34 @@ const rootRef = useTemplateRef<HTMLElement>("root");
 const bodyRef = useTemplateRef("body");
 const parts = computed(() => split?.(text) ?? { body: text });
 const preparedBody = computed(() => prepareText(parts.value.body, boundary));
+const usesNativeClamp = computed(
+  () =>
+    split === undefined &&
+    resolveNativeMode({
+      boundary,
+      ellipsis,
+      expanded: false,
+      hasAfterSlot: false,
+      lineLimit: 1,
+      locationRatio: normalizeLocationRatio(location),
+      maxHeight: undefined,
+    }) === "single-line",
+);
+const hasActiveClamp = computed(() => !usesNativeClamp.value && parts.value.body.length > 0);
 // Search writes the final candidate into the live body node; this snapshot
 // only triggers Vue when the accessibility structure must change.
 const visibleBody = shallowRef({ text: parts.value.body });
-const isRewritten = computed(() => visibleBody.value.text !== parts.value.body);
+const isRewritten = computed(
+  () => !usesNativeClamp.value && visibleBody.value.text !== parts.value.body,
+);
 
-let resizeObserver: ResizeObserver | null = null;
 let stopFonts = () => {};
 let lastLayoutSignature: string | null = null;
 let lastTextClamp: TextClampResult | null = null;
-const resultCache = new Map<string, TextClampResult>();
+// Repeated large jumps may start from an exact historical rank, but the rank is
+// only a search hint: the current browser layout still validates every result.
+// Keep no rendered strings or authoritative answers in this small history.
+const textSearchHints = new Map<number, HistoricalTextHint>();
 let lastParentSizeSignature = emptyBorderBoxSignature;
 let lastRootSizeSignature = emptyBorderBoxSignature;
 let pendingFreshLayoutSignature: string | undefined;
@@ -117,7 +123,7 @@ function lastObservedSignature(element: Element): string | null {
   return null;
 }
 
-function clampBody(freshRootWidth?: number, cacheKey?: string): string | null {
+function clampBody(freshRootWidth?: number): string | null {
   const rootElement = rootRef.value;
   const bodyElement = bodyRef.value;
   const body = parts.value.body;
@@ -138,16 +144,15 @@ function clampBody(freshRootWidth?: number, cacheKey?: string): string | null {
   const canMeasureCurrentWidth = currentBody !== body && canTrustCurrentRootWidth(rootElement);
   const prepared = preparedBody.value;
   const locationRatio = normalizeLocationRatio(location);
-  const context = textContextFor(locationRatio);
-
-  if (cacheKey !== undefined) {
-    const cached = matchingCachedResult(cacheKey, prepared, context);
-    if (cached) {
-      applyBodyText(cached.text);
-      lastTextClamp = cached;
-      return cached.text;
-    }
-  }
+  const context: TextClampContext = {
+    ellipsis,
+    hasAffixes: false,
+    lineCapacity: 1,
+    lineLimit: undefined,
+    maxHeight: undefined,
+    ratio: locationRatio,
+    spacing: "preserve-outer",
+  };
 
   if (!canMeasureCurrentWidth) {
     // Content-sized inline-blocks need the full body before measurement.
@@ -167,9 +172,22 @@ function clampBody(freshRootWidth?: number, cacheKey?: string): string | null {
     return null;
   }
 
-  const fitsCurrentBody = () => rootElement.scrollWidth <= limit + fitTolerance;
-  const textHint = matchingTextHint(prepared, context);
+  let measuredScrollWidth = 0;
+  const fitsCurrentBody = () => {
+    measuredScrollWidth = rootElement.scrollWidth;
+    return measuredScrollWidth <= limit + fitTolerance;
+  };
   const boundaryCount = prepared.boundaryOffsets.length - 1;
+  const historicalHint = textSearchHints.get(limit) ?? null;
+  const currentHint = matchingTextClampHint(prepared, lastTextClamp, context);
+  let textHint =
+    historicalHint?.boundaryOffsets === prepared.boundaryOffsets &&
+    historicalHint.kept < boundaryCount &&
+    split === undefined &&
+    currentHint !== null &&
+    Math.abs(historicalHint.kept - currentHint.kept) > warmSearchLocalCoverage()
+      ? { ...historicalHint, ...context, rootWidth: limit }
+      : currentHint;
   const skipFullFit = canSkipFullTextFit(prepared, textHint, limit, context);
 
   if (!skipFullFit) {
@@ -185,8 +203,27 @@ function clampBody(freshRootWidth?: number, cacheKey?: string): string | null {
         rootWidth: limit,
         text: body,
       };
-      rememberCacheEntry(resultCache, cacheKey, lastTextClamp, exactResultCacheEntryLimit);
+      rememberTextSearchHint(limit, lastTextClamp);
       return body;
+    }
+
+    const coldBoundaryOffsets =
+      prepared.fallbackBoundaryOffsets && boundaryCount <= 16
+        ? prepared.fallbackBoundaryOffsets
+        : prepared.boundaryOffsets;
+    const coldBoundaryCount = coldBoundaryOffsets.length - 1;
+    if (textHint === null && split === undefined && coldBoundaryCount > 16) {
+      // A failed full-body read carries more information than a boolean: for a
+      // single line, the available/full width ratio is a useful first rank.
+      // It remains only a hint; the normal measured search proves the result.
+      textHint = {
+        boundaryOffsets: coldBoundaryOffsets,
+        ...context,
+        kept: Math.min(
+          coldBoundaryCount - 1,
+          Math.max(0, Math.floor((coldBoundaryCount * limit) / measuredScrollWidth)),
+        ),
+      };
     }
   }
 
@@ -203,136 +240,40 @@ function clampBody(freshRootWidth?: number, cacheKey?: string): string | null {
     // Split affixes already own the outer spacing; preserve spaces at the body
     // edges so custom split functions keep browser-like inline flow.
     spacing: "preserve-outer",
-    verifyFullCandidate: shouldVerifyFullBodyCandidate(skipFullFit, textHint, limit, boundaryCount),
+    verifyFullCandidate: shouldVerifyFullCandidate(
+      skipFullFit,
+      limit,
+      textHint?.rootWidth,
+      (textHint?.kept ?? 0) >= boundaryCount,
+      textHint?.clampedMaxWidth,
+    ),
   });
   const nextBody = nextResult.text;
   applyBodyText(nextBody);
   lastTextClamp = {
     ...nextResult,
     ...context,
-    ...nextClampedMaxWidth(nextResult, textHint, limit, boundaryCount),
+    ...nextClampedMaxWidth(textHint, nextResult.kept, limit, boundaryCount),
     rootWidth: limit,
   };
-  rememberCacheEntry(resultCache, cacheKey, lastTextClamp, exactResultCacheEntryLimit);
-
+  rememberTextSearchHint(limit, lastTextClamp);
   return nextBody;
+}
+
+function rememberTextSearchHint(width: number, result: TextClampResult): void {
+  textSearchHints.delete(width);
+  textSearchHints.set(width, {
+    boundaryOffsets: result.boundaryOffsets,
+    kept: result.kept,
+  });
+
+  if (textSearchHints.size > maxTextSearchHints) {
+    textSearchHints.delete(textSearchHints.keys().next().value!);
+  }
 }
 
 function canTrustCurrentRootWidth(element: HTMLElement): boolean {
   return isContentIndependentWidth(element.style.width.trim());
-}
-
-function resultCacheKey(freshLayoutSignature: string | undefined): string | undefined {
-  const element = rootRef.value;
-  if (freshLayoutSignature === undefined || !element || !canCacheResult(element)) {
-    return undefined;
-  }
-
-  return tupleCacheKey([
-    freshLayoutSignature,
-    element.getAttribute("class") ?? "",
-    element.getAttribute("style") ?? "",
-  ]);
-}
-
-function canCacheResult(element: HTMLElement): boolean {
-  if (
-    !canTrustCurrentRootWidth(element) ||
-    (element.getAttribute("class") ?? "").trim() !== "" ||
-    hasUnresolvedInlineTextWidthStyle(element.style)
-  ) {
-    return false;
-  }
-
-  return hasInlineFontMetrics(element.style);
-}
-
-function textContextFor(ratio: number): TextContext {
-  return {
-    ellipsis,
-    hasAffixes: false,
-    lineCapacity: 1,
-    lineLimit: undefined,
-    maxHeight: undefined,
-    ratio,
-    spacing: "preserve-outer",
-  };
-}
-
-function matchingTextHint(prepared: PreparedText, context: TextContext): TextClampResult | null {
-  const hint = lastTextClamp;
-
-  return sameTextContext(hint, prepared, context) ? hint : null;
-}
-
-function sameTextContext(
-  result: TextClampResult | null,
-  prepared: PreparedText,
-  context: TextContext,
-): boolean {
-  if (!result) {
-    return false;
-  }
-
-  return (
-    result.boundaryOffsets === prepared.boundaryOffsets &&
-    result.ellipsis === context.ellipsis &&
-    (result.hasAffixes ?? false) === context.hasAffixes &&
-    result.lineCapacity === context.lineCapacity &&
-    result.lineLimit === context.lineLimit &&
-    result.maxHeight === context.maxHeight &&
-    result.ratio === context.ratio &&
-    result.spacing === context.spacing
-  );
-}
-
-function matchingCachedResult(
-  key: string,
-  prepared: PreparedText,
-  context: TextContext,
-): TextClampResult | null {
-  const result = resultCache.get(key) ?? null;
-  if (!sameTextContext(result, prepared, context)) {
-    return null;
-  }
-
-  return touchCacheEntry(resultCache, key) ?? null;
-}
-
-function nextClampedMaxWidth(
-  result: TextClampResult,
-  hint: TextClampResult | null,
-  rootWidth: number,
-  boundaryCount: number,
-): Pick<TextClampResult, "clampedMaxWidth"> {
-  if (result.kept >= boundaryCount) {
-    return {};
-  }
-
-  return {
-    clampedMaxWidth: Math.max(rootWidth, hint?.clampedMaxWidth ?? rootWidth),
-  };
-}
-
-function shouldVerifyFullBodyCandidate(
-  skipFullFit: boolean,
-  hint: TextClampResult | null,
-  rootWidth: number,
-  boundaryCount: number,
-): boolean {
-  if (!skipFullFit || hint?.rootWidth === undefined) {
-    return true;
-  }
-
-  if (rootWidth <= hint.rootWidth) {
-    return rootWidth === hint.rootWidth;
-  }
-
-  if (hint.kept >= boundaryCount) {
-    return true;
-  }
-
-  return hint.clampedMaxWidth === undefined || rootWidth > hint.clampedMaxWidth;
 }
 
 function applyVisibleBody(nextBody: string): void {
@@ -353,7 +294,6 @@ function requestRecompute(snapshot?: LayoutSnapshot): void {
   } else {
     pendingFreshLayoutSignature = undefined;
     pendingFreshRootWidth = undefined;
-    resultCache.clear();
   }
 
   requestRecomputeRunner();
@@ -364,7 +304,16 @@ const requestRecomputeRunner = createCoalescingRunner(async () => {
   const freshRootWidth = pendingFreshRootWidth;
   pendingFreshLayoutSignature = undefined;
   pendingFreshRootWidth = undefined;
-  const nextBody = clampBody(freshRootWidth, resultCacheKey(freshLayoutSignature));
+
+  if (!hasActiveClamp.value) {
+    lastTextClamp = null;
+    textSearchHints.clear();
+    lastLayoutSignature = null;
+    visibleBody.value = { text: parts.value.body };
+    return;
+  }
+
+  const nextBody = clampBody(freshRootWidth);
 
   if (nextBody !== null && visibleBody.value.text !== nextBody) {
     applyVisibleBody(nextBody);
@@ -382,8 +331,11 @@ watch(
     // A split or semantic prop change means the previous boundary hint may
     // refer to a different body string.
     lastTextClamp = null;
+    textSearchHints.clear();
     visibleBody.value = { text: parts.value.body };
-    requestRecompute();
+    if (!usesNativeClamp.value) {
+      requestRecompute();
+    }
   },
   { flush: "post" },
 );
@@ -391,7 +343,7 @@ watch(
 watchPostEffect((onCleanup) => {
   const rootElement = rootRef.value;
 
-  if (!rootElement) {
+  if (!rootElement || !hasActiveClamp.value) {
     return;
   }
 
@@ -399,7 +351,9 @@ watchPostEffect((onCleanup) => {
     (element): element is HTMLElement => element instanceof HTMLElement,
   );
 
-  resizeObserver ??= new ResizeObserver((entries) => {
+  stopFonts = listenForFontLoads(() => requestRecompute());
+
+  const stopObserving = observeBorderBoxSizes(observed, (entries) => {
     if (hasBorderBoxEntrySignatureChange(entries, lastObservedSignature)) {
       // Width-only changes are the hot path, so recompute only when the coarse
       // dimensions actually changed.
@@ -407,23 +361,24 @@ watchPostEffect((onCleanup) => {
     }
   });
 
-  for (const element of observed) {
-    resizeObserver.observe(element, borderBoxObserverOptions);
-  }
-
   onCleanup(() => {
-    for (const element of observed) {
-      resizeObserver?.unobserve(element);
-    }
+    stopFonts();
+    stopFonts = () => {};
+    stopObserving();
   });
 });
 
 onMounted(() => {
-  requestRecompute();
-  stopFonts = listenForFontLoads(() => requestRecompute());
+  if (hasActiveClamp.value) {
+    requestRecompute();
+  }
 });
 
 onUpdated(() => {
+  if (!hasActiveClamp.value) {
+    return;
+  }
+
   const snapshot = layoutSnapshot();
   if (snapshot.signature !== lastLayoutSignature) {
     // Vue-driven style changes can happen before ResizeObserver delivery; keep
@@ -433,7 +388,6 @@ onUpdated(() => {
 });
 
 onBeforeUnmount(() => {
-  resizeObserver?.disconnect();
   stopFonts();
 });
 </script>
@@ -454,8 +408,13 @@ onBeforeUnmount(() => {
       {{ parts.start }}
     </span>
 
-    <span ref="body" :aria-hidden="trueOrUndefined(isRewritten)" data-part="body">
-      {{ visibleBody.text }}
+    <span
+      ref="body"
+      :aria-hidden="trueOrUndefined(isRewritten)"
+      data-part="body"
+      :style="usesNativeClamp ? nativeTextStyle : undefined"
+    >
+      {{ usesNativeClamp ? parts.body : visibleBody.text }}
     </span>
 
     <span v-if="parts.end" :aria-hidden="trueOrUndefined(isRewritten)" data-part="end">

@@ -920,6 +920,14 @@ describe("WrapClamp browser contract", () => {
     expect(values.at(-1)).toBe(true);
     expect(wrapItems(rootElement(mountedClamp.container)).length).toBe(4);
     expect(wrapAfter(rootElement(mountedClamp.container))?.textContent?.trim()).toBe("Less");
+
+    mountedClamp.width.value = 120;
+    (mountedClamp.exposed.value as WrapClampExposed).toggle();
+    await settle(5);
+
+    expect(values.at(-1)).toBe(false);
+    expect(wrapItems(rootElement(mountedClamp.container)).length).toBeLessThan(4);
+    expect(wrapAfter(rootElement(mountedClamp.container))?.textContent?.trim()).toBe("More");
   });
 
   it("clamps by maxHeight when wrapped items exceed the visible block size", async () => {

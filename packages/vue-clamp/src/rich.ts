@@ -1,13 +1,8 @@
-import {
-  fitsContent,
-  inlineTextWidthProperties,
-  numericPx,
-  simpleLineFitFromStyle,
-} from "./layout.ts";
+import { countLineBoxes, fitsContent, simpleLineFitFromStyle } from "./layout.ts";
 import { findLastFittingIndex, richWarmExpansionLimit } from "./search.ts";
 import { prepareText } from "./text.ts";
 
-import type { SimpleLineFit, VisibleBoundsCache } from "./layout.ts";
+import type { ContentFitSample, SimpleLineFit, VisibleBoundsCache } from "./layout.ts";
 import type { ClampBoundary, ClampLength } from "./types.ts";
 
 // Rich clamping is structural rather than string-based. We parse once, measure
@@ -51,53 +46,32 @@ type AtomicLogicalRun = {
 type LogicalRun = TextLogicalRun | AtomicLogicalRun;
 
 type RichLayoutInspection = {
-  readonly atomicPathSignature: string;
   readonly atomicPaths: ReadonlySet<string>;
   readonly hasElements: boolean;
-  readonly hasStyleDependentDisplay: boolean;
-  readonly hasStyleDependentLineMetrics: boolean;
-  readonly inheritsLineMetrics: boolean;
   readonly simpleLineFit?: SimpleLineFit;
   readonly simpleLineStyleKey?: string;
 };
 
 export type PreparedRich = {
   readonly boundary: ClampBoundary;
+  readonly hasImages: boolean;
   readonly root: HTMLElement;
   readonly nodes: readonly PreparedRichNode[];
 };
 
 export type RichSearchIndex = {
-  readonly atomicPathSignature: string;
   readonly body: HTMLElement;
   readonly hasElements: boolean;
-  readonly hasStyleDependentDisplay: boolean;
-  readonly hasStyleDependentLineMetrics: boolean;
   readonly prepared: PreparedRich;
-  readonly probeModel?: RichProbeModel;
   readonly rankPoints: readonly BoundaryPoint[] | null;
   readonly runs: readonly LogicalRun[];
-  readonly inheritsLineMetrics: boolean;
   readonly simpleLineFit?: SimpleLineFit;
   readonly simpleLineStyleKey?: string;
-  readonly styleSheetSignature: string;
 };
 
 type TextOnlySimpleLineFit = {
   readonly fit: SimpleLineFit;
   readonly styleKey: string;
-};
-
-type TextMap = {
-  readonly length: number;
-  readonly probe: readonly number[];
-  readonly source: readonly number[];
-  readonly start: number;
-};
-
-type RichProbeModel = {
-  readonly prepared: PreparedRich;
-  readonly text: readonly TextMap[];
 };
 
 // States are kept as structural points so width-only reclamps can patch from the
@@ -129,7 +103,6 @@ export type RichClampProbe = {
 };
 
 export type RichClampOptions = {
-  readonly checkFullFitFirst?: boolean;
   readonly ellipsis: string;
   readonly from: RichState | null;
   readonly hint: RichState | null;
@@ -140,9 +113,6 @@ export type RichClampOptions = {
   readonly probe: RichClampProbe;
   readonly searchIndex?: RichSearchIndex | null;
   readonly skipFullFit?: boolean;
-  // Only width-only reclamps may reuse line fit after root metrics change;
-  // descendant mutations need full inspection.
-  readonly reuseSimpleLineFit?: boolean;
   readonly verifyFullCandidate?: boolean;
 };
 
@@ -180,32 +150,55 @@ const FULL_STATE: RichState = {
 // Probe images only need layout boxes. Replacing network sources prevents binary
 // search candidate churn from triggering repeated image fetches.
 const PROBE_IMAGE_SRC = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==";
+const activeProbeTag =
+  /^(?:animate|animatemotion|animatetransform|audio|base|discard|embed|feimage|fieldset|fencedframe|form|foreignobject|iframe|image|input|link|marquee|meta|object|optgroup|option|output|picture|portal|script|select|set|source|style|textarea|track|use|video)$/u;
+const unsafeProbeAttribute = /^(?:autofocus|form|id|is|name|usemap)$/u;
+const svgNamespace = "http://www.w3.org/2000/svg";
 const trailingWhitespace = /[\t\n\f\r ]+$/u;
 const trailingWhitespaceEdge = /[\t\n\f\r ]$/u;
-const transparentTextFlowProperties = [
-  "direction",
-  "line-height",
-  "overflow-wrap",
-  "tab-size",
-  "unicode-bidi",
-  "vertical-align",
-  "white-space",
-  "word-break",
-] as const;
-const transparentZeroBoxProperties = [
-  "border-bottom-width",
-  "border-left-width",
-  "border-right-width",
-  "border-top-width",
-  "margin-bottom",
-  "margin-left",
-  "margin-right",
-  "margin-top",
-  "padding-bottom",
-  "padding-left",
-  "padding-right",
-  "padding-top",
-] as const;
+
+// Connected measurement necessarily duplicates DOM. Keep the supported source
+// contract narrow enough that cloning cannot register custom-element lifecycle,
+// duplicate document IDs/form owners, or activate an embedded resource. This is
+// a guardrail for passive content, not an attempt to sanitize arbitrary HTML.
+export function canSafelyCloneRichProbe(root: ParentNode | null): boolean {
+  if (!root) {
+    return true;
+  }
+
+  const elements =
+    root instanceof Element
+      ? [root, ...root.querySelectorAll("*")]
+      : [...root.querySelectorAll("*")];
+
+  for (const element of elements) {
+    const tagName = element.localName.toLowerCase();
+    if (tagName.includes("-") || activeProbeTag.test(tagName)) {
+      return false;
+    }
+
+    if (
+      tagName === "button" &&
+      (element.getAttribute("type") ?? "submit").toLowerCase() !== "button"
+    ) {
+      return false;
+    }
+
+    for (const attribute of element.attributes) {
+      const attributeName = attribute.name.toLowerCase();
+      if (
+        unsafeProbeAttribute.test(attributeName) ||
+        attributeName.startsWith("on") ||
+        (element.namespaceURI === svgNamespace &&
+          (attributeName === "href" || attributeName === "xlink:href"))
+      ) {
+        return false;
+      }
+    }
+  }
+
+  return true;
+}
 
 function pathKey(path: readonly number[]): string {
   return path.join(".");
@@ -235,163 +228,19 @@ function lineMetricKey(style: CSSStyleDeclaration): string {
   return `${style.fontSize}|${style.lineHeight}|${style.verticalAlign}`;
 }
 
-let variableDisplayCache = new WeakMap<Element, boolean>();
-let variableDisplaySignature: string | undefined;
-let variableDisplaySelectors: string[] | null = [];
-let hasLineMetricRule = false;
-let hasVariableLineMetricRule = false;
-
-function declaresLineMetrics(style: CSSStyleDeclaration): boolean {
-  return style.fontSize !== "" || style.lineHeight !== "" || style.verticalAlign !== "";
-}
-
-function currentStyleSheetSignature(): string {
-  const { styleSheets } = document;
-  const signature = [styleSheets.length.toString()];
-  const displaySelectors: string[] = [];
-  let hasVariableLineMetrics = false;
-  let selectorsComplete = true;
-  hasLineMetricRule = false;
-
-  for (const sheet of styleSheets) {
-    try {
-      const sheetHasVariableLineMetrics = appendRuleListSignature(
-        signature,
-        sheet.cssRules,
-        displaySelectors,
-      );
-      hasVariableLineMetrics ||= sheetHasVariableLineMetrics;
-    } catch {
-      signature.push("?");
-      selectorsComplete = false;
-      hasLineMetricRule = true;
-      hasVariableLineMetrics = true;
-    }
-  }
-
-  variableDisplaySelectors = selectorsComplete ? displaySelectors : null;
-  hasVariableLineMetricRule = hasVariableLineMetrics;
-  return signature.join("|");
-}
-
-function appendRuleListSignature(
-  signature: string[],
-  rules: CSSRuleList,
-  displaySelectors: string[],
-): boolean {
-  signature.push(rules.length.toString());
-  let hasVariableLineMetrics = false;
-
-  for (const rule of rules) {
-    if (rule instanceof CSSStyleRule) {
-      const { selectorText, style } = rule;
-      const { display } = style;
-      const lineMetrics = lineMetricKey(style);
-      signature.push(selectorText, display, lineMetrics);
-      if (display.includes("var(")) {
-        displaySelectors.push(selectorText);
-      }
-      if (declaresLineMetrics(style)) {
-        hasLineMetricRule = true;
-      }
-      if (lineMetrics.includes("var(")) {
-        hasVariableLineMetrics = true;
-      }
-      continue;
-    }
-
-    const nestedRules = nestedCssRules(rule);
-    if (!nestedRules) {
-      continue;
-    }
-
-    signature.push("{");
-    const nestedHasVariableLineMetrics = appendRuleListSignature(
-      signature,
-      nestedRules,
-      displaySelectors,
-    );
-    hasVariableLineMetrics ||= nestedHasVariableLineMetrics;
-    signature.push("}");
-  }
-
-  return hasVariableLineMetrics;
-}
-
-function refreshVariableDisplayCache(styleSheetSignature: string): void {
-  if (variableDisplaySignature === styleSheetSignature) {
-    return;
-  }
-
-  variableDisplayCache = new WeakMap();
-  variableDisplaySignature = styleSheetSignature;
-}
-
-function nestedCssRules(rule: CSSRule): CSSRuleList | null {
-  if (rule instanceof CSSMediaRule && !matchMedia(rule.conditionText).matches) {
-    return null;
-  }
-
-  return "cssRules" in rule ? (rule as CSSGroupingRule).cssRules : null;
-}
-
-function matchesVariableDisplaySelector(element: Element): boolean {
-  const selectors = variableDisplaySelectors;
-  if (!selectors) {
-    return true;
-  }
-
-  for (const selector of selectors) {
-    try {
-      if (element.matches(selector)) {
-        return true;
-      }
-    } catch {
-      // Ignore selectors unsupported by Element.matches.
-    }
-  }
-
-  return false;
-}
-
-function hasVariableDisplay(element: Element, getStyleSheetSignature: () => string): boolean {
-  if (!(element instanceof HTMLElement)) {
-    return false;
-  }
-
-  if (element.style.display.includes("var(")) {
-    return true;
-  }
-
-  refreshVariableDisplayCache(getStyleSheetSignature());
-  const cached = variableDisplayCache.get(element);
-  if (cached !== undefined) {
-    return cached;
-  }
-
-  const matches = matchesVariableDisplaySelector(element);
-  variableDisplayCache.set(element, matches);
-  return matches;
-}
-
 function inspectLayout(
   root: HTMLElement,
-  getStyleSheetSignature: () => string,
   baseStyle = getComputedStyle(root),
 ): RichLayoutInspection | null {
   const atomicPaths = new Set<string>();
   let hasElements = false;
-  let hasStyleDependentDisplay = false;
-  let hasStyleDependentLineMetrics = false;
-  let inheritsLineMetrics = true;
   const baseStyleKey = lineMetricKey(baseStyle);
   const simpleLineFit = simpleLineFitFromStyle(baseStyle);
   let canUseSimpleLineHeight =
     simpleLineFit !== undefined && baseStyle.verticalAlign === "baseline";
 
-  function addAtomicPath(path: string, styleDependent: boolean): void {
+  function addAtomicPath(path: string): void {
     atomicPaths.add(path);
-    hasStyleDependentDisplay ||= styleDependent;
   }
 
   function walkChildren(container: Node, parentKey: string): boolean {
@@ -417,18 +266,11 @@ function inspectLayout(
       const style = getComputedStyle(child);
       const { display, float: floatValue, position } = style;
       const isAtomicInline = isAtomicInlineDisplay(display);
-      const variableDisplay = hasVariableDisplay(child, getStyleSheetSignature);
-      const hasInlineLineMetric = child instanceof HTMLElement && declaresLineMetrics(child.style);
-      const hasVariableLineMetric =
-        child instanceof HTMLElement && lineMetricKey(child.style).includes("var(");
-      hasStyleDependentDisplay ||= variableDisplay;
-      hasStyleDependentLineMetrics ||= hasVariableLineMetric;
-      inheritsLineMetrics &&= !hasInlineLineMetric;
 
       if (display === "none") {
         // Hidden elements do not expose searchable text, but preserving them as
         // atomic structure keeps patch points aligned with the source tree.
-        addAtomicPath(childKey, variableDisplay);
+        addAtomicPath(childKey);
         canUseSimpleLineHeight = false;
         continue;
       }
@@ -458,7 +300,7 @@ function inspectLayout(
 
         // Atomic inline boxes can be kept or removed as a unit, but their
         // internals are not searchable.
-        addAtomicPath(childKey, isAtomicInline && child.childNodes.length > 0 && variableDisplay);
+        addAtomicPath(childKey);
         canUseSimpleLineHeight = false;
         continue;
       }
@@ -486,19 +328,9 @@ function inspectLayout(
     return null;
   }
 
-  if (hasElements && !hasStyleDependentLineMetrics) {
-    getStyleSheetSignature();
-    inheritsLineMetrics &&= !hasLineMetricRule;
-    hasStyleDependentLineMetrics = hasVariableLineMetricRule;
-  }
-
   return {
-    atomicPathSignature: [...atomicPaths].join("|"),
     atomicPaths,
     hasElements,
-    hasStyleDependentDisplay,
-    hasStyleDependentLineMetrics,
-    inheritsLineMetrics,
     ...(canUseSimpleLineHeight && simpleLineFit !== undefined
       ? { simpleLineFit, simpleLineStyleKey: baseStyleKey }
       : {}),
@@ -662,350 +494,33 @@ function buildLogicalRuns(
   return runs;
 }
 
-function cloneElementForPatch(element: Element, imageSource?: string): Element {
-  if (imageSource !== undefined && element instanceof HTMLImageElement) {
-    // Probe clones preserve sizing-related attributes but swap the resource URL
-    // because fit measurement depends on the image box, not decoded pixels.
-    const clone = document.createElement("img");
-
-    for (const attr of element.attributes) {
-      if (attr.name === "src" || attr.name === "srcset" || attr.name === "sizes") {
-        continue;
-      }
-
-      clone.setAttribute(attr.name, attr.value);
-    }
-
-    clone.setAttribute("src", imageSource);
-    return clone;
-  }
-
-  return element.cloneNode(false) as Element;
-}
-
-function cloneNodeForPatch(node: Node, imageSource?: string): Node {
-  if (!(node instanceof Element)) {
-    return node.cloneNode(true);
-  }
-
-  const clone = cloneElementForPatch(node, imageSource);
-
-  for (const child of node.childNodes) {
-    clone.appendChild(cloneNodeForPatch(child, imageSource));
-  }
-
-  return clone;
-}
-
-function hasGeneratedContent(element: Element, pseudo: "::after" | "::before"): boolean {
-  const content = getComputedStyle(element, pseudo).content;
-
-  return content !== "" && content !== "none" && content !== "normal";
-}
-
-function canUnwrapProbeElement(element: Element, parent: Element): boolean {
-  if (
-    element.localName !== "span" ||
-    element.attributes.length > 0 ||
-    hasGeneratedContent(element, "::before") ||
-    hasGeneratedContent(element, "::after")
-  ) {
-    return false;
-  }
-
-  const style = getComputedStyle(element);
-  if (!isInlineWrapperDisplay(style.display)) {
-    return false;
-  }
-
-  for (const property of transparentZeroBoxProperties) {
-    const value = style.getPropertyValue(property);
-    if (value !== "0px" && value !== "0") {
-      return false;
-    }
-  }
-
-  const parentStyle = getComputedStyle(parent);
-  for (const property of inlineTextWidthProperties) {
-    if (style.getPropertyValue(property) !== parentStyle.getPropertyValue(property)) {
-      return false;
-    }
-  }
-
-  for (const property of transparentTextFlowProperties) {
-    if (style.getPropertyValue(property) !== parentStyle.getPropertyValue(property)) {
-      return false;
-    }
-  }
-
-  return true;
-}
-
-function appendNormalizedText(
-  target: Node,
-  targetPath: readonly number[],
-  sourcePath: readonly number[],
-  text: string,
-  textMap: TextMap[],
-): void {
-  if (text.length === 0) {
-    return;
-  }
-
-  const last = target.lastChild;
-  const joinsLastText = last instanceof Text;
-  const probe = [...targetPath, target.childNodes.length - (joinsLastText ? 1 : 0)];
-  const start = joinsLastText ? last.data.length : 0;
-
-  if (joinsLastText) {
-    last.data += text;
-  } else {
-    target.appendChild(document.createTextNode(text));
-  }
-
-  textMap.push({
-    length: text.length,
-    probe,
-    source: sourcePath,
-    start,
-  });
-}
-
-function appendNormalizedChildren(
-  source: Element,
-  live: Element,
-  target: Node,
-  sourcePath: readonly number[],
-  targetPath: readonly number[],
-  textMap: TextMap[],
-): boolean {
-  const { childNodes: sourceChildren } = source;
-  const { childNodes: liveChildren } = live;
-
-  for (let index = 0; index < sourceChildren.length; index += 1) {
-    const sourceChild = sourceChildren[index];
-    const liveChild = liveChildren[index];
-    if (!sourceChild || !liveChild) {
-      return false;
-    }
-
-    const childSourcePath = [...sourcePath, index];
-
-    if (sourceChild.nodeType === Node.TEXT_NODE) {
-      appendNormalizedText(
-        target,
-        targetPath,
-        childSourcePath,
-        sourceChild.textContent ?? "",
-        textMap,
-      );
-      continue;
-    }
-
-    if (!(sourceChild instanceof Element) || !(liveChild instanceof Element)) {
-      continue;
-    }
-
-    if (canUnwrapProbeElement(liveChild, live)) {
-      if (
-        !appendNormalizedChildren(
-          sourceChild,
-          liveChild,
-          target,
-          childSourcePath,
-          targetPath,
-          textMap,
-        )
-      ) {
-        return false;
-      }
-      continue;
-    }
-
-    const probePath = [...targetPath, target.childNodes.length];
-    const clone = cloneElementForPatch(sourceChild);
-    target.appendChild(clone);
-    if (
-      !appendNormalizedChildren(sourceChild, liveChild, clone, childSourcePath, probePath, textMap)
-    ) {
-      return false;
-    }
-  }
-
-  return true;
-}
-
-function createProbeModel(
-  prepared: PreparedRich,
-  liveRoot: HTMLElement,
-  inspection: RichLayoutInspection | null,
-): RichProbeModel | null {
-  if (
-    !inspection ||
-    inspection.atomicPaths.size > 0 ||
-    inspection.hasStyleDependentDisplay ||
-    inspection.hasStyleDependentLineMetrics
-  ) {
-    return null;
-  }
-
-  const root = document.createElement("body");
-  const textMap: TextMap[] = [];
-
-  if (!appendNormalizedChildren(prepared.root, liveRoot, root, ROOT_PATH, ROOT_PATH, textMap)) {
-    return null;
-  }
-
-  if (!textMap.some((text) => !samePath(text.source, text.probe))) {
-    return null;
-  }
-
-  return {
-    prepared: {
-      boundary: prepared.boundary,
-      nodes: buildPreparedRichNodes(root, ROOT_PATH, prepared.boundary),
-      root,
-    },
-    text: textMap,
-  };
-}
-
-function mapPoint(
-  model: RichProbeModel | undefined,
-  point: BoundaryPoint,
-  toProbe: boolean,
-): BoundaryPoint | null {
-  if (!model || (point.path.length === 0 && point.offset === 0)) {
-    return point;
-  }
-
-  for (const text of model.text) {
-    const fromPath = toProbe ? text.source : text.probe;
-    const fromStart = toProbe ? 0 : text.start;
-    const offset = point.offset - fromStart;
-    if (!samePath(point.path, fromPath) || offset < 0 || offset > text.length) {
-      continue;
-    }
-
-    const toStart = toProbe ? text.start : 0;
-    const toPath = toProbe ? text.probe : text.source;
-
-    return {
-      path: toPath,
-      offset: toStart + offset,
-    };
-  }
-
-  return null;
-}
-
-function mapState(
-  model: RichProbeModel | undefined,
-  state: RichState | null,
-  toProbe: boolean,
-): RichState | null {
-  if (!model || !state || state.kind === "full") {
-    return state;
-  }
-
-  const point = mapPoint(model, state.point, toProbe);
-
-  return point ? { kind: "clamped", point } : null;
-}
-
-function replaceWithFullPrepared(target: HTMLElement, prepared: PreparedRich): void {
-  const fragment = document.createDocumentFragment();
-  for (const child of prepared.root.childNodes) {
-    fragment.appendChild(cloneNodeForPatch(child, PROBE_IMAGE_SRC));
-  }
-
-  target.replaceChildren(fragment);
-}
-
-function clonePatchFromContainer(
-  container: Node,
-  startIndex: number,
-  endPoint: BoundaryPoint,
-  depth: number,
-  imageSource?: string,
-): DocumentFragment {
-  const fragment = document.createDocumentFragment();
-  const { childNodes: children } = container;
-  const { offset, path } = endPoint;
-
-  if (depth === path.length) {
-    // Once the anchor container is reached, copy only the requested sibling
-    // prefix/suffix so unchanged leading DOM is not recreated.
-    const limit = Math.min(offset, children.length);
-
-    for (let index = startIndex; index < limit; index += 1) {
-      const child = children[index];
-      if (child) {
-        fragment.appendChild(cloneNodeForPatch(child, imageSource));
-      }
-    }
-
-    return fragment;
-  }
-
-  const targetIndex = path[depth] ?? 0;
-  const limit = Math.min(targetIndex, children.length);
-
-  for (let index = startIndex; index < limit; index += 1) {
-    const child = children[index];
-    if (child) {
-      fragment.appendChild(cloneNodeForPatch(child, imageSource));
-    }
-  }
-
-  if (targetIndex < startIndex) {
-    return fragment;
-  }
-
-  const targetChild = children[targetIndex];
-  if (!targetChild) {
-    return fragment;
-  }
-
-  if (targetChild.nodeType === Node.TEXT_NODE) {
-    // A text boundary point slices the target text node; all previous siblings
-    // were already copied above.
-    const nextText = (targetChild.textContent ?? "").slice(0, endPoint.offset);
-    if (nextText) {
-      fragment.appendChild(document.createTextNode(nextText));
-    }
-
-    return fragment;
-  }
-
-  if (!(targetChild instanceof Element)) {
-    return fragment;
-  }
-
-  const childClone = cloneElementForPatch(targetChild, imageSource);
-  const childPatch = clonePatchFromContainer(targetChild, 0, endPoint, depth + 1, imageSource);
-
-  childClone.appendChild(childPatch);
-  fragment.appendChild(childClone);
-
-  return fragment;
-}
-
 function clonePatchFromAnchor(
   root: HTMLElement,
   anchor: PatchAnchor,
   endPoint: BoundaryPoint,
   imageSource?: string,
 ): DocumentFragment {
-  const sourceAnchor = resolvePatchAnchor(root, anchor.path);
-
-  return clonePatchFromContainer(
-    sourceAnchor,
-    anchor.startIndex,
-    endPoint,
-    anchor.path.length,
-    imageSource,
+  const start = resolvePatchAnchor(root, anchor.path);
+  const end = resolvePatchAnchor(root, endPoint.path);
+  const range = document.createRange();
+  range.setStart(start, Math.min(anchor.startIndex, start.childNodes.length));
+  range.setEnd(
+    end,
+    Math.min(endPoint.offset, end instanceof Text ? end.data.length : end.childNodes.length),
   );
+  const fragment = range.cloneContents();
+
+  if (imageSource !== undefined) {
+    // Rewrite detached image resources before the fragment is connected; rich
+    // measurement only depends on their box, not the decoded image.
+    for (const image of fragment.querySelectorAll("img")) {
+      image.removeAttribute("srcset");
+      image.removeAttribute("sizes");
+      image.setAttribute("src", imageSource);
+    }
+  }
+
+  return fragment;
 }
 
 function trailingLeaf(root: Node): Node | null {
@@ -1750,6 +1265,7 @@ export function prepareRich(
 
   return {
     boundary,
+    hasImages: documentNode.body.querySelector("img") !== null,
     root: documentNode.body,
     nodes: buildPreparedRichNodes(documentNode.body, ROOT_PATH, boundary),
   };
@@ -1823,20 +1339,14 @@ export function rankRichState(
   state: RichState,
 ): RichStateRank | null {
   const points = rankPointsForRuns(searchIndex.runs, true);
-  const probeState = mapState(searchIndex.probeModel, state, true);
-  if (!probeState) {
-    return null;
-  }
-
-  const rank = rankForState(probeState, points);
-  const prepared = searchIndex.probeModel?.prepared ?? searchIndex.prepared;
+  const rank = rankForState(state, points);
 
   return rank === undefined
     ? null
     : {
         rank,
         rankCount: points.length,
-        textRankSafe: textRankSafeForState(probeState, searchIndex.runs, prepared.root),
+        textRankSafe: textRankSafeForState(state, searchIndex.runs, searchIndex.prepared.root),
       };
 }
 
@@ -1859,7 +1369,7 @@ export function richStateForRank(searchIndex: RichSearchIndex, rank: number): Ri
           point: points[index]!,
         };
 
-  return mapState(searchIndex.probeModel, state, false);
+  return state;
 }
 
 function canUseBodyOnlyLineFit(
@@ -1897,29 +1407,20 @@ function textOnlySimpleLineFit(
 function createSearchIndex(
   prepared: PreparedRich,
   body: HTMLElement,
-  getStyleSheetSignature: () => string,
-  inspection = inspectLayout(body, getStyleSheetSignature),
-  probeModel?: RichProbeModel,
+  inspection = inspectLayout(body),
 ): RichSearchIndex | null {
   if (!inspection) {
     return null;
   }
 
-  const probePrepared = probeModel?.prepared ?? prepared;
-  const runs = buildLogicalRuns(probePrepared.nodes, inspection.atomicPaths);
+  const runs = buildLogicalRuns(prepared.nodes, inspection.atomicPaths);
   const simpleLine = textOnlySimpleLineFit(inspection, runs);
-  const hasElements = inspection.hasElements || !!probeModel;
 
   return {
-    atomicPathSignature: inspection.atomicPathSignature,
     body,
-    hasElements,
-    hasStyleDependentDisplay: inspection.hasStyleDependentDisplay,
-    hasStyleDependentLineMetrics: inspection.hasStyleDependentLineMetrics,
-    inheritsLineMetrics: inspection.inheritsLineMetrics,
+    hasElements: inspection.hasElements,
     prepared,
-    ...(probeModel ? { probeModel } : {}),
-    rankPoints: probePrepared.boundary === "word" ? rankPointsForRuns(runs) : null,
+    rankPoints: prepared.boundary === "word" ? rankPointsForRuns(runs) : null,
     runs,
     ...(simpleLine
       ? {
@@ -1927,7 +1428,6 @@ function createSearchIndex(
           simpleLineStyleKey: simpleLine.styleKey,
         }
       : {}),
-    styleSheetSignature: hasElements ? getStyleSheetSignature() : "",
   };
 }
 
@@ -2039,8 +1539,6 @@ export function clampRich({
   prepared,
   preferHintedTextRun,
   probe,
-  checkFullFitFirst = false,
-  reuseSimpleLineFit = false,
   searchIndex,
   skipFullFit = false,
   verifyFullCandidate = true,
@@ -2055,29 +1553,29 @@ export function clampRich({
     };
   }
 
-  let styleSheetSignature: string | undefined;
   const visibleBoundsCache: VisibleBoundsCache | undefined =
     maxHeight === undefined ? undefined : {};
   let currentFit: { readonly fits: boolean; readonly state: RichState } | null = null;
   let nextSearchIndex =
     searchIndex?.prepared === prepared && searchIndex.body === body ? searchIndex : null;
-  let probeModel = nextSearchIndex?.probeModel;
-  let probePrepared = probeModel?.prepared ?? prepared;
-  let state = mapState(probeModel, from, true);
-  let probeHint = mapState(probeModel, hint, true);
-
-  function getStyleSheetSignature(): string {
-    styleSheetSignature ??= currentStyleSheetSignature();
-    return styleSheetSignature;
-  }
+  let state = from;
+  let probeHint = hint;
+  const probeImageSource = prepared.hasImages ? PROBE_IMAGE_SRC : undefined;
+  let fullFitSample: ContentFitSample | undefined;
+  const captureFullFit =
+    hint === null && lineLimit !== undefined
+      ? (sample: ContentFitSample) => {
+          fullFitSample = sample;
+        }
+      : undefined;
 
   function applyFullCandidate(): void {
-    state = patchRich(probePrepared, body, state, FULL_STATE, ellipsis, PROBE_IMAGE_SRC);
+    state = patchRich(prepared, body, state, FULL_STATE, ellipsis, probeImageSource);
   }
 
   function applyCandidate(point: BoundaryPoint): void {
     state = patchRich(
-      probePrepared,
+      prepared,
       body,
       state,
       {
@@ -2085,41 +1583,16 @@ export function clampRich({
         point,
       },
       ellipsis,
-      PROBE_IMAGE_SRC,
+      probeImageSource,
     );
-  }
-
-  function sourceStateFor(candidate: RichState | null): RichState | null {
-    return mapState(probeModel, candidate, false);
   }
 
   function unrankedProbeResult(candidate: RichState | null): RichClampResult {
     return {
       fallback: false,
       searchIndex: nextSearchIndex,
-      state: sourceStateFor(candidate),
+      state: candidate,
     };
-  }
-
-  function searchIndexFromSource(inspection: RichLayoutInspection | null): RichSearchIndex | null {
-    const model = createProbeModel(prepared, body, inspection) ?? undefined;
-
-    if (model) {
-      replaceWithFullPrepared(body, model.prepared);
-    }
-
-    probeModel = model;
-    probePrepared = model?.prepared ?? prepared;
-    probeHint = mapState(model, hint, true);
-    state = FULL_STATE;
-
-    return createSearchIndex(
-      prepared,
-      body,
-      getStyleSheetSignature,
-      model ? undefined : inspection,
-      model,
-    );
   }
 
   let checkedFullCandidate = false;
@@ -2141,6 +1614,7 @@ export function clampRich({
       true,
       visibleBoundsCache,
       simpleLineFit,
+      captureFullFit,
     );
 
     currentFit = {
@@ -2153,145 +1627,97 @@ export function clampRich({
 
   if (!nextSearchIndex) {
     applyFullCandidate();
-    nextSearchIndex = searchIndexFromSource(inspectLayout(body, getStyleSheetSignature));
+    nextSearchIndex = createSearchIndex(prepared, body, inspectLayout(body));
+  } else if (nextSearchIndex.hasElements) {
+    // CSSOM cannot describe every context that affects descendant layout
+    // (cross-origin rules, container queries, ancestor attributes, shadow
+    // boundaries). Restore the full probe and inspect the browser's computed
+    // result instead of treating a stylesheet fingerprint as proof.
+    applyFullCandidate();
+    currentFit = null;
+    checkedFullCandidate = false;
+    nextSearchIndex = createSearchIndex(prepared, body, inspectLayout(body));
   }
 
   if (!nextSearchIndex) {
     // Unsupported inline layout falls back to the original HTML instead of
     // risking a structurally valid but visually wrong clamp.
-    return fallbackResult(sourceStateFor(state));
+    return fallbackResult(state);
   }
 
   const canUseSimpleLineLayout = canUseBodyOnlyLineFit(content, body, lineLimit, maxHeight);
-  let styleSheetsChanged =
-    nextSearchIndex.hasElements && nextSearchIndex.styleSheetSignature !== getStyleSheetSignature();
   let shouldSkipFullFit = skipFullFit;
-  let simpleLineFontScale: number | null = null;
   let simpleLineFit: SimpleLineFit | undefined;
-  let baseStyleForInspection: CSSStyleDeclaration | undefined;
-  if (styleSheetsChanged && probeModel) {
-    replaceWithFullPrepared(body, prepared);
-    currentFit = null;
-    checkedFullCandidate = false;
-    nextSearchIndex = searchIndexFromSource(inspectLayout(body, getStyleSheetSignature));
-    if (!nextSearchIndex) {
-      return fallbackResult(FULL_STATE);
-    }
-    styleSheetsChanged =
-      nextSearchIndex.hasElements &&
-      nextSearchIndex.styleSheetSignature !== getStyleSheetSignature();
-  }
+  if (canUseSimpleLineLayout) {
+    let nextSimpleLine: TextOnlySimpleLineFit | null = null;
 
-  const hasSimpleLineFit = canUseSimpleLineLayout && nextSearchIndex.simpleLineFit !== undefined;
-  const displayDependsOnStyle = nextSearchIndex.hasStyleDependentDisplay;
-  const lineMetricsDependOnStyle = nextSearchIndex.hasStyleDependentLineMetrics;
-  const previousSimpleLineStyleKey = nextSearchIndex.simpleLineStyleKey;
-  let inspectLayoutAgain = displayDependsOnStyle || lineMetricsDependOnStyle || styleSheetsChanged;
-
-  if (hasSimpleLineFit) {
     if (
-      reuseSimpleLineFit &&
-      !inspectLayoutAgain &&
+      nextSearchIndex.hasElements &&
+      nextSearchIndex.simpleLineFit !== undefined &&
       nextSearchIndex.simpleLineStyleKey !== undefined
     ) {
+      // Element-bearing indexes were rebuilt from a full, freshly inspected
+      // probe above, so their simple-line model is current for this pass.
+      nextSimpleLine = {
+        fit: nextSearchIndex.simpleLineFit,
+        styleKey: nextSearchIndex.simpleLineStyleKey,
+      };
+    } else if (!nextSearchIndex.hasElements) {
       const currentBaseStyle = getComputedStyle(body);
-      const currentBaseStyleKey = lineMetricKey(currentBaseStyle);
-      const inheritedSimpleLineFit =
-        nextSearchIndex.inheritsLineMetrics && currentBaseStyle.verticalAlign === "baseline"
+      const currentSimpleLineFit =
+        currentBaseStyle.verticalAlign === "baseline"
           ? simpleLineFitFromStyle(currentBaseStyle)
           : undefined;
-      if (currentBaseStyleKey === nextSearchIndex.simpleLineStyleKey) {
-        simpleLineFit = nextSearchIndex.simpleLineFit;
-      } else if (inheritedSimpleLineFit) {
-        simpleLineFit = inheritedSimpleLineFit;
+
+      if (currentSimpleLineFit) {
+        nextSimpleLine = {
+          fit: currentSimpleLineFit,
+          styleKey: lineMetricKey(currentBaseStyle),
+        };
+      }
+
+      if (nextSimpleLine?.styleKey !== nextSearchIndex.simpleLineStyleKey) {
         nextSearchIndex = searchIndexWithSimpleLineFit(
           nextSearchIndex,
-          inheritedSimpleLineFit,
-          currentBaseStyleKey,
+          nextSimpleLine?.fit,
+          nextSimpleLine?.styleKey,
         );
-      } else {
-        inspectLayoutAgain = true;
-        baseStyleForInspection = currentBaseStyle;
       }
-    } else {
-      inspectLayoutAgain = true;
-    }
-  }
-
-  if (inspectLayoutAgain) {
-    if (displayDependsOnStyle || lineMetricsDependOnStyle || styleSheetsChanged) {
-      applyFullCandidate();
     }
 
-    const inspection = inspectLayout(body, getStyleSheetSignature, baseStyleForInspection);
-    if (!inspection) {
-      applyFullCandidate();
-      return fallbackResult(sourceStateFor(state));
-    }
-
-    if (
-      styleSheetsChanged ||
-      inspection.atomicPathSignature !== nextSearchIndex.atomicPathSignature
-    ) {
-      // The cached all-text run map may be stale if CSS turned a transparent
-      // inline wrapper into an atomic box, or an atomic box back into text.
-      const refreshedSearchIndex = createSearchIndex(
-        prepared,
-        body,
-        getStyleSheetSignature,
-        inspection,
-        probeModel,
-      );
-      if (!refreshedSearchIndex) {
-        applyFullCandidate();
-        return fallbackResult(sourceStateFor(state));
-      }
-
-      nextSearchIndex = refreshedSearchIndex;
-    }
-
-    const nextSimpleLine = canUseSimpleLineLayout
-      ? textOnlySimpleLineFit(inspection, nextSearchIndex.runs)
-      : null;
-    if (previousSimpleLineStyleKey !== undefined && nextSimpleLine?.styleKey !== undefined) {
-      simpleLineFontScale = fontScaleFromMetricKeys(
-        previousSimpleLineStyleKey,
-        nextSimpleLine.styleKey,
-      );
-    }
-    nextSearchIndex = searchIndexWithSimpleLineFit(
-      nextSearchIndex,
-      nextSimpleLine?.fit,
-      nextSimpleLine?.styleKey,
-    );
-
-    if (nextSimpleLine) {
-      simpleLineFit = nextSimpleLine.fit;
-    }
+    simpleLineFit = nextSimpleLine?.fit;
   }
 
   const { rankPoints, runs } = nextSearchIndex;
-  if (
-    checkFullFitFirst &&
-    shouldSkipFullFit &&
-    simpleLineFontScale !== null &&
-    simpleLineFontScale < 1 &&
-    probeHint?.kind === "clamped" &&
-    rankPoints
-  ) {
-    const hintRank = rankForState(probeHint, rankPoints);
-    if (
-      hintRank !== undefined &&
-      hintRank < rankPoints.length &&
-      simpleLineFontScale * rankPoints.length <= hintRank
-    ) {
-      shouldSkipFullFit = false;
-    }
-  }
 
   if (!shouldSkipFullFit && fitsFullCandidate()) {
     // The full rich tree fits and its layout is safe for the rich search model.
     return unrankedProbeResult(state);
+  }
+
+  const fullLineCount = fullFitSample?.rects && countLineBoxes(fullFitSample.rects);
+  if (
+    probeHint === null &&
+    lineLimit !== undefined &&
+    fullLineCount !== undefined &&
+    fullLineCount >= lineLimit * 3
+  ) {
+    let coldRankPoints = rankPoints ?? rankPointsForRuns(runs);
+    if (coldRankPoints.length <= 16 && prepared.boundary === "word") {
+      coldRankPoints = rankPointsForRuns(runs, true);
+    }
+    if (coldRankPoints.length > 16) {
+      probeHint = {
+        kind: "clamped",
+        point:
+          coldRankPoints[
+            Math.min(
+              coldRankPoints.length - 1,
+              Math.max(0, Math.floor((coldRankPoints.length * lineLimit) / fullLineCount)),
+            )
+          ]!,
+      };
+    }
   }
 
   function fitsCandidate(endPoint: BoundaryPoint): boolean {
@@ -2334,17 +1760,12 @@ export function clampRich({
       return unrankedProbeResult(state);
     }
 
-    const sourceState = sourceStateFor(state);
-    if (!sourceState) {
-      return fallbackResult(FULL_STATE);
-    }
-
     const stateRank = rankForState(state, rankPoints);
     if (stateRank === undefined) {
       return {
         fallback: false,
         searchIndex: nextSearchIndex,
-        state: sourceState,
+        state,
         textRankSafe: false,
       };
     }
@@ -2354,8 +1775,8 @@ export function clampRich({
       rank: stateRank,
       rankCount: rankPoints.length,
       searchIndex: nextSearchIndex,
-      state: sourceState,
-      textRankSafe: textRankSafeForState(state, runs, probePrepared.root),
+      state,
+      textRankSafe: textRankSafeForState(state, runs, prepared.root),
     };
   }
 
@@ -2497,11 +1918,4 @@ export function clampRich({
   }
 
   return clampedResult(finePoint);
-}
-
-function fontScaleFromMetricKeys(previous: string, current: string): number | null {
-  const previousSize = numericPx(previous);
-  const currentSize = numericPx(current);
-
-  return previousSize !== null && currentSize !== null ? currentSize / previousSize : null;
 }

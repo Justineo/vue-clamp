@@ -1,7 +1,7 @@
 <script setup lang="ts" generic="T = unknown">
 import {
+  computed,
   nextTick,
-  onBeforeUnmount,
   onMounted,
   onUpdated,
   shallowRef,
@@ -10,7 +10,6 @@ import {
   watchPostEffect,
 } from "vue";
 import {
-  borderBoxObserverOptions,
   borderBoxSizeSignature,
   createCoalescingRunner,
   cssLength,
@@ -18,6 +17,7 @@ import {
   hasBorderBoxEntrySignatureChange,
   listenForFontLoads,
   normalizeLineLimit,
+  observeBorderBoxSizes,
 } from "../layout.ts";
 import { useClampControls } from "../controls.ts";
 import { findLargestFittingCount } from "../search.ts";
@@ -78,9 +78,13 @@ const afterRef = shallowRef<HTMLElement | null>(null);
 const visibleCount = shallowRef(items.length);
 const materializedCount = shallowRef(0);
 const isClamped = shallowRef(false);
+const hasActiveClamp = computed(
+  () =>
+    !expanded.value &&
+    items.length > 0 &&
+    (normalizeLineLimit(maxLines) !== undefined || maxHeight !== undefined),
+);
 
-let resizeObserver: ResizeObserver | null = null;
-let stopFonts = () => {};
 let lastLayoutSignature: string | null = null;
 let lastRootWidth: number | null = null;
 let measuredItemWidths: number[] = [];
@@ -108,36 +112,20 @@ async function applyVisibleCount(nextVisibleCount: number): Promise<void> {
   }
 }
 
-function combinedLayoutSignature(
-  root: string,
-  content: string,
-  before: string,
-  after: string,
-): string {
+function layoutSignature(updateObserved = true): string {
+  const root = borderBoxSizeSignature(rootRef.value);
+  const content = borderBoxSizeSignature(contentRef.value);
+  const before = borderBoxSizeSignature(beforeRef.value);
+  const after = borderBoxSizeSignature(afterRef.value);
+
+  if (updateObserved) {
+    lastRootSizeSignature = root;
+    lastContentSizeSignature = content;
+    lastBeforeSizeSignature = before;
+    lastAfterSizeSignature = after;
+  }
+
   return `${root}|${content}|${before}|${after}`;
-}
-
-function currentLayoutSignature(): string {
-  return combinedLayoutSignature(
-    borderBoxSizeSignature(rootRef.value),
-    borderBoxSizeSignature(contentRef.value),
-    borderBoxSizeSignature(beforeRef.value),
-    borderBoxSizeSignature(afterRef.value),
-  );
-}
-
-function layoutSignature(): string {
-  lastRootSizeSignature = borderBoxSizeSignature(rootRef.value);
-  lastContentSizeSignature = borderBoxSizeSignature(contentRef.value);
-  lastBeforeSizeSignature = borderBoxSizeSignature(beforeRef.value);
-  lastAfterSizeSignature = borderBoxSizeSignature(afterRef.value);
-
-  return combinedLayoutSignature(
-    lastRootSizeSignature,
-    lastContentSizeSignature,
-    lastBeforeSizeSignature,
-    lastAfterSizeSignature,
-  );
 }
 
 function lastObservedSignature(element: Element): string | null {
@@ -160,23 +148,8 @@ function lastObservedSignature(element: Element): string | null {
   return null;
 }
 
-function canUseStaticFlowCountHint(
-  limits: ClampLimits,
-): limits is ClampLimits & { lineLimit: number } {
-  return (
-    slots.before === undefined &&
-    slots.after === undefined &&
-    !limits.clipToRootHeight &&
-    limits.lineLimit !== undefined
-  );
-}
-
 function canUseStaticFlowSearch(limits: ClampLimits): boolean {
   return slots.after === undefined && (limits.lineLimit !== undefined || limits.clipToRootHeight);
-}
-
-function canUseUniformWidthGrowHint(limits: ClampLimits): boolean {
-  return slots.after === undefined && !limits.clipToRootHeight && limits.lineLimit !== undefined;
 }
 
 function measureCurrentSequence(
@@ -206,7 +179,7 @@ function uniformAverageItemWidth(): number | null {
   let sum = 0;
 
   for (const width of measuredItemWidths) {
-    if (typeof width !== "number" || !Number.isFinite(width) || width <= 0) {
+    if (!Number.isFinite(width) || width <= 0) {
       continue;
     }
 
@@ -215,30 +188,12 @@ function uniformAverageItemWidth(): number | null {
     min = Math.min(min, width);
     sum += width;
 
-    if (count >= 2 && max - min > layoutTolerance) {
+    if (max - min > layoutTolerance) {
       return null;
     }
   }
 
   return count >= 2 ? sum / count : null;
-}
-
-function estimateVisibleCountFromWidths(
-  containerWidth: number,
-  lineLimit: number,
-  totalItems: number,
-  beforeWidth = 0,
-  fallbackItemWidth: number | null = null,
-): number | null {
-  const result = simulateStaticFlow({
-    beforeWidth,
-    containerWidth,
-    itemCount: totalItems,
-    itemWidth: (index) => measuredItemWidths[index] ?? fallbackItemWidth,
-    lineLimit,
-  });
-
-  return result.status === "unknown" && result.fitCount === 0 ? null : result.fitCount;
 }
 
 function estimateMaterializedGrowLineLimit(
@@ -342,54 +297,31 @@ async function applyStaticFlowCountHint(
   limits: ClampLimits,
   fallbackItemWidth: number | null = null,
 ): Promise<void> {
-  if (!canUseStaticFlowCountHint(limits)) {
-    return;
-  }
-
-  const estimatedVisibleCount = estimateVisibleCountFromWidths(
-    containerWidth,
-    limits.lineLimit,
-    items.length,
-    0,
-    fallbackItemWidth,
-  );
-
-  if (estimatedVisibleCount !== null && estimatedVisibleCount !== visibleCount.value) {
-    await applyVisibleCount(estimatedVisibleCount);
-  }
-}
-
-async function applyBeforeGrowCountHint(
-  containerWidth: number,
-  limits: ClampLimits,
-  fallbackItemWidth: number | null,
-): Promise<void> {
+  const hasBefore = slots.before !== undefined;
   if (
-    slots.before === undefined ||
     slots.after !== undefined ||
     limits.clipToRootHeight ||
-    limits.lineLimit === undefined
+    limits.lineLimit === undefined ||
+    (hasBefore && fallbackItemWidth === null)
   ) {
     return;
   }
 
-  if (fallbackItemWidth === null) {
-    return;
-  }
-
-  const beforeSize = measureElementSize(beforeRef.value);
-  const estimatedVisibleCount = estimateVisibleCountFromWidths(
+  const estimate = simulateStaticFlow({
+    beforeWidth: hasBefore ? (measureElementSize(beforeRef.value)?.width ?? 0) : 0,
     containerWidth,
-    limits.lineLimit,
-    items.length,
-    beforeSize?.width ?? 0,
-    fallbackItemWidth,
-  );
+    itemCount: items.length,
+    itemWidth: (index) => measuredItemWidths[index] ?? fallbackItemWidth,
+    lineLimit: limits.lineLimit,
+  });
+  const estimatedVisibleCount =
+    estimate.status === "unknown" && estimate.fitCount === 0 ? null : estimate.fitCount;
 
   if (
     estimatedVisibleCount !== null &&
-    estimatedVisibleCount > visibleCount.value + 1 &&
-    estimatedVisibleCount <= items.length
+    (hasBefore
+      ? estimatedVisibleCount > visibleCount.value + 1
+      : estimatedVisibleCount !== visibleCount.value)
   ) {
     await applyVisibleCount(estimatedVisibleCount);
   }
@@ -598,11 +530,13 @@ async function recompute(): Promise<void> {
   }
 
   const uniformItemWidth =
-    rootWidthGrew && canUseUniformWidthGrowHint(limits) ? uniformAverageItemWidth() : null;
+    rootWidthGrew &&
+    slots.after === undefined &&
+    !limits.clipToRootHeight &&
+    limits.lineLimit !== undefined
+      ? uniformAverageItemWidth()
+      : null;
   await applyStaticFlowCountHint(rootWidth, limits, uniformItemWidth);
-  if (rootWidthGrew) {
-    await applyBeforeGrowCountHint(rootWidth, limits, uniformItemWidth);
-  }
 
   if (rootWidthGrew && (await applyStaticFlowMaterializedGrow(rootElement, rootWidth, limits))) {
     return;
@@ -626,24 +560,6 @@ const requestRecompute = createCoalescingRunner(async () => {
   }
 });
 
-function getAffixSlotProps(
-  visibleItemCount: number,
-  expandedValue: boolean,
-): WrapClampSlotProps<T> | undefined {
-  if (slots.before === undefined && slots.after === undefined) {
-    return undefined;
-  }
-
-  return {
-    expand,
-    collapse,
-    toggle,
-    clamped: visibleItemCount < items.length,
-    expanded: expandedValue,
-    hiddenItems: items.slice(visibleItemCount),
-  };
-}
-
 // `defineRender` exposes this setup-local function as the SFC render entry;
 // `renderRoot` owns the root/content/item structure so there is no authored
 // template to keep in sync.
@@ -654,9 +570,20 @@ function render(): VNodeChild {
     Math.max(visibleItemCount, materializedCount.value),
   );
   const expandedValue = expanded.value;
+  const affixSlotProps: WrapClampSlotProps<T> | undefined =
+    slots.before === undefined && slots.after === undefined
+      ? undefined
+      : {
+          expand,
+          collapse,
+          toggle,
+          clamped: visibleItemCount < items.length,
+          expanded: expandedValue,
+          hiddenItems: items.slice(visibleItemCount),
+        };
 
   return renderRoot({
-    affixSlotProps: getAffixSlotProps(visibleItemCount, expandedValue),
+    affixSlotProps,
     afterRef,
     afterSlot: slots.after,
     attrs,
@@ -705,51 +632,52 @@ watch(
 );
 
 watchPostEffect((onCleanup) => {
-  resizeObserver ??= new ResizeObserver((entries) => {
-    if (hasBorderBoxEntrySignatureChange(entries, lastObservedSignature)) {
-      // Slot boxes are part of the wrap sequence, so their size changes must
-      // invalidate the item count even when the item array is unchanged.
-      requestRecompute();
-    }
-  });
-
-  const observed = [rootRef.value, contentRef.value, beforeRef.value, afterRef.value].filter(
-    (element): element is HTMLElement => element instanceof HTMLElement,
-  );
-
-  for (const element of observed) {
-    resizeObserver.observe(element, borderBoxObserverOptions);
-  }
-
-  onCleanup(() => {
-    for (const element of observed) {
-      resizeObserver?.unobserve(element);
-    }
-  });
-});
-
-onMounted(() => {
-  requestRecompute();
-  stopFonts = listenForFontLoads(() => {
-    measuredItemWidths = [];
-    requestRecompute();
-  });
-});
-
-onUpdated(() => {
-  if (isRecomputing) {
+  if (!hasActiveClamp.value) {
     return;
   }
 
-  if (currentLayoutSignature() === lastLayoutSignature) {
-    measuredItemWidths = [];
+  const stopObserving = observeBorderBoxSizes(
+    [rootRef.value, contentRef.value, beforeRef.value, afterRef.value].filter(
+      (element): element is HTMLElement => element instanceof HTMLElement,
+    ),
+    (entries) => {
+      if (hasBorderBoxEntrySignatureChange(entries, lastObservedSignature)) {
+        // Slot boxes are part of the wrap sequence, so their size changes must
+        // invalidate the item count even when the item array is unchanged.
+        requestRecompute();
+      }
+    },
+  );
+
+  onCleanup(stopObserving);
+});
+
+watchPostEffect((onCleanup) => {
+  if (hasActiveClamp.value) {
+    onCleanup(
+      listenForFontLoads(() => {
+        measuredItemWidths = [];
+        requestRecompute();
+      }),
+    );
+  }
+});
+
+onMounted(() => {
+  if (hasActiveClamp.value) {
     requestRecompute();
   }
 });
 
-onBeforeUnmount(() => {
-  resizeObserver?.disconnect();
-  stopFonts();
+onUpdated(() => {
+  if (isRecomputing || !hasActiveClamp.value) {
+    return;
+  }
+
+  if (layoutSignature(false) === lastLayoutSignature) {
+    measuredItemWidths = [];
+    requestRecompute();
+  }
 });
 
 defineExpose({

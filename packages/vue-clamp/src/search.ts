@@ -136,25 +136,6 @@ export function estimateColdSearchMaxProbeCount(count: number): number {
   return count <= 0 ? 0 : Math.ceil(Math.log2(count + 1));
 }
 
-function binaryProbeCount(low: number, high: number, target: number): number {
-  let floor = low;
-  let ceiling = high;
-  let probes = 0;
-
-  while (floor <= ceiling) {
-    const index = Math.floor((floor + ceiling) / 2);
-    probes += 1;
-
-    if (index <= target) {
-      floor = index + 1;
-    } else {
-      ceiling = index - 1;
-    }
-  }
-
-  return probes;
-}
-
 function normalizedTarget(maxIndex: number, target: number): number {
   if (!Number.isFinite(target)) {
     return target === Number.POSITIVE_INFINITY ? maxIndex : -1;
@@ -177,57 +158,17 @@ function warmProbeCount(
     return Number.POSITIVE_INFINITY;
   }
 
-  const maxIndex = count - 1;
-  const start = Math.max(0, Math.min(maxIndex, Math.floor(hint)));
-  const targetIndex = normalizedTarget(maxIndex, target);
-  let probes = 1;
-
-  if (start <= targetIndex) {
-    let fit = start;
-    let step = 1;
-    let expansions = 0;
-
-    while (fit < maxIndex) {
-      const probe = Math.min(maxIndex, fit + step);
+  const targetIndex = normalizedTarget(count - 1, target);
+  let probes = 0;
+  findLastFittingIndex(
+    count,
+    (index) => {
       probes += 1;
-
-      if (probe > targetIndex) {
-        return probes + binaryProbeCount(fit + 1, probe - 1, targetIndex);
-      }
-
-      fit = probe;
-      expansions += 1;
-      if (expansions >= expansionLimit) {
-        return probes + binaryProbeCount(fit + 1, maxIndex, targetIndex);
-      }
-
-      step *= 2;
-    }
-
-    return probes;
-  }
-
-  let failed = start;
-  let step = 1;
-  let expansions = 0;
-
-  while (failed > 0) {
-    const probe = Math.max(0, failed - step);
-    probes += 1;
-
-    if (probe <= targetIndex) {
-      return probes + binaryProbeCount(probe + 1, failed - 1, targetIndex);
-    }
-
-    failed = probe;
-    expansions += 1;
-    if (expansions >= expansionLimit) {
-      return probes + binaryProbeCount(0, failed - 1, targetIndex);
-    }
-
-    step *= 2;
-  }
-
+      return index <= targetIndex;
+    },
+    hint,
+    expansionLimit,
+  );
   return probes;
 }
 
@@ -242,6 +183,22 @@ export function warmTargetBeatsCold({
   const warmCost = warmProbeCount(count, hint, target, expansionLimit);
 
   return warmCost < coldCost || (allowPatchTieBreak && warmCost === coldCost);
+}
+
+export function shouldVerifyFullCandidate(
+  skipFullFit: boolean,
+  width: number,
+  previousWidth: number | null | undefined,
+  previousWasFull: boolean,
+  clampedMaxWidth: number | null | undefined,
+): boolean {
+  if (!skipFullFit || previousWidth == null || width === previousWidth) {
+    return true;
+  }
+
+  return (
+    width > previousWidth && (previousWasFull || clampedMaxWidth == null || width > clampedMaxWidth)
+  );
 }
 
 export function findLargestFittingCount(

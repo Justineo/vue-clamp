@@ -3,11 +3,12 @@ import {
   defaultWarmExpansionLimit,
   estimateColdSearchMaxProbeCount,
   findLastFittingIndex,
+  shouldVerifyFullCandidate,
   warmSearchLocalCoverage,
   warmTargetBeatsCold,
 } from "./search.ts";
 
-import type { SimpleLineFit, VisibleBoundsCache } from "./layout.ts";
+import type { ContentFitSample, SimpleLineFit, VisibleBoundsCache } from "./layout.ts";
 import type { ClampBoundary, ClampLength, LineClampLocation } from "./types.ts";
 
 // Text preparation is separated from DOM measurement so width-only reclamps can
@@ -75,14 +76,6 @@ type WarmSearchInput = {
   readonly referenceWidth: number;
   readonly rootWidth: number;
 };
-type WarmHintInput = Omit<WarmSearchInput, "hintKept" | "rankPerPx" | "referenceWidth"> & {
-  readonly hint: TextClampHint;
-};
-type WarmSearchEstimate = {
-  readonly rankMove: number;
-  readonly searchCount: number;
-  readonly target: number;
-};
 export type TextClampSpacing = "trim" | "preserve-outer";
 
 type TextFitContext = {
@@ -91,7 +84,7 @@ type TextFitContext = {
   readonly spacing: TextClampSpacing;
 };
 
-type TextClampContext = TextFitContext & {
+export type TextClampContext = TextFitContext & {
   readonly hasAffixes: boolean;
   readonly lineCapacity: number | undefined;
   readonly layoutKey?: string | undefined;
@@ -115,7 +108,6 @@ export type TextClampFitInput = {
 };
 
 export type TextClampLayoutInput = {
-  readonly checkFullFitFirst?: boolean;
   readonly content: HTMLElement;
   readonly ellipsis: string;
   readonly hasAffixes?: boolean;
@@ -128,35 +120,28 @@ export type TextClampLayoutInput = {
   readonly ratio: number;
   readonly root: HTMLElement;
   readonly rootWidth: number;
-  readonly forceSkipFullFit?: boolean;
   readonly reuseFullFitOnGrow?: boolean;
   readonly simpleLineFit?: SimpleLineFit;
   readonly target: HTMLElement;
 };
 
-function isAsciiSafe(text: string): boolean {
+function asciiBoundaryOffsets(text: string): number[] | null {
+  const offsets = Array<number>(text.length + 1);
+  offsets[0] = 0;
+
   for (let index = 0; index < text.length; index += 1) {
     const code = text.charCodeAt(index);
     if ((code < 0x20 || code > 0x7e) && code !== 0x09 && code !== 0x0a) {
-      return false;
+      return null;
     }
+
+    offsets[index + 1] = index + 1;
   }
 
-  return true;
+  return offsets;
 }
 
-function graphemeBoundaryOffsets(text: string, asciiSafe = isAsciiSafe(text)): number[] {
-  if (asciiSafe) {
-    // ASCII has one UTF-16 code unit per grapheme in the range we accept here,
-    // so this hot path avoids Intl.Segmenter for common English/code strings.
-    const offsets: number[] = [];
-    for (let index = 0; index <= text.length; index += 1) {
-      offsets.push(index);
-    }
-
-    return offsets;
-  }
-
+function graphemeBoundaryOffsets(text: string): number[] {
   const boundaryOffsets = [0];
   let offset = 0;
 
@@ -198,8 +183,11 @@ function wordBoundaryOffsets(
 }
 
 export function prepareText(text: string, boundary: ClampBoundary = "grapheme"): PreparedText {
-  const asciiSafe = isAsciiSafe(text);
-  const fallbackBoundaryOffsets = graphemeBoundaryOffsets(text, asciiSafe);
+  // ASCII has one UTF-16 code unit per grapheme in the accepted range, so the
+  // common path builds its boundaries while checking safety in a single pass.
+  const asciiOffsets = asciiBoundaryOffsets(text);
+  const asciiSafe = asciiOffsets !== null;
+  const fallbackBoundaryOffsets = asciiOffsets ?? graphemeBoundaryOffsets(text);
 
   if (boundary === "grapheme") {
     return {
@@ -276,7 +264,7 @@ export function normalizeLocationRatio(location: LineClampLocation): number {
   return Math.max(0, Math.min(1, location));
 }
 
-function nextClampedMaxWidth(
+export function nextClampedMaxWidth(
   hint: TextClampHint | null,
   kept: number,
   rootWidth: number,
@@ -367,6 +355,16 @@ function sameTextClampContext(
   );
 }
 
+export function matchingTextClampHint(
+  prepared: PreparedText,
+  hint: TextClampHint | null,
+  context: TextClampContext,
+): TextClampHint | null {
+  return hint?.boundaryOffsets === prepared.boundaryOffsets && sameTextClampContext(hint, context)
+    ? hint
+    : null;
+}
+
 function sameTextFitContext(
   hint: TextClampHint | null,
   context: TextFitContext,
@@ -406,55 +404,13 @@ function withTextClampMetrics(
   };
 }
 
-function searchCountForCandidates(candidateCount: number, includeFullCandidate: boolean): number {
-  return Math.max(1, candidateCount + (includeFullCandidate ? 1 : 0));
-}
-
-function estimatedSearchTarget(
-  searchCount: number,
-  hintKept: number,
-  rootWidth: number,
-  referenceWidth: number,
-  rankPerPx: number,
-): number {
-  const widthDelta = rootWidth - referenceWidth;
-  const rankMove = Math.ceil(Math.abs(widthDelta) * rankPerPx);
-  const direction = Math.sign(widthDelta);
-  const target = hintKept + direction * rankMove;
-
-  return Math.max(0, Math.min(searchCount - 1, target));
-}
-
 function comparableWidthScale(width: number, referenceWidth: number): boolean {
   return (
     Math.min(width, referenceWidth) * maxComparableWidthRatio >= Math.max(width, referenceWidth)
   );
 }
 
-function warmBeatsCold(
-  count: number,
-  hint: number,
-  target: number,
-  includeFull: boolean,
-  allowPatchTieBreak = false,
-): boolean {
-  const coldProbes = estimateColdSearchMaxProbeCount(count);
-  const coldCost = includeFull ? 1 + estimateColdSearchMaxProbeCount(count - 1) : coldProbes;
-  const rankMove = Math.abs(target - hint);
-
-  return (
-    rankMove <= coldProbes &&
-    warmTargetBeatsCold({
-      allowPatchTieBreak,
-      coldCost,
-      count,
-      hint,
-      target,
-    })
-  );
-}
-
-function estimateWarmSearch(input: WarmSearchInput): WarmSearchEstimate | null {
+function warmSearchTarget(input: WarmSearchInput): number | null {
   const { candidateCount, hintKept, includeFullCandidate, rankPerPx, referenceWidth, rootWidth } =
     input;
 
@@ -467,121 +423,46 @@ function estimateWarmSearch(input: WarmSearchInput): WarmSearchEstimate | null {
     return null;
   }
 
-  const searchCount = searchCountForCandidates(candidateCount, includeFullCandidate);
-  const target = estimatedSearchTarget(searchCount, hintKept, rootWidth, referenceWidth, rankPerPx);
-
-  return {
-    rankMove: Math.abs(target - hintKept),
-    searchCount,
-    target,
-  };
-}
-
-function warmPatchTieBreakApplies(
-  boundary: ClampBoundary,
-  hasAffixes: boolean,
-  includeFullCandidate: boolean,
-  rankMove: number,
-  lineCapacity: number | undefined,
-): boolean {
-  if (rankMove <= warmSearchLocalCoverage()) {
-    return true;
-  }
-
-  if (lineCapacity === 1) {
-    return false;
-  }
-
-  if (boundary === "word") {
-    return true;
-  }
-
-  return includeFullCandidate && lineCapacity !== undefined && lineCapacity >= 2 && hasAffixes;
-}
-
-function warmEstimateCanBeatCold(input: WarmSearchInput, estimate: WarmSearchEstimate): boolean {
-  return warmBeatsCold(
-    estimate.searchCount,
-    input.hintKept,
-    estimate.target,
-    input.includeFullCandidate,
-    warmPatchTieBreakApplies(
-      input.boundary,
-      input.hasAffixes,
-      input.includeFullCandidate,
-      estimate.rankMove,
-      input.lineCapacity,
+  const count = Math.max(1, candidateCount + (includeFullCandidate ? 1 : 0));
+  const widthDelta = rootWidth - referenceWidth;
+  const target = Math.max(
+    0,
+    Math.min(
+      count - 1,
+      hintKept + Math.sign(widthDelta) * Math.ceil(Math.abs(widthDelta) * rankPerPx),
     ),
   );
-}
+  const rankMove = Math.abs(target - hintKept);
+  const coldProbes = estimateColdSearchMaxProbeCount(count);
+  let allowPatchTieBreak: boolean;
 
-function warmSearchStaysLocal(input: WarmSearchInput): boolean {
-  const estimate = estimateWarmSearch(input);
-
-  return estimate !== null && warmEstimateCanBeatCold(input, estimate);
-}
-
-function warmSearchStaysLocalFromHint(
-  input: WarmHintInput,
-  rankPerPx: number,
-  referenceWidth: number,
-): boolean {
-  const {
-    boundary,
-    candidateCount,
-    hasAffixes,
-    hint,
-    includeFullCandidate,
-    lineCapacity,
-    rootWidth,
-  } = input;
-
-  return warmSearchStaysLocal({
-    boundary,
-    candidateCount,
-    hasAffixes,
-    hintKept: hint.kept,
-    includeFullCandidate,
-    lineCapacity,
-    rankPerPx,
-    referenceWidth,
-    rootWidth,
-  });
-}
-
-function warmSearchStaysLocalBySlope(input: WarmHintInput): boolean {
-  const { hint, rootWidth } = input;
-  const { rankPerPx, rankPerPxWidth, rootWidth: hintWidth } = hint;
-  if (
-    rankPerPx === undefined ||
-    rankPerPxWidth === undefined ||
-    hintWidth === undefined ||
-    rankPerPx <= 0 ||
-    rankPerPxWidth <= 0
-  ) {
-    return false;
+  if (rankMove <= warmSearchLocalCoverage()) {
+    allowPatchTieBreak = true;
+  } else if (input.lineCapacity === 1) {
+    allowPatchTieBreak = false;
+  } else {
+    allowPatchTieBreak =
+      input.boundary === "word" ||
+      (includeFullCandidate &&
+        input.lineCapacity !== undefined &&
+        input.lineCapacity >= 2 &&
+        input.hasAffixes);
   }
 
-  const deltaWidth = Math.abs(rootWidth - hintWidth);
-  if (!comparableWidthScale(rootWidth, hintWidth)) {
-    return false;
-  }
+  const coldCost = includeFullCandidate
+    ? 1 + estimateColdSearchMaxProbeCount(count - 1)
+    : coldProbes;
 
-  if (deltaWidth > rankPerPxWidth) {
-    return false;
-  }
-
-  return warmSearchStaysLocalFromHint(input, rankPerPx, hintWidth);
-}
-
-function warmSearchStaysLocalByVisibleDensity(input: WarmHintInput): boolean {
-  const { hint } = input;
-  const hintWidth = hint.rootWidth;
-  if (hintWidth === undefined || hintWidth <= 0 || hint.kept <= 0) {
-    return false;
-  }
-
-  return warmSearchStaysLocalFromHint(input, hint.kept / hintWidth, hintWidth);
+  return rankMove <= coldProbes &&
+    warmTargetBeatsCold({
+      allowPatchTieBreak,
+      coldCost,
+      count,
+      hint: hintKept,
+      target,
+    })
+    ? target
+    : null;
 }
 
 function canUseTextLayoutHint(
@@ -599,20 +480,33 @@ function canUseTextLayoutHint(
     return true;
   }
 
-  const candidateCount = hint.boundaryOffsets.length - 1;
-  const warmHintInput: WarmHintInput = {
+  const input = {
     boundary,
-    candidateCount,
+    candidateCount: hint.boundaryOffsets.length - 1,
     hasAffixes: context.hasAffixes,
-    hint,
+    hintKept: hint.kept,
     includeFullCandidate,
     lineCapacity: context.lineCapacity,
     rootWidth,
   };
+  const { rankPerPx, rankPerPxWidth, rootWidth: hintWidth } = hint;
 
   return (
-    warmSearchStaysLocalBySlope(warmHintInput) ||
-    warmSearchStaysLocalByVisibleDensity(warmHintInput)
+    (rankPerPx !== undefined &&
+      rankPerPxWidth !== undefined &&
+      hintWidth !== undefined &&
+      rankPerPx > 0 &&
+      rankPerPxWidth > 0 &&
+      Math.abs(rootWidth - hintWidth) <= rankPerPxWidth &&
+      warmSearchTarget({ ...input, rankPerPx, referenceWidth: hintWidth }) !== null) ||
+    (hintWidth !== undefined &&
+      hintWidth > 0 &&
+      hint.kept > 0 &&
+      warmSearchTarget({
+        ...input,
+        rankPerPx: hint.kept / hintWidth,
+        referenceWidth: hintWidth,
+      }) !== null)
   );
 }
 
@@ -622,12 +516,7 @@ export function canSkipFullTextFit(
   rootWidth: number,
   context: TextClampContext,
 ): boolean {
-  if (
-    !hint ||
-    hint.boundaryOffsets !== prepared.boundaryOffsets ||
-    !sameTextClampContext(hint, context) ||
-    hint.rootWidth === undefined
-  ) {
+  if (matchingTextClampHint(prepared, hint, context) === null || hint?.rootWidth === undefined) {
     return false;
   }
 
@@ -651,13 +540,9 @@ export function canSkipFullTextFit(
     referenceWidth: hint.rootWidth,
     rootWidth,
   };
-  const estimate = estimateWarmSearch(warmSearchInput);
+  const target = warmSearchTarget(warmSearchInput);
 
-  return (
-    estimate !== null &&
-    estimate.target < candidateCount &&
-    warmEstimateCanBeatCold(warmSearchInput, estimate)
-  );
+  return target !== null && target < candidateCount;
 }
 
 function fallbackSearchPrepared(
@@ -685,27 +570,6 @@ function fallbackSearchPrepared(
     boundary: "grapheme",
     boundaryOffsets: prepared.fallbackBoundaryOffsets,
   };
-}
-
-function shouldVerifyFullTextCandidate(
-  skipFullFit: boolean,
-  hint: TextClampHint | null,
-  rootWidth: number,
-  boundaryCount: number,
-): boolean {
-  if (!skipFullFit || hint?.rootWidth === undefined) {
-    return true;
-  }
-
-  if (rootWidth <= hint.rootWidth) {
-    return rootWidth === hint.rootWidth;
-  }
-
-  if (hint.kept >= boundaryCount) {
-    return true;
-  }
-
-  return hint.clampedMaxWidth === undefined || rootWidth > hint.clampedMaxWidth;
 }
 
 function canReuseFullFitOnGrow(
@@ -824,8 +688,6 @@ export function clampTextToLayout({
   ratio,
   root,
   rootWidth,
-  checkFullFitFirst = false,
-  forceSkipFullFit = false,
   reuseFullFitOnGrow = false,
   simpleLineFit,
   target,
@@ -847,7 +709,7 @@ export function clampTextToLayout({
     spacing: "trim",
   };
   const currentHint = hint ?? null;
-  const textHint = sameTextClampContext(currentHint, context) ? currentHint : null;
+  const textHint = matchingTextClampHint(prepared, currentHint, context);
   const boundaryCount = prepared.boundaryOffsets.length - 1;
 
   if (reuseFullFitOnGrow && canReuseFullFitOnGrow(textHint, rootWidth, boundaryCount)) {
@@ -864,10 +726,8 @@ export function clampTextToLayout({
     );
   }
 
-  const skipFullFit =
-    forceSkipFullFit ||
-    (!checkFullFitFirst && canSkipFullTextFit(prepared, textHint, rootWidth, context));
-  const searchHint = canUseTextLayoutHint(
+  const skipFullFit = canSkipFullTextFit(prepared, textHint, rootWidth, context);
+  let searchHint = canUseTextLayoutHint(
     textHint,
     prepared.boundary,
     rootWidth,
@@ -881,6 +741,7 @@ export function clampTextToLayout({
   const visibleBoundsCache: VisibleBoundsCache | undefined =
     maxHeight === undefined ? undefined : {};
   let currentText = target.textContent ?? "";
+  let fullFitSample: ContentFitSample | undefined;
 
   function applyText(nextText: string): void {
     if (nextText !== currentText) {
@@ -891,7 +752,20 @@ export function clampTextToLayout({
 
   if (!skipFullFit) {
     applyText(text);
-    if (fitsContent(root, content, lineLimit, maxHeight, true, visibleBoundsCache, simpleLineFit)) {
+    if (
+      fitsContent(
+        root,
+        content,
+        lineLimit,
+        maxHeight,
+        true,
+        visibleBoundsCache,
+        simpleLineFit,
+        (sample) => {
+          fullFitSample = sample;
+        },
+      )
+    ) {
       // The full source is the cheapest and most correct answer when it fits.
       // Store it as a warm-start hint so later shrink passes begin from full text.
       return withTextClampMetrics(
@@ -905,6 +779,36 @@ export function clampTextToLayout({
         rootWidth,
         context,
       );
+    }
+
+    const fullLineCount = fullFitSample?.rects?.length;
+    const fullSize = fullLineCount ?? fullFitSample?.bounds?.height;
+    const capacity = fullLineCount === undefined ? visibleBoundsCache?.height : lineCapacity;
+    const coldBoundaryOffsets =
+      prepared.fallbackBoundaryOffsets && boundaryCount <= 16
+        ? prepared.fallbackBoundaryOffsets
+        : prepared.boundaryOffsets;
+    const coldBoundaryCount = coldBoundaryOffsets.length - 1;
+    if (
+      searchHint === null &&
+      capacity !== undefined &&
+      capacity > 0 &&
+      fullSize !== undefined &&
+      fullSize >= capacity * 3 &&
+      coldBoundaryCount > 16
+    ) {
+      // The exact full-text rect read is already paid for. Its line-count ratio
+      // gives cold search a first rank without becoming a layout proof.
+      searchHint = {
+        boundaryOffsets: coldBoundaryOffsets,
+        ellipsis,
+        kept: Math.min(
+          coldBoundaryCount - 1,
+          Math.max(0, Math.floor((coldBoundaryCount * capacity) / fullSize)),
+        ),
+        ratio,
+        spacing: "trim",
+      };
     }
   }
 
@@ -927,11 +831,12 @@ export function clampTextToLayout({
     includeFullCandidate: skipFullFit,
     prepared: fallbackSearchPrepared(prepared, textHint, rootWidth),
     ratio,
-    verifyFullCandidate: shouldVerifyFullTextCandidate(
+    verifyFullCandidate: shouldVerifyFullCandidate(
       skipFullFit,
-      searchHint,
       rootWidth,
-      prepared.boundaryOffsets.length - 1,
+      searchHint?.rootWidth,
+      (searchHint?.kept ?? 0) >= prepared.boundaryOffsets.length - 1,
+      searchHint?.clampedMaxWidth,
     ),
   });
   applyText(result.text);

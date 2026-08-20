@@ -17,6 +17,5 @@ describe("Public exports", () => {
     expect("borderBoxWidth" in exports).toBe(false);
     expect("clampTextToFit" in exports).toBe(false);
     expect("prepareRich" in exports).toBe(false);
-    expect("tupleCacheKey" in exports).toBe(false);
   });
 });

@@ -1,26 +1,21 @@
 <script setup lang="ts">
 import { computed, h, mergeProps, nextTick, shallowRef, useAttrs, watch } from "vue";
-import {
-  exactResultCacheEntryLimit,
-  rememberCacheEntry,
-  touchCacheEntry,
-  tupleCacheKey,
-} from "../cache.ts";
-import {
-  borderBoxWidth,
-  cssLength,
-  hasInlineFontMetrics,
-  hasUnresolvedStyleReference,
-  isContentIndependentWidth,
-  normalizeLineLimit,
-} from "../layout.ts";
+import { borderBoxWidth, cssLength, normalizeLineLimit } from "../layout.ts";
 import { useMultilineClamp } from "../multiline.ts";
 import { renderMultilineAffixSlot } from "../multiline-render.ts";
-import { multilineSlotStyle } from "../multiline-styles.ts";
-import { clampRich, patchRich, prepareRich } from "../rich.ts";
+import { multilineNativeSlotStyle, multilineSlotStyle } from "../multiline-styles.ts";
+import {
+  getNativeContentStyle,
+  measureNativeClamped,
+  nativeBodyStyle,
+  nativeTextStyle,
+  resolveNativeMode,
+} from "../native.ts";
+import { canSafelyCloneRichProbe, clampRich, patchRich, prepareRich } from "../rich.ts";
 import {
   estimateColdSearchMaxProbeCount,
   richWarmExpansionLimit,
+  shouldVerifyFullCandidate,
   warmSearchLocalCoverage,
   warmTargetBeatsCold,
 } from "../search.ts";
@@ -28,6 +23,7 @@ import { richProbeStyle } from "./styles.ts";
 
 import type { VNodeChild } from "vue";
 import type { ClampEmits } from "../types.ts";
+import type { NativeClampMode } from "../native.ts";
 import type {
   PreparedRich,
   RichClampProbe,
@@ -66,14 +62,13 @@ type RankHint = {
   width: number;
 };
 
-type CachedResult = RichClampResult & {
-  readonly fallback: false;
-  readonly state: RichState;
-};
-
 // Bootstrap locality before a measured word-rank slope exists. This is a
 // conservative fallback, not a proof that the pixel window is globally optimal.
 const warmBootstrapWidthDelta = 32;
+const nativeRichBodyStyle = {
+  ...nativeBodyStyle,
+  ...nativeTextStyle,
+};
 
 defineOptions({
   name: "RichLineClamp",
@@ -98,13 +93,17 @@ const attrs = useAttrs();
 const probeRef = shallowRef<HTMLElement | null>(null);
 const isFallback = shallowRef(false);
 
+// The visible tree and hidden probe advance independently. measuredState is both
+// the latest warm hint and the hidden body's patch origin.
 const preparedHtml = computed(() => prepareRich(html, boundary));
-
-// The visible tree and hidden probe advance independently. measuredState is the
-// latest measured result used for warm hints; probeDomState is the actual hidden
-// body state used as the next patch origin.
+const hasActiveClamp = computed(
+  () =>
+    !expanded.value &&
+    html.length > 0 &&
+    (normalizeLineLimit(maxLines) !== undefined || maxHeight !== undefined),
+);
 let visibleState: RichState | null = null;
-let probeDomState: RichState | null = null;
+let visibleIsPatched = false;
 let measuredState: RichState | null = null;
 let probeElements: ProbeElements | null = null;
 let probeSearchIndex: RichSearchIndex | null = null;
@@ -112,7 +111,8 @@ let measuredAffixSignature: string | null = null;
 let measuredWidth: number | null = null;
 let rankHint: RankHint | null = null;
 let clampedMaxWidth: number | null = null;
-const resultCache = new Map<string, CachedResult>();
+let sourceProbeSafety: { prepared: PreparedRich; safe: boolean } | null = null;
+let probeCloneBlocked = false;
 
 const {
   rootRef,
@@ -130,12 +130,10 @@ const {
   setAfterElement,
   requestRecompute,
 } = useMultilineClamp({
+  active: hasActiveClamp,
   expanded,
   onClampedChange: (value) => {
     emit("clampchange", value);
-  },
-  onFontLoad: () => {
-    resultCache.clear();
   },
   syncAffixSignaturesOnRootChange: true,
   recompute: async (expanded, rootWidthSnapshot): Promise<void> => {
@@ -152,12 +150,66 @@ const {
       return;
     }
 
-    const prepared = preparedHtml.value;
+    const bodyElement = bodyRef.value;
 
-    if (!bodyRef.value || !prepared) {
-      // DOMParser can be unavailable in non-browser environments, and refs can
-      // be absent during mount/teardown; both cases use the safe source.
+    if (!bodyElement) {
       await resetClamp();
+      return;
+    }
+
+    const nativeMode = getNativeMode(lineLimit);
+    if (nativeMode) {
+      const contentElement = contentRef.value;
+      if (!contentElement) {
+        await resetClamp();
+        return;
+      }
+
+      if (visibleIsPatched) {
+        const prepared = preparedHtml.value;
+        if (!prepared) {
+          await resetClamp();
+          return;
+        }
+
+        patchVisible(prepared, { kind: "full" });
+      }
+
+      resetStates();
+      clearProbe();
+      const clampedElement = nativeMode === "multi-line" ? contentElement : bodyElement;
+      const nextClamped = measureNativeClamped(
+        clampedElement,
+        nativeMode,
+        nativeMode === "multi-line" ? rootWidthSnapshot : undefined,
+      );
+      await applyStatus(nextClamped ?? false, false);
+      return;
+    }
+
+    const prepared = preparedHtml.value;
+    if (!prepared) {
+      // DOMParser can be unavailable in non-browser environments. Keep the
+      // authored source rather than trying to measure an unknown tree.
+      await resetClamp();
+      return;
+    }
+
+    if (probeCloneBlocked) {
+      await applySourceFallback(prepared);
+      return;
+    }
+
+    if (
+      !canSafelyPrepareSource(prepared) ||
+      !canSafelyCloneRichProbe(beforeRef.value) ||
+      !canSafelyCloneRichProbe(afterRef.value)
+    ) {
+      // Arbitrary connected clones can run custom-element lifecycle hooks,
+      // duplicate document/form identities, or activate embedded resources.
+      // Preserve the authored source instead of approximating those cases.
+      probeCloneBlocked = true;
+      await applySourceFallback(prepared);
       return;
     }
 
@@ -168,44 +220,36 @@ const {
     }
 
     const { affixSignature, probe } = preparedProbe;
-    const hasWidthSnapshot = rootWidthSnapshot !== undefined;
     const sameAffix = affixSignature === measuredAffixSignature;
     const skipFullFit = canSkipFullFit(probe.width, sameAffix);
     const searchHint = canUseSearchHint(probe.width, sameAffix, lineLimit) ? measuredState : null;
     const preferHintedTextRun =
       searchHint?.kind === "clamped" && measuredWidth !== null && sameAffix;
-    const cacheKey = resultCacheKey(prepared, hasWidthSnapshot, probe.width, affixSignature);
-    const cachedResult = cacheKey ? (touchCacheEntry(resultCache, cacheKey) ?? null) : null;
-    const result =
-      cachedResult ??
-      clampRich({
-        checkFullFitFirst: probe.width === measuredWidth,
-        ellipsis,
-        from: probeDomState,
-        hint: searchHint,
-        lineLimit,
-        maxHeight,
-        prepared,
-        preferHintedTextRun,
-        probe,
-        reuseSimpleLineFit: hasWidthSnapshot,
-        searchIndex: probeSearchIndex,
+    const result = clampRich({
+      ellipsis,
+      from: measuredState,
+      hint: searchHint,
+      lineLimit,
+      maxHeight,
+      prepared,
+      preferHintedTextRun,
+      probe,
+      searchIndex: probeSearchIndex,
+      skipFullFit,
+      verifyFullCandidate: shouldVerifyFullCandidate(
         skipFullFit,
-        verifyFullCandidate: shouldVerifyFullCandidate(probe.width),
-      });
-    if (!cachedResult) {
-      probeDomState = result.state;
-    }
+        probe.width,
+        measuredWidth,
+        measuredState?.kind === "full",
+        clampedMaxWidth,
+      ),
+    });
     measuredState = result.state;
     probeSearchIndex = result.searchIndex ?? null;
     measuredAffixSignature = affixSignature;
     measuredWidth = probe.width;
     updateRankHint(result, probe.width, sameAffix);
     updateClampedMaxWidth(result, probe.width, sameAffix);
-    if (!cachedResult && isCacheableResult(result)) {
-      rememberCacheEntry(resultCache, cacheKey, result, exactResultCacheEntryLimit);
-    }
-
     if (!result.state) {
       // A zero-width probe should not replace visible content with a guessed rich
       // fragment.
@@ -221,6 +265,8 @@ const {
 function createProbe(): ProbeElements {
   const content = document.createElement("span");
   const body = document.createElement("span");
+  content.dataset.part = "content";
+  body.dataset.part = "body";
   content.appendChild(body);
 
   return {
@@ -323,133 +369,48 @@ function syncProbeAffixClone(
 }
 
 function resetStates(): void {
+  // visibleIsPatched describes the live DOM, not a reusable patch cursor. It
+  // intentionally survives semantic-state resets until source DOM is restored.
   visibleState = null;
-  probeDomState = null;
   measuredState = null;
   probeSearchIndex = null;
   measuredAffixSignature = null;
   measuredWidth = null;
   rankHint = null;
   clampedMaxWidth = null;
-  resultCache.clear();
 }
 
-function canCacheRoot(element: HTMLElement, searchIndex: RichSearchIndex): boolean {
-  if (
-    searchIndex.hasStyleDependentDisplay ||
-    searchIndex.hasStyleDependentLineMetrics ||
-    (element.getAttribute("class") ?? "").trim() !== ""
-  ) {
-    return false;
-  }
-
-  const styleText = element.getAttribute("style") ?? "";
-  if (styleText === "" || hasUnresolvedStyleReference(styleText)) {
-    return false;
-  }
-
-  return (
-    isContentIndependentWidth(element.style.width.trim()) && hasInlineFontMetrics(element.style)
-  );
+function clearProbe(): void {
+  probeRef.value?.replaceChildren();
+  probeElements = null;
 }
 
-function styleSheetCacheKey(): string | null {
-  const signature = [document.styleSheets.length.toString()];
-
-  for (const sheet of document.styleSheets) {
-    try {
-      for (const rule of sheet.cssRules) {
-        if (!(rule instanceof CSSStyleRule)) {
-          return null;
-        }
-
-        const cssText = rule.cssText;
-        if (cssText.toLowerCase().includes("var(")) {
-          return null;
-        }
-
-        signature.push(cssText);
-      }
-    } catch {
-      return null;
-    }
+function canSafelyPrepareSource(prepared: PreparedRich): boolean {
+  if (sourceProbeSafety?.prepared === prepared) {
+    return sourceProbeSafety.safe;
   }
 
-  return tupleCacheKey(signature);
+  // `html`/`boundary` changes create a new prepared source, so the static
+  // clone-safety walk is paid once per source rather than once per reclamp.
+  const safe = canSafelyCloneRichProbe(prepared.root) && canSafelyCloneRichProbe(bodyRef.value);
+  sourceProbeSafety = { prepared, safe };
+  return safe;
 }
 
-function ancestorStyleContextKey(element: HTMLElement): string | null {
-  const parts: string[] = [];
-  let current: HTMLElement | null = element;
-
-  while (current) {
-    const style = current.getAttribute("style") ?? "";
-    if (hasUnresolvedStyleReference(style)) {
-      return null;
-    }
-
-    parts.push(current.id, current.getAttribute("class") ?? "", style);
-    current = current.parentElement;
+function getNativeMode(lineLimit: number | undefined): NativeClampMode | null {
+  if (probeCloneBlocked) {
+    return null;
   }
 
-  return tupleCacheKey(parts);
-}
-
-function hasUnresolvedInlineStyles(root: Element): boolean {
-  const style = root.getAttribute("style") ?? "";
-  if (hasUnresolvedStyleReference(style)) {
-    return true;
-  }
-
-  for (const child of root.querySelectorAll("[style]")) {
-    if (hasUnresolvedStyleReference(child.getAttribute("style") ?? "")) {
-      return true;
-    }
-  }
-
-  return false;
-}
-
-function resultCacheKey(
-  prepared: PreparedRich,
-  hasWidthSnapshot: boolean,
-  width: number,
-  affixSignature: string,
-): string | undefined {
-  const rootElement = rootRef.value;
-  const searchIndex = probeSearchIndex;
-  if (
-    !hasWidthSnapshot ||
-    !rootElement ||
-    !searchIndex ||
-    !canCacheRoot(rootElement, searchIndex) ||
-    hasUnresolvedInlineStyles(prepared.root)
-  ) {
-    return undefined;
-  }
-
-  const ancestorKey = ancestorStyleContextKey(rootElement);
-  if (ancestorKey === null) {
-    return undefined;
-  }
-
-  const styleSheetKey = styleSheetCacheKey();
-  if (styleSheetKey === null) {
-    return undefined;
-  }
-
-  return tupleCacheKey([
-    width,
-    affixSignature,
-    searchIndex.atomicPathSignature,
-    searchIndex.simpleLineStyleKey ?? "",
-    ancestorKey,
-    styleSheetKey,
-  ]);
-}
-
-function isCacheableResult(result: RichClampResult): result is CachedResult {
-  return !result.fallback && !!result.state;
+  return resolveNativeMode({
+    boundary,
+    ellipsis,
+    expanded: expanded.value,
+    hasAfterSlot: afterRef.value !== null,
+    lineLimit,
+    locationRatio: 1,
+    maxHeight,
+  });
 }
 
 function canUseSearchHint(
@@ -467,56 +428,33 @@ function canUseSearchHint(
   }
 
   const hint = rankHint;
-  if (canUseSearchRank(hint)) {
-    return warmBeatsCold(hint, width, lineLimit);
+  if (boundary === "word" && hint?.hasObservedRankSlope && hint.textRankSafe) {
+    const count = hint.rankCount;
+    const start = Math.max(0, Math.min(count - 1, hint.rank));
+    const target = estimatedTargetRank(hint, width);
+    const rankMove = Math.abs(target - start);
+
+    return warmTargetBeatsCold({
+      allowPatchTieBreak:
+        rankMove <= warmSearchLocalCoverage(richWarmExpansionLimit) || lineLimit !== 1,
+      coldCost: estimateColdSearchMaxProbeCount(count),
+      count,
+      expansionLimit: richWarmExpansionLimit,
+      hint: start,
+      target,
+    });
   }
 
   return Math.abs(width - stateWidth) <= warmBootstrapWidthDelta;
 }
 
-function canUseObservedRankSlope(hint: RankHint | null): hint is RankHint {
-  return boundary === "word" && !!hint?.hasObservedRankSlope;
-}
-
-function canUseSearchRank(hint: RankHint | null): hint is RankHint {
-  return canUseObservedRankSlope(hint) && hint.textRankSafe;
-}
-
-function clampRank(rank: number, rankCount: number): number {
-  return Math.max(0, Math.min(rankCount - 1, rank));
-}
-
-function warmBeatsCold(hint: RankHint, width: number, lineLimit: number | undefined): boolean {
-  const count = hint.rankCount;
-  const start = clampRank(hint.rank, count);
-  const target = estimatedTargetRank(hint, width);
-  const coldProbes = estimateColdSearchMaxProbeCount(count);
-  const rankMove = Math.abs(target - start);
-
-  return warmTargetBeatsCold({
-    allowPatchTieBreak: warmPatchTieBreakApplies(rankMove, lineLimit),
-    coldCost: coldProbes,
-    count,
-    expansionLimit: richWarmExpansionLimit,
-    hint: start,
-    target,
-  });
-}
-
-function warmPatchTieBreakApplies(rankMove: number, lineLimit: number | undefined): boolean {
-  if (rankMove <= warmSearchLocalCoverage(richWarmExpansionLimit)) {
-    return true;
-  }
-
-  return lineLimit !== 1;
-}
-
 function estimatedTargetRank(hint: RankHint, width: number): number {
   const deltaWidth = width - hint.width;
   const rankMove = Math.abs(deltaWidth) * hint.rankPerPx;
-  const target = clampRank(hint.rank, hint.rankCount) + Math.sign(deltaWidth) * Math.ceil(rankMove);
+  const start = Math.max(0, Math.min(hint.rankCount - 1, hint.rank));
+  const target = start + Math.sign(deltaWidth) * Math.ceil(rankMove);
 
-  return clampRank(target, hint.rankCount);
+  return Math.max(0, Math.min(hint.rankCount - 1, target));
 }
 
 function nextRankPerPx(
@@ -540,16 +478,6 @@ function nextRankPerPx(
   return Number.isFinite(observed) && observed > 0 ? observed : previous.rankPerPx;
 }
 
-function nextRankSlopeObserved(
-  previous: RankHint | null,
-  width: number,
-  sameAffix: boolean,
-): boolean {
-  // Same-width font or slot invalidations should not discard a slope learned
-  // from an earlier resize.
-  return sameAffix && !!previous && (previous.hasObservedRankSlope || previous.width !== width);
-}
-
 function updateRankHint(result: RichClampResult, width: number, sameAffix: boolean): void {
   if (result.rank === undefined || result.rankCount === undefined || result.rankCount <= 0) {
     rankHint = null;
@@ -558,7 +486,9 @@ function updateRankHint(result: RichClampResult, width: number, sameAffix: boole
 
   const previous = rankHint;
   rankHint = {
-    hasObservedRankSlope: nextRankSlopeObserved(previous, width, sameAffix),
+    // Same-width invalidations preserve a slope learned from an earlier resize.
+    hasObservedRankSlope:
+      sameAffix && !!previous && (previous.hasObservedRankSlope || previous.width !== width),
     rank: result.rank,
     rankCount: result.rankCount,
     rankPerPx: nextRankPerPx(result, width, sameAffix, previous),
@@ -576,18 +506,6 @@ function updateClampedMaxWidth(result: RichClampResult, width: number, sameAffix
   clampedMaxWidth = sameAffix ? Math.max(width, clampedMaxWidth ?? width) : width;
 }
 
-function shouldVerifyFullCandidate(width: number): boolean {
-  if (measuredWidth === null || width === measuredWidth) {
-    return true;
-  }
-
-  if (width < measuredWidth) {
-    return false;
-  }
-
-  return clampedMaxWidth === null || width > clampedMaxWidth;
-}
-
 function canSkipFullFit(width: number, sameAffix: boolean): boolean {
   const state = measuredState;
   const stateWidth = measuredWidth;
@@ -596,7 +514,7 @@ function canSkipFullFit(width: number, sameAffix: boolean): boolean {
   }
 
   const hint = rankHint;
-  if (canUseObservedRankSlope(hint)) {
+  if (boundary === "word" && hint?.hasObservedRankSlope) {
     return estimatedTargetRank(hint, width) < hint.rankCount - 1;
   }
 
@@ -608,11 +526,13 @@ function patchVisible(prepared: PreparedRich, state: RichState): void {
   if (!bodyElement) {
     // If Vue has not mounted the target body, discard states rather than
     // applying future patches against an unknown DOM state.
+    visibleIsPatched = false;
     resetStates();
     return;
   }
 
   visibleState = patchRich(prepared, bodyElement, visibleState, state, ellipsis);
+  visibleIsPatched = state.kind === "clamped";
 }
 
 async function applyStatus(nextClamped: boolean, nextFallback: boolean): Promise<void> {
@@ -622,24 +542,40 @@ async function applyStatus(nextClamped: boolean, nextFallback: boolean): Promise
   isFallback.value = nextFallback;
 
   if (changed) {
-    // The measured rich DOM is already final; this tick exposes clamped state
-    // changes after Vue commits the visible patch.
+    // Layout and visible DOM are already final; this tick exposes status changes
+    // after Vue commits any render-mode transition.
     await nextTick();
   }
 }
 
 async function resetClamp(): Promise<void> {
-  const prepared = preparedHtml.value;
-
-  if (prepared) {
-    // Reset through the structural patcher so existing visible descendants are
-    // restored consistently with normal clamp commits.
-    patchVisible(prepared, { kind: "full" });
+  if (visibleIsPatched) {
+    const prepared = preparedHtml.value;
+    if (prepared) {
+      // Reset through the structural patcher so existing visible descendants
+      // are restored consistently with normal clamp commits.
+      patchVisible(prepared, { kind: "full" });
+    } else {
+      resetStates();
+    }
   } else {
     resetStates();
   }
 
   await applyStatus(false, false);
+}
+
+async function applySourceFallback(prepared: PreparedRich): Promise<void> {
+  if (visibleIsPatched) {
+    // Slot-only changes can make an already-clamped tree unsafe to clone. HTML
+    // changes clear visibleIsPatched after Vue restores innerHTML, so avoiding a
+    // redundant patch also avoids reconnecting custom elements.
+    patchVisible(prepared, { kind: "full" });
+  }
+
+  resetStates();
+  clearProbe();
+  await applyStatus(false, true);
 }
 
 function probeAffixSignature(elements: ProbeElements): string {
@@ -678,7 +614,10 @@ function prepareProbe(rootWidth?: number): PreparedProbe | null {
   };
 }
 
-function renderAffixSlot(part: "before" | "after"): VNodeChild | null {
+function renderAffixSlot(
+  part: "before" | "after",
+  nativeMode: NativeClampMode | null,
+): VNodeChild | null {
   const slot = part === "before" ? slots.before : slots.after;
   if (!slot) {
     return null;
@@ -689,11 +628,13 @@ function renderAffixSlot(part: "before" | "after"): VNodeChild | null {
     render: slot,
     setRef: part === "before" ? setBeforeElement : setAfterElement,
     slotProps: affixSlotProps(),
-    slotStyle: multilineSlotStyle,
+    slotStyle: nativeMode === "single-line" ? multilineNativeSlotStyle : multilineSlotStyle,
   });
 }
 
 function render(): VNodeChild {
+  const lineLimit = normalizeLineLimit(maxLines);
+  const nativeMode = getNativeMode(lineLimit);
   const collapsedMaxHeight =
     !expanded.value && !isFallback.value ? cssLength(maxHeight) : undefined;
   const rootStyle =
@@ -704,7 +645,7 @@ function render(): VNodeChild {
           overflow: "hidden",
         };
   const children: VNodeChild[] = [];
-  const beforeSlot = renderAffixSlot("before");
+  const beforeSlot = renderAffixSlot("before", nativeMode);
   if (beforeSlot) {
     children.push(beforeSlot);
   }
@@ -714,12 +655,36 @@ function render(): VNodeChild {
       "data-part": "body",
       innerHTML: html,
       ref: bodyRef,
+      style: nativeMode === "single-line" ? nativeRichBodyStyle : undefined,
     }),
   );
 
-  const afterSlot = renderAffixSlot("after");
+  const afterSlot = renderAffixSlot("after", nativeMode);
   if (afterSlot) {
     children.push(afterSlot);
+  }
+
+  const rootChildren: VNodeChild[] = [
+    h(
+      "span",
+      {
+        "data-part": "content",
+        ref: contentRef,
+        style: getNativeContentStyle(nativeMode, lineLimit),
+      },
+      children,
+    ),
+  ];
+
+  if (!nativeMode) {
+    rootChildren.push(
+      h("span", {
+        "aria-hidden": "true",
+        inert: true,
+        ref: probeRef,
+        style: richProbeStyle,
+      }),
+    );
   }
 
   return h(
@@ -729,21 +694,7 @@ function render(): VNodeChild {
       ref: rootRef,
       style: rootStyle,
     }),
-    [
-      h(
-        "span",
-        {
-          "data-part": "content",
-          ref: contentRef,
-        },
-        children,
-      ),
-      h("span", {
-        "aria-hidden": "true",
-        ref: probeRef,
-        style: richProbeStyle,
-      }),
-    ],
+    rootChildren,
   );
 }
 
@@ -751,9 +702,14 @@ defineRender(render);
 
 watch(
   [() => html, () => maxLines, () => maxHeight, () => ellipsis, () => boundary],
-  () => {
+  ([nextHtml], [previousHtml]) => {
     // HTML and clamp semantics change the structural state space, so both
     // visible and probe patch cursors must restart.
+    if (nextHtml !== previousHtml) {
+      // Vue has restored changed `innerHTML` before this post-flush watcher.
+      visibleIsPatched = false;
+    }
+    probeCloneBlocked = false;
     resetStates();
     isFallback.value = false;
     requestRecompute();
