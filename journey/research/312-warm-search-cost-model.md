@@ -82,6 +82,13 @@ Line count is therefore a model input, not a standalone switch.
 
 Browser tests check the model before aggregate benchmark timing is considered evidence.
 
+Those checks must remain invariant across browser hosts with different installed fallback fonts.
+Exact ranks, whether an already-narrow interval needs one more unit of scalar credit, and fixed
+probe-count ceilings are font-metric outcomes rather than portable contracts. The retained tests
+therefore compare interval/credit ordering and search complexity, use the bounds returned by the
+paid fit probe when calibrating packing slack, and keep observed widths clearly inside an
+algebraic threshold because Chromium quantizes layout to a subpixel grid.
+
 Search-level tests cover:
 
 - exact cold and warm probe orders

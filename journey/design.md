@@ -616,7 +616,11 @@
     delta, not isolated grapheme width; isolated glyph measurements undercounted a rich long-token
     grow row until the probe measured prefix-plus-ellipsis candidate deltas. A matching rich
     long-token shrink row now checks the direction-specific formula against actual mixed-rank
-    movement. Measuring the full advance vector costs one bounding-rect read for the ellipsis
+    movement. Cross-platform CI also established that calibration assertions must compare model
+    invariants rather than fixed ranks, credits, or read counts under an unspecified fallback font;
+    packing-slack calibration uses the already-paid fit bounds, and browser samples stay visibly
+    inside algebraic thresholds to account for Chromium subpixel quantization. Measuring the full
+    advance vector costs one bounding-rect read for the ellipsis
     baseline plus one per grapheme, exceeding the cold-search probe upper bound in that row, so full
     vectors remain calibration evidence, not a runtime-ready input. Existing simple-height fit
     probes can now surface content bounds through `fitsContent` / `clampRich` without extra layout

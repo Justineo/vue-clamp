@@ -922,6 +922,10 @@ describe("text layout helpers", () => {
 
     const prepared = prepareText("observability-platform ".repeat(32));
     const host = mountLayoutHost(180);
+    const boundaryCount = prepared.boundaryOffsets.length - 1;
+    host.text.textContent = prepared.text;
+    const fullLineCount = host.content.getClientRects().length;
+    const seed = Math.floor((boundaryCount * 3) / fullLineCount);
     const state: { result: TextClampResult | null } = { result: null };
     const reads = countClientRectsDuring(host.content, () => {
       state.result = clampTextToLayout({
@@ -939,7 +943,10 @@ describe("text layout helpers", () => {
     });
 
     expect(state.result?.text).not.toBe(prepared.text);
-    expect(reads).toBeLessThanOrEqual(3);
+    expect(fullLineCount).toBeGreaterThanOrEqual(9);
+    expect(reads).toBe(
+      1 + estimateWarmSearchProbeCount(boundaryCount, seed, state.result?.kept ?? -1),
+    );
   });
 
   it("seeds the grapheme fallback for a cold single-word text search", async () => {
@@ -974,6 +981,11 @@ describe("text layout helpers", () => {
     const host = mountLayoutHost(180);
     host.root.style.maxHeight = "60px";
     host.root.style.overflow = "hidden";
+    const boundaryCount = prepared.boundaryOffsets.length - 1;
+    host.text.textContent = prepared.text;
+    const fullHeight = host.content.getBoundingClientRect().height;
+    const visibleHeight = host.root.clientHeight;
+    const seed = Math.floor((boundaryCount * visibleHeight) / fullHeight);
     const state: { result: TextClampResult | null } = { result: null };
     const sample = sampleFitCostDuring(host.root, host.content, () => {
       state.result = clampTextToLayout({
@@ -991,7 +1003,10 @@ describe("text layout helpers", () => {
     });
 
     expect(state.result?.text).not.toBe(prepared.text);
-    expect(sample.contentBoundingRectReads).toBeLessThanOrEqual(3);
+    expect(fullHeight).toBeGreaterThanOrEqual(visibleHeight * 3);
+    expect(sample.contentBoundingRectReads).toBe(
+      1 + estimateWarmSearchProbeCount(boundaryCount, seed, state.result?.kept ?? -1),
+    );
   });
 
   it("captures text probe mutations during actual layout fitting", async () => {
