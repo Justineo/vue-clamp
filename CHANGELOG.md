@@ -4,36 +4,26 @@ All notable changes to this project will be documented in this file.
 
 ## [1.6.0]
 
-Minor release focused on making measured clamping faster and more reliable during layout changes.
-No API changes are required.
+Minor release with faster and more reliable clamping. No API changes are required.
 
 ### Improved
 
-- `<InlineClamp>` keeps the full source DOM and uses native overflow for its default unsplit end
-  mode; measured middle, word, and custom-ellipsis modes also do less work across repeated large
+- `<InlineClamp>` uses native CSS for default end truncation and does less work during repeated
   resizes.
-- `<RichLineClamp>` can use browser-native clamping for supported default `maxLines` cases, keeping
-  the authored rich DOM intact and avoiding duplicate measurement content.
-- `<RichLineClamp>` handles rich HTML with many inline wrapper elements more efficiently on its
-  measured path.
-- `<LineClamp>` and `<RichLineClamp>` coalesce font-readiness and same-frame layout updates while
-  conservatively remeasuring font-only changes.
-- Measured `<LineClamp>`, `<InlineClamp>`, and `<RichLineClamp>` modes do less work when long text or
-  rich content changes without a width change.
-- Expanded, empty, and unconstrained clamps avoid background layout and font observation until
-  clamping becomes active again.
-- Fractional-width layout changes are detected more reliably, improving behavior under browser
-  zoom, high-DPI displays, and flex/grid layouts.
+- `<RichLineClamp>` uses native CSS for supported `maxLines` cases and handles HTML with many inline
+  elements more efficiently.
+- Measured clamps avoid redundant work when content changes at the same width or when font and
+  layout updates happen together.
+- Expanded, empty, and unlimited clamps observe layout and fonts only when clamping becomes active.
+- Fractional width changes are detected reliably under browser zoom, high-DPI displays, and
+  flex/grid layouts.
 
 ### Fixed
 
-- `<LineClamp>` and `<RichLineClamp>` can restore the full text after a same-width font change makes
-  previously clamped content fit.
-- `<LineClamp>`, `<RichLineClamp>`, and `<InlineClamp>` remeasure repeated widths when inherited text
-  metrics change instead of returning a stale result.
-- `<RichLineClamp>` leaves source content unchanged when measured clamping would require unsafe
-  connected clones, including custom elements, duplicate IDs, named form controls, and embedded
-  active content.
+- `<LineClamp>` and `<RichLineClamp>` restore the full content when a font change makes it fit.
+- Measured clamps remeasure when inherited text styles change, even if the width stays the same.
+- `<RichLineClamp>` preserves the original HTML when it cannot create a safe measurement copy,
+  including content with custom elements, duplicate IDs, form controls, or embedded content.
 
 ## [1.5.1]
 
