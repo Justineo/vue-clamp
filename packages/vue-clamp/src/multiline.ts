@@ -1,8 +1,26 @@
-import { onBeforeUnmount, onMounted, onUpdated, shallowRef, watch, watchPostEffect } from "vue";
+import {
+  nextTick,
+  onBeforeUnmount,
+  onMounted,
+  onUpdated,
+  shallowRef,
+  watch,
+  watchPostEffect,
+} from "vue";
 import { useClampControls } from "./controls.ts";
-import { combinedSizeSignature, createCoalescingRunner, listenForFontLoads } from "./layout.ts";
+import {
+  borderBoxSizeSnapshot,
+  borderBoxSizeSignature,
+  createCoalescingRunner,
+  emptyBorderBoxSignature,
+  listenForFontLoads,
+  observeBorderBoxSizes,
+  observedBorderBoxSizeSnapshot,
+} from "./layout.ts";
 
-import type { Ref } from "vue";
+import type { ComponentPublicInstance, Ref } from "vue";
+import type { BorderBoxSizeSnapshot } from "./layout.ts";
+import type { ClampSlotProps } from "./types.ts";
 
 export type MultilineFrameRefs = {
   readonly rootRef: Ref<HTMLElement | null>;
@@ -16,24 +34,57 @@ type ShellState = MultilineFrameRefs & {
   readonly isClamped: Ref<boolean>;
 };
 
+export type MultilineAffixRefSetter = (element: ComponentPublicInstance | Element | null) => void;
+
 export type MultilineShellOptions = {
+  readonly active: Ref<boolean>;
   readonly expanded: Ref<boolean>;
   readonly onClampedChange: (value: boolean) => void;
-  readonly recompute: (expanded: Ref<boolean>) => Promise<void>;
+  readonly onFontLoad?: () => void;
+  readonly recompute: (expanded: Ref<boolean>, rootWidth?: number) => Promise<void>;
+  readonly syncAffixSignaturesOnRootChange?: boolean;
 };
 
 export type MultilineShell = ShellState & {
   readonly expand: () => void;
   readonly collapse: () => void;
+  readonly affixSlotProps: () => ClampSlotProps;
+  readonly observedSizeSignature: (element: HTMLElement | null) => string;
+  readonly setBeforeElement: MultilineAffixRefSetter;
+  readonly setAfterElement: MultilineAffixRefSetter;
   readonly toggle: () => void;
   readonly requestRecompute: () => void;
 };
+
+function createMultilineAffixRefSetter(
+  target: Ref<HTMLElement | null>,
+  requestRecompute: () => void,
+): MultilineAffixRefSetter {
+  return (element) => {
+    const nextElement = element instanceof HTMLElement ? element : null;
+    if (target.value === nextElement) {
+      return;
+    }
+
+    target.value = nextElement;
+    // Slot wrappers can appear, disappear, or change identity after filtered
+    // slot rendering. Recompute after Vue commits that DOM transition.
+    void nextTick(requestRecompute);
+  };
+}
 
 // LineClamp and RichLineClamp have different clamp engines but the same shell:
 // controlled expansion, slot/root refs, invalidation sources, and event timing.
 // Keeping that shell here avoids two subtly divergent lifecycle implementations.
 export function useMultilineClamp(options: MultilineShellOptions): MultilineShell {
-  const { expanded, onClampedChange, recompute } = options;
+  const {
+    active,
+    expanded,
+    onClampedChange,
+    onFontLoad,
+    recompute,
+    syncAffixSignaturesOnRootChange = false,
+  } = options;
   const controls = useClampControls(expanded);
   const state: ShellState = {
     rootRef: shallowRef<HTMLElement | null>(null),
@@ -44,26 +95,180 @@ export function useMultilineClamp(options: MultilineShellOptions): MultilineShel
     isClamped: shallowRef(false),
   };
 
-  let resizeObserver: ResizeObserver | null = null;
-  let stopFonts = () => {};
   let lastLayoutSignature: string | null = null;
+  let lastRootSizeSignature = emptyBorderBoxSignature;
+  let lastContentSizeSignature = emptyBorderBoxSignature;
+  let lastBeforeSizeSignature = emptyBorderBoxSignature;
+  let lastAfterSizeSignature = emptyBorderBoxSignature;
+  let pendingRootWidth: number | undefined;
+  let pendingAffixSignaturesFresh = false;
+  let recomputeEpoch = 0;
+  let fontRecomputeEpoch = 0;
+  let fontRecomputeFrame: number | null = null;
 
-  function layoutSignature(): string {
-    // Slot and body sizes can change without a prop change. A coarse signature is
-    // enough to decide whether another synchronous clamp pass is needed.
-    return combinedSizeSignature(
-      state.rootRef.value,
-      state.contentRef.value,
-      state.bodyRef.value,
-      state.beforeRef.value,
-      state.afterRef.value,
+  function readRootSnapshot(): BorderBoxSizeSnapshot {
+    const snapshot = borderBoxSizeSnapshot(state.rootRef.value);
+    lastRootSizeSignature = snapshot.signature;
+
+    return snapshot;
+  }
+
+  function readRootSignature(): void {
+    lastRootSizeSignature = borderBoxSizeSignature(state.rootRef.value);
+  }
+
+  function readLayoutSignature(reuseAffixSignatures = false): string {
+    // The content shell captures body geometry, while slots are tracked
+    // separately. This signature only needs to decide whether another
+    // synchronous clamp pass is needed.
+    lastContentSizeSignature = borderBoxSizeSignature(state.contentRef.value);
+    if (!reuseAffixSignatures) {
+      lastBeforeSizeSignature = borderBoxSizeSignature(state.beforeRef.value);
+      lastAfterSizeSignature = borderBoxSizeSignature(state.afterRef.value);
+    }
+
+    return (
+      lastRootSizeSignature +
+      "|" +
+      lastContentSizeSignature +
+      "|" +
+      lastBeforeSizeSignature +
+      "|" +
+      lastAfterSizeSignature
     );
   }
 
-  const requestRecompute = createCoalescingRunner(async () => {
-    await recompute(expanded);
-    lastLayoutSignature = layoutSignature();
+  function readAffixSignatures(): void {
+    lastBeforeSizeSignature = borderBoxSizeSignature(state.beforeRef.value);
+    lastAfterSizeSignature = borderBoxSizeSignature(state.afterRef.value);
+  }
+
+  function lastObservedSignature(element: Element): string | null {
+    if (element === state.rootRef.value) {
+      return lastRootSizeSignature;
+    }
+
+    if (element === state.contentRef.value) {
+      return lastContentSizeSignature;
+    }
+
+    if (element === state.beforeRef.value) {
+      return lastBeforeSizeSignature;
+    }
+
+    if (element === state.afterRef.value) {
+      return lastAfterSizeSignature;
+    }
+
+    return null;
+  }
+
+  function updateObservedSignature(element: Element, signature: string): void {
+    if (element === state.rootRef.value) {
+      lastRootSizeSignature = signature;
+    } else if (element === state.contentRef.value) {
+      lastContentSizeSignature = signature;
+    } else if (element === state.beforeRef.value) {
+      lastBeforeSizeSignature = signature;
+    } else if (element === state.afterRef.value) {
+      lastAfterSizeSignature = signature;
+    }
+  }
+
+  function requestRecompute(rootWidth?: number): void {
+    if (rootWidth !== undefined) {
+      pendingRootWidth = rootWidth;
+    }
+
+    requestRecomputeRunner();
+  }
+
+  function hasObservedSizeChange(entries: readonly ResizeObserverEntry[]): boolean {
+    let changed = false;
+
+    for (const entry of entries) {
+      const previousSignature = lastObservedSignature(entry.target);
+      if (previousSignature === null) {
+        continue;
+      }
+
+      const snapshot = observedBorderBoxSizeSnapshot(entry, previousSignature);
+      if (snapshot === null) {
+        changed = true;
+        continue;
+      }
+
+      const nextSignature = snapshot.signature;
+      if (previousSignature === nextSignature) {
+        continue;
+      }
+
+      updateObservedSignature(entry.target, nextSignature);
+      if (entry.target === state.rootRef.value) {
+        pendingRootWidth = snapshot.width;
+      }
+      changed = true;
+    }
+
+    return changed;
+  }
+
+  function observedSizeSignature(element: HTMLElement | null): string {
+    return element
+      ? (lastObservedSignature(element) ?? borderBoxSizeSignature(element))
+      : emptyBorderBoxSignature;
+  }
+
+  function affixSlotProps(): ClampSlotProps {
+    return {
+      expand: controls.expand,
+      collapse: controls.collapse,
+      toggle: controls.toggle,
+      clamped: state.isClamped.value,
+      expanded: expanded.value,
+    };
+  }
+
+  const requestRecomputeRunner = createCoalescingRunner(async () => {
+    const rootWidth = pendingRootWidth;
+    const affixSignaturesFresh = pendingAffixSignaturesFresh;
+    const wasClamped = state.isClamped.value;
+    pendingRootWidth = undefined;
+    pendingAffixSignaturesFresh = false;
+    recomputeEpoch += 1;
+
+    await recompute(expanded, rootWidth);
+    if (!active.value) {
+      lastLayoutSignature = null;
+      return;
+    }
+    readRootSignature();
+    lastLayoutSignature = readLayoutSignature(
+      affixSignaturesFresh && wasClamped === state.isClamped.value,
+    );
   });
+  const setBeforeElement = createMultilineAffixRefSetter(state.beforeRef, requestRecompute);
+  const setAfterElement = createMultilineAffixRefSetter(state.afterRef, requestRecompute);
+
+  function cancelFontRecompute(): void {
+    if (fontRecomputeFrame !== null) {
+      cancelAnimationFrame(fontRecomputeFrame);
+      fontRecomputeFrame = null;
+    }
+  }
+
+  function requestFontRecompute(): void {
+    onFontLoad?.();
+    fontRecomputeEpoch = recomputeEpoch;
+    fontRecomputeFrame ??= requestAnimationFrame(() => {
+      fontRecomputeFrame = null;
+
+      // A same-frame resize/update pass already measured the current fonts.
+      if (fontRecomputeEpoch === recomputeEpoch) {
+        requestRecompute();
+      }
+    });
+  }
 
   watch(
     expanded,
@@ -82,54 +287,78 @@ export function useMultilineClamp(options: MultilineShellOptions): MultilineShel
   );
 
   watchPostEffect((onCleanup) => {
-    resizeObserver ??= new ResizeObserver(() => {
-      if (layoutSignature() !== lastLayoutSignature) {
-        // ResizeObserver is the async catch-all for layout changes not caused by
-        // Vue props, such as container resizes and slot content dimensions.
-        requestRecompute();
-      }
-    });
-
-    const observed = [
-      state.rootRef.value,
-      state.contentRef.value,
-      state.bodyRef.value,
-      state.beforeRef.value,
-      state.afterRef.value,
-    ].filter((element): element is HTMLElement => element instanceof HTMLElement);
-
-    for (const element of observed) {
-      resizeObserver.observe(element);
+    if (!active.value) {
+      return;
     }
 
-    onCleanup(() => {
-      for (const element of observed) {
-        resizeObserver?.unobserve(element);
-      }
-    });
+    const stopObserving = observeBorderBoxSizes(
+      [
+        state.rootRef.value,
+        state.contentRef.value,
+        state.beforeRef.value,
+        state.afterRef.value,
+      ].filter((element): element is HTMLElement => element instanceof HTMLElement),
+      (entries) => {
+        // ResizeObserver is the async catch-all for layout changes not caused by
+        // Vue props, such as container resizes and slot content dimensions.
+        if (hasObservedSizeChange(entries)) {
+          requestRecompute();
+        }
+      },
+    );
+
+    onCleanup(stopObserving);
+  });
+
+  watchPostEffect((onCleanup) => {
+    if (active.value) {
+      onCleanup(listenForFontLoads(requestFontRecompute));
+    }
   });
 
   onMounted(() => {
-    requestRecompute();
-    stopFonts = listenForFontLoads(requestRecompute);
-  });
-
-  onUpdated(() => {
-    if (layoutSignature() !== lastLayoutSignature) {
-      // Same-flush Vue updates should not wait for a later ResizeObserver tick;
-      // otherwise stale clamp output can be painted for one frame.
+    if (active.value) {
       requestRecompute();
     }
   });
 
+  onUpdated(() => {
+    if (!active.value) {
+      return;
+    }
+
+    const previousRootSizeSignature = lastRootSizeSignature;
+    const rootSnapshot = readRootSnapshot();
+    if (rootSnapshot.signature !== previousRootSizeSignature) {
+      // A root change is enough to start the same-flush pass. Rich opts into
+      // fresh affix signatures for hidden clone validation; content refreshes
+      // after recompute records the settled layout.
+      if (syncAffixSignaturesOnRootChange) {
+        readAffixSignatures();
+        pendingAffixSignaturesFresh = true;
+      }
+      requestRecompute(rootSnapshot.width);
+      return;
+    }
+
+    if (readLayoutSignature() !== lastLayoutSignature) {
+      // Same-flush Vue updates should not wait for a later ResizeObserver tick;
+      // otherwise stale clamp output can be painted for one frame.
+      requestRecompute(rootSnapshot.width);
+    }
+  });
+
   onBeforeUnmount(() => {
-    resizeObserver?.disconnect();
-    stopFonts();
+    cancelFontRecompute();
   });
 
   return {
     ...state,
     ...controls,
+    affixSlotProps,
+    observedSizeSignature,
+    setBeforeElement,
+    setAfterElement,
     requestRecompute,
   };
 }

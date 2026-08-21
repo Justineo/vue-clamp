@@ -1,6 +1,16 @@
-// Two local expansion steps capture normal resize deltas while bounding the
-// penalty when a previous answer is far from the new fit boundary.
-const warmExpansionLimit = 2;
+// Two default local expansion steps capture normal resize deltas while bounding
+// the penalty when a previous answer is far from the new fit boundary.
+export const defaultWarmExpansionLimit = 2;
+export const richWarmExpansionLimit = defaultWarmExpansionLimit + 1;
+
+type TargetInput = {
+  readonly allowPatchTieBreak?: boolean;
+  readonly coldCost: number;
+  readonly count: number;
+  readonly expansionLimit?: number;
+  readonly hint: number;
+  readonly target: number;
+};
 
 // The clamp predicates are monotonic: once an index stops fitting, larger
 // indexes cannot fit. The helper searches for the highest index that still fits.
@@ -53,6 +63,7 @@ export function findLastFittingIndex(
   count: number,
   fits: (index: number) => boolean,
   hint?: number | null,
+  expansionLimit = defaultWarmExpansionLimit,
 ): number {
   if (count <= 0) {
     return -1;
@@ -82,7 +93,7 @@ export function findLastFittingIndex(
 
       fit = probe;
       expansions += 1;
-      if (expansions >= warmExpansionLimit) {
+      if (expansions >= expansionLimit) {
         return binarySearchLastFit(fit + 1, maxIndex, fits, fit);
       }
 
@@ -107,7 +118,7 @@ export function findLastFittingIndex(
 
     failed = probe;
     expansions += 1;
-    if (expansions >= warmExpansionLimit) {
+    if (expansions >= expansionLimit) {
       return binarySearchLastFit(0, failed - 1, fits);
     }
 
@@ -115,6 +126,79 @@ export function findLastFittingIndex(
   }
 
   return -1;
+}
+
+export function warmSearchLocalCoverage(expansionLimit = defaultWarmExpansionLimit): number {
+  return 2 ** expansionLimit - 1;
+}
+
+export function estimateColdSearchMaxProbeCount(count: number): number {
+  return count <= 0 ? 0 : Math.ceil(Math.log2(count + 1));
+}
+
+function normalizedTarget(maxIndex: number, target: number): number {
+  if (!Number.isFinite(target)) {
+    return target === Number.POSITIVE_INFINITY ? maxIndex : -1;
+  }
+
+  return Math.max(-1, Math.min(maxIndex, Math.floor(target)));
+}
+
+function warmProbeCount(
+  count: number,
+  hint: number,
+  target: number,
+  expansionLimit = defaultWarmExpansionLimit,
+): number {
+  if (count <= 0) {
+    return 0;
+  }
+
+  if (!Number.isFinite(hint)) {
+    return Number.POSITIVE_INFINITY;
+  }
+
+  const targetIndex = normalizedTarget(count - 1, target);
+  let probes = 0;
+  findLastFittingIndex(
+    count,
+    (index) => {
+      probes += 1;
+      return index <= targetIndex;
+    },
+    hint,
+    expansionLimit,
+  );
+  return probes;
+}
+
+export function warmTargetBeatsCold({
+  allowPatchTieBreak = false,
+  coldCost,
+  count,
+  expansionLimit = defaultWarmExpansionLimit,
+  hint,
+  target,
+}: TargetInput): boolean {
+  const warmCost = warmProbeCount(count, hint, target, expansionLimit);
+
+  return warmCost < coldCost || (allowPatchTieBreak && warmCost === coldCost);
+}
+
+export function shouldVerifyFullCandidate(
+  skipFullFit: boolean,
+  width: number,
+  previousWidth: number | null | undefined,
+  previousWasFull: boolean,
+  clampedMaxWidth: number | null | undefined,
+): boolean {
+  if (!skipFullFit || previousWidth == null || width === previousWidth) {
+    return true;
+  }
+
+  return (
+    width > previousWidth && (previousWasFull || clampedMaxWidth == null || width > clampedMaxWidth)
+  );
 }
 
 export function findLargestFittingCount(

@@ -1,27 +1,26 @@
 import { h } from "vue";
 import { hasSlotContent } from "./slot.ts";
 
-import type { ComponentPublicInstance, CSSProperties, VNodeChild } from "vue";
-import type { ClampSlotRender } from "./types.ts";
+import type { CSSProperties, VNodeChild } from "vue";
+import type { MultilineAffixRefSetter } from "./multiline.ts";
+import type { ClampSlotProps, ClampSlotRender } from "./types.ts";
 
-type MultilineElementRef = (element: ComponentPublicInstance | Element | null) => void;
-
-type MultilineAffixSlotOptions<Props> = {
+type MultilineAffixSlotOptions = {
   part: "before" | "after";
-  render?: ClampSlotRender<Props> | undefined;
-  setRef: MultilineElementRef;
-  slotProps: Props;
+  render: ClampSlotRender<ClampSlotProps>;
+  setRef: MultilineAffixRefSetter;
+  slotProps: ClampSlotProps;
   slotStyle: CSSProperties;
 };
 
-export function renderMultilineAffixSlot<Props>({
+export function renderMultilineAffixSlot({
   part,
   render,
   setRef,
   slotProps,
   slotStyle,
-}: MultilineAffixSlotOptions<Props>): VNodeChild {
-  const content = render?.(slotProps);
+}: MultilineAffixSlotOptions): VNodeChild {
+  const content = render(slotProps);
   if (!hasSlotContent(content)) {
     return null;
   }

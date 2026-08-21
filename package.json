@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "benchmark:package": "vp run benchmark#package",
+    "benchmark:package:compare": "vp run benchmark#compare",
     "benchmark:package:smoke": "VUE_CLAMP_BENCH_MODE=smoke vp run benchmark#package",
     "benchmark:package:strict": "VUE_CLAMP_BENCH_MODE=strict vp run benchmark#package",
     "benchmark:rich": "vp test -c vite.browser.benchmark.config.ts packages/vue-clamp/tests/rich.browser.benchmark.ts",

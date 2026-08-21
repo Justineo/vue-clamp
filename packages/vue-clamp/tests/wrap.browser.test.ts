@@ -427,6 +427,48 @@ describe("WrapClamp browser contract", () => {
     );
   });
 
+  it("reclamps after an external fractional width change with the same integer box", async () => {
+    const items = ["A", "B", "C", "D"];
+    const mountedClamp = mountWrapClamp({
+      items,
+      props: {
+        maxLines: 1,
+      },
+      width: 151.49,
+      item: ({ item }) =>
+        h(
+          "span",
+          {
+            style: [
+              "display:inline-flex",
+              "align-items:center",
+              "justify-content:center",
+              "box-sizing:border-box",
+              "flex:0 0 50.4px",
+              "min-width:50.4px",
+              "width:50.4px",
+              "height:24px",
+              "white-space:nowrap",
+            ].join(";"),
+          },
+          item,
+        ),
+    });
+
+    await settle(6);
+
+    const root = rootElement(mountedClamp.container);
+    const initialOffsetWidth = root.offsetWidth;
+    expect(wrapItems(root).map((item) => item.textContent?.trim())).toEqual(["A", "B", "C"]);
+
+    root.style.width = "150.51px";
+    await settle(6);
+
+    expect(root.offsetWidth).toBe(initialOffsetWidth);
+    expect(wrapItems(root).map((item) => item.textContent?.trim())).toEqual(["A", "B"]);
+    expect(wrapLineCount(root)).toBeLessThanOrEqual(1);
+  });
+
   it("restores a no-affix multiline prefix after a width jump", async () => {
     const items = ["One", "Two", "Three", "Four", "Five", "Six", "Seven"];
     const mountedClamp = mountWrapClamp({
@@ -878,6 +920,14 @@ describe("WrapClamp browser contract", () => {
     expect(values.at(-1)).toBe(true);
     expect(wrapItems(rootElement(mountedClamp.container)).length).toBe(4);
     expect(wrapAfter(rootElement(mountedClamp.container))?.textContent?.trim()).toBe("Less");
+
+    mountedClamp.width.value = 120;
+    (mountedClamp.exposed.value as WrapClampExposed).toggle();
+    await settle(5);
+
+    expect(values.at(-1)).toBe(false);
+    expect(wrapItems(rootElement(mountedClamp.container)).length).toBeLessThan(4);
+    expect(wrapAfter(rootElement(mountedClamp.container))?.textContent?.trim()).toBe("More");
   });
 
   it("clamps by maxHeight when wrapped items exceed the visible block size", async () => {

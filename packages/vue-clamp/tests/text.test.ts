@@ -79,7 +79,10 @@ describe("text helpers", () => {
       fits: fits(warmProbes),
       hint: {
         boundaryOffsets: prepared.boundaryOffsets,
+        ellipsis: "…",
         kept: 40,
+        ratio: 1,
+        spacing: "trim",
       },
       prepared,
       ratio: 1,
@@ -102,7 +105,10 @@ describe("text helpers", () => {
       },
       hint: {
         boundaryOffsets: prepared.boundaryOffsets,
+        ellipsis: "…",
         kept: 42,
+        ratio: 1,
+        spacing: "trim",
       },
       prepared,
       ratio: 1,
@@ -111,5 +117,92 @@ describe("text helpers", () => {
     expect(result.kept).toBe(36);
     expect(probes[0]).toBe(43);
     expect(probes).toContain(37);
+  });
+
+  it("can include the full text as a warm search candidate", () => {
+    const prepared = prepareText("abcdef");
+    const result = clampTextToFit({
+      ellipsis: "…",
+      fits: (text) => text.length <= prepared.text.length,
+      hint: {
+        boundaryOffsets: prepared.boundaryOffsets,
+        ellipsis: "…",
+        kept: 4,
+        ratio: 1,
+        spacing: "trim",
+      },
+      includeFullCandidate: true,
+      prepared,
+      ratio: 1,
+    });
+
+    expect(result).toEqual({
+      boundaryOffsets: prepared.boundaryOffsets,
+      ellipsis: "…",
+      kept: 6,
+      ratio: 1,
+      spacing: "trim",
+      text: "abcdef",
+    });
+  });
+
+  it("verifies the full candidate when ellipsis breaks monotonic fitting", () => {
+    const prepared = prepareText("abci");
+    const probes: string[] = [];
+    const result = clampTextToFit({
+      ellipsis: "…",
+      fits: (text) => {
+        probes.push(text);
+        return text === "abci" || text.length <= 3;
+      },
+      hint: {
+        boundaryOffsets: prepared.boundaryOffsets,
+        ellipsis: "…",
+        kept: 3,
+        ratio: 1,
+        spacing: "trim",
+      },
+      includeFullCandidate: true,
+      prepared,
+      ratio: 1,
+    });
+
+    expect(probes).toContain("abci");
+    expect(result.kept).toBe(4);
+    expect(result.text).toBe("abci");
+  });
+
+  it("does not warm-start text fitting from another spacing mode", () => {
+    const prepared = prepareText(" x".repeat(50));
+    const coldProbes: string[] = [];
+    const staleProbes: string[] = [];
+    const fits = (probes: string[]) => (text: string) => {
+      probes.push(text);
+      return text.length <= 43;
+    };
+
+    clampTextToFit({
+      ellipsis: "…",
+      fits: fits(coldProbes),
+      prepared,
+      ratio: 1,
+      spacing: "preserve-outer",
+    });
+    clampTextToFit({
+      ellipsis: "…",
+      fits: fits(staleProbes),
+      hint: {
+        boundaryOffsets: prepared.boundaryOffsets,
+        ellipsis: "…",
+        kept: 40,
+        ratio: 1,
+        spacing: "trim",
+      },
+      prepared,
+      ratio: 1,
+      spacing: "preserve-outer",
+    });
+
+    expect(staleProbes[0]).toBe(coldProbes[0]);
   });
 });

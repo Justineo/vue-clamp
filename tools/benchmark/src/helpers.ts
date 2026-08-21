@@ -1,18 +1,40 @@
 import { nextTick } from "vue";
 
 export type BenchmarkMetrics = {
+  addedNodes: number;
+  attributeMutationRecords: number;
+  boundingRectReadMs: number;
   boundingRectReads: number;
+  characterDataMutationRecords: number;
+  childListMutationRecords: number;
   clientHeightReads: number;
+  clientRectReadMs: number;
+  clientRectEntries: number;
   clientRectReads: number;
   clientTopReads: number;
   clientWidthReads: number;
+  hiddenAddedNodes: number;
+  hiddenChildListMutationRecords: number;
+  hiddenMutationRecords: number;
+  hiddenRemovedNodes: number;
   cloneNodeCalls: number;
+  cloneNodeMs: number;
   imageCloneCalls: number;
+  layoutReadMs: number;
+  layoutReadSlowCalls: number;
+  layoutGetterReadMs: number;
   mutationCallbacks: number;
   mutationRecords: number;
+  offsetHeightReads: number;
+  offsetWidthReads: number;
   replaceChildrenCalls: number;
   resizeObserverCallbacks: number;
+  removedNodes: number;
+  scrollHeightReads: number;
   scrollWidthReads: number;
+  styleReads: number;
+  styleReadMs: number;
+  styleReadSlowCalls: number;
 };
 
 export type StepDiagnostics = {
@@ -49,12 +71,21 @@ type GetterMetric =
   | "clientHeightReads"
   | "clientTopReads"
   | "clientWidthReads"
+  | "offsetHeightReads"
+  | "offsetWidthReads"
+  | "scrollHeightReads"
   | "scrollWidthReads";
+
+type LayoutReadKind = "boundingRect" | "clientRect" | "getter";
 
 type GetterPatch = {
   descriptor: PropertyDescriptor;
   owner: object;
   property: string;
+};
+
+type BenchmarkSpyOptions = {
+  counters?: boolean;
 };
 
 type ActivityRecord = {
@@ -107,28 +138,85 @@ const trackedRoots: HTMLElement[] = [];
 const activityRecords: ActivityRecord[] = [];
 let trackedMetrics: BenchmarkMetrics | null = null;
 let installed = false;
+let countersInstalled = false;
 let originalGetBoundingClientRectDescriptor: PropertyDescriptor | undefined;
 let originalGetClientRectsDescriptor: PropertyDescriptor | undefined;
 let originalReplaceChildrenDescriptor: PropertyDescriptor | undefined;
 let originalCloneNodeDescriptor: PropertyDescriptor | undefined;
+let originalRangeCloneDescriptor: PropertyDescriptor | undefined;
+let originalGetComputedStyle: typeof getComputedStyle | undefined;
 let originalResizeObserver: typeof ResizeObserver | undefined;
 let getterPatches: GetterPatch[] = [];
 
 function emptyMetrics(): BenchmarkMetrics {
   return {
+    addedNodes: 0,
+    attributeMutationRecords: 0,
+    boundingRectReadMs: 0,
     boundingRectReads: 0,
+    characterDataMutationRecords: 0,
+    childListMutationRecords: 0,
     clientHeightReads: 0,
+    clientRectReadMs: 0,
+    clientRectEntries: 0,
     clientRectReads: 0,
     clientTopReads: 0,
     clientWidthReads: 0,
+    hiddenAddedNodes: 0,
+    hiddenChildListMutationRecords: 0,
+    hiddenMutationRecords: 0,
+    hiddenRemovedNodes: 0,
     cloneNodeCalls: 0,
+    cloneNodeMs: 0,
     imageCloneCalls: 0,
+    layoutReadMs: 0,
+    layoutReadSlowCalls: 0,
+    layoutGetterReadMs: 0,
     mutationCallbacks: 0,
     mutationRecords: 0,
+    offsetHeightReads: 0,
+    offsetWidthReads: 0,
     replaceChildrenCalls: 0,
     resizeObserverCallbacks: 0,
+    removedNodes: 0,
+    scrollHeightReads: 0,
     scrollWidthReads: 0,
+    styleReads: 0,
+    styleReadMs: 0,
+    styleReadSlowCalls: 0,
   };
+}
+
+function recordLayoutReadDuration(kind: LayoutReadKind, startedAt: number): void {
+  if (!trackedMetrics) {
+    return;
+  }
+
+  const duration = performance.now() - startedAt;
+  trackedMetrics.layoutReadMs += duration;
+  if (kind === "boundingRect") {
+    trackedMetrics.boundingRectReadMs += duration;
+  } else if (kind === "clientRect") {
+    trackedMetrics.clientRectReadMs += duration;
+  } else {
+    trackedMetrics.layoutGetterReadMs += duration;
+  }
+
+  if (duration >= 0.1) {
+    trackedMetrics.layoutReadSlowCalls += 1;
+  }
+}
+
+function recordStyleReadDuration(startedAt: number): void {
+  if (!trackedMetrics) {
+    return;
+  }
+
+  const duration = performance.now() - startedAt;
+  trackedMetrics.styleReadMs += duration;
+  if (duration >= 0.1) {
+    trackedMetrics.styleReadSlowCalls += 1;
+  }
 }
 
 function descriptorInPrototypeChain(start: object, property: string): GetterPatch | null {
@@ -152,6 +240,12 @@ function descriptorInPrototypeChain(start: object, property: string): GetterPatc
 
 function isTrackedElement(element: Element): boolean {
   return trackedRoots.some((root) => element === root || root.contains(element));
+}
+
+function isHiddenMutationTarget(target: Node): boolean {
+  const element = target instanceof Element ? target : target.parentElement;
+
+  return element?.closest('[aria-hidden="true"]') !== null;
 }
 
 function countTrackedElement(element: unknown, metric: keyof BenchmarkMetrics): void {
@@ -188,8 +282,23 @@ function patchElementMethod(
   Object.defineProperty(Element.prototype, property, {
     ...descriptor,
     value(this: Element): unknown {
-      countTrackedElement(this, metric);
-      return original.call(this);
+      const tracked = trackedMetrics !== null && isTrackedElement(this);
+      const startedAt = tracked ? performance.now() : 0;
+      const result = original.call(this);
+
+      if (trackedMetrics && tracked) {
+        trackedMetrics[metric] += 1;
+        recordLayoutReadDuration(
+          property === "getBoundingClientRect" ? "boundingRect" : "clientRect",
+          startedAt,
+        );
+
+        if (property === "getClientRects") {
+          trackedMetrics.clientRectEntries += (result as DOMRectList).length;
+        }
+      }
+
+      return result;
     },
   });
 }
@@ -208,10 +317,36 @@ function patchGetter(property: string, metric: GetterMetric): void {
   Object.defineProperty(patch.owner, property, {
     ...patch.descriptor,
     get(this: HTMLElement): unknown {
-      countTrackedElement(this, metric);
-      return Reflect.apply(originalGetter, this, []);
+      const tracked = trackedMetrics !== null && isTrackedElement(this);
+      const startedAt = tracked ? performance.now() : 0;
+      const result = Reflect.apply(originalGetter, this, []);
+
+      if (trackedMetrics && tracked) {
+        trackedMetrics[metric] += 1;
+        recordLayoutReadDuration("getter", startedAt);
+      }
+
+      return result;
     },
   });
+}
+
+function patchGetComputedStyle(): void {
+  const original = globalThis.getComputedStyle;
+  originalGetComputedStyle = original;
+
+  globalThis.getComputedStyle = ((element: Element, pseudoElt?: string | null) => {
+    const tracked = trackedMetrics !== null && isTrackedElement(element);
+    const startedAt = tracked ? performance.now() : 0;
+    const result = original.call(globalThis, element, pseudoElt);
+
+    if (trackedMetrics && tracked) {
+      trackedMetrics.styleReads += 1;
+      recordStyleReadDuration(startedAt);
+    }
+
+    return result;
+  }) as typeof getComputedStyle;
 }
 
 function patchReplaceChildren(): void {
@@ -246,15 +381,50 @@ function patchCloneNode(): void {
   Object.defineProperty(Node.prototype, "cloneNode", {
     ...descriptor,
     value(this: Node, deep?: boolean): Node {
-      if (trackedMetrics && this instanceof Element && isTrackedElement(this)) {
+      const tracked = trackedMetrics !== null && this instanceof Element;
+      const startedAt = tracked ? performance.now() : 0;
+      const result = original.call(this, deep);
+
+      // Rich source nodes live in a detached DOMParser document, outside the
+      // tracked component root. The measured window contains only the active
+      // scenario update, so count element clones globally within that window.
+      if (trackedMetrics && tracked) {
         trackedMetrics.cloneNodeCalls += 1;
+        trackedMetrics.cloneNodeMs += performance.now() - startedAt;
 
         if (this instanceof HTMLImageElement) {
           trackedMetrics.imageCloneCalls += 1;
         }
       }
 
-      return original.call(this, deep);
+      return result;
+    },
+  });
+}
+
+function patchRangeClone(): void {
+  const descriptor = Object.getOwnPropertyDescriptor(Range.prototype, "cloneContents");
+  const original = descriptor?.value as ((this: Range) => DocumentFragment) | undefined;
+
+  if (!descriptor || !original) {
+    throw new Error("Missing Range.prototype.cloneContents for benchmark metrics.");
+  }
+
+  originalRangeCloneDescriptor = descriptor;
+  Object.defineProperty(Range.prototype, "cloneContents", {
+    ...descriptor,
+    value(this: Range): DocumentFragment {
+      const tracked = trackedMetrics !== null;
+      const startedAt = tracked ? performance.now() : 0;
+      const fragment = original.call(this);
+
+      if (trackedMetrics && tracked) {
+        trackedMetrics.cloneNodeMs += performance.now() - startedAt;
+        trackedMetrics.cloneNodeCalls += fragment.querySelectorAll("*").length;
+        trackedMetrics.imageCloneCalls += fragment.querySelectorAll("img").length;
+      }
+
+      return fragment;
     },
   });
 }
@@ -302,20 +472,30 @@ function patchResizeObserver(): void {
   } as unknown as typeof ResizeObserver;
 }
 
-export function installBenchmarkSpies(): void {
+export function installBenchmarkSpies(options: BenchmarkSpyOptions = {}): void {
   if (installed) {
     return;
   }
 
   installed = true;
-  patchElementMethod("getBoundingClientRect", "boundingRectReads");
-  patchElementMethod("getClientRects", "clientRectReads");
-  patchGetter("clientHeight", "clientHeightReads");
-  patchGetter("clientTop", "clientTopReads");
-  patchGetter("clientWidth", "clientWidthReads");
-  patchGetter("scrollWidth", "scrollWidthReads");
-  patchReplaceChildren();
-  patchCloneNode();
+  countersInstalled = options.counters ?? true;
+
+  if (countersInstalled) {
+    patchElementMethod("getBoundingClientRect", "boundingRectReads");
+    patchElementMethod("getClientRects", "clientRectReads");
+    patchGetter("clientHeight", "clientHeightReads");
+    patchGetter("clientTop", "clientTopReads");
+    patchGetter("clientWidth", "clientWidthReads");
+    patchGetter("offsetHeight", "offsetHeightReads");
+    patchGetter("offsetWidth", "offsetWidthReads");
+    patchGetter("scrollHeight", "scrollHeightReads");
+    patchGetter("scrollWidth", "scrollWidthReads");
+    patchGetComputedStyle();
+    patchReplaceChildren();
+    patchCloneNode();
+    patchRangeClone();
+  }
+
   patchResizeObserver();
 }
 
@@ -325,6 +505,7 @@ export function restoreBenchmarkSpies(): void {
   }
 
   installed = false;
+  countersInstalled = false;
   trackedRoots.length = 0;
   trackedMetrics = null;
 
@@ -348,6 +529,14 @@ export function restoreBenchmarkSpies(): void {
     Object.defineProperty(Node.prototype, "cloneNode", originalCloneNodeDescriptor);
   }
 
+  if (originalRangeCloneDescriptor) {
+    Object.defineProperty(Range.prototype, "cloneContents", originalRangeCloneDescriptor);
+  }
+
+  if (originalGetComputedStyle) {
+    globalThis.getComputedStyle = originalGetComputedStyle;
+  }
+
   for (const patch of getterPatches) {
     Object.defineProperty(patch.owner, patch.property, patch.descriptor);
   }
@@ -362,7 +551,7 @@ export function restoreBenchmarkSpies(): void {
 export function beginTracking(...roots: HTMLElement[]): void {
   trackedRoots.length = 0;
   trackedRoots.push(...roots);
-  trackedMetrics = emptyMetrics();
+  trackedMetrics = countersInstalled ? emptyMetrics() : null;
 }
 
 export function endTracking(): BenchmarkMetrics {
@@ -404,6 +593,28 @@ export function createActivityTracker(root: HTMLElement): ActivityTracker {
     if (trackedMetrics) {
       trackedMetrics.mutationCallbacks += 1;
       trackedMetrics.mutationRecords += records.length;
+
+      for (const record of records) {
+        const hidden = isHiddenMutationTarget(record.target);
+        if (hidden) {
+          trackedMetrics.hiddenMutationRecords += 1;
+        }
+
+        if (record.type === "childList") {
+          trackedMetrics.childListMutationRecords += 1;
+          trackedMetrics.addedNodes += record.addedNodes.length;
+          trackedMetrics.removedNodes += record.removedNodes.length;
+          if (hidden) {
+            trackedMetrics.hiddenChildListMutationRecords += 1;
+            trackedMetrics.hiddenAddedNodes += record.addedNodes.length;
+            trackedMetrics.hiddenRemovedNodes += record.removedNodes.length;
+          }
+        } else if (record.type === "characterData") {
+          trackedMetrics.characterDataMutationRecords += 1;
+        } else if (record.type === "attributes") {
+          trackedMetrics.attributeMutationRecords += 1;
+        }
+      }
     }
 
     mark();

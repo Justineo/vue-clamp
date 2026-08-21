@@ -55,7 +55,7 @@ const richHtmlPresets = [
   {
     id: "editorial",
     label: "Article excerpt",
-    value: `Feature essay ${richIconImage(richDemoIconSrc)} · <small class="rich-meta"><time datetime="2026-04-08">Apr 8, 2026</time> · By <a href="#components">Interface <strong>Systems</strong> Desk</a></small><br>The latest review argues that <a href="#components">the refreshed <strong>component tabs</strong> should scroll on narrow screens</a> instead of squeezing every label into one row. It keeps <em>editorial emphasis</em>, the inline badge <span class="rich-chip rich-chip--quiet">analysis</span>, and an <inline-note>editor&rsquo;s note ${richIconImage(richDemoIconSrc)} on the <a href="#components">same <strong>read-more</strong> affordance</a></inline-note> so the excerpt still feels like a styled article.`,
+    value: `Feature essay ${richIconImage(richDemoIconSrc)} · <small class="rich-meta"><time datetime="2026-04-08">Apr 8, 2026</time> · By <a href="#components">Interface <strong>Systems</strong> Desk</a></small><br>The latest review argues that <a href="#components">the refreshed <strong>component tabs</strong> should scroll on narrow screens</a> instead of squeezing every label into one row. It keeps <em>editorial emphasis</em>, the inline badge <span class="rich-chip rich-chip--quiet">analysis</span>, and an <span class="rich-note">editor&rsquo;s note ${richIconImage(richDemoIconSrc)} on the <a href="#components">same <strong>read-more</strong> affordance</a></span> so the excerpt still feels like a styled article.`,
   },
   {
     id: "incident",
@@ -1225,9 +1225,14 @@ const highlightedCode = {
                   </li>
                   <li>
                     Use sentence-like HTML. <code>&lt;RichLineClamp&gt;</code> can trim through
-                    text, formatting tags such as <code>strong</code>, <code>em</code>, and
-                    <code>code</code>, links, <code>br</code>/<code>wbr</code>, and leaf custom
-                    elements.
+                    text, passive formatting tags such as <code>strong</code>, <code>em</code>, and
+                    <code>code</code>, links, <code>br</code>/<code>wbr</code>, and empty inline
+                    boxes.
+                  </li>
+                  <li>
+                    Default-ellipsis <code>max-lines</code> cases use native CSS clamping when the
+                    browser supports it. The authored rich DOM stays intact and no measurement clone
+                    is created.
                   </li>
                   <li>
                     Atomic inline content stays whole. That includes <code>&lt;img&gt;</code>,
@@ -1236,16 +1241,21 @@ const highlightedCode = {
                     component can keep or drop those units, but it does not trim inside them.
                   </li>
                   <li>
-                    If rendered content uses block-level layout such as <code>display: block</code>,
+                    On the measured path, block-level layout such as <code>display: block</code>,
                     <code>display: flex</code>, or <code>display: grid</code>, floats, or
-                    absolute/fixed positioning, <code>&lt;RichLineClamp&gt;</code> leaves the
-                    original HTML unchanged instead of cutting through that layout.
+                    absolute/fixed positioning leaves the original HTML unchanged instead of cutting
+                    through that layout.
                   </li>
                   <li>
                     For <code>img</code>, reserve space before load with <code>width</code>/
                     <code>height</code> attributes or CSS <code>width</code>, <code>height</code>,
                     or <code>aspect-ratio</code>. The component measures that reserved box and does
                     not wait for the natural image size.
+                  </li>
+                  <li>
+                    When measured clamping is required, custom elements, duplicate IDs or named form
+                    controls, active embedded content, and inline event handlers are left unclamped.
+                    Their connected clones could not be made reliably inert.
                   </li>
                 </ul>
               </Alert>
@@ -1682,7 +1692,12 @@ const highlightedCode = {
                         :style="{ width: `${richWidth}px`, maxWidth: '100%' }"
                       >
                         <template #after="{ toggle, expanded, clamped }">
-                          <button v-if="expanded || clamped" class="toggle-btn" @click="toggle">
+                          <button
+                            v-if="expanded || clamped"
+                            class="toggle-btn"
+                            type="button"
+                            @click="toggle"
+                          >
                             {{ expanded ? "Less" : "More" }}
                           </button>
                         </template>
@@ -3936,7 +3951,7 @@ pre code {
   color: var(--c-text-3);
 }
 
-:deep(.demo-rich-card inline-note) {
+:deep(.demo-rich-card .rich-note) {
   color: var(--c-accent-text);
 }
 

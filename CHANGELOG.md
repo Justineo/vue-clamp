@@ -2,6 +2,29 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.6.0]
+
+Minor release with faster and more reliable clamping. No API changes are required.
+
+### Improved
+
+- `<InlineClamp>` uses native CSS for default end truncation and does less work during repeated
+  resizes.
+- `<RichLineClamp>` uses native CSS for supported `maxLines` cases and handles HTML with many inline
+  elements more efficiently.
+- Measured clamps avoid redundant work when content changes at the same width or when font and
+  layout updates happen together.
+- Expanded, empty, and unlimited clamps observe layout and fonts only when clamping becomes active.
+- Fractional width changes are detected reliably under browser zoom, high-DPI displays, and
+  flex/grid layouts.
+
+### Fixed
+
+- `<LineClamp>` and `<RichLineClamp>` restore the full content when a font change makes it fit.
+- Measured clamps remeasure when inherited text styles change, even if the width stays the same.
+- `<RichLineClamp>` preserves the original HTML when it cannot create a safe measurement copy,
+  including content with custom elements, duplicate IDs, form controls, or embedded content.
+
 ## [1.5.1]
 
 Patch release focused on performance improvements. No API changes are required.
