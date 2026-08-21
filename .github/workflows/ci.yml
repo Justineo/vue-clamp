@@ -2,6 +2,7 @@ name: CI
 
 permissions:
   contents: read
+  id-token: write
 
 on:
   push:
@@ -40,5 +41,3 @@ jobs:
         if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
         working-directory: packages/website
         run: vp exec void deploy --skip-build --project vue-clamp
-        env:
-          VOID_TOKEN: ${{ secrets.VOID_TOKEN }}
