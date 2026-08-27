@@ -32,16 +32,24 @@
       "import": "./dist/index.js",
       "default": "./dist/index.js"
     },
+    "./pretext": {
+      "types": "./dist/pretext.d.ts",
+      "import": "./dist/pretext.js",
+      "default": "./dist/pretext.js"
+    },
     "./package.json": "./package.json"
   },
   "publishConfig": {
     "access": "public"
   },
   "scripts": {
-    "build": "vp pack src/index.ts",
+    "build": "vp pack src/index.ts src/pretext.ts",
     "check": "vp check",
     "test": "vp test",
     "prepublishOnly": "vp run build"
+  },
+  "dependencies": {
+    "@chenglou/pretext": "catalog:"
   },
   "devDependencies": {
     "@types/node": "catalog:",

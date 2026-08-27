@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 import * as exports from "../src/index.ts";
+import * as pretextExports from "../src/pretext.ts";
 
 describe("Public exports", () => {
   it("exports the documented root components", () => {
@@ -17,5 +18,10 @@ describe("Public exports", () => {
     expect("borderBoxWidth" in exports).toBe(false);
     expect("clampTextToFit" in exports).toBe(false);
     expect("prepareRich" in exports).toBe(false);
+  });
+
+  it("exports the opt-in Pretext component from its own entry", () => {
+    expect(pretextExports.LineClamp.name).toBe("LineClamp");
+    expect(Object.keys(pretextExports)).toEqual(["LineClamp"]);
   });
 });

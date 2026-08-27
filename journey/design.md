@@ -15,9 +15,10 @@
   in `journey/research/308-wrapclamp-optimization-summary.md`.
 - The current post-1.4 forward outlook is summarized in
   `journey/research/309-forward-outlook-research.md`: prioritize SSR / hydration contract design,
-  release-visible benchmarks, RichLineClamp development diagnostics, and future experimental work
-  such as Pretext acceleration, locale-aware boundaries, and accessibility recipes. The earlier
-  WrapClamp generic slot typing opportunity has been addressed by the SFC migration.
+  release-visible benchmarks, RichLineClamp development diagnostics, locale-aware boundaries, and
+  accessibility recipes. Pretext acceleration has moved from a general-engine experiment to the
+  strict opt-in subpath recorded in `journey/research/318-pretext-integration-research.md`. The
+  earlier WrapClamp generic slot typing opportunity has been addressed by the SFC migration.
 
 ## Product Goals
 
@@ -46,6 +47,14 @@
   - `RichLineClamp` as the canonical multiline rich-html component name
   - `InlineClamp` as the canonical single-line affix-friendly component name
   - `WrapClamp` as the canonical wrapped-item component name
+- `vue-clamp/pretext` separately exports a narrower `LineClamp` backed by Pretext. It requires an
+  explicit named `font`, accepts only `text`, `maxLines`, `expanded`, and `as`, and fixes semantics to
+  end/word/default-ellipsis clamping. The separate entry keeps `@chenglou/pretext` out of root
+  consumers and makes the predictive layout contract an explicit application choice.
+- The Pretext component treats source text, observed content width, font, and line limit as its only
+  layout inputs. It does not perform DOM candidate search or geometry reads after preparation, does
+  not silently fall back to the browser engine, and keeps native line-clamp plus an `lh` cap as its
+  pending/overflow containment layer.
 - There is no default export.
 - Type declarations follow explicit ownership layers:
   - shared public primitives and private shared type building blocks live in
@@ -159,10 +168,12 @@
   extensions, so the root export points to `dist/index.js` and `dist/index.d.ts`.
 - Package size work should preserve root-import tree-shaking before chasing total raw file size.
   A retained size audit rejected `vp pack --minify` because it made single-component consumer
-  bundles keep every component, and rejected multi-entry/subpath publishing because it saved only
-  about 74-180 bytes gzip per direct component import while increasing the published package by
-  about 7.9 kB raw. The retained runtime-helper cleanup reduced the current package by about
-  1.7 kB raw / 0.4 kB gzip without changing public exports.
+  bundles keep every component. Subpaths for the existing browser-authoritative components remain
+  unjustified because they saved only about 74-180 bytes gzip per direct import while increasing the
+  published package by about 7.9 kB raw. `vue-clamp/pretext` is a semantic and dependency boundary,
+  not a component-size optimization: it prevents the much larger predictive engine from entering
+  root consumers. The retained runtime-helper cleanup reduced the current package by about 1.7 kB
+  raw / 0.4 kB gzip without changing root exports.
 - `ClampControls`, `ClampState`, `ClampSlotProps`, and `ClampExposed` are private building blocks in
   `types.ts`; they keep concrete public contracts aligned without creating a generic cross-component
   public abstraction and are not root package exports.

@@ -10,7 +10,6 @@
     "report": "node scripts/render-matrix-report.mjs"
   },
   "devDependencies": {
-    "@chenglou/pretext": "catalog:",
     "@types/node": "catalog:",
     "@vitejs/plugin-vue": "catalog:",
     "playwright": "catalog:",
