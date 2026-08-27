@@ -61,8 +61,9 @@ hidden runtime mode.
 
 Active instances share one content-box observer. Expanded, empty, and unlimited instances do not
 observe at all, and the shared observer is released when its last active target disappears. Resize
-results retain object identity when both visible text and clamp state are unchanged, so local width
-changes that do not cross a text boundary do not schedule component patches.
+delivery resolves all changed entries in one batch. Widths that preserve the visible result do no DOM
+work; prefix-only changes update the stable visible text node directly, while Vue patches only when
+the visible/source accessibility structure changes.
 
 Before the first observer result, server output and hydration render the full source under native
 line-clamp plus an `lh` hard cap. Once a predicted prefix is visible, the full source remains in a
@@ -120,24 +121,26 @@ of source graphemes.
 
 The 200-instance benchmark separates browser deliveries from component work. Across 24 observed
 width changes, active observer instances fall from 200 to 1 and observer callbacks from 4,800 to 24.
-For smooth one-pixel changes, stable results reduce component updates from 4,800 to 101; large jumps
-still update whenever the visible prefix actually changes. These counts are the durable evidence;
-the accompanying wall time includes animation-frame waits and is not treated as CPU time.
+For smooth one-pixel changes, stable results reduce component updates from 4,800 to 101. Across large
+jumps, updating stable text nodes directly reduces component updates from 4,000 to 3,200 without
+changing the 7,200 observable mutation records. These counts are the durable evidence; the
+accompanying wall time includes animation-frame waits and is not treated as CPU time.
 
 The release-facing public-component slice is retained in
 [`319-pretext-performance-matrix.md`](319-pretext-performance-matrix.md). It interleaves the root and
 `vue-clamp/pretext` entries in one Chromium process over 16-instance English, CJK, Thai, and long-token
 batches, with continuous, bounded-jitter, and large-jump widths. Five-run medians show:
 
-- Pretext is faster in 11 of 12 rows. The eight continuous/jitter rows fall by 42.5–76.8%; four of
+- Pretext is faster in 11 of 12 rows. The eight continuous/jitter rows fall by 30.0–78.4%; six of
   those timing deltas are marked low confidence by the matrix's variance rules.
 - The jump rows preserve the important boundary: CJK, Thai, and long-token active time falls by
-  35.0–67.9%, while the small English jump workload rises by 15.4%. Eliminating geometry reads is
-  therefore not sufficient to guarantee lower active time when the avoided browser work is small.
-- Across all rows, summed median active time falls 56.1%, bounding-box reads fall from 88,057 to 0,
-  ResizeObserver callbacks fall from 10,688 to 700, and mutation records fall 42.3%. The aggregate
-  active delta is marked low confidence because 4 of 12 constituent rows cross the variance gate.
-- Settled time rises 1.5% because it is dominated by the same quiet-frame waits on both entries; it
+  31.9–63.1%, while the small English jump workload rises by 9.3%; that row is now low confidence.
+  Eliminating geometry reads is therefore not sufficient to guarantee lower active time when the
+  avoided browser work is small.
+- Across all rows, summed median active time falls 54.9%, bounding-box reads fall from 88,057 to 0,
+  ResizeObserver callbacks fall from 10,688 to 700, and mutation records fall 47.3%. The aggregate
+  active delta is marked low confidence because 8 of 12 constituent rows cross the variance gate.
+- Settled time rises 1.6% because it is dominated by the same quiet-frame waits on both entries; it
   is not a CPU-speed signal. The matrix deliberately excludes cold preparation and bundle size,
   which remain separate delivery costs below.
 
@@ -154,8 +157,8 @@ imported.
 | Consumer import      |      Gzip |
 | -------------------- | --------: |
 | Standard `LineClamp` |  9.097 kB |
-| Pretext `LineClamp`  | 20.408 kB |
-| Both components      | 28.861 kB |
+| Pretext `LineClamp`  | 20.474 kB |
+| Both components      | 28.915 kB |
 
 The large predictor payload is the principal trade-off. The subpath is justified only when its
 preparation cost and bytes are amortized across enough active resize work; the ordinary root import

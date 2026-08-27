@@ -29,28 +29,43 @@ const emit = defineEmits<Omit<ClampEmits, "update:expanded">>();
 const attrs = useAttrs();
 const controls = useClampControls(expanded);
 const bodyRef = shallowRef<HTMLElement | null>(null);
-const width = shallowRef<number | null>(null);
-const isClamped = shallowRef(false);
+const visibleRef = shallowRef<HTMLElement | null>(null);
+const visibleText = shallowRef({ text });
+const clamped = shallowRef<boolean | null>(null);
+const sourceHidden = shallowRef(false);
 const lineLimit = computed(() => normalizeLineLimit(maxLines));
 const prepared = computed(() => prepareLineClamp(text, font));
-let hasResolved = false;
+let width: number | null = null;
 
-type Result = ReturnType<typeof clampPreparedLine> | null;
-
-const result = computed<Result>((previous) => {
+function resolve(): void {
   const limit = lineLimit.value;
   if (expanded.value || text.length === 0 || limit === undefined) {
-    const next = { clamped: false, text };
-    return previous?.clamped === next.clamped && previous.text === next.text ? previous : next;
+    applyResult({ clamped: false, text });
+    return;
   }
 
-  if (width.value === null) {
-    return null;
+  if (width === null) return;
+
+  applyResult(clampPreparedLine(prepared.value, width, limit));
+}
+
+function applyResult(result: ReturnType<typeof clampPreparedLine>): void {
+  const nextSourceHidden = result.clamped && result.text !== text;
+  const currentText = visibleText.value;
+
+  if (sourceHidden.value !== nextSourceHidden) {
+    visibleText.value = { text: result.text };
+  } else if (currentText.text !== result.text) {
+    // Vue still owns source/visible structure changes; a stable prefix node can
+    // be updated in the shared observer batch without another component patch.
+    const textNode = visibleRef.value?.firstChild;
+    if (textNode?.nodeType === 3) textNode.nodeValue = result.text;
+    currentText.text = result.text;
   }
 
-  const next = clampPreparedLine(prepared.value, width.value, limit);
-  return previous?.clamped === next.clamped && previous.text === next.text ? previous : next;
-});
+  sourceHidden.value = nextSourceHidden;
+  clamped.value = result.clamped;
+}
 
 const rootStyle: CSSProperties = {
   display: "block",
@@ -91,39 +106,41 @@ const bodyStyle = computed<CSSProperties>(() => {
 watchPostEffect((onCleanup) => {
   const body = bodyRef.value;
   if (!body || expanded.value || text.length === 0 || lineLimit.value === undefined) {
-    width.value = null;
+    width = null;
     return;
   }
 
   const stop = observeContentBox(body, (entry) => {
     const nextWidth = entry.contentBoxSize[0]?.inlineSize ?? entry.contentRect.width;
-    if (nextWidth !== width.value) width.value = nextWidth;
+    if (nextWidth === width) return;
+
+    width = nextWidth;
+    resolve();
   });
 
   onCleanup(stop);
 });
 
 watch(
-  result,
-  (current) => {
-    if (current === null) return;
-
-    const changed = !hasResolved || current.clamped !== isClamped.value;
-    hasResolved = true;
-    isClamped.value = current.clamped;
-    if (changed) emit("clampchange", current.clamped);
+  clamped,
+  (value) => {
+    if (value !== null) emit("clampchange", value);
   },
-  { flush: "post", immediate: true },
+  { flush: "post" },
 );
 
+watch([expanded, lineLimit, () => font, () => text], resolve, { immediate: true });
+
 function render(): VNodeChild {
-  const current = result.value;
-  const renderedText = current?.text ?? text;
-  const sourceIsHidden = current?.clamped === true && renderedText !== text;
+  const sourceIsHidden = sourceHidden.value;
   const visible = h(
     "span",
-    { "aria-hidden": trueOrUndefined(sourceIsHidden), key: "visible" },
-    renderedText,
+    {
+      "aria-hidden": trueOrUndefined(sourceIsHidden),
+      key: "visible",
+      ref: visibleRef,
+    },
+    [visibleText.value.text],
   );
   const children = sourceIsHidden
     ? [h("span", { key: "source", style: visuallyHiddenTextStyle }, text), visible]
@@ -152,7 +169,7 @@ defineRender(render);
 defineExpose({
   ...controls,
   get clamped() {
-    return isClamped.value;
+    return clamped.value === true;
   },
   get expanded() {
     return expanded.value;

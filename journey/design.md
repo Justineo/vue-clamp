@@ -59,9 +59,10 @@
   segment-internal lookup to that segment, and shares ellipsis width by font. It trusts the documented
   requirement that named fonts are loaded before use rather than coordinating `FontFaceSet` per
   instance. Active component instances share one content-box observer; inactive instances do not
-  observe, and width changes preserve the previous render result when visible text and clamp state
-  are unchanged. This observer policy is specific to the opt-in high-volume engine and does not
-  change the independent observers used by the browser-authoritative components.
+  observe. Shared delivery batches width inputs before Vue flushes; unchanged results do no DOM work,
+  and prefix-only changes update the stable visible text node without scheduling a full component
+  patch. This observer policy is specific to the opt-in high-volume engine and does not change the
+  independent observers used by the browser-authoritative components.
 - The opt-in entry has a release-facing public-component matrix in
   `journey/research/319-pretext-performance-matrix.md`. It compares only the shared root/Pretext
   contract over 16-instance English, CJK, Thai, and long-token batches under continuous, jitter,

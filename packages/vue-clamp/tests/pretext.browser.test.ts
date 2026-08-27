@@ -28,7 +28,7 @@ async function settle(): Promise<void> {
 
 function mountClamp(
   component: Component,
-  text: string,
+  text: string | Ref<string>,
   font: string,
   initialWidth: number,
   props: Record<string, unknown>,
@@ -49,7 +49,7 @@ function mountClamp(
             overflowWrap: "break-word",
             width: `${width.value}px`,
           },
-          text,
+          text: typeof text === "string" ? text : text.value,
         }),
     ),
   );
@@ -182,6 +182,40 @@ describe("Pretext LineClamp", () => {
     expect(visibleText(clamp)).toBe(text);
   });
 
+  it("keeps predictive text current across successive clamped widths", async () => {
+    const text = "observabilityPlatformBoundaryWithoutBreaks".repeat(7);
+    const browser = mountBrowser(text, "16px Georgia", 180);
+    const predicted = mountPretext(text, "16px Georgia", 180);
+
+    for (const width of [180, 220, 260, 300]) {
+      browser.width.value = width;
+      predicted.width.value = width;
+      await settle();
+
+      expect(predicted.exposed.value?.clamped).toBe(true);
+      expect(visibleText(predicted), `${width}px`).toBe(visibleText(browser));
+    }
+  });
+
+  it("recomputes when the source text changes", async () => {
+    const longText = "observabilityPlatformBoundaryWithoutBreaks".repeat(7);
+    const text = ref(longText);
+    const clamp = mountClamp(LineClamp, text, "16px Georgia", 180, {
+      font: "16px Georgia",
+    });
+    await settle();
+    expect(clamp.exposed.value?.clamped).toBe(true);
+
+    text.value = "Short source";
+    await settle();
+    expect(clamp.exposed.value?.clamped).toBe(false);
+    expect(visibleText(clamp)).toBe("Short source");
+
+    text.value = longText;
+    await settle();
+    expect(clamp.exposed.value?.clamped).toBe(true);
+  });
+
   it("keeps the full source available when predicted text is visible", async () => {
     const text = "Customer incident summaries preserve complete words while widths change.";
     const clamp = mountPretext(text, "16px Arial", 150);
@@ -212,6 +246,17 @@ describe("Pretext LineClamp", () => {
     await settle();
     expect(clamp.exposed.value?.expanded).toBe(false);
     expect(changes).toEqual([true, false, true]);
+  });
+
+  it("reports the initial inactive state", async () => {
+    const changes: boolean[] = [];
+    mountPretext("No active line limit", "16px Arial", 180, {
+      maxLines: undefined,
+      onClampchange: (value: boolean) => changes.push(value),
+    });
+    await settle();
+
+    expect(changes).toEqual([false]);
   });
 
   it("shares active resize observation and releases it when idle", async () => {
