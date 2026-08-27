@@ -1,6 +1,8 @@
+import { clearCache } from "@chenglou/pretext";
 import { measureRichInlineStats, prepareRichInline } from "@chenglou/pretext/rich-inline";
 import { afterEach, describe, expect, it } from "vite-plus/test";
 import { fitsContent } from "../../../packages/vue-clamp/src/layout.ts";
+import { warmSearchLocalCoverage } from "../../../packages/vue-clamp/src/search.ts";
 import {
   clampTextToLayout,
   clampTextToFit,
@@ -18,6 +20,7 @@ import type {
   TextClampHint,
   TextClampResult,
 } from "../../../packages/vue-clamp/src/text.ts";
+import type { PreparedPretextClamp } from "./pretext-integration.ts";
 
 type Scenario = {
   readonly afterWidth?: number;
@@ -84,12 +87,108 @@ type LayoutPathSummary = {
   readonly supportedWidths: number;
 };
 
+type ResizePattern = {
+  readonly name: string;
+  readonly widths: readonly number[];
+};
+
+type ResizePathSample = {
+  readonly boundingRectReads: number;
+  readonly clientRectReads: number;
+  readonly elapsedMs: number;
+  readonly layoutReads: number;
+  readonly mutationRecords: number;
+  readonly texts: readonly string[];
+  readonly unsupportedPredictions: number;
+};
+
+type ResizePredictionMode = "adaptive" | "always" | "none";
+
+type ResizeSummary = {
+  readonly adaptiveClientRectReads: number;
+  readonly adaptiveLayoutReads: number;
+  readonly adaptiveMs: number;
+  readonly adaptiveMutationRecords: number;
+  readonly changes: number;
+  readonly currentClientRectReads: number;
+  readonly currentLayoutReads: number;
+  readonly currentMs: number;
+  readonly currentMutationRecords: number;
+  readonly name: string;
+  readonly pattern: string;
+  readonly predictionPrepareMs: number;
+  readonly pretextClientRectReads: number;
+  readonly pretextLayoutReads: number;
+  readonly pretextMs: number;
+  readonly pretextMutationRecords: number;
+  readonly repetitions: number;
+  readonly unsupportedPredictions: number;
+};
+
 const lineWidths = [520, 260, 480, 220, 440, 180, 400, 300, 200, 500, 240, 460, 190];
 const inlineWidths = [360, 120, 320, 100, 280, 140, 340, 90, 240, 160, 300];
 const englishText =
   "Release dashboards keep customer impact, regional mitigation, and follow-up ownership visible while responsive cards change width.";
 const multilingualText =
   "Release AGI 春天到了, بدأت الرحلة 🚀 and regional responders keep customer context visible.";
+
+function widthSweep(start: number, end: number, step: number): number[] {
+  const widths: number[] = [];
+
+  for (let width = start; step > 0 ? width <= end : width >= end; width += step) {
+    widths.push(width);
+  }
+
+  return widths;
+}
+
+function repeatedWidths(widths: readonly number[], repetitions: number): number[] {
+  const result: number[] = [];
+
+  for (let index = 0; index < repetitions; index += 1) {
+    result.push(...widths);
+  }
+
+  return result;
+}
+
+function jitterWidths(
+  count: number,
+  start: number,
+  min: number,
+  max: number,
+  maxDelta: number,
+  seed: number,
+): number[] {
+  const widths = [start];
+  let width = start;
+  let state = seed;
+
+  while (widths.length < count) {
+    state = (state * 1664525 + 1013904223) >>> 0;
+    const unit = state / 0x100000000;
+    const delta = Math.round((unit * 2 - 1) * maxDelta);
+    width = Math.max(min, Math.min(max, width + (delta === 0 ? 1 : delta)));
+    widths.push(width);
+  }
+
+  return widths;
+}
+
+const resizePatterns: readonly ResizePattern[] = [
+  {
+    name: "continuous",
+    widths: [...widthSweep(460, 180, -1), ...widthSweep(181, 460, 1)],
+  },
+  {
+    name: "jitter",
+    widths: jitterWidths(561, 330, 180, 460, 19, 0x42),
+  },
+  {
+    name: "jumps",
+    widths: repeatedWidths([460, 180, 440, 200, 420, 160, 450, 230, 390, 190, 460], 51),
+  },
+];
 
 const scenarios: readonly Scenario[] = [
   {
@@ -376,6 +475,15 @@ function mean(values: readonly number[]): number {
   return values.length === 0 ? 0 : values.reduce((sum, value) => sum + value, 0) / values.length;
 }
 
+function median(values: readonly number[]): number {
+  const sorted = [...values].sort((left, right) => left - right);
+  const middle = Math.floor(sorted.length / 2);
+
+  return sorted.length % 2 === 0
+    ? ((sorted[middle - 1] ?? 0) + (sorted[middle] ?? 0)) / 2
+    : (sorted[middle] ?? 0);
+}
+
 function round(value: number): number {
   return Math.round(value * 1000) / 1000;
 }
@@ -599,6 +707,223 @@ function runLayoutScenario(scenario: Scenario): LayoutPathSummary {
   };
 }
 
+function runResizePath(
+  scenario: Scenario,
+  widths: readonly number[],
+  prepared: PreparedText,
+  pretext: PreparedPretextClamp,
+  predictionMode: ResizePredictionMode,
+): ResizePathSample {
+  const initialWidth = widths[0];
+  if (initialWidth === undefined) {
+    throw new Error(`Resize scenario ${scenario.name} requires an initial width.`);
+  }
+
+  const host = mountHost(scenario, initialWidth);
+  const originalGetBoundingClientRect = host.content.getBoundingClientRect.bind(host.content);
+  const originalGetClientRects = host.content.getClientRects.bind(host.content);
+  let boundingRectReads = 0;
+  let clientRectReads = 0;
+  Object.defineProperty(host.content, "getBoundingClientRect", {
+    configurable: true,
+    value: () => {
+      boundingRectReads += 1;
+      return originalGetBoundingClientRect();
+    },
+  });
+  Object.defineProperty(host.content, "getClientRects", {
+    configurable: true,
+    value: () => {
+      clientRectReads += 1;
+      return originalGetClientRects();
+    },
+  });
+
+  const observer = new MutationObserver(() => {});
+  observer.observe(host.target, { characterData: true, childList: true, subtree: true });
+  setElementText(host.target, scenario.text);
+  const commonInput = {
+    content: host.content,
+    ellipsis: scenario.ellipsis,
+    hasAffixes: !!scenario.beforeWidth || !!scenario.afterWidth,
+    lineCapacity: scenario.lineLimit,
+    layoutKey: `${scenario.beforeWidth ?? 0}|${scenario.afterWidth ?? 0}`,
+    lineLimit: scenario.lineLimit,
+    maxHeight: undefined,
+    prepared,
+    ratio: 1,
+    root: host.root,
+    reuseFullFitOnGrow: !scenario.beforeWidth && !scenario.afterWidth,
+    simpleLineFit: {
+      lineHeight: scenario.lineHeight,
+      verifyOverflow: !!scenario.beforeWidth || !!scenario.afterWidth,
+    },
+    target: host.target,
+  } as const;
+
+  try {
+    let hint = clampTextToLayout({
+      ...commonInput,
+      hint: null,
+      rootWidth: initialWidth,
+    });
+    if (hint === null) {
+      throw new Error(`Initial resize layout returned null for ${scenario.name}.`);
+    }
+
+    boundingRectReads = 0;
+    clientRectReads = 0;
+    observer.takeRecords();
+    const texts: string[] = [];
+    let unsupportedPredictions = 0;
+    const start = performance.now();
+
+    for (const width of widths.slice(1)) {
+      host.root.style.width = `${width}px`;
+      let predictedHint: TextClampHint | null = null;
+      const adaptiveScenarioEligible =
+        scenario.boundary === "word" &&
+        prepared.boundaryOffsets.length > 2 &&
+        !scenario.beforeWidth &&
+        !scenario.afterWidth &&
+        !scenario.font.includes("system-ui") &&
+        !scenario.fontFeatureSettings &&
+        !scenario.fontVariantLigatures &&
+        !scenario.hyphens &&
+        !scenario.textTransform &&
+        scenario.wordSpacing === undefined;
+      const widthDelta = Math.abs(width - (hint.rootWidth ?? width));
+      const observedRankMove =
+        hint.rootWidth && hint.rootWidth > 0 ? (widthDelta * hint.kept) / hint.rootWidth : 0;
+      const shouldPredict =
+        predictionMode === "always" ||
+        (predictionMode === "adaptive" &&
+          adaptiveScenarioEligible &&
+          observedRankMove > warmSearchLocalCoverage());
+
+      if (shouldPredict) {
+        const prediction = predictPretextEndClamp(prepared, pretext, {
+          ellipsis: scenario.ellipsis,
+          firstLineReserve: scenario.beforeWidth,
+          font: scenario.font,
+          lastLineReserve: scenario.afterWidth,
+          letterSpacing: scenario.letterSpacing,
+          lineLimit: scenario.lineLimit,
+          maxWidth: width,
+          wordBreak: scenario.wordBreak,
+        });
+        if (prediction.supported) {
+          const modeledWordJump =
+            predictionMode === "always" ||
+            (adaptiveScenarioEligible &&
+              prediction.kept > 0 &&
+              Math.abs(prediction.kept - hint.kept) > warmSearchLocalCoverage());
+
+          if (modeledWordJump) {
+            predictedHint = pretextPredictionHint(prepared, prediction, scenario.ellipsis);
+          }
+        } else {
+          unsupportedPredictions += 1;
+        }
+      }
+
+      hint = clampTextToLayout({
+        ...commonInput,
+        hint,
+        predictedHint,
+        rootWidth: width,
+      });
+      if (hint === null) {
+        throw new Error(`Resize layout returned null for ${scenario.name} at ${width}px.`);
+      }
+
+      texts.push(hint.text);
+    }
+
+    return {
+      boundingRectReads,
+      clientRectReads,
+      elapsedMs: performance.now() - start,
+      layoutReads: boundingRectReads + clientRectReads,
+      mutationRecords: observer.takeRecords().length,
+      texts,
+      unsupportedPredictions,
+    };
+  } finally {
+    observer.disconnect();
+    host.container.remove();
+  }
+}
+
+function summarizeResizeScenario(
+  scenario: Scenario,
+  pattern: ResizePattern,
+  repetitions: number,
+): ResizeSummary {
+  const prepared = prepareText(scenario.text, scenario.boundary);
+  clearCache();
+  const prepareStart = performance.now();
+  const pretext = preparePretextClamp(scenario.text, {
+    ellipsis: scenario.ellipsis,
+    firstLineReserve: scenario.beforeWidth,
+    font: scenario.font,
+    lastLineReserve: scenario.afterWidth,
+    letterSpacing: scenario.letterSpacing,
+    lineLimit: scenario.lineLimit,
+    maxWidth: pattern.widths[0] ?? 0,
+    wordBreak: scenario.wordBreak,
+  });
+  const predictionPrepareMs = performance.now() - prepareStart;
+  const adaptiveRuns: ResizePathSample[] = [];
+  const currentRuns: ResizePathSample[] = [];
+  const pretextRuns: ResizePathSample[] = [];
+
+  for (let repetition = 0; repetition < repetitions; repetition += 1) {
+    const modes: ResizePredictionMode[] = ["none", "always", "adaptive"];
+    const offset = repetition % modes.length;
+    const orderedModes = [...modes.slice(offset), ...modes.slice(0, offset)];
+    const runs = new Map<ResizePredictionMode, ResizePathSample>();
+
+    for (const mode of orderedModes) {
+      runs.set(mode, runResizePath(scenario, pattern.widths, prepared, pretext, mode));
+    }
+
+    const current = runs.get("none");
+    const predicted = runs.get("always");
+    const adaptive = runs.get("adaptive");
+    if (!current || !predicted || !adaptive) {
+      throw new Error(`Missing resize comparison path for ${scenario.name}.`);
+    }
+
+    expect(predicted.texts).toEqual(current.texts);
+    expect(adaptive.texts).toEqual(current.texts);
+    adaptiveRuns.push(adaptive);
+    currentRuns.push(current);
+    pretextRuns.push(predicted);
+  }
+
+  return {
+    adaptiveClientRectReads: median(adaptiveRuns.map((run) => run.clientRectReads)),
+    adaptiveLayoutReads: median(adaptiveRuns.map((run) => run.layoutReads)),
+    adaptiveMs: round(median(adaptiveRuns.map((run) => run.elapsedMs))),
+    adaptiveMutationRecords: median(adaptiveRuns.map((run) => run.mutationRecords)),
+    changes: Math.max(0, pattern.widths.length - 1),
+    currentClientRectReads: median(currentRuns.map((run) => run.clientRectReads)),
+    currentLayoutReads: median(currentRuns.map((run) => run.layoutReads)),
+    currentMs: round(median(currentRuns.map((run) => run.elapsedMs))),
+    currentMutationRecords: median(currentRuns.map((run) => run.mutationRecords)),
+    name: scenario.name,
+    pattern: pattern.name,
+    predictionPrepareMs: round(predictionPrepareMs),
+    pretextClientRectReads: median(pretextRuns.map((run) => run.clientRectReads)),
+    pretextLayoutReads: median(pretextRuns.map((run) => run.layoutReads)),
+    pretextMs: round(median(pretextRuns.map((run) => run.elapsedMs))),
+    pretextMutationRecords: median(pretextRuns.map((run) => run.mutationRecords)),
+    repetitions,
+    unsupportedPredictions: Math.max(0, ...pretextRuns.map((run) => run.unsupportedPredictions)),
+  };
+}
+
 function domLineCount(element: HTMLElement): number {
   const lineHeight = Number.parseFloat(getComputedStyle(element).lineHeight);
   return Math.max(1, Math.round(element.getBoundingClientRect().height / lineHeight));
@@ -661,6 +986,24 @@ describe("Pretext integration research", () => {
 
     expect(results.some((result) => result.supportedWidths > 0)).toBe(true);
     console.error(`PRETEXT_LAYOUT_RESULT ${JSON.stringify(results)}`);
+  });
+
+  it("compares Pretext with retained warm hints during frequent container resizes", () => {
+    const selectedNames = new Set([
+      "line-english-custom-ellipsis",
+      "line-english-word",
+      "line-cjk-word",
+      "line-long-token-fallback",
+      "line-fixed-affix-reserves",
+      "line-unmodeled-uppercase",
+    ]);
+    const lineScenarios = scenarios.filter((scenario) => selectedNames.has(scenario.name));
+    const results = lineScenarios.flatMap((scenario) =>
+      resizePatterns.map((pattern) => summarizeResizeScenario(scenario, pattern, 5)),
+    );
+
+    expect(results).toHaveLength(lineScenarios.length * resizePatterns.length);
+    console.error(`PRETEXT_RESIZE_RESULT ${JSON.stringify(results)}`);
   });
 });
 
