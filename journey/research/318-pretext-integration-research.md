@@ -2,7 +2,7 @@
 
 ## Decision
 
-Do not add `@chenglou/pretext` to the `vue-clamp` production runtime at its current `0.0.8`
+Do not add `@chenglou/pretext` to the existing `vue-clamp` main runtime or root entry at its current `0.0.8`
 surface. Keep the prototype as an isolated benchmark dependency and research artifact.
 
 The central reason is not that Pretext is ineffective. In a narrow, explicitly modeled text setup,
@@ -11,7 +11,10 @@ unavoidable full-source browser measurement into an equally effective paid hint.
 resizes, Pretext can reduce work for large discontinuous width jumps in a controlled word-boundary
 subset, but forcing it into smooth or unsupported rows regresses them substantially. The useful
 subset is therefore real but too narrow to justify almost another full library bundle and a second
-layout model in the main runtime.
+layout model in the main runtime. A later pure-authority prototype changes the opportunity more
+substantially: it is 91–99% faster with zero DOM geometry reads and exact output in the controlled
+ordinary word-boundary rows, but it also demonstrates large underfill or overflow error classes
+outside that contract.
 
 This is also the Polanyian boundary of the integration: browser layout contains tacit context that
 is not present in the text and width alone—resolved font fallback, CSS inheritance and text
@@ -21,17 +24,18 @@ caller can prove that the subset is the whole environment.
 
 ## Questions tested
 
-The prototype explored seven possible roles:
+The prototype explored eight possible roles:
 
-| Role                              | Result                                                                                                                                               | Decision                                                  |
-| --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------- |
-| `LineClamp` candidate-rank hint   | Strong versus a hint-free search; neutral on independent cold layouts; selectively useful for large resize jumps in modeled word rows                | Reject for the main runtime; preserve as adapter evidence |
-| Replace `LineClamp` DOM authority | Predictions diverged under ordinary and unmodeled CSS cases                                                                                          | Reject                                                    |
-| Full-text fit gate                | 168/169 supported sampled widths matched, but one false result is enough to make an unverified gate unsafe                                           | Reject as authority                                       |
-| `InlineClamp` measured-mode hint  | Word-boundary case improved versus a hint-free search; custom ellipsis did not, and the real component already owns inline-specific measured history | No integration evidence                                   |
-| `RichLineClamp` predictor         | One controlled flat-rich fixture matched 7/7 widths; the API intentionally does not model a nested DOM/CSS inline formatting tree                    | Reject for the general component                          |
-| SSR/hydration layout answer       | Current runtime still requires Canvas 2D and `Intl.Segmenter`; upstream describes server-side support as future work                                 | Not currently applicable                                  |
-| Separate opt-in adapter           | Technically possible for a closed design-system subset, but its size and correctness contract are too large for the demonstrated benefit             | Defer unless a separate product workload appears          |
+| Role                               | Result                                                                                                                                               | Decision                                                  |
+| ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------- |
+| `LineClamp` candidate-rank hint    | Strong versus a hint-free search; neutral on independent cold layouts; selectively useful for large resize jumps in modeled word rows                | Reject for the main runtime; preserve as adapter evidence |
+| Pure Pretext `LineClamp` authority | Zero DOM geometry reads and large speedups; exact in controlled ordinary word rows, but divergent or unsafe in broader component semantics           | Preserve as a strict opt-in component/entry direction     |
+| Replace `LineClamp` DOM authority  | Predictions diverged under ordinary and unmodeled CSS cases                                                                                          | Reject                                                    |
+| Full-text fit gate                 | 168/169 supported sampled widths matched, but one false result is enough to make an unverified gate unsafe                                           | Reject as authority                                       |
+| `InlineClamp` measured-mode hint   | Word-boundary case improved versus a hint-free search; custom ellipsis did not, and the real component already owns inline-specific measured history | No integration evidence                                   |
+| `RichLineClamp` predictor          | One controlled flat-rich fixture matched 7/7 widths; the API intentionally does not model a nested DOM/CSS inline formatting tree                    | Reject for the general component                          |
+| SSR/hydration layout answer        | Current runtime still requires Canvas 2D and `Intl.Segmenter`; upstream describes server-side support as future work                                 | Not currently applicable                                  |
+| Separate opt-in adapter            | Technically possible for a closed design-system subset, but its size and correctness contract are too large for the demonstrated benefit             | Defer unless a separate product workload appears          |
 
 `WrapClamp` was excluded because its unit of layout is an arbitrary rendered item box rather than a
 text segment. Pretext does not observe those boxes.
@@ -46,6 +50,8 @@ The branch contains:
 - Chromium comparisons against browser-authoritative final text;
 - same-instance resize comparisons for continuous, bounded-jitter, and large-jump patterns, with
   retained warm hints and five counterbalanced timing repetitions;
+- a pure Pretext authority implementation that generates visible text without DOM geometry reads,
+  plus untimed browser verification that classifies exact, underfilled, and overflowing output;
 - a narrow `rich-inline` comparison;
 - a consumer-bundle size measurement for the exact imports used by each prototype.
 
@@ -170,6 +176,57 @@ This changes the interpretation, but not the package decision: Pretext has a dem
 far-jump rank oracle after ordinary warm evidence becomes stale. It is not a better general resize
 engine.
 
+### Pure Pretext authority path
+
+The pure version calls Pretext for every width and directly materializes the end-clamped text. It
+does not call `clampTextToLayout`, does not search DOM candidates, and performs zero
+`getBoundingClientRect()` / `getClientRects()` reads. The timed region includes width assignment,
+Pretext line layout/cursor mapping, boundary conversion, and the final text write when output
+changes. Browser verification runs separately after timing.
+
+For the controlled subset—named font, end-only, `boundary="word"`, default `…`, no affixes, and no
+unmodeled text CSS—the result is materially different from using Pretext only as a hint:
+
+| 560 changes per pattern | Current DOM time range | Pure Pretext time range |  Time change | Pure exactness |
+| ----------------------- | ---------------------: | ----------------------: | -----------: | -------------: |
+| English word            |            8.7–19.1 ms |              0.7–0.8 ms | -92% to -96% |    1,680/1,680 |
+| CJK word                |            5.5–19.3 ms |              0.5–0.8 ms | -91% to -96% |    1,680/1,680 |
+| Thai word               |           11.8–54.8 ms |              0.4–0.5 ms | -97% to -99% |    1,680/1,680 |
+
+Geometry reads are zero in every pure row. Text mutations also fall because smooth width changes
+often preserve the same predicted output. For example:
+
+| Scenario     | Current mutations: continuous / jitter / jumps | Pure mutations |
+| ------------ | ---------------------------------------------: | -------------: |
+| English word |                            570 / 1,218 / 1,530 | 16 / 165 / 510 |
+| CJK word     |                              248 / 632 / 1,581 |  8 / 136 / 510 |
+| Thai word    |                              185 / 371 / 1,428 |   8 / 98 / 408 |
+
+The 510 writes in the repeated-jump rows correspond to the 510 nonzero large transitions; pure
+Pretext removes measurement/search work but cannot avoid updating genuinely different visible
+text.
+
+The correctness boundary is equally clear across the three resize patterns (`1,680` outputs per
+scenario):
+
+| Scenario family                    |       Exact | Underfilled | Overflowing | Interpretation                                   |
+| ---------------------------------- | ----------: | ----------: | ----------: | ------------------------------------------------ |
+| Ordinary English/CJK/Thai word     | 5,040/5,040 |           0 |           0 | Promising closed contract                        |
+| Long-token word→grapheme fallback  | 1,670/1,680 |          10 |           0 | Very close, not authoritative yet                |
+| Arabic bidi + custom ellipsis      | 1,510/1,680 |         170 |           0 | Conservative divergence                          |
+| Emoji ZWJ grapheme                 | 1,341/1,680 |         339 |           0 | Conservative divergence                          |
+| `system-ui`                        | 1,166/1,680 |         514 |           0 | Platform font is outside the safe contract       |
+| Fixed affix reserves               |   831/1,680 |         849 |           0 | Reserve approximation is not inline layout       |
+| English grapheme + custom ellipsis |   804/1,680 |         876 |           0 | Visible over-truncation                          |
+| Letter spacing + custom ellipsis   |   654/1,680 |       1,026 |           0 | Modeled width is still insufficient as authority |
+| Unmodeled uppercase transform      |   254/1,680 |           0 |       1,426 | Unsafe overflow                                  |
+
+This is the strongest case for a separate pure component or package entry, not an automatic fast
+path inside `LineClamp`. Its contract would need to be closed by construction: named font,
+ordinary modeled CSS, end-only word truncation, default ellipsis, and no affixes. Even then, the
+current corpus is evidence, not a general browser equivalence proof. The browser-authoritative
+component remains necessary for the existing general API.
+
 ### Rich inline
 
 `@chenglou/pretext/rich-inline` matched browser line counts at 7/7 tested widths for one flat row
@@ -190,23 +247,29 @@ Vite production-minified consumer bundles for the exact prototype imports measur
 For scale, the current production-minified consumer bundle containing all four `vue-clamp`
 components is 19.250 kB gzip. The layout predictor alone is therefore about 92% of the current full
 library bundle; `rich-inline` is about 98%. A main-entry integration is not proportionate to a
-benefit confined to controlled word-boundary workloads with large discontinuous width changes.
+benefit confined to a controlled semantic subset. A separately loaded pure entry has a more
+credible byte/work trade for high-volume applications because it removes all DOM geometry reads,
+but would nearly double the payload of an application that already ships every current component.
 
 ## Integration paths worth preserving as options
 
 These are not current `vue-clamp` roadmap items, but they define when the decision could change:
 
-1. **A separate closed-world design-system adapter.** An application with named fonts, controlled
-   CSS, end-only word truncation, no dynamic affixes, and a large responsive/virtualized list with
-   discontinuous column changes could use Pretext as an application-level far-jump hint. The resize
-   benchmark demonstrates this path. It should not alter the general component contract.
-2. **A server-only pre-layout pipeline.** Revisit after Pretext can measure the same named font files
+1. **A separate pure closed-world component/entry.** An application with named fonts, controlled
+   CSS, end-only word truncation, default ellipsis, no affixes, and a large responsive/virtualized
+   list could accept Pretext as authority and avoid DOM geometry entirely. This is now the strongest
+   demonstrated integration path. It should not weaken or complicate the general `LineClamp`
+   contract.
+2. **An application-level far-jump adapter.** Where browser authority must remain, the guarded
+   predictor can still reduce work after large discontinuous column changes without affecting local
+   resize paths.
+3. **A server-only pre-layout pipeline.** Revisit after Pretext can measure the same named font files
    in the deployment runtime and publishes a stable server API. The result would still need a
    hydration-safe browser correction contract.
-3. **An upstream lightweight prediction surface.** A materially smaller entry that returns only
+4. **An upstream lightweight prediction surface.** A materially smaller entry that returns only
    line-break cursors could change the size equation, but it must still beat the paid browser signal
    in the complete path.
-4. **A research/differential corpus tool.** Pretext can generate hypotheses for multilingual line
+5. **A research/differential corpus tool.** Pretext can generate hypotheses for multilingual line
    breaks and help classify disagreement. It is not an independent browser oracle, so this is useful
    only when a concrete missing test class is identified.
 

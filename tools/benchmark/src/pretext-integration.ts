@@ -1,4 +1,5 @@
 import { layoutNextLineRange, measureNaturalWidth, prepareWithSegments } from "@chenglou/pretext";
+import { displayTextForKeptCount } from "../../../packages/vue-clamp/src/text.ts";
 
 import type {
   LayoutCursor,
@@ -37,6 +38,10 @@ export type UnsupportedPretextClampPrediction = {
 
 export type PretextClampPredictionResult =
   | PretextClampPrediction
+  | UnsupportedPretextClampPrediction;
+
+export type PurePretextClampResult =
+  | (PretextClampPrediction & { readonly text: string })
   | UnsupportedPretextClampPrediction;
 
 const graphemeSegmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
@@ -196,6 +201,39 @@ export function predictPretextEndClamp(
     kept: keptForOffset(preparedText, sourceOffset),
     sourceOffset,
     supported: true,
+  };
+}
+
+export function clampPurePretextEndText(
+  preparedText: PreparedText,
+  pretext: PreparedPretextClamp,
+  config: PretextClampConfig,
+): PurePretextClampResult {
+  const prediction = predictPretextEndClamp(preparedText, pretext, config);
+  if (!prediction.supported) {
+    return prediction;
+  }
+
+  const fallbackPrepared =
+    preparedText.boundary === "word" &&
+    prediction.kept === 0 &&
+    prediction.sourceOffset > 0 &&
+    preparedText.fallbackBoundaryOffsets
+      ? {
+          boundary: "grapheme" as const,
+          boundaryOffsets: preparedText.fallbackBoundaryOffsets,
+          text: preparedText.text,
+        }
+      : null;
+  const outputPrepared = fallbackPrepared ?? preparedText;
+  const kept = fallbackPrepared
+    ? keptForOffset(fallbackPrepared, prediction.sourceOffset)
+    : prediction.kept;
+
+  return {
+    ...prediction,
+    kept,
+    text: displayTextForKeptCount(outputPrepared, 1, config.ellipsis, kept),
   };
 }
 

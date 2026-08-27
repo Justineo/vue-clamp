@@ -13,6 +13,7 @@ import {
   setElementText,
 } from "../../../packages/vue-clamp/src/text.ts";
 import {
+  clampPurePretextEndText,
   predictPretextEndClamp,
   preparePretextClamp,
   pretextPredictionHint,
@@ -109,6 +110,13 @@ type ResizePathSample = {
 };
 
 type ResizePredictionMode = "adaptive" | "always" | "none";
+type ResizeComparisonMode = ResizePredictionMode | "pure";
+
+type PureVerification = {
+  readonly exact: number;
+  readonly overflowing: number;
+  readonly underfilled: number;
+};
 
 type ResizeSummary = {
   readonly adaptiveClientRectReads: number;
@@ -134,6 +142,13 @@ type ResizeSummary = {
   readonly pretextLayoutReads: number;
   readonly pretextMs: number;
   readonly pretextMutationRecords: number;
+  readonly pureExact: number;
+  readonly pureLayoutReads: number;
+  readonly pureMs: number;
+  readonly pureMutationRecords: number;
+  readonly pureOverflowing: number;
+  readonly pureUnderfilled: number;
+  readonly pureUnsupportedPredictions: number;
   readonly repetitions: number;
   readonly unsupportedPredictions: number;
 };
@@ -888,6 +903,138 @@ function runResizePath(
   }
 }
 
+function runPurePretextResizePath(
+  scenario: Scenario,
+  widths: readonly number[],
+  prepared: PreparedText,
+  pretext: PreparedPretextClamp,
+): ResizePathSample {
+  const initialWidth = widths[0];
+  if (initialWidth === undefined) {
+    throw new Error(`Pure resize scenario ${scenario.name} requires an initial width.`);
+  }
+
+  const host = mountHost(scenario, initialWidth);
+  const observer = new MutationObserver(() => {});
+  observer.observe(host.target, { characterData: true, childList: true, subtree: true });
+
+  function predict(width: number): { kept: number; supported: boolean; text: string } {
+    const prediction = clampPurePretextEndText(prepared, pretext, {
+      ellipsis: scenario.ellipsis,
+      firstLineReserve: scenario.beforeWidth,
+      font: scenario.font,
+      lastLineReserve: scenario.afterWidth,
+      letterSpacing: scenario.letterSpacing,
+      lineLimit: scenario.lineLimit,
+      maxWidth: width,
+      wordBreak: scenario.wordBreak,
+    });
+    const kept = prediction.supported ? prediction.kept : prepared.boundaryOffsets.length - 1;
+
+    return {
+      kept,
+      supported: prediction.supported,
+      text: prediction.supported ? prediction.text : prepared.text,
+    };
+  }
+
+  try {
+    const initial = predict(initialWidth);
+    let currentKept = initial.kept;
+    let currentText = initial.text;
+    setElementText(host.target, currentText);
+    observer.takeRecords();
+
+    const rankMoves: number[] = [];
+    const texts: string[] = [];
+    let predictionAttempts = 0;
+    let predictionHints = 0;
+    let unsupportedPredictions = initial.supported ? 0 : 1;
+    const start = performance.now();
+
+    for (const width of widths.slice(1)) {
+      host.root.style.width = `${width}px`;
+      predictionAttempts += 1;
+      const prediction = predict(width);
+      if (prediction.supported) {
+        predictionHints += 1;
+      } else {
+        unsupportedPredictions += 1;
+      }
+
+      if (prediction.text !== currentText) {
+        setElementText(host.target, prediction.text);
+        currentText = prediction.text;
+      }
+
+      rankMoves.push(Math.abs(prediction.kept - currentKept));
+      currentKept = prediction.kept;
+      texts.push(prediction.text);
+    }
+
+    return {
+      boundingRectReads: 0,
+      clientRectReads: 0,
+      elapsedMs: performance.now() - start,
+      layoutReads: 0,
+      mutationRecords: observer.takeRecords().length,
+      predictionAttempts,
+      predictionHints,
+      rankMoves,
+      texts,
+      unsupportedPredictions,
+    };
+  } finally {
+    observer.disconnect();
+    host.container.remove();
+  }
+}
+
+function verifyPurePretextResize(
+  scenario: Scenario,
+  widths: readonly number[],
+  authorityTexts: readonly string[],
+  pureTexts: readonly string[],
+): PureVerification {
+  const initialWidth = widths[0];
+  if (initialWidth === undefined) {
+    throw new Error(`Pure verification ${scenario.name} requires an initial width.`);
+  }
+
+  const host = mountHost(scenario, initialWidth);
+  let exact = 0;
+  let overflowing = 0;
+  let underfilled = 0;
+
+  try {
+    for (let index = 0; index < pureTexts.length; index += 1) {
+      const pureText = pureTexts[index];
+      const authorityText = authorityTexts[index];
+      const width = widths[index + 1];
+      if (pureText === undefined || authorityText === undefined || width === undefined) {
+        throw new Error(`Pure verification rows are misaligned for ${scenario.name}.`);
+      }
+
+      if (pureText === authorityText) {
+        exact += 1;
+        continue;
+      }
+
+      host.root.style.width = `${width}px`;
+      setElementText(host.target, pureText);
+      if (candidateFits(host, scenario)) {
+        underfilled += 1;
+      } else {
+        overflowing += 1;
+      }
+    }
+
+    return { exact, overflowing, underfilled };
+  } finally {
+    host.container.remove();
+  }
+}
+
 function summarizeResizeScenario(
   scenario: Scenario,
   pattern: ResizePattern,
@@ -910,21 +1057,28 @@ function summarizeResizeScenario(
   const adaptiveRuns: ResizePathSample[] = [];
   const currentRuns: ResizePathSample[] = [];
   const pretextRuns: ResizePathSample[] = [];
+  const pureRuns: ResizePathSample[] = [];
 
   for (let repetition = 0; repetition < repetitions; repetition += 1) {
-    const modes: ResizePredictionMode[] = ["none", "always", "adaptive"];
+    const modes: ResizeComparisonMode[] = ["none", "always", "adaptive", "pure"];
     const offset = repetition % modes.length;
     const orderedModes = [...modes.slice(offset), ...modes.slice(0, offset)];
-    const runs = new Map<ResizePredictionMode, ResizePathSample>();
+    const runs = new Map<ResizeComparisonMode, ResizePathSample>();
 
     for (const mode of orderedModes) {
-      runs.set(mode, runResizePath(scenario, pattern.widths, prepared, pretext, mode));
+      runs.set(
+        mode,
+        mode === "pure"
+          ? runPurePretextResizePath(scenario, pattern.widths, prepared, pretext)
+          : runResizePath(scenario, pattern.widths, prepared, pretext, mode),
+      );
     }
 
     const current = runs.get("none");
     const predicted = runs.get("always");
     const adaptive = runs.get("adaptive");
-    if (!current || !predicted || !adaptive) {
+    const pure = runs.get("pure");
+    if (!current || !predicted || !adaptive || !pure) {
       throw new Error(`Missing resize comparison path for ${scenario.name}.`);
     }
 
@@ -933,9 +1087,21 @@ function summarizeResizeScenario(
     adaptiveRuns.push(adaptive);
     currentRuns.push(current);
     pretextRuns.push(predicted);
+    pureRuns.push(pure);
   }
 
   const currentRankMoves = currentRuns[0]?.rankMoves ?? [];
+  const firstCurrent = currentRuns[0];
+  const firstPure = pureRuns[0];
+  if (!firstCurrent || !firstPure) {
+    throw new Error(`Missing pure verification path for ${scenario.name}.`);
+  }
+  const pureVerification = verifyPurePretextResize(
+    scenario,
+    pattern.widths,
+    firstCurrent.texts,
+    firstPure.texts,
+  );
 
   return {
     adaptiveClientRectReads: median(adaptiveRuns.map((run) => run.clientRectReads)),
@@ -961,6 +1127,13 @@ function summarizeResizeScenario(
     pretextLayoutReads: median(pretextRuns.map((run) => run.layoutReads)),
     pretextMs: round(median(pretextRuns.map((run) => run.elapsedMs))),
     pretextMutationRecords: median(pretextRuns.map((run) => run.mutationRecords)),
+    pureExact: pureVerification.exact,
+    pureLayoutReads: median(pureRuns.map((run) => run.layoutReads)),
+    pureMs: round(median(pureRuns.map((run) => run.elapsedMs))),
+    pureMutationRecords: median(pureRuns.map((run) => run.mutationRecords)),
+    pureOverflowing: pureVerification.overflowing,
+    pureUnderfilled: pureVerification.underfilled,
+    pureUnsupportedPredictions: Math.max(0, ...pureRuns.map((run) => run.unsupportedPredictions)),
     repetitions,
     unsupportedPredictions: Math.max(0, ...pretextRuns.map((run) => run.unsupportedPredictions)),
   };
@@ -1034,9 +1207,14 @@ describe("Pretext integration research", () => {
     const selectedNames = new Set([
       "line-english-custom-ellipsis",
       "line-english-word",
+      "line-arabic-bidi-custom-ellipsis",
       "line-cjk-word",
+      "line-emoji-zwj",
+      "line-thai-word",
+      "line-letter-spacing",
       "line-long-token-fallback",
       "line-fixed-affix-reserves",
+      "line-system-ui",
       "line-unmodeled-uppercase",
     ]);
     const lineScenarios = scenarios.filter((scenario) => selectedNames.has(scenario.name));
