@@ -117,6 +117,8 @@ export type TextClampLayoutInput = {
   readonly lineLimit: number | undefined;
   readonly maxHeight: ClampLength | undefined;
   readonly prepared: PreparedText;
+  /** Research-only candidate hint injection used by the Pretext integration branch. */
+  readonly predictedHint?: TextClampHint | null;
   readonly ratio: number;
   readonly root: HTMLElement;
   readonly rootWidth: number;
@@ -685,6 +687,7 @@ export function clampTextToLayout({
   lineLimit,
   maxHeight,
   prepared,
+  predictedHint,
   ratio,
   root,
   rootWidth,
@@ -736,6 +739,11 @@ export function clampTextToLayout({
   )
     ? textHint
     : null;
+  const preparedPredictionHint =
+    predictedHint?.boundaryOffsets === prepared.boundaryOffsets &&
+    sameTextFitContext(predictedHint, context)
+      ? predictedHint
+      : null;
   const expansionLimit =
     prepared.boundary === "word" ? wordWarmExpansionLimit : defaultWarmExpansionLimit;
   const visibleBoundsCache: VisibleBoundsCache | undefined =
@@ -810,6 +818,13 @@ export function clampTextToLayout({
         spacing: "trim",
       };
     }
+  }
+
+  // This deliberately overrides both the ordinary warm hint and the paid full-source
+  // cold hint. It is an experimental seam so the research harness can measure the
+  // complete layout path with the external predictor; production callers omit it.
+  if (preparedPredictionHint !== null) {
+    searchHint = preparedPredictionHint;
   }
 
   const result = clampTextToFit({

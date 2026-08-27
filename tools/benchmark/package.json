@@ -6,9 +6,11 @@
   "scripts": {
     "compare": "node scripts/compare-matrix-summary.mjs",
     "package": "node scripts/benchmark-package.mjs",
+    "pretext-size": "node scripts/measure-pretext-size.mjs",
     "report": "node scripts/render-matrix-report.mjs"
   },
   "devDependencies": {
+    "@chenglou/pretext": "catalog:",
     "@types/node": "catalog:",
     "@vitejs/plugin-vue": "catalog:",
     "playwright": "catalog:",
