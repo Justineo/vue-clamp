@@ -13,13 +13,27 @@ import type { ClampBoundary, ClampLength, LineClampLocation } from "./types.ts";
 
 // Text preparation is separated from DOM measurement so width-only reclamps can
 // reuse the same boundary list instead of segmenting the source text again.
-const graphemeSegmenter = new Intl.Segmenter(undefined, {
-  granularity: "grapheme",
-});
+// Segmenters are built on first use: module evaluation then stays side effect free,
+// so bundlers can drop this module for consumers that only import layout clamping,
+// and ASCII-only content never constructs one.
+let graphemeSegmenter: Intl.Segmenter | undefined;
+let wordSegmenter: Intl.Segmenter | undefined;
 
-const wordSegmenter = new Intl.Segmenter(undefined, {
-  granularity: "word",
-});
+function segmentGraphemes(text: string): Intl.Segments {
+  graphemeSegmenter ??= new Intl.Segmenter(undefined, {
+    granularity: "grapheme",
+  });
+
+  return graphemeSegmenter.segment(text);
+}
+
+function segmentWords(text: string): Intl.Segments {
+  wordSegmenter ??= new Intl.Segmenter(undefined, {
+    granularity: "word",
+  });
+
+  return wordSegmenter.segment(text);
+}
 
 export interface PreparedText {
   readonly text: string;
@@ -145,7 +159,7 @@ function graphemeBoundaryOffsets(text: string): number[] {
   const boundaryOffsets = [0];
   let offset = 0;
 
-  for (const part of graphemeSegmenter.segment(text)) {
+  for (const part of segmentGraphemes(text)) {
     offset += part.segment.length;
     boundaryOffsets.push(offset);
   }
@@ -161,7 +175,7 @@ function wordBoundaryOffsets(
   const boundaryOffsets = [0];
   let fallbackIndex = 0;
 
-  for (const part of wordSegmenter.segment(text)) {
+  for (const part of segmentWords(text)) {
     const offset = part.index + part.segment.length;
     while (!asciiSafe && (fallbackBoundaryOffsets[fallbackIndex] ?? Infinity) < offset) {
       fallbackIndex += 1;
