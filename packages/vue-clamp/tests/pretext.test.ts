@@ -60,4 +60,11 @@ describe("Pretext line clamping", () => {
       expect(prefixes.has(visiblePrefix)).toBe(true);
     }
   });
+
+  it("uses Pretext whitespace normalization for boundary mapping", () => {
+    const prepared = prepareLineClamp("  alpha\t\n beta  ", font);
+
+    expect(prepared.boundaries.text).toBe("alpha beta");
+    expect(prepared.prepared.segments.join("")).toBe(prepared.boundaries.text);
+  });
 });

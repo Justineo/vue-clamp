@@ -117,6 +117,18 @@ describe("Pretext LineClamp", () => {
         font: "16px Georgia",
         text: "observabilityPlatformBoundaryWithoutBreaks".repeat(7),
       },
+      {
+        font: "16px Georgia",
+        text: "Deploy now... “release-ready?” isn't the same as release ready; punctuation stays attached correctly.",
+      },
+      {
+        font: "16px Arial",
+        text: "e\u0301lan and 👩‍🚀 teams keep composed graphemes intact while multilingual dashboards resize.",
+      },
+      {
+        font: "16px Arial",
+        text: `Status ${"observabilityPlatformBoundaryWithoutBreaks".repeat(6)}`,
+      },
     ];
     const widths = [180, 190, 200, 220, 240, 260, 300, 400, 440, 460, 480, 500, 520];
 

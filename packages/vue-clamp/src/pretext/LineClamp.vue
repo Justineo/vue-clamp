@@ -30,11 +30,9 @@ const attrs = useAttrs();
 const controls = useClampControls(expanded);
 const bodyRef = shallowRef<HTMLElement | null>(null);
 const width = shallowRef<number | null>(null);
-const fontReady = shallowRef(false);
 const isClamped = shallowRef(false);
 const lineLimit = computed(() => normalizeLineLimit(maxLines));
 const prepared = computed(() => prepareLineClamp(text, font));
-let fontRequest = 0;
 let hasResolved = false;
 
 type Result = ReturnType<typeof clampPreparedLine> | null;
@@ -46,7 +44,7 @@ const result = computed<Result>((previous) => {
     return previous?.clamped === next.clamped && previous.text === next.text ? previous : next;
   }
 
-  if (!fontReady.value || width.value === null) {
+  if (width.value === null) {
     return null;
   }
 
@@ -89,25 +87,6 @@ const bodyStyle = computed<CSSProperties>(() => {
     WebkitLineClamp: active ? String(limit) : undefined,
   };
 });
-
-watch(
-  [() => font, () => text],
-  ([currentFont, currentText]) => {
-    const request = ++fontRequest;
-    const fonts = typeof document === "undefined" ? undefined : document.fonts;
-    if (!fonts || fonts.check(currentFont, currentText || " ")) {
-      fontReady.value = true;
-      return;
-    }
-
-    fontReady.value = false;
-    const complete = () => {
-      if (request === fontRequest) fontReady.value = true;
-    };
-    void fonts.load(currentFont, currentText || " ").then(complete, complete);
-  },
-  { immediate: true },
-);
 
 watchPostEffect((onCleanup) => {
   const body = bodyRef.value;

@@ -1,4 +1,4 @@
-import { clearCache } from "@chenglou/pretext";
+import { clearCache, prepareWithSegments } from "@chenglou/pretext";
 import { createApp, defineComponent, h, nextTick } from "vue";
 import { afterEach, describe, expect, it } from "vite-plus/test";
 import { clampTextToLayout, prepareText, setElementText } from "../src/text.ts";
@@ -484,31 +484,50 @@ describe("Pretext LineClamp benchmark", () => {
     console.error(`PRETEXT_CORE_EDGE_BENCH_RESULT ${JSON.stringify(results)}`);
   });
 
-  it("reports repeated preparation throughput", () => {
+  it("decomposes repeated preparation cost", () => {
     const texts = Array.from(
       { length: preparationCount },
       (_, index) =>
         `Row ${index + 1} keeps customer impact, mitigation, ownership, and follow-up visible.`,
     );
-    const runs = [];
+    const runs = {
+      boundaries: [] as number[],
+      pretext: [] as number[],
+      wrapper: [] as number[],
+    };
     let checksum = 0;
 
     clearCache();
     for (let repetition = 0; repetition < repetitions; repetition += 1) {
-      const start = performance.now();
+      const pretextStart = performance.now();
       for (const text of texts) {
-        const prepared = prepareLineClamp(text, "16px Arial");
-        checksum += prepared.boundaries.boundaryOffsets.length;
+        checksum += prepareWithSegments(text, "16px Arial").segments.length;
       }
-      runs.push(performance.now() - start);
+      runs.pretext.push(performance.now() - pretextStart);
+
+      const boundariesStart = performance.now();
+      for (const text of texts) {
+        checksum += prepareText(text, "word").boundaryOffsets.length;
+      }
+      runs.boundaries.push(performance.now() - boundariesStart);
+
+      const wrapperStart = performance.now();
+      for (const text of texts) {
+        checksum += prepareLineClamp(text, "16px Arial").segmentWordRanks.length;
+      }
+      runs.wrapper.push(performance.now() - wrapperStart);
     }
 
     expect(checksum).toBeGreaterThan(0);
     console.error(
-      `PRETEXT_PREPARE_BENCH_RESULT ${JSON.stringify({
+      `PRETEXT_PREPARE_BREAKDOWN ${JSON.stringify({
         count: preparationCount,
-        ms: round(median(runs)),
-        runs: runs.map(round),
+        paths: Object.fromEntries(
+          Object.entries(runs).map(([name, values]) => [
+            name,
+            { ms: round(median(values)), runs: values.map(round) },
+          ]),
+        ),
       })}`,
     );
   });

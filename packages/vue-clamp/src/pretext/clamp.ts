@@ -6,6 +6,7 @@ import type { PreparedText } from "../text.ts";
 
 const ellipsis = "…";
 const ellipsisWidths = new Map<string, number>();
+const needsWhitespaceNormalization = /[\t\n\r\f]| {2,}|^ | $/u;
 const start: LayoutCursor = { graphemeIndex: 0, segmentIndex: 0 };
 
 type LineClampResult = {
@@ -18,8 +19,8 @@ export type PreparedLineClamp = {
   readonly ellipsisWidth: number;
   readonly prepared: PreparedTextWithSegments;
   readonly segmentGraphemeStarts: readonly number[];
+  readonly segmentWordRanks: readonly number[];
   readonly source: string;
-  readonly wordRanks: readonly number[];
 };
 
 function measureEllipsis(font: string): number {
@@ -33,52 +34,66 @@ function measureEllipsis(font: string): number {
 
 export function prepareLineClamp(source: string, font: string): PreparedLineClamp {
   const prepared = prepareWithSegments(source, font);
-  const boundaries = prepareText(prepared.segments.join(""), "word");
+  const normalized = needsWhitespaceNormalization.test(source)
+    ? prepared.segments.join("")
+    : source;
+  const boundaries = prepareText(normalized, "word");
   const fallbackOffsets = boundaries.fallbackBoundaryOffsets ?? boundaries.boundaryOffsets;
-  const segmentGraphemeStarts = Array<number>(prepared.segments.length);
-  const wordRanks = Array<number>(fallbackOffsets.length);
+  const segmentGraphemeStarts = Array<number>(prepared.segments.length + 1);
+  const segmentWordRanks = Array<number>(prepared.segments.length + 1);
   let fallbackIndex = 0;
   let offset = 0;
+  let wordRank = 0;
 
   for (let index = 0; index < prepared.segments.length; index += 1) {
     while ((fallbackOffsets[fallbackIndex] ?? Number.POSITIVE_INFINITY) < offset) {
       fallbackIndex += 1;
     }
-    segmentGraphemeStarts[index] = fallbackIndex;
-    offset += prepared.segments[index]?.length ?? 0;
-  }
-
-  let wordRank = 0;
-  for (let index = 0; index < fallbackOffsets.length; index += 1) {
-    while (
-      (boundaries.boundaryOffsets[wordRank + 1] ?? Number.POSITIVE_INFINITY) <=
-      (fallbackOffsets[index] ?? 0)
-    ) {
+    while ((boundaries.boundaryOffsets[wordRank + 1] ?? Number.POSITIVE_INFINITY) <= offset) {
       wordRank += 1;
     }
-    wordRanks[index] = wordRank;
+    segmentGraphemeStarts[index] = fallbackIndex;
+    segmentWordRanks[index] = wordRank;
+    offset += prepared.segments[index]?.length ?? 0;
   }
+  segmentGraphemeStarts[prepared.segments.length] = fallbackOffsets.length - 1;
+  segmentWordRanks[prepared.segments.length] = boundaries.boundaryOffsets.length - 1;
 
   return {
     boundaries,
     ellipsisWidth: measureEllipsis(font),
     prepared,
     segmentGraphemeStarts,
+    segmentWordRanks,
     source,
-    wordRanks,
   };
 }
 
 function cursorGrapheme(input: PreparedLineClamp, cursor: LayoutCursor): number {
-  return (
-    (input.segmentGraphemeStarts[cursor.segmentIndex] ?? input.wordRanks.length - 1) +
-    cursor.graphemeIndex
-  );
+  return input.segmentGraphemeStarts[cursor.segmentIndex]! + cursor.graphemeIndex;
 }
 
-function displayEndClamp(prepared: PreparedText, kept: number): string {
-  if (kept >= prepared.boundaryOffsets.length - 1) return prepared.text;
-  return `${prepared.text.slice(0, prepared.boundaryOffsets[kept]).trim()}${ellipsis}`;
+function displayEndClamp(text: string, offsets: readonly number[], kept: number): string {
+  if (kept >= offsets.length - 1) return text;
+  return `${text.slice(0, offsets[kept]).trim()}${ellipsis}`;
+}
+
+function keptAtOffset(
+  offsets: readonly number[],
+  offset: number,
+  low: number,
+  high: number,
+): number {
+  while (low < high) {
+    const middle = Math.ceil((low + high) / 2);
+    if ((offsets[middle] ?? Number.POSITIVE_INFINITY) <= offset) {
+      low = middle;
+    } else {
+      high = middle - 1;
+    }
+  }
+
+  return low;
 }
 
 export function clampPreparedLine(
@@ -122,20 +137,30 @@ export function clampPreparedLine(
     return { clamped: true, text: ellipsis };
   }
 
+  const { graphemeIndex, segmentIndex } = lastLine.end;
   const grapheme = cursorGrapheme(input, lastLine.end);
-  let boundaries = input.boundaries;
-  let kept = input.wordRanks[grapheme] ?? 0;
+  const { boundaries } = input;
+  let offsets = boundaries.boundaryOffsets;
+  let kept = input.segmentWordRanks[segmentIndex]!;
+  if (graphemeIndex > 0) {
+    const fallbackOffsets = boundaries.fallbackBoundaryOffsets ?? boundaries.boundaryOffsets;
+    const segmentEnd = fallbackOffsets[input.segmentGraphemeStarts[segmentIndex + 1]!]!;
+    if ((boundaries.boundaryOffsets[kept + 1] ?? Number.POSITIVE_INFINITY) < segmentEnd) {
+      kept = keptAtOffset(
+        boundaries.boundaryOffsets,
+        fallbackOffsets[grapheme]!,
+        kept,
+        input.segmentWordRanks[segmentIndex + 1]!,
+      );
+    }
+  }
   if (kept === 0 && grapheme > 0 && boundaries.fallbackBoundaryOffsets) {
-    boundaries = {
-      boundary: "grapheme",
-      boundaryOffsets: boundaries.fallbackBoundaryOffsets,
-      text: boundaries.text,
-    };
+    offsets = boundaries.fallbackBoundaryOffsets;
     kept = grapheme;
   }
 
   return {
     clamped: true,
-    text: displayEndClamp(boundaries, kept),
+    text: displayEndClamp(boundaries.text, offsets, kept),
   };
 }

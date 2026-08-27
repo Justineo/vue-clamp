@@ -38,13 +38,18 @@ normal whitespace, normal word breaking, `overflow-wrap: break-word`, no text tr
 letter/word spacing, and no automatic hyphenation. A named font must be registered before the
 component is mounted; `system-ui` remains outside the accuracy contract.
 
+The component trusts that contract instead of calling `document.fonts.check()` or loading fonts for
+every instance. Font registration and loading belong to the application; changing `font` remains
+reactive, but the new named font must already be available when it is supplied.
+
 ## Runtime model
 
 The implementation has two phases:
 
 1. Prepare the text once for each `text` / `font` pair. Pretext performs segmentation and canvas
-   measurement, while `vue-clamp` prepares word boundaries and a direct mapping from Pretext cursors
-   to word/grapheme ranks. Ellipsis measurement is shared by font shorthand.
+   measurement, while `vue-clamp` prepares word boundaries and segment-level cursor ranks. A line
+   ending inside a segment searches only that segment's word-boundary interval. Ellipsis measurement
+   is shared by font shorthand, and ordinary non-normalizing source text avoids a redundant join.
 2. On each `ResizeObserver` content-box width, walk only the lines needed to establish overflow,
    reserve the default ellipsis on the final line, map the resulting cursor in constant time, and
    render that prefix.
@@ -73,8 +78,11 @@ The component is differentially tested against the standard browser-authoritativ
 - CJK text
 - Thai text
 - a long unbroken token requiring grapheme fallback
+- punctuation with segment-internal word boundaries
+- composed accents and emoji graphemes
+- a long token following an earlier whole-word candidate
 
-All 52 component cases produce identical visible strings. The retained resize benchmark covers
+All 91 component cases produce identical visible strings. The retained resize benchmark covers
 English, CJK, and Thai across continuous changes, bounded jitter, and large jumps: all 5,040 hot-path
 outputs match browser authority.
 
@@ -98,15 +106,17 @@ page render time falls by that amount. The browser path performs 424–1,937 aut
 reads per row, while the prepared Pretext path performs none and lets the browser batch later style
 and paint work.
 
-Preparation costs 2.2–9.5 ms in the same cold-cache fixtures. The entry is therefore intended for
+Preparation costs 2.1–9.3 ms in the same cold-cache fixtures. The entry is therefore intended for
 high-volume or frequently resizing text, not as a claim that every one-off clamp is faster.
 
 Because the ordinary 560-change rows are below reliable sub-millisecond resolution, the retained
 benchmark also amplifies each path to 100,000 calls. Relative to the initial production version, the
 current core takes 11–39% less time for English, CJK, and Thai. The largest removed cost was repeated
 `Intl.Segmenter` work when a line ended inside a long token: the long-token fixture fell from
-608–695 ms to 15.7–18.3 ms per 100,000 calls, a 97.3–97.7% reduction. A 1,000-item repeated
-preparation batch fell from 26.6 ms to 21.6 ms after sharing ellipsis measurement.
+608–695 ms to 15.5–17.9 ms per 100,000 calls, a 97.4–97.8% reduction. In the retained 1,000-item
+preparation decomposition, Pretext itself takes about 17.0 ms, word-boundary preparation 2.8 ms,
+and the complete wrapper 19.9 ms. The added rank index is proportional to Pretext segments instead
+of source graphemes.
 
 The 200-instance benchmark separates browser deliveries from component work. Across 24 observed
 width changes, active observer instances fall from 200 to 1 and observer callbacks from 4,800 to 24.
@@ -124,8 +134,8 @@ imported.
 | Consumer import      |      Gzip |
 | -------------------- | --------: |
 | Standard `LineClamp` |  9.097 kB |
-| Pretext `LineClamp`  | 20.414 kB |
-| Both components      | 28.872 kB |
+| Pretext `LineClamp`  | 20.408 kB |
+| Both components      | 28.861 kB |
 
 The large predictor payload is the principal trade-off. The subpath is justified only when its
 preparation cost and bytes are amortized across enough active resize work; the ordinary root import
