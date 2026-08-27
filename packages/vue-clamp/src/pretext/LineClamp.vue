@@ -19,6 +19,7 @@ defineOptions({
 const {
   as: rootTag = "div",
   font,
+  inlineSize,
   maxLines,
   text = "",
 } = defineProps<Omit<LineClampProps, "expanded">>();
@@ -35,7 +36,7 @@ const clamped = shallowRef<boolean | null>(null);
 const sourceHidden = shallowRef(false);
 const lineLimit = computed(() => normalizeLineLimit(maxLines));
 const prepared = computed(() => prepareLineClamp(text, font));
-let width: number | null = null;
+let observedWidth: number | null = null;
 
 function resolve(): void {
   const limit = lineLimit.value;
@@ -44,9 +45,10 @@ function resolve(): void {
     return;
   }
 
-  if (width === null) return;
+  const availableWidth = inlineSize ?? observedWidth;
+  if (availableWidth === null) return;
 
-  applyResult(clampPreparedLine(prepared.value, width, limit));
+  applyResult(clampPreparedLine(prepared.value, availableWidth, limit));
 }
 
 function applyResult(result: ReturnType<typeof clampPreparedLine>): void {
@@ -105,16 +107,22 @@ const bodyStyle = computed<CSSProperties>(() => {
 
 watchPostEffect((onCleanup) => {
   const body = bodyRef.value;
-  if (!body || expanded.value || text.length === 0 || lineLimit.value === undefined) {
-    width = null;
+  if (
+    !body ||
+    inlineSize !== undefined ||
+    expanded.value ||
+    text.length === 0 ||
+    lineLimit.value === undefined
+  ) {
+    observedWidth = null;
     return;
   }
 
   const stop = observeContentBox(body, (entry) => {
     const nextWidth = entry.contentBoxSize[0]?.inlineSize ?? entry.contentRect.width;
-    if (nextWidth === width) return;
+    if (nextWidth === observedWidth) return;
 
-    width = nextWidth;
+    observedWidth = nextWidth;
     resolve();
   });
 
@@ -129,7 +137,9 @@ watch(
   { flush: "post" },
 );
 
-watch([expanded, lineLimit, () => font, () => text], resolve, { immediate: true });
+watch([expanded, lineLimit, () => font, () => inlineSize, () => text], resolve, {
+  immediate: true,
+});
 
 function render(): VNodeChild {
   const sourceIsHidden = sourceHidden.value;

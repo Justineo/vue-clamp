@@ -1,5 +1,5 @@
 import { clearCache, prepareWithSegments } from "@chenglou/pretext";
-import { createApp, defineComponent, h, nextTick } from "vue";
+import { createApp, defineComponent, h, nextTick, ref } from "vue";
 import { afterEach, describe, expect, it } from "vite-plus/test";
 import { clampTextToLayout, prepareText, setElementText } from "../src/text.ts";
 import { LineClamp } from "../src/pretext.ts";
@@ -272,7 +272,10 @@ async function settle(): Promise<void> {
   await nextTick();
 }
 
-async function runScaleScenario(widths: readonly number[]): Promise<ScaleMetrics> {
+async function runScaleScenario(
+  widths: readonly number[],
+  controlled: boolean,
+): Promise<ScaleMetrics> {
   let callbackCount = 0;
   let entryCount = 0;
   let instanceCount = 0;
@@ -291,14 +294,16 @@ async function runScaleScenario(widths: readonly number[]): Promise<ScaleMetrics
 
   const container = document.createElement("div");
   document.body.append(container);
+  const controlledWidth = ref(widths[0] ?? 460);
   const Host = defineComponent(
     () => () =>
       h(
         "div",
-        { style: { width: `${widths[0] ?? 460}px` } },
+        { style: { width: `${controlledWidth.value}px` } },
         Array.from({ length: scaleInstances }, (_, index) =>
           h(LineClamp, {
             font: "16px Arial",
+            ...(controlled ? { inlineSize: controlledWidth.value } : {}),
             key: index,
             maxLines: lineLimit,
             onVnodeUpdated: () => {
@@ -331,7 +336,11 @@ async function runScaleScenario(widths: readonly number[]): Promise<ScaleMetrics
 
     const start = performance.now();
     for (const nextWidth of widths.slice(1)) {
-      host.style.width = `${nextWidth}px`;
+      if (controlled) {
+        controlledWidth.value = nextWidth;
+      } else {
+        host.style.width = `${nextWidth}px`;
+      }
       await settle();
     }
     const resizeMs = performance.now() - start;
@@ -425,32 +434,34 @@ describe("Pretext LineClamp benchmark", () => {
     ] as const;
     const results = [];
 
-    for (const pattern of scalePatterns) {
-      const changes = pattern.widths
-        .slice(1)
-        .filter((width, index) => width !== pattern.widths[index]).length;
-      const runs: ScaleMetrics[] = [];
+    for (const controlled of [false, true]) {
+      for (const pattern of scalePatterns) {
+        const changes = pattern.widths
+          .slice(1)
+          .filter((width, index) => width !== pattern.widths[index]).length;
+        const runs: ScaleMetrics[] = [];
 
-      for (let repetition = 0; repetition < scaleRepetitions; repetition += 1) {
-        runs.push(await runScaleScenario(pattern.widths));
+        for (let repetition = 0; repetition < scaleRepetitions; repetition += 1) {
+          runs.push(await runScaleScenario(pattern.widths, controlled));
+        }
+
+        const summary = {
+          callbackCount: median(runs.map((run) => run.callbackCount)),
+          changes,
+          entryCount: median(runs.map((run) => run.entryCount)),
+          instances: scaleInstances,
+          mountMs: round(median(runs.map((run) => run.mountMs))),
+          mutationCount: median(runs.map((run) => run.mutationCount)),
+          observerInstances: median(runs.map((run) => run.instanceCount)),
+          resizeMs: round(median(runs.map((run) => run.resizeMs))),
+          vnodeUpdates: median(runs.map((run) => run.vnodeUpdates)),
+        };
+
+        expect(summary.entryCount).toBe(controlled ? 0 : scaleInstances * changes);
+        expect(summary.callbackCount).toBe(controlled ? 0 : changes);
+        expect(summary.observerInstances).toBe(controlled ? 0 : 1);
+        results.push({ controlled, name: pattern.name, runs, summary });
       }
-
-      const summary = {
-        callbackCount: median(runs.map((run) => run.callbackCount)),
-        changes,
-        entryCount: median(runs.map((run) => run.entryCount)),
-        instances: scaleInstances,
-        mountMs: round(median(runs.map((run) => run.mountMs))),
-        mutationCount: median(runs.map((run) => run.mutationCount)),
-        observerInstances: median(runs.map((run) => run.instanceCount)),
-        resizeMs: round(median(runs.map((run) => run.resizeMs))),
-        vnodeUpdates: median(runs.map((run) => run.vnodeUpdates)),
-      };
-
-      expect(summary.entryCount).toBe(scaleInstances * changes);
-      expect(summary.callbackCount).toBe(changes);
-      expect(summary.observerInstances).toBe(1);
-      results.push({ name: pattern.name, runs, summary });
     }
 
     console.error(`PRETEXT_SCALE_BENCH_RESULT ${JSON.stringify(results)}`);

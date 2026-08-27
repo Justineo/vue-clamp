@@ -32,6 +32,7 @@ function mountClamp(
   font: string,
   initialWidth: number,
   props: Record<string, unknown>,
+  controlled = false,
 ): MountedClamp {
   const container = document.createElement("div");
   const exposed = ref<LineClampExposed | null>(null);
@@ -42,6 +43,7 @@ function mountClamp(
         h(component, {
           maxLines: 3,
           ...props,
+          ...(controlled ? { inlineSize: width.value } : {}),
           ref: exposed,
           style: {
             font,
@@ -70,8 +72,9 @@ function mountPretext(
   font: string,
   width: number,
   props: Record<string, unknown> = {},
+  controlled = false,
 ): MountedClamp {
-  return mountClamp(LineClamp, text, font, width, { font, ...props });
+  return mountClamp(LineClamp, text, font, width, { font, ...props }, controlled);
 }
 
 function unmountClamp(clamp: MountedClamp): void {
@@ -180,6 +183,35 @@ describe("Pretext LineClamp", () => {
     expect(geometryReads).toBe(0);
     expect(clamp.exposed.value?.clamped).toBe(false);
     expect(visibleText(clamp)).toBe(text);
+  });
+
+  it("renders a controlled prediction without waiting for resize observation", async () => {
+    const OriginalResizeObserver = globalThis.ResizeObserver;
+    let observerInstances = 0;
+    globalThis.ResizeObserver = new Proxy(OriginalResizeObserver, {
+      construct(Target, argumentsList: ConstructorParameters<typeof ResizeObserver>) {
+        observerInstances += 1;
+        return new Target(...argumentsList);
+      },
+    });
+
+    try {
+      const text =
+        "Release dashboards keep customer impact and regional mitigation visible while cards resize.";
+      const clamp = mountPretext(text, "16px Georgia", 180, {}, true);
+
+      expect(observerInstances).toBe(0);
+      expect(clamp.exposed.value?.clamped).toBe(true);
+      expect(visibleText(clamp)).not.toBe(text);
+
+      clamp.width.value = 700;
+      await nextTick();
+      expect(observerInstances).toBe(0);
+      expect(clamp.exposed.value?.clamped).toBe(false);
+      expect(visibleText(clamp)).toBe(text);
+    } finally {
+      globalThis.ResizeObserver = OriginalResizeObserver;
+    }
   });
 
   it("keeps predictive text current across successive clamped widths", async () => {

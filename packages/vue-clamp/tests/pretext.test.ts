@@ -42,6 +42,10 @@ describe("Pretext line clamping", () => {
       clamped: true,
       text: "",
     });
+    expect(clampPreparedLine(prepared, 0, 1)).toEqual({
+      clamped: true,
+      text: "",
+    });
   });
 
   it("never cuts through a composed grapheme", () => {

@@ -8,6 +8,7 @@ type Expect<Value extends true> = Value;
 
 type _PretextLineClampTypes = [
   Expect<Equal<undefined extends LineClampProps["font"] ? true : false, false>>,
+  Expect<Equal<LineClampProps["inlineSize"], number | undefined>>,
   Expect<Equal<LineClampProps["maxLines"], number | undefined>>,
   Expect<Equal<"maxHeight" extends keyof LineClampProps ? true : false, false>>,
   Expect<Equal<"ellipsis" extends keyof LineClampProps ? true : false, false>>,

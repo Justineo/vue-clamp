@@ -101,9 +101,10 @@ export function clampPreparedLine(
   maxWidth: number,
   maxLines: number,
 ): LineClampResult {
-  if (input.source.length === 0 || maxWidth <= 0 || maxLines < 1) {
+  if (input.source.length === 0 || maxLines < 1) {
     return { clamped: false, text: input.source };
   }
+  if (maxWidth <= 0) return { clamped: true, text: "" };
 
   let cursor = start;
 

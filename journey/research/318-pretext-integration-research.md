@@ -24,6 +24,7 @@ The public props therefore contain only:
 
 - `text`
 - required `font`
+- optional exact content-box `inlineSize`
 - `maxLines`
 - `expanded` / `v-model:expanded`
 - `as`
@@ -31,6 +32,8 @@ The public props therefore contain only:
 The component retains the standard imperative `expand`, `collapse`, and `toggle` controls and emits
 `clampchange`. It fixes the clamp semantics to end truncation, word boundaries with grapheme fallback,
 and the default `…`. It does not accept `maxHeight`, `location`, `boundary`, `ellipsis`, or affix slots.
+`inlineSize` supplies layout knowledge to the predictor; it does not set the element's CSS width, so
+the caller must keep the numeric content-box width and the actual layout in sync.
 
 The required `font` is both the Pretext measurement input and an inline style on the rendered body.
 The body also fixes the text features that define the supported layout model: horizontal writing,
@@ -44,31 +47,41 @@ reactive, but the new named font must already be available when it is supplied.
 
 ## Runtime model
 
-The implementation has two phases:
+The implementation has two phases and two ways to supply width:
 
 1. Prepare the text once for each `text` / `font` pair. Pretext performs segmentation and canvas
    measurement, while `vue-clamp` prepares word boundaries and segment-level cursor ranks. A line
    ending inside a segment searches only that segment's word-boundary interval. Ellipsis measurement
    is shared by font shorthand, and ordinary non-normalizing source text avoids a redundant join.
-2. On each `ResizeObserver` content-box width, walk only the lines needed to establish overflow,
-   reserve the default ellipsis on the final line, map the resulting cursor in constant time, and
-   render that prefix.
+2. For each exact content-box width, walk only the lines needed to establish overflow, reserve the
+   default ellipsis on the final line, map the resulting cursor in constant time, and render that
+   prefix. When `inlineSize` is supplied, it is authoritative and the component computes the first
+   prefix during setup without creating a `ResizeObserver`. Otherwise a shared observer supplies the
+   width after browser delivery.
 
 The resize hot path performs no DOM geometry reads or browser candidate search. `ResizeObserver`
 delivers the width; Pretext arithmetic produces the text. The implementation deliberately does not
 fall back to the standard engine because doing so would make performance and semantics depend on a
 hidden runtime mode.
 
-Active instances share one content-box observer. Expanded, empty, and unlimited instances do not
-observe at all, and the shared observer is released when its last active target disappears. Resize
-delivery resolves all changed entries in one batch. Widths that preserve the visible result do no DOM
-work; prefix-only changes update the stable visible text node directly, while Vue patches only when
-the visible/source accessibility structure changes.
+Observer-driven active instances share one content-box observer. Controlled, expanded, empty, and
+unlimited instances do not observe at all, and the shared observer is released when its last active
+target disappears. Resize delivery resolves all changed entries in one batch. Widths that preserve
+the visible result do no DOM work; prefix-only changes update the stable visible text node directly,
+while Vue patches only when the visible/source accessibility structure changes.
+
+These modes optimize different ownership models. Controlled sizing is the fastest path when a grid,
+virtualizer, or layout store already knows each clamp's exact width: it removes both width-discovery
+latency and observer work. It is not a recommendation to create another observer in application
+code. When many children merely inherit one CSS-driven container width, the observer fallback can
+avoid propagating that width through every child VNode and remains the better integration.
 
 Before the first observer result, server output and hydration render the full source under native
-line-clamp plus an `lh` hard cap. Once a predicted prefix is visible, the full source remains in a
-visually hidden node and the prefix is `aria-hidden`, matching the package's accessibility pattern.
-No prediction state is public.
+line-clamp plus an `lh` hard cap. The same containment remains active for controlled and stale
+predictions, so model error cannot paint visible content beyond the line limit. A non-positive exact
+width resolves to an empty visible prefix instead of exposing the source. Once a predicted prefix is
+visible, the full source remains in a visually hidden node and the prefix is `aria-hidden`, matching
+the package's accessibility pattern. No prediction state is public.
 
 ## Correctness evidence
 
@@ -98,16 +111,16 @@ counterbalanced Chromium runs:
 
 | Scenario | Browser-authoritative time | Pretext time | Pretext remaining time | Pretext geometry reads |
 | -------- | -------------------------: | -----------: | ---------------------: | ---------------------: |
-| English  |                9.2–19.0 ms |       0.2 ms |               1.1–2.2% |                      0 |
-| CJK      |                5.7–23.0 ms |       0.2 ms |               0.9–3.5% |                      0 |
-| Thai     |               11.6–55.1 ms |       0.2 ms |               0.4–1.7% |                      0 |
+| English  |                9.4–19.3 ms |   0.1–0.2 ms |               1.0–1.1% |                      0 |
+| CJK      |                6.1–23.3 ms |       0.2 ms |               0.9–3.3% |                      0 |
+| Thai     |               12.1–56.0 ms |   0.1–0.2 ms |               0.2–0.9% |                      0 |
 
 This means the measured synchronous resize work falls by roughly 97–99.8%; it does not mean total
 page render time falls by that amount. The browser path performs 424–1,937 authoritative geometry
 reads per row, while the prepared Pretext path performs none and lets the browser batch later style
 and paint work.
 
-Preparation costs 2.1–9.3 ms in the same cold-cache fixtures. The entry is therefore intended for
+Preparation costs 2.4–9.5 ms in the same cold-cache fixtures. The entry is therefore intended for
 high-volume or frequently resizing text, not as a claim that every one-off clamp is faster.
 
 Because the ordinary 560-change rows are below reliable sub-millisecond resolution, the retained
@@ -119,33 +132,36 @@ preparation decomposition, Pretext itself takes about 17.0 ms, word-boundary pre
 and the complete wrapper 19.9 ms. The added rank index is proportional to Pretext segments instead
 of source graphemes.
 
-The 200-instance benchmark separates browser deliveries from component work. Across 24 observed
-width changes, active observer instances fall from 200 to 1 and observer callbacks from 4,800 to 24.
-For smooth one-pixel changes, stable results reduce component updates from 4,800 to 101. Across large
-jumps, updating stable text nodes directly reduces component updates from 4,000 to 3,200 without
-changing the 7,200 observable mutation records. These counts are the durable evidence; the
-accompanying wall time includes animation-frame waits and is not treated as CPU time.
+The 200-instance benchmark separates width ownership from component work across 24 changes:
+
+| Mode       | Profile | Observers / callbacks / entries | VNode updates | Mutation records | Resize wall time |
+| ---------- | ------- | ------------------------------: | ------------: | ---------------: | ---------------: |
+| Observed   | Smooth  |                  1 / 24 / 4,800 |           101 |              202 |         198.3 ms |
+| Observed   | Jumps   |                  1 / 24 / 4,800 |         3,200 |            7,200 |         225.4 ms |
+| Controlled | Smooth  |                       0 / 0 / 0 |         4,800 |              202 |         200.2 ms |
+| Controlled | Jumps   |                       0 / 0 / 0 |         4,800 |            8,000 |         224.6 ms |
+
+Controlled width removes all observer work, but blindly passing one reactive ancestor width to every
+child schedules every child VNode. The shared observer can therefore do less Vue work when a common
+CSS container owns sizing. The similar wall times are dominated by frame waits and confirm that no
+single width mode wins independent of application architecture.
 
 The release-facing public-component slice is retained in
 [`319-pretext-performance-matrix.md`](319-pretext-performance-matrix.md). It interleaves the root and
 `vue-clamp/pretext` entries in one Chromium process over 16-instance English, CJK, Thai, and long-token
-batches, with continuous, bounded-jitter, and large-jump widths. The retained report was regenerated
-while the benchmark host was on AC power. Five-run medians show:
+batches, with continuous, bounded-jitter, and large-jump widths. The fixture supplies its exact
+numeric content width to the Pretext component, so this matrix measures the controlled best path;
+it does not generalize to the observer fallback. The retained report was regenerated while the
+benchmark host was on AC power. Five-run medians show:
 
-- Pretext is faster in 11 of 12 rows. The eight continuous/jitter rows fall by 33.5–87.8%; seven of
-  those timing deltas are marked low confidence by the matrix's variance rules.
-- The jump rows preserve the important boundary: CJK, Thai, and long-token active time falls by
-  35.3–67.3%, while the small English jump workload rises by 19.6%. In that row, the root entry's
-  median update/active times are 98.5/104.7 ms, versus 16.9/125.2 ms for Pretext. Pretext therefore
-  removes most synchronous work but records its last observer-driven mutation later; the matrix's
-  active-time signal includes that delivery latency. Eliminating geometry reads is not sufficient
-  to guarantee lower time-to-last-activity when the avoided browser work is small.
-- Across all rows, summed median active time falls 55.9%, bounding-box reads fall from 88,057 to 0,
-  ResizeObserver callbacks fall from 10,688 to 700, and mutation records fall 47.3%. The aggregate
-  active delta is marked low confidence because 9 of 12 constituent rows cross the variance gate.
-- Settled time rises 1.5% because it is dominated by the same quiet-frame waits on both entries; it
-  is not a CPU-speed signal. The matrix deliberately excludes cold preparation and bundle size,
-  which remain separate delivery costs below.
+- Pretext is faster in all 12 rows. Active time falls 72.2–93.2% per row and 81.9% in aggregate,
+  from 2,613.0 ms to 473.5 ms. Seven rows cross the matrix's variance gate, so the aggregate and
+  marked row deltas remain directional rather than precise point estimates.
+- Bounding-box reads and ResizeObserver callbacks both fall to zero, from 88,057 and 10,688. Mutation
+  records fall 50.4%, from 91,257 to 45,294.
+- The controlled path removes the extra observer-delivery frame: aggregate settled time falls 33.4%.
+  Settled time is still dominated by quiet-frame waits and is not a CPU-speed signal. The matrix
+  deliberately excludes cold preparation and bundle size, which remain separate delivery costs.
 
 `vp run benchmark:pretext:matrix` rebuilds both public entries, runs the interleaved slice, and
 regenerates its Markdown, SVG, and ignored raw JSON artifacts.
@@ -160,8 +176,8 @@ imported.
 | Consumer import      |      Gzip |
 | -------------------- | --------: |
 | Standard `LineClamp` |  9.097 kB |
-| Pretext `LineClamp`  | 20.474 kB |
-| Both components      | 28.915 kB |
+| Pretext `LineClamp`  | 20.499 kB |
+| Both components      | 28.942 kB |
 
 The large predictor payload is the principal trade-off. The subpath is justified only when its
 preparation cost and bytes are amortized across enough active resize work; the ordinary root import
@@ -194,8 +210,12 @@ chosen authority boundary.
 Local alternatives were measured and rejected: result caches slowed mixed scripts and jumps;
 typed rank arrays traded a small hot-path regression for memory; a full `layout()` prepass doubled
 ordinary core time and made the long-token path roughly nine times slower; retaining a stable source
-DOM node did not reduce mutation work once text-copy semantics were preserved. No remaining local
-change has a reproducible benefit large enough to justify additional state or semantic risk.
+DOM node did not reduce mutation work once text-copy semantics were preserved. Synchronous geometry
+reads made the 200-instance jump case regress from about 225 ms to 540 ms through layout thrashing;
+sync watcher flushes and alternate source-node structures did not improve the controlled English jump
+case. The remaining local algorithmic work has no reproducible benefit large enough to justify more
+state or semantic risk. The material local optimization is instead architectural: accept an exact
+width from applications that already own it and retain observation for applications that do not.
 
 ## Deliberately rejected designs
 

@@ -48,27 +48,35 @@
   - `InlineClamp` as the canonical single-line affix-friendly component name
   - `WrapClamp` as the canonical wrapped-item component name
 - `vue-clamp/pretext` separately exports a narrower `LineClamp` backed by Pretext. It requires an
-  explicit named `font`, accepts only `text`, `maxLines`, `expanded`, and `as`, and fixes semantics to
-  end/word/default-ellipsis clamping. The separate entry keeps `@chenglou/pretext` out of root
-  consumers and makes the predictive layout contract an explicit application choice.
-- The Pretext component treats source text, observed content width, font, and line limit as its only
-  layout inputs. It does not perform DOM candidate search or geometry reads after preparation, does
-  not silently fall back to the browser engine, and keeps native line-clamp plus an `lh` cap as its
-  pending/overflow containment layer.
+  explicit named `font`, accepts `text`, `maxLines`, `expanded`, `as`, and an optional exact
+  content-box `inlineSize`, and fixes semantics to end/word/default-ellipsis clamping. The separate
+  entry keeps `@chenglou/pretext` out of root consumers and makes the predictive layout contract an
+  explicit application choice.
+- The Pretext component treats source text, provided or observed content width, font, and line limit
+  as its only layout inputs. A provided `inlineSize` is authoritative: prediction is available to the
+  first render and no `ResizeObserver` is created. Without it, the component observes its content box
+  and resolves after delivery. Neither path performs DOM candidate search or geometry reads after
+  preparation or silently falls back to the browser engine. Native line-clamp plus an `lh` cap is the
+  pending and stale-result containment layer, so the visible body never paints beyond the line limit.
 - Pretext preparation maps segment-aligned cursors directly to word/grapheme ranks, bounds the rare
   segment-internal lookup to that segment, and shares ellipsis width by font. It trusts the documented
   requirement that named fonts are loaded before use rather than coordinating `FontFaceSet` per
-  instance. Active component instances share one content-box observer; inactive instances do not
-  observe. Shared delivery batches width inputs before Vue flushes; unchanged results do no DOM work,
-  and prefix-only changes update the stable visible text node without scheduling a full component
-  patch. This observer policy is specific to the opt-in high-volume engine and does not change the
-  independent observers used by the browser-authoritative components.
+  instance. Observer-driven active instances share one content-box observer; controlled, expanded,
+  empty, and unlimited instances do not observe. Shared delivery batches width inputs before Vue
+  flushes; unchanged results do no DOM work, and prefix-only changes update the stable visible text
+  node without scheduling a full component patch. The observer fallback is preferable when many
+  instances inherit one CSS-driven container width, while controlled sizing is preferable when the
+  application already owns each component's exact width. This policy is specific to the opt-in
+  high-volume engine and does not change the independent observers used by the browser-authoritative
+  components.
 - The opt-in entry has a release-facing public-component matrix in
   `journey/research/319-pretext-performance-matrix.md`. It compares only the shared root/Pretext
   contract over 16-instance English, CJK, Thai, and long-token batches under continuous, jitter,
-  and jump width profiles. `vp run benchmark:pretext:matrix` regenerates the interleaved five-run
-  report. Mounted resize churn, cold preparation, and bundle size remain separate signals rather
-  than being combined into one speed claim.
+  and jump width profiles. It supplies the same exact numeric width to the fixture style and the
+  Pretext component, so it measures the controlled best path rather than the observer fallback.
+  `vp run benchmark:pretext:matrix` regenerates the interleaved five-run report. Mounted resize
+  churn, cold preparation, and bundle size remain separate signals rather than being combined into
+  one speed claim.
 - There is no default export.
 - Type declarations follow explicit ownership layers:
   - shared public primitives and private shared type building blocks live in
