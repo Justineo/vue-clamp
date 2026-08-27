@@ -2,7 +2,10 @@ import { clearCache } from "@chenglou/pretext";
 import { measureRichInlineStats, prepareRichInline } from "@chenglou/pretext/rich-inline";
 import { afterEach, describe, expect, it } from "vite-plus/test";
 import { fitsContent } from "../../../packages/vue-clamp/src/layout.ts";
-import { warmSearchLocalCoverage } from "../../../packages/vue-clamp/src/search.ts";
+import {
+  defaultWarmExpansionLimit,
+  warmSearchLocalCoverage,
+} from "../../../packages/vue-clamp/src/search.ts";
 import {
   clampTextToLayout,
   clampTextToFit,
@@ -98,6 +101,9 @@ type ResizePathSample = {
   readonly elapsedMs: number;
   readonly layoutReads: number;
   readonly mutationRecords: number;
+  readonly predictionAttempts: number;
+  readonly predictionHints: number;
+  readonly rankMoves: readonly number[];
   readonly texts: readonly string[];
   readonly unsupportedPredictions: number;
 };
@@ -109,11 +115,18 @@ type ResizeSummary = {
   readonly adaptiveLayoutReads: number;
   readonly adaptiveMs: number;
   readonly adaptiveMutationRecords: number;
+  readonly adaptivePredictionAttempts: number;
+  readonly adaptivePredictionHints: number;
   readonly changes: number;
   readonly currentClientRectReads: number;
   readonly currentLayoutReads: number;
   readonly currentMs: number;
   readonly currentMutationRecords: number;
+  readonly currentRankMoveAtMost3: number;
+  readonly currentRankMoveAtMost7: number;
+  readonly currentRankMoveMax: number;
+  readonly currentRankMoveMean: number;
+  readonly currentRankMoveP95: number;
   readonly name: string;
   readonly pattern: string;
   readonly predictionPrepareMs: number;
@@ -131,6 +144,7 @@ const englishText =
   "Release dashboards keep customer impact, regional mitigation, and follow-up ownership visible while responsive cards change width.";
 const multilingualText =
   "Release AGI 春天到了, بدأت الرحلة 🚀 and regional responders keep customer context visible.";
+const wordWarmCoverage = warmSearchLocalCoverage(defaultWarmExpansionLimit + 1);
 
 function widthSweep(start: number, end: number, step: number): number[] {
   const widths: number[] = [];
@@ -484,6 +498,15 @@ function median(values: readonly number[]): number {
     : (sorted[middle] ?? 0);
 }
 
+function percentile(values: readonly number[], quantile: number): number {
+  if (values.length === 0) {
+    return 0;
+  }
+
+  const sorted = [...values].sort((left, right) => left - right);
+  return sorted[Math.ceil(sorted.length * quantile) - 1] ?? 0;
+}
+
 function round(value: number): number {
   return Math.round(value * 1000) / 1000;
 }
@@ -774,12 +797,16 @@ function runResizePath(
     boundingRectReads = 0;
     clientRectReads = 0;
     observer.takeRecords();
+    const rankMoves: number[] = [];
     const texts: string[] = [];
+    let predictionAttempts = 0;
+    let predictionHints = 0;
     let unsupportedPredictions = 0;
     const start = performance.now();
 
     for (const width of widths.slice(1)) {
       host.root.style.width = `${width}px`;
+      const previousKept = hint.kept;
       let predictedHint: TextClampHint | null = null;
       const adaptiveScenarioEligible =
         scenario.boundary === "word" &&
@@ -799,9 +826,10 @@ function runResizePath(
         predictionMode === "always" ||
         (predictionMode === "adaptive" &&
           adaptiveScenarioEligible &&
-          observedRankMove > warmSearchLocalCoverage());
+          observedRankMove > wordWarmCoverage);
 
       if (shouldPredict) {
+        predictionAttempts += 1;
         const prediction = predictPretextEndClamp(prepared, pretext, {
           ellipsis: scenario.ellipsis,
           firstLineReserve: scenario.beforeWidth,
@@ -817,10 +845,11 @@ function runResizePath(
             predictionMode === "always" ||
             (adaptiveScenarioEligible &&
               prediction.kept > 0 &&
-              Math.abs(prediction.kept - hint.kept) > warmSearchLocalCoverage());
+              Math.abs(prediction.kept - hint.kept) > wordWarmCoverage);
 
           if (modeledWordJump) {
             predictedHint = pretextPredictionHint(prepared, prediction, scenario.ellipsis);
+            predictionHints += 1;
           }
         } else {
           unsupportedPredictions += 1;
@@ -837,6 +866,7 @@ function runResizePath(
         throw new Error(`Resize layout returned null for ${scenario.name} at ${width}px.`);
       }
 
+      rankMoves.push(Math.abs(hint.kept - previousKept));
       texts.push(hint.text);
     }
 
@@ -846,6 +876,9 @@ function runResizePath(
       elapsedMs: performance.now() - start,
       layoutReads: boundingRectReads + clientRectReads,
       mutationRecords: observer.takeRecords().length,
+      predictionAttempts,
+      predictionHints,
+      rankMoves,
       texts,
       unsupportedPredictions,
     };
@@ -902,16 +935,25 @@ function summarizeResizeScenario(
     pretextRuns.push(predicted);
   }
 
+  const currentRankMoves = currentRuns[0]?.rankMoves ?? [];
+
   return {
     adaptiveClientRectReads: median(adaptiveRuns.map((run) => run.clientRectReads)),
     adaptiveLayoutReads: median(adaptiveRuns.map((run) => run.layoutReads)),
     adaptiveMs: round(median(adaptiveRuns.map((run) => run.elapsedMs))),
     adaptiveMutationRecords: median(adaptiveRuns.map((run) => run.mutationRecords)),
+    adaptivePredictionAttempts: median(adaptiveRuns.map((run) => run.predictionAttempts)),
+    adaptivePredictionHints: median(adaptiveRuns.map((run) => run.predictionHints)),
     changes: Math.max(0, pattern.widths.length - 1),
     currentClientRectReads: median(currentRuns.map((run) => run.clientRectReads)),
     currentLayoutReads: median(currentRuns.map((run) => run.layoutReads)),
     currentMs: round(median(currentRuns.map((run) => run.elapsedMs))),
     currentMutationRecords: median(currentRuns.map((run) => run.mutationRecords)),
+    currentRankMoveAtMost3: currentRankMoves.filter((move) => move <= 3).length,
+    currentRankMoveAtMost7: currentRankMoves.filter((move) => move <= 7).length,
+    currentRankMoveMax: Math.max(0, ...currentRankMoves),
+    currentRankMoveMean: round(mean(currentRankMoves)),
+    currentRankMoveP95: percentile(currentRankMoves, 0.95),
     name: scenario.name,
     pattern: pattern.name,
     predictionPrepareMs: round(predictionPrepareMs),

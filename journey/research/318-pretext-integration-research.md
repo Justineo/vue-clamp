@@ -131,6 +131,25 @@ The adaptive prototype therefore intervenes only when all of these are true:
   coverage;
 - the predicted boundary is nonzero and also lies outside that local coverage.
 
+The lack of an adaptive-path difference in smooth and local-jitter rows is deliberate and
+quantifiable. Word search uses three exponential expansion steps, so the previous verified rank
+locally covers `2^3 - 1 = 7` candidate ranks before falling back to a broader binary search.
+
+| Scenario                 | Mean rank move | P95 | Max | Moves within 7 ranks | Adaptive Pretext hints |
+| ------------------------ | -------------: | --: | --: | -------------------: | ---------------------: |
+| English word, continuous |          0.071 |   0 |   4 |              560/560 |                  0/560 |
+| English word, jitter     |          1.039 |   6 |   6 |              560/560 |                  0/560 |
+| CJK word, continuous     |          0.029 |   0 |   3 |              560/560 |                  0/560 |
+| CJK word, jitter         |          0.539 |   3 |   5 |              560/560 |                  0/560 |
+| English word, jumps      |         15.300 |  20 |  20 |               50/560 |                510/560 |
+| CJK word, jumps          |          6.375 |  10 |  10 |              254/560 |                306/560 |
+
+Thus every measured smooth/jitter transition remains inside the existing word warm-search window.
+The adaptive policy never invokes Pretext on those rows, so their structural counts are exactly the
+current path rather than two independently equal algorithms. The browser still needs at least one
+authoritative verification for a changed result, leaving almost no removable work when the prior
+rank is already correct or one candidate away.
+
 It preserves the current structural counts in continuous and jitter rows while improving the
 large-jump cases:
 
@@ -141,7 +160,7 @@ large-jump cases:
 | English word, jumps      | Current / adaptive | 1,937 / 1,070 (-44.8%) | 1,530 / 1,020 (-33.3%) |        ~20 / ~13 ms (-34%) |
 | CJK word, continuous     | Current / adaptive |              473 / 473 |              248 / 248 |            neutral (~6 ms) |
 | CJK word, jitter         | Current / adaptive |              863 / 863 |              632 / 632 |           neutral (~11 ms) |
-| CJK word, jumps          | Current / adaptive | 1,784 / 1,223 (-31.4%) | 1,581 / 1,173 (-25.8%) |        ~21 / ~16 ms (-24%) |
+| CJK word, jumps          | Current / adaptive | 1,784 / 1,325 (-25.7%) | 1,581 / 1,275 (-19.4%) |        ~20 / ~16 ms (-19%) |
 
 All browser-verified final strings matched. Custom ellipsis, affix, long-token fallback, and
 unmodeled uppercase rows stayed on the current path and therefore retained identical structural
