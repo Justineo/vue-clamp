@@ -129,18 +129,21 @@ accompanying wall time includes animation-frame waits and is not treated as CPU 
 The release-facing public-component slice is retained in
 [`319-pretext-performance-matrix.md`](319-pretext-performance-matrix.md). It interleaves the root and
 `vue-clamp/pretext` entries in one Chromium process over 16-instance English, CJK, Thai, and long-token
-batches, with continuous, bounded-jitter, and large-jump widths. Five-run medians show:
+batches, with continuous, bounded-jitter, and large-jump widths. The retained report was regenerated
+while the benchmark host was on AC power. Five-run medians show:
 
-- Pretext is faster in 11 of 12 rows. The eight continuous/jitter rows fall by 30.0–78.4%; six of
+- Pretext is faster in 11 of 12 rows. The eight continuous/jitter rows fall by 33.5–87.8%; seven of
   those timing deltas are marked low confidence by the matrix's variance rules.
 - The jump rows preserve the important boundary: CJK, Thai, and long-token active time falls by
-  31.9–63.1%, while the small English jump workload rises by 9.3%; that row is now low confidence.
-  Eliminating geometry reads is therefore not sufficient to guarantee lower active time when the
-  avoided browser work is small.
-- Across all rows, summed median active time falls 54.9%, bounding-box reads fall from 88,057 to 0,
+  35.3–67.3%, while the small English jump workload rises by 19.6%. In that row, the root entry's
+  median update/active times are 98.5/104.7 ms, versus 16.9/125.2 ms for Pretext. Pretext therefore
+  removes most synchronous work but records its last observer-driven mutation later; the matrix's
+  active-time signal includes that delivery latency. Eliminating geometry reads is not sufficient
+  to guarantee lower time-to-last-activity when the avoided browser work is small.
+- Across all rows, summed median active time falls 55.9%, bounding-box reads fall from 88,057 to 0,
   ResizeObserver callbacks fall from 10,688 to 700, and mutation records fall 47.3%. The aggregate
-  active delta is marked low confidence because 8 of 12 constituent rows cross the variance gate.
-- Settled time rises 1.6% because it is dominated by the same quiet-frame waits on both entries; it
+  active delta is marked low confidence because 9 of 12 constituent rows cross the variance gate.
+- Settled time rises 1.5% because it is dominated by the same quiet-frame waits on both entries; it
   is not a CPU-speed signal. The matrix deliberately excludes cold preparation and bundle size,
   which remain separate delivery costs below.
 
