@@ -5,6 +5,7 @@ import { createPlaywrightProvider } from "../../scripts/browser-provider.ts";
 
 const require = createRequire(import.meta.url);
 const targetEntry = process.env.VUE_CLAMP_BENCH_ENTRY;
+const targetEntrypoint = parseTargetEntrypoint(process.env.VUE_CLAMP_BENCH_ENTRYPOINT);
 const targetSpecifier = process.env.VUE_CLAMP_BENCH_SPECIFIER ?? "unknown";
 const targetVersion = process.env.VUE_CLAMP_BENCH_VERSION ?? "unknown";
 const vueEntry = require.resolve("vue/dist/vue.runtime.esm-bundler.js");
@@ -21,9 +22,22 @@ const benchmarkScenarioFilter = parseScenarioFilter();
 
 type BenchmarkTargetConfig = {
   entry: string;
+  entrypoint: "pretext" | "root";
   specifier: string;
   version: string;
 };
+
+function parseTargetEntrypoint(value: string | undefined): BenchmarkTargetConfig["entrypoint"] {
+  if (value === undefined || value === "root") {
+    return "root";
+  }
+
+  if (value === "pretext") {
+    return value;
+  }
+
+  throw new Error("VUE_CLAMP_BENCH_ENTRYPOINT must be pretext or root.");
+}
 
 export default {
   define: {
@@ -43,6 +57,7 @@ export default {
     __VUE_CLAMP_BENCH_SCENARIOS__: JSON.stringify(benchmarkScenarioFilter),
     __VUE_CLAMP_BENCH_TARGET__: JSON.stringify({
       entry: targetEntry,
+      entrypoint: targetEntrypoint,
       specifier: targetSpecifier,
       version: targetVersion,
     }),
@@ -90,6 +105,7 @@ function isBenchmarkTargetConfig(value: unknown): value is BenchmarkTargetConfig
 
   return (
     typeof target.entry === "string" &&
+    (target.entrypoint === "pretext" || target.entrypoint === "root") &&
     typeof target.specifier === "string" &&
     typeof target.version === "string"
   );
@@ -101,6 +117,7 @@ function parseBenchmarkTargets(): BenchmarkTargetConfig[] {
     return [
       {
         entry: targetEntry!,
+        entrypoint: targetEntrypoint,
         specifier: targetSpecifier,
         version: targetVersion,
       },
@@ -152,7 +169,9 @@ function benchmarkTargetsPlugin() {
           (target, index) =>
             `{ entry: ${JSON.stringify(target.entry)}, specifier: ${JSON.stringify(
               target.specifier,
-            )}, version: ${JSON.stringify(target.version)}, module: target${index} }`,
+            )}, version: ${JSON.stringify(target.version)}, entrypoint: ${JSON.stringify(
+              target.entrypoint,
+            )}, module: target${index} }`,
         )
         .join(",\n");
 

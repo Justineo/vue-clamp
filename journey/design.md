@@ -62,6 +62,12 @@
   observe, and width changes preserve the previous render result when visible text and clamp state
   are unchanged. This observer policy is specific to the opt-in high-volume engine and does not
   change the independent observers used by the browser-authoritative components.
+- The opt-in entry has a release-facing public-component matrix in
+  `journey/research/319-pretext-performance-matrix.md`. It compares only the shared root/Pretext
+  contract over 16-instance English, CJK, Thai, and long-token batches under continuous, jitter,
+  and jump width profiles. `vp run benchmark:pretext:matrix` regenerates the interleaved five-run
+  report. Mounted resize churn, cold preparation, and bundle size remain separate signals rather
+  than being combined into one speed claim.
 - There is no default export.
 - Type declarations follow explicit ownership layers:
   - shared public primitives and private shared type building blocks live in
@@ -1389,6 +1395,9 @@
     cross-process browser drift. Multi-target sampling stops only between complete target rounds,
     so every target has the same measured sample count for that scenario. Single-target runs keep
     the original schema v3 payload.
+  - `current/pretext` resolves the built `vue-clamp/pretext` entry as a distinct benchmark target.
+    Scenarios declare which public entrypoints they support, so the narrow Pretext contract is never
+    run through root-only affix, height, location, or custom-ellipsis workloads.
   - duplicate target specifiers in a multi-target run are resolved once and then repeated in the
     browser target list. This keeps same-version noise checks such as `--targets current,current`
     from rebuilding or reinstalling the same package twice while preserving two report columns.
@@ -1543,6 +1552,9 @@
     Markdown, SVG, and raw `.local.json` reports from package benchmark logs; the explicit version
     list should cover the applicable Vue 3 release line, while unsupported features inside that line
     are shown as `N/A`
+  - the renderer accepts `--basename <name>` for focused tracked matrices. When a Pretext target is
+    present it labels target/entrypoint comparisons explicitly instead of describing them as
+    adjacent releases.
   - raw matrix JSON is generated with a `.local.json` suffix and ignored by Git; commit the
     human-readable Markdown/SVG reports, not the large per-sample data artifact
   - report rendering extracts the final `PACKAGE_MATRIX_BENCHMARK` payload by parsing the balanced

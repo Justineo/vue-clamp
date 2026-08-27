@@ -6,6 +6,7 @@
   "scripts": {
     "compare": "node scripts/compare-matrix-summary.mjs",
     "package": "node scripts/benchmark-package.mjs",
+    "pretext-matrix": "node scripts/pretext-matrix.mjs",
     "pretext-size": "node scripts/measure-pretext-size.mjs",
     "report": "node scripts/render-matrix-report.mjs"
   },

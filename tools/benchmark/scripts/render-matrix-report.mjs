@@ -8,11 +8,23 @@ const args = process.argv.slice(2);
 const normalizedArgs = args[0] === "--" ? args.slice(1) : args;
 
 function parseArgs(rawArgs) {
+  let reportBasename = "310-package-benchmark-matrix";
   const positional = [];
   const versions = [];
 
   for (let index = 0; index < rawArgs.length; index += 1) {
     const arg = rawArgs[index];
+
+    if (arg === "--basename") {
+      const value = rawArgs[index + 1];
+      if (!value || !/^[\w.-]+$/u.test(value)) {
+        throw new Error("--basename expects a file basename without path separators");
+      }
+
+      reportBasename = value;
+      index += 1;
+      continue;
+    }
 
     if (arg === "--versions" || arg === "--include-versions") {
       const value = rawArgs[index + 1];
@@ -33,15 +45,15 @@ function parseArgs(rawArgs) {
     positional.push(arg);
   }
 
-  return { positional, versions };
+  return { positional, reportBasename, versions };
 }
 
-const { positional, versions: requestedVersions } = parseArgs(normalizedArgs);
+const { positional, reportBasename, versions: requestedVersions } = parseArgs(normalizedArgs);
 const logDir = resolve(positional[0] ?? "/tmp/vue-clamp-matrix-sanity");
 const outputDir = resolve(workspaceRoot, positional[1] ?? "journey/research");
-const reportJsonPath = resolve(outputDir, "310-package-benchmark-matrix.local.json");
-const reportMdPath = resolve(outputDir, "310-package-benchmark-matrix.md");
-const reportSvgPath = resolve(outputDir, "310-package-benchmark-matrix.svg");
+const reportJsonPath = resolve(outputDir, `${reportBasename}.local.json`);
+const reportMdPath = resolve(outputDir, `${reportBasename}.md`);
+const reportSvgPath = resolve(outputDir, `${reportBasename}.svg`);
 const activeCvLowConfidenceThreshold = 10;
 const activeHotspotRmeThreshold = 5;
 const largeWidthDeltaThreshold = 32;
@@ -558,6 +570,10 @@ function reportColumnBaseLabel(report, versionCounts) {
     return "current";
   }
 
+  if (specifier === "current/pretext") {
+    return "current/pretext";
+  }
+
   if (versionCounts.get(version) === 1 || specifier === `vue-clamp@${version}`) {
     return version;
   }
@@ -635,6 +651,7 @@ const reports = [
     scenarios: [],
     target: {
       entry: null,
+      entrypoint: "root",
       specifier: `vue-clamp@${version}`,
       unsupportedReason: missingVersionReason,
       version,
@@ -644,6 +661,13 @@ const reports = [
   left.target.version.localeCompare(right.target.version, undefined, { numeric: true }),
 );
 const reportColumns = labeledReportColumns(reports);
+const isEntrypointMatrix = reports.some((report) => report.target.entrypoint === "pretext");
+const reportTitle = isEntrypointMatrix
+  ? "LineClamp entrypoint benchmark matrix"
+  : "Package benchmark matrix";
+const reportDescription = isEntrypointMatrix
+  ? "This report compares the root and opt-in Pretext LineClamp entries on their shared public contract. The primary timing signal is `active ms`; structural counters show the browser work behind each result, and sample CV / RME report active timing variance."
+  : "This report compares the public component benchmark matrix across package versions. The primary timing signal is `active ms`; `settled ms` preserves the end-to-end quiet-frame timing, counters explain whether a change came from layout reads, DOM cloning/replacement, or slot rendering, and sample CV / RME report active timing variance.";
 const reportColumnByReport = new Map(reportColumns.map((column) => [column.report, column]));
 const scenarioIds = [
   ...new Set(reports.flatMap((report) => report.scenarios.map((scenario) => scenario.scenario))),
@@ -739,6 +763,8 @@ function summarizeReport(column) {
     bboxReads: tracksCounters && ok.length > 0 ? total("medianBoundingRectReads") : null,
     clientRectEntries: tracksCounters && ok.length > 0 ? total("medianClientRectEntries") : null,
     clientRectReads: tracksCounters && ok.length > 0 ? total("medianClientRectReads") : null,
+    resizeObserverCallbacks:
+      tracksCounters && ok.length > 0 ? total("medianResizeObserverCallbacks") : null,
     scenarios: report.scenarios.length,
     settledMs: ok.length > 0 ? total("medianSettledMs") : null,
     styleReads: tracksCounters && ok.length > 0 ? total("medianStyleReads") : null,
@@ -781,6 +807,8 @@ function summarizePair(pair) {
     mutationRecordsBefore: 0,
     offsetReadsAfter: 0,
     offsetReadsBefore: 0,
+    resizeObserverCallbacksAfter: 0,
+    resizeObserverCallbacksBefore: 0,
     settledAfter: 0,
     settledBefore: 0,
     styleReadsAfter: 0,
@@ -814,6 +842,8 @@ function summarizePair(pair) {
     totals.clientRectEntriesAfter += after.medianClientRectEntries ?? 0;
     totals.offsetReadsBefore += offsetReads(before) ?? 0;
     totals.offsetReadsAfter += offsetReads(after) ?? 0;
+    totals.resizeObserverCallbacksBefore += before.medianResizeObserverCallbacks ?? 0;
+    totals.resizeObserverCallbacksAfter += after.medianResizeObserverCallbacks ?? 0;
     totals.itemSlotCallsBefore += before.medianItemSlotCalls ?? 0;
     totals.itemSlotCallsAfter += after.medianItemSlotCalls ?? 0;
     totals.longTaskCountBefore += before.medianLongTaskCount ?? 0;
@@ -849,6 +879,9 @@ function summarizePair(pair) {
       : null,
     offsetReadsDelta: tracksCounters
       ? percentDelta(totals.offsetReadsBefore, totals.offsetReadsAfter)
+      : null,
+    resizeObserverCallbacksDelta: tracksCounters
+      ? percentDelta(totals.resizeObserverCallbacksBefore, totals.resizeObserverCallbacksAfter)
       : null,
     settledDelta: percentDelta(totals.settledBefore, totals.settledAfter),
     styleReadsDelta: tracksCounters
@@ -1102,13 +1135,22 @@ const markdown = [];
 const counterTrackingOffColumns = reportColumns.filter(
   (column) => column.report.environment?.counterTracking === false,
 );
-markdown.push("# Package benchmark matrix");
+markdown.push(`# ${reportTitle}`);
 markdown.push("");
-markdown.push(
-  "This report compares the public component benchmark matrix across package versions. The primary timing signal is `active ms`; `settled ms` preserves the end-to-end quiet-frame timing, counters explain whether a change came from layout reads, DOM cloning/replacement, or slot rendering, and sample CV / RME report active timing variance.",
-);
+markdown.push(reportDescription);
 markdown.push("");
 markdown.push(`Generated from \`${logDir}\`.`);
+if (isEntrypointMatrix) {
+  markdown.push("");
+  markdown.push(
+    "This slice measures mounted resize churn after both components have stabilized. Cold text/font preparation and consumer bundle size remain separate delivery signals in `318-pretext-integration-research.md`.",
+  );
+} else {
+  markdown.push("");
+  markdown.push(
+    "The opt-in root/Pretext comparison is maintained as a separate shared-contract slice in [`319-pretext-performance-matrix.md`](319-pretext-performance-matrix.md).",
+  );
+}
 if (counterTrackingOffColumns.length > 0) {
   markdown.push("");
   markdown.push(
@@ -1128,13 +1170,13 @@ if (placeholderVersions.length > 0) {
   );
 }
 markdown.push("");
-markdown.push("## Version summary");
+markdown.push(isEntrypointMatrix ? "## Target summary" : "## Version summary");
 markdown.push("");
 markdown.push(
-  "| Version | Counters | Scenarios | Samples | Sample wall ms | Sample active ms | Median active CV | Max active CV | Median active RME | Max active RME | Active ms | Settled ms | Quiet ms | BBox reads | Client rects | Client rect entries | Mutation records | Offset reads | Style reads | Item slot calls | Long tasks |",
+  `| ${isEntrypointMatrix ? "Target" : "Version"} | Counters | Scenarios | Samples | Sample wall ms | Sample active ms | Median active CV | Max active CV | Median active RME | Max active RME | Active ms | Settled ms | Quiet ms | BBox reads | Client rects | Client rect entries | Resize callbacks | Mutation records | Offset reads | Style reads | Item slot calls | Long tasks |`,
 );
 markdown.push(
-  "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+  "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
 );
 
 for (const summary of versionSummaries) {
@@ -1157,7 +1199,10 @@ for (const summary of versionSummaries) {
     )} | ${formatNumber(summary.clientRectReads, 0)} | ${formatNumber(
       summary.clientRectEntries,
       0,
-    )} | ${formatNumber(summary.mutationRecords, 0)} | ${formatNumber(
+    )} | ${formatNumber(summary.resizeObserverCallbacks, 0)} | ${formatNumber(
+      summary.mutationRecords,
+      0,
+    )} | ${formatNumber(
       summary.offsetReads,
       0,
     )} | ${formatNumber(summary.styleReads, 0)} | ${formatNumber(
@@ -1205,12 +1250,18 @@ if (widthProfileRows.length > 0) {
 const activeHotspotGroups = activeHotspots.filter(({ hotspots }) => hotspots.length > 0);
 if (activeHotspotGroups.length > 0) {
   markdown.push("");
-  markdown.push("## Top low-noise active hotspots by version");
+  markdown.push(
+    isEntrypointMatrix
+      ? "## Top low-noise active hotspots by target"
+      : "## Top low-noise active hotspots by version",
+  );
   markdown.push("");
   markdown.push(
     `Rows are sorted by median active time and limited to active RME <= ${formatUnsignedPercent(
       activeHotspotRmeThreshold,
-    )}. Structural columns are \`N/A\` when counter tracking was disabled for that version.`,
+    )}. Structural columns are \`N/A\` when counter tracking was disabled for that ${
+      isEntrypointMatrix ? "target" : "version"
+    }.`,
   );
 }
 
@@ -1290,7 +1341,11 @@ for (const { components, tracksCounters, version } of activeHotspotComponentGrou
 const structuralHotspotGroups = structuralHotspots.filter(({ hotspots }) => hotspots.length > 0);
 if (structuralHotspotGroups.length > 0) {
   markdown.push("");
-  markdown.push("## Top structural hotspots by version");
+  markdown.push(
+    isEntrypointMatrix
+      ? "## Top structural hotspots by target"
+      : "## Top structural hotspots by version",
+  );
 }
 
 for (const { hotspots, version } of structuralHotspotGroups) {
@@ -1347,13 +1402,15 @@ for (const { components, version } of structuralHotspotComponentGroups) {
 
 if (adjacentSummaries.length > 0) {
   markdown.push("");
-  markdown.push("## Adjacent release summary");
+  markdown.push(
+    isEntrypointMatrix ? "## Entrypoint comparison summary" : "## Adjacent release summary",
+  );
   markdown.push("");
   markdown.push(
-    "| From | To | Comparable scenarios | Low-conf active rows | Active delta | Active ms | BBox delta | Client rect delta | Client rect entry delta | Mutation delta | Offset delta | Style delta | Slot delta | Settled delta | Long task delta |",
+    "| From | To | Comparable scenarios | Low-conf active rows | Active delta | Active ms | BBox delta | Client rect delta | Client rect entry delta | Resize callback delta | Mutation delta | Offset delta | Style delta | Slot delta | Settled delta | Long task delta |",
   );
   markdown.push(
-    "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+    "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
   );
 
   for (const summary of adjacentSummaries) {
@@ -1369,6 +1426,8 @@ if (adjacentSummaries.length > 0) {
       )} | ${formatPercent(summary.bboxReadsDelta)} | ${formatPercent(
         summary.clientRectReadsDelta,
       )} | ${formatPercent(summary.clientRectEntriesDelta)} | ${formatPercent(
+        summary.resizeObserverCallbacksDelta,
+      )} | ${formatPercent(
         summary.mutationRecordsDelta,
       )} | ${formatPercent(summary.offsetReadsDelta)} | ${formatPercent(
         summary.styleReadsDelta,
@@ -1397,7 +1456,9 @@ for (const row of matrix) {
 
 if (adjacentPairs.length > 0) {
   markdown.push("");
-  markdown.push("## Adjacent active delta matrix");
+  markdown.push(
+    isEntrypointMatrix ? "## Entrypoint active delta matrix" : "## Adjacent active delta matrix",
+  );
   markdown.push("");
   markdown.push(
     "| Component | Scenario | " +
@@ -1424,7 +1485,9 @@ if (adjacentPairs.length > 0) {
   markdown.push("## Correctness and comparability notes");
   markdown.push("");
   markdown.push(
-    "A faster older version is not automatically a performance win. When a release added missing reclamp coverage or fixed incorrect output, the extra work is correctness cost and the scenario should be interpreted with that caveat.",
+    isEntrypointMatrix
+      ? "The entrypoints are comparable only on the Pretext contract represented here: plain text, an explicit canvas font shorthand, maxLines, end truncation, word boundaries with grapheme fallback, and the default ellipsis. The result does not generalize to the root entry's broader layout-authoritative API."
+      : "A faster older version is not automatically a performance win. When a release added missing reclamp coverage or fixed incorrect output, the extra work is correctness cost and the scenario should be interpreted with that caveat.",
   );
 
   for (const pair of adjacentPairs) {
@@ -1445,7 +1508,9 @@ if (adjacentPairs.length > 0) {
   }
 
   markdown.push("");
-  markdown.push("## Top movers by adjacent release");
+  markdown.push(
+    isEntrypointMatrix ? "## Top movers by entrypoint" : "## Top movers by adjacent release",
+  );
 
   for (const pair of adjacentPairs) {
     const movers = topMoversForPair(pair);
@@ -1505,7 +1570,11 @@ if (adjacentPairs.length > 0) {
 
   if (structuralMoverGroups.length > 0) {
     markdown.push("");
-    markdown.push("## Top structural movers by adjacent release");
+    markdown.push(
+      isEntrypointMatrix
+        ? "## Top structural movers by entrypoint"
+        : "## Top structural movers by adjacent release",
+    );
   }
 
   for (const { movers, pair } of structuralMoverGroups) {
@@ -1540,14 +1609,16 @@ markdown.push("");
 markdown.push("## Visualization");
 markdown.push("");
 markdown.push(
-  "The SVG contains two panels: absolute active time by version and adjacent active-time delta by release pair.",
+  isEntrypointMatrix
+    ? "The SVG contains two panels: absolute active time by entrypoint and the root-to-Pretext active-time delta."
+    : "The SVG contains two panels: absolute active time by version and adjacent active-time delta by release pair.",
 );
 markdown.push("");
 markdown.push(
   `\`~\` marks a low-confidence delta: at least one side has active-time CV above ${activeCvLowConfidenceThreshold}%, compared active-time mean MOE intervals overlap, or median and mean active-time deltas point in opposite directions. SVG cells keep the normal direction color and add a top-right triangle marker.`,
 );
 markdown.push("");
-markdown.push("![Package benchmark matrix](310-package-benchmark-matrix.svg)");
+markdown.push(`![${reportTitle}](${reportBasename}.svg)`);
 await writeFile(reportMdPath, `${formatMarkdownTables(markdown).join("\n")}\n`);
 
 const cellWidth = 92;
@@ -1569,9 +1640,13 @@ const svg = [];
 svg.push(
   `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="img" aria-labelledby="title desc">`,
 );
-svg.push('<title id="title">vue-clamp package benchmark matrix</title>');
+svg.push(`<title id="title">vue-clamp ${escapeXml(reportTitle.toLowerCase())}</title>`);
 svg.push(
-  '<desc id="desc">Full package benchmark matrix with active time by version and adjacent release deltas.</desc>',
+  `<desc id="desc">${escapeXml(
+    isEntrypointMatrix
+      ? "LineClamp root and Pretext entrypoint matrix with active time and target deltas."
+      : "Full package benchmark matrix with active time by version and adjacent release deltas.",
+  )}</desc>`,
 );
 svg.push("<style>");
 svg.push(
@@ -1579,15 +1654,27 @@ svg.push(
 );
 svg.push("</style>");
 svg.push('<rect width="100%" height="100%" fill="#ffffff"/>');
-svg.push('<text class="title" x="32" y="34">Package benchmark matrix</text>');
+svg.push(`<text class="title" x="32" y="34">${escapeXml(reportTitle)}</text>`);
 svg.push(
-  '<text class="axis" x="32" y="56">All published versions are shown. N/A means the version or scenario has no Vue 3 public-matrix payload.</text>',
+  `<text class="axis" x="32" y="56">${escapeXml(
+    isEntrypointMatrix
+      ? "Only the shared root/Pretext public contract is shown. N/A means a target does not implement the scenario."
+      : "All published versions are shown. N/A means the version or scenario has no Vue 3 public-matrix payload.",
+  )}</text>`,
 );
 svg.push(
-  '<text class="axis" x="32" y="74">Green is lower cost, red is higher cost. The first panel shows active ms; the second shows adjacent release deltas.</text>',
+  `<text class="axis" x="32" y="74">${escapeXml(
+    isEntrypointMatrix
+      ? "Green is lower cost, red is higher cost. The first panel shows active ms; the second shows root-to-Pretext deltas."
+      : "Green is lower cost, red is higher cost. The first panel shows active ms; the second shows adjacent release deltas.",
+  )}</text>`,
 );
 svg.push(
-  '<text class="axis" x="32" y="92">Some adjacent deltas include correctness fixes that added missing reclamp work; see Markdown comparability notes.</text>',
+  `<text class="axis" x="32" y="92">${escapeXml(
+    isEntrypointMatrix
+      ? "Timing applies to synchronous component work under the explicit-font predictive contract; see Markdown comparability notes."
+      : "Some adjacent deltas include correctness fixes that added missing reclamp work; see Markdown comparability notes.",
+  )}</text>`,
 );
 svg.push(
   `<text class="axis" x="32" y="110">~ and a top-right triangle mark low-confidence deltas; high CV, overlapping mean MOE, or median/mean direction mismatch is the trigger.</text>`,
@@ -1681,9 +1768,10 @@ drawMatrixPanel({
     label: column.label,
     report: column.report,
   })),
-  description:
-    "Cell text is median active ms; color is delta vs this scenario's first supported version.",
-  title: "Active time by version",
+  description: `Cell text is median active ms; color is delta vs this scenario's first supported ${
+    isEntrypointMatrix ? "target" : "version"
+  }.`,
+  title: isEntrypointMatrix ? "Active time by entrypoint" : "Active time by version",
   top: absolutePanelTop,
 });
 
@@ -1741,8 +1829,10 @@ drawMatrixPanel({
     label: pair.label,
     pair,
   })),
-  description: "Cell text is active-time delta between adjacent versions for the same scenario.",
-  title: "Adjacent release deltas",
+  description: isEntrypointMatrix
+    ? "Cell text is the root-to-Pretext active-time delta for the same scenario."
+    : "Cell text is active-time delta between adjacent versions for the same scenario.",
+  title: isEntrypointMatrix ? "Root-to-Pretext deltas" : "Adjacent release deltas",
   top: adjacentPanelTop,
 });
 

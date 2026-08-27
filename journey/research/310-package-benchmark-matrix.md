@@ -4,6 +4,9 @@ This report compares the public component benchmark matrix across package versio
 
 Generated from `/tmp/vue-clamp-matrix-140-current-20260529-144101`.
 
+The opt-in root/Pretext comparison is maintained as a separate shared-contract slice in
+[`319-pretext-performance-matrix.md`](319-pretext-performance-matrix.md).
+
 ## Version summary
 
 | Version | Scenarios | Samples | Sample wall ms | Sample active ms | Median active CV | Max active CV | Median active RME | Max active RME | Active ms | Settled ms | Quiet ms | BBox reads | Client rects | Offset reads | Item slot calls | Long tasks |

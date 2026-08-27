@@ -1,11 +1,13 @@
 declare const __VUE_CLAMP_BENCH_TARGET__: {
   entry: string;
+  entrypoint: "pretext" | "root";
   specifier: string;
   version: string;
 };
 
 declare const __VUE_CLAMP_BENCH_TARGETS__: {
   entry: string;
+  entrypoint: "pretext" | "root";
   specifier: string;
   version: string;
 }[];
@@ -39,6 +41,7 @@ declare module "vue-clamp-benchmark-targets" {
 
   export const benchmarkTargets: {
     entry: string;
+    entrypoint: "pretext" | "root";
     module: Partial<Record<ComponentName, Component>>;
     specifier: string;
     version: string;

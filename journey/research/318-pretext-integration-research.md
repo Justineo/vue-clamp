@@ -124,6 +124,26 @@ For smooth one-pixel changes, stable results reduce component updates from 4,800
 still update whenever the visible prefix actually changes. These counts are the durable evidence;
 the accompanying wall time includes animation-frame waits and is not treated as CPU time.
 
+The release-facing public-component slice is retained in
+[`319-pretext-performance-matrix.md`](319-pretext-performance-matrix.md). It interleaves the root and
+`vue-clamp/pretext` entries in one Chromium process over 16-instance English, CJK, Thai, and long-token
+batches, with continuous, bounded-jitter, and large-jump widths. Five-run medians show:
+
+- Pretext is faster in 11 of 12 rows. The eight continuous/jitter rows fall by 42.5–76.8%; four of
+  those timing deltas are marked low confidence by the matrix's variance rules.
+- The jump rows preserve the important boundary: CJK, Thai, and long-token active time falls by
+  35.0–67.9%, while the small English jump workload rises by 15.4%. Eliminating geometry reads is
+  therefore not sufficient to guarantee lower active time when the avoided browser work is small.
+- Across all rows, summed median active time falls 56.1%, bounding-box reads fall from 88,057 to 0,
+  ResizeObserver callbacks fall from 10,688 to 700, and mutation records fall 42.3%. The aggregate
+  active delta is marked low confidence because 4 of 12 constituent rows cross the variance gate.
+- Settled time rises 1.5% because it is dominated by the same quiet-frame waits on both entries; it
+  is not a CPU-speed signal. The matrix deliberately excludes cold preparation and bundle size,
+  which remain separate delivery costs below.
+
+`vp run benchmark:pretext:matrix` rebuilds both public entries, runs the interleaved slice, and
+regenerates its Markdown, SVG, and ignored raw JSON artifacts.
+
 ## Delivery cost
 
 The size audit builds production consumer entries with Vue externalized. It measures the standard

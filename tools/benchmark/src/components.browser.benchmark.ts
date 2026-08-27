@@ -24,6 +24,7 @@ type VueClampModule = Partial<Record<ComponentName, Component>>;
 
 type BenchmarkTarget = {
   entry: string;
+  entrypoint: "pretext" | "root";
   module: VueClampModule;
   specifier: string;
   version: string;
@@ -48,9 +49,14 @@ type MountedScenario = {
 type PublicScenario = {
   beforeStep?: (mounted: MountedScenario, stepIndex: number) => Promise<void> | void;
   component: ComponentName;
-  group: "inline" | "line" | "rich" | "wrap";
+  entrypoints?: readonly BenchmarkTarget["entrypoint"][];
+  group: "inline" | "line" | "pretext" | "rich" | "wrap";
   minVersion?: string;
-  mount: (component: Component, initialWidth: number) => Promise<MountedScenario>;
+  mount: (
+    component: Component,
+    initialWidth: number,
+    target: BenchmarkTarget,
+  ) => Promise<MountedScenario>;
   name: string;
   unsupportedReason?: string;
   widths: readonly number[];
@@ -151,6 +157,8 @@ const wordBoundaryText =
   "International operations teams summarize customer-facing incidents, regional mitigations, and follow-up ownership without breaking words awkwardly.";
 const cjkWordBoundaryText =
   "国际响应团队需要在多区域故障期间保持客户沟通、缓解措施和后续责任清晰可见，同时避免在关键短语中间截断。";
+const thaiWordBoundaryText =
+  "ทีมตอบสนองเหตุการณ์ต้องรักษาบริบทของลูกค้าและข้อมูลการแก้ไขปัญหาให้มองเห็นได้อย่างชัดเจน";
 const emojiZwjText =
   "Incident roles 👩‍💻 🧑‍🚒 👨‍👩‍👧‍👦 stay grouped with status signals ✅ ❤️‍🔥 while dashboards resize.";
 const rtlBidiText =
@@ -225,6 +233,9 @@ const wrapWideContainerGrowWidths = [120, 760, 120, 760];
 const wrapTinyItemWideGrowWidths = [120, 960, 120, 960];
 const wrapMixedItemGrowWidths = [120, 680, 120, 680];
 const lineFeatureWidths = repeatedWidths([520, 260, 500, 280, 460, 240, 520], 3);
+const pretextContinuousWidths = [...widthSweep(460, 180, -8), ...widthSweep(188, 460, 8)];
+const pretextJitterWidths = jitterWidths(71, 330, 180, 460, 19, 0x42);
+const pretextJumpWidths = repeatedWidths([460, 180, 440, 200, 420, 160, 450], 4);
 const lineCtaNovelJitterWidths = novelJitterWidths(35, 330, 180, 460, 79, 0x244);
 const lineWordNovelJitterWidths = novelJitterWidths(35, 390, 220, 560, 79, 0x234);
 const lineCjkJitterWidths = [
@@ -468,8 +479,13 @@ function compareVersions(left: string, right: string): number {
 
 function unsupportedScenarioReason(
   scenario: PublicScenario,
-  target: Pick<BenchmarkTarget, "version">,
+  target: Pick<BenchmarkTarget, "entrypoint" | "version">,
 ): string | null {
+  const entrypoints = scenario.entrypoints ?? ["root"];
+  if (!entrypoints.includes(target.entrypoint)) {
+    return `${scenario.name} does not apply to the ${target.entrypoint} entry.`;
+  }
+
   if (scenario.minVersion && compareVersions(target.version, scenario.minVersion) < 0) {
     return (
       scenario.unsupportedReason ??
@@ -579,10 +595,15 @@ function novelJitterWidths(
   return widths;
 }
 
-function blockStyle(width: number | string, fontSize?: string, direction?: "ltr" | "rtl"): string {
+function blockStyle(
+  width: number | string,
+  fontSize?: string,
+  direction?: "ltr" | "rtl",
+  font = "16px Georgia,serif",
+): string {
   const fontStyle = fontSize
     ? [`font-family:Georgia,serif`, `font-size:${fontSize}`]
-    : ["font:16px Georgia,serif"];
+    : [`font:${font}`];
 
   return [
     "display:block",
@@ -648,6 +669,7 @@ type LineClampBatchOptions = {
   direction?: "ltr" | "rtl";
   ellipsis?: string;
   externalWidth?: boolean;
+  font?: string;
   fontSize?: string;
   location?: "start" | "middle" | "end" | number;
   maxHeight?: string;
@@ -700,7 +722,8 @@ function splitPath(value: string): { body: string; end?: string; start?: string 
 }
 
 function lineClampBatch(options: LineClampBatchOptions = {}): PublicScenario["mount"] {
-  return (component, initialWidth) => mountLineClampBatch(component, initialWidth, options);
+  return (component, initialWidth, target) =>
+    mountLineClampBatch(component, initialWidth, target, options);
 }
 
 function inlineClampBatch(options: InlineClampBatchOptions = {}): PublicScenario["mount"] {
@@ -714,8 +737,13 @@ function richLineClampBatch(options: RichLineClampBatchOptions = {}): PublicScen
 async function mountLineClampBatch(
   component: Component,
   initialWidth: number,
+  target: BenchmarkTarget,
   options: LineClampBatchOptions = {},
 ): Promise<MountedScenario> {
+  if (target.entrypoint === "pretext" && !options.font) {
+    throw new Error(`Scenario for ${target.specifier} must provide a canvas font shorthand.`);
+  }
+
   const width = ref(initialWidth);
   const contentRevision = ref(0);
   const beforeSlotCalls = createCounter();
@@ -742,6 +770,7 @@ async function mountLineClampBatch(
                 options.externalWidth ? "100%" : width.value,
                 options.fontSize,
                 options.direction,
+                options.font,
               ),
               text: options.contentUpdates
                 ? `${options.text ?? text}${contentRevision.value % 2}${index}`
@@ -758,7 +787,9 @@ async function mountLineClampBatch(
             if (options.location !== undefined) {
               props.location = options.location;
             }
-            if (options.boundary !== undefined) {
+            if (target.entrypoint === "pretext") {
+              props.font = options.font;
+            } else if (options.boundary !== undefined) {
               props.boundary = options.boundary;
             }
             if (options.ellipsis !== undefined) {
@@ -1284,6 +1315,36 @@ async function mountWrapSingleLineScenario(
   };
 }
 
+function pretextScenarios(): PublicScenario[] {
+  const fixtures = [
+    { font: "16px Georgia", name: "english", text: wordBoundaryText },
+    { font: "16px Arial", name: "cjk", text: cjkWordBoundaryText },
+    { font: "16px Arial", name: "thai", text: thaiWordBoundaryText },
+    { font: "16px Georgia", name: "long-token", text: fallbackWordBoundaryText },
+  ] as const;
+  const patterns = [
+    { name: "continuous", widths: pretextContinuousWidths },
+    { name: "jitter", widths: pretextJitterWidths },
+    { name: "jumps", widths: pretextJumpWidths },
+  ] as const;
+
+  return fixtures.flatMap((fixture) =>
+    patterns.map((pattern) => ({
+      component: "LineClamp" as const,
+      entrypoints: ["root", "pretext"] as const,
+      group: "pretext" as const,
+      mount: lineClampBatch({
+        boundary: "word",
+        font: fixture.font,
+        maxLines: 3,
+        text: fixture.text,
+      }),
+      name: `line-pretext-${fixture.name}-batch-${pattern.name}`,
+      widths: pattern.widths,
+    })),
+  );
+}
+
 function scenarios(): PublicScenario[] {
   const inlineMeasuredReason =
     "InlineClamp 1.0 used a native text-overflow implementation, so it is excluded from measured InlineClamp comparisons.";
@@ -1292,6 +1353,7 @@ function scenarios(): PublicScenario[] {
   // native-eligible in newer implementations, but that is a diagnostic outcome
   // rather than the reason the row exists.
   return [
+    ...pretextScenarios(),
     {
       component: "LineClamp",
       group: "line",
@@ -2685,7 +2747,10 @@ function scenarioMatchesFilter(scenario: PublicScenario, filter: string): boolea
 }
 
 function selectedScenarios(): PublicScenario[] {
-  const allScenarios = scenarios();
+  const hasPretextTarget = targets.some((target) => target.entrypoint === "pretext");
+  const allScenarios = scenarios().filter(
+    (scenario) => !scenario.entrypoints?.includes("pretext") || hasPretextTarget,
+  );
   const filter = new Set(__VUE_CLAMP_BENCH_SCENARIOS__);
   if (filter.size === 0) {
     return allScenarios;
@@ -2737,13 +2802,14 @@ function emptyStepDiagnostics(): StepDiagnostics {
 async function runScenarioOnce(
   scenario: PublicScenario,
   component: Component,
+  target: BenchmarkTarget,
 ): Promise<BenchmarkRun> {
   const initialWidth = scenario.widths[0];
   if (initialWidth === undefined) {
     throw new Error(`Scenario ${scenario.name} must provide at least one width.`);
   }
 
-  const mounted = await scenario.mount(component, initialWidth);
+  const mounted = await scenario.mount(component, initialWidth, target);
   const activityTracker = createActivityTracker(mounted.root);
   const performanceTracker = createPerformanceTracker();
 
@@ -2847,18 +2913,19 @@ async function runScenarioOnce(
 async function runBenchmark(
   scenario: PublicScenario,
   component: Component,
+  target: BenchmarkTarget,
 ): Promise<BenchmarkSummary> {
   const runs: BenchmarkRun[] = [];
   let summary: BenchmarkSummary | null = null;
 
   for (let index = 0; index < benchmarkSamplingConfig.warmupRuns; index += 1) {
-    await runScenarioOnce(scenario, component);
+    await runScenarioOnce(scenario, component, target);
   }
 
   const measuredStartedAt = performance.now();
 
   for (let index = 0; index < benchmarkSamplingConfig.maxRuns; index += 1) {
-    const run = await runScenarioOnce(scenario, component);
+    const run = await runScenarioOnce(scenario, component, target);
     runs.push(run);
 
     if (runs.length >= benchmarkSamplingConfig.minRuns) {
@@ -3207,6 +3274,7 @@ function compactTargetReport(target: BenchmarkTarget, results: ScenarioResult[])
     ...(Object.keys(extraTotals).length > 0 ? { extraTotals } : {}),
     scenarios,
     target: {
+      entrypoint: target.entrypoint,
       specifier: target.specifier,
       version: target.version,
     },
@@ -3255,7 +3323,7 @@ async function runTargetBenchmarks(
     const input = inputs[0]!;
     return [
       {
-        summary: await runBenchmark(scenario, input.component),
+        summary: await runBenchmark(scenario, input.component, input.target),
         target: input.target,
       },
     ];
@@ -3264,7 +3332,7 @@ async function runTargetBenchmarks(
   for (let index = 0; index < benchmarkSamplingConfig.warmupRuns; index += 1) {
     const roundInputs = index % 2 === 0 ? inputs : [...inputs].reverse();
     for (const input of roundInputs) {
-      await runScenarioOnce(scenario, input.component);
+      await runScenarioOnce(scenario, input.component, input.target);
     }
   }
 
@@ -3280,7 +3348,7 @@ async function runTargetBenchmarks(
     const roundStates = round % 2 === 0 ? states : [...states].reverse();
     for (const state of roundStates) {
       const startedAt = performance.now();
-      const run = await runScenarioOnce(scenario, state.component);
+      const run = await runScenarioOnce(scenario, state.component, state.target);
       state.sampleWallMs += performance.now() - startedAt;
       state.runs.push(run);
     }
@@ -3478,6 +3546,7 @@ describe("vue-clamp package benchmark", () => {
       scenarios: resultsByTarget.get(target)!,
       target: {
         entry: target.entry,
+        entrypoint: target.entrypoint,
         specifier: target.specifier,
         version: target.version,
       },

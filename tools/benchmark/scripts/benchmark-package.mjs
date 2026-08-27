@@ -185,10 +185,17 @@ async function findPackageFromEntry(entry, packageName) {
   throw new Error(`Could not find ${packageName} package.json from ${entry}`);
 }
 
-async function currentTarget() {
-  await run("vp", ["run", "vue-clamp#build"]);
+let currentBuild;
 
-  const entry = resolve(workspaceRoot, "packages/vue-clamp/dist/index.js");
+async function currentTarget(specifier) {
+  currentBuild ??= run("vp", ["run", "vue-clamp#build"]);
+  await currentBuild;
+
+  const entrypoint = specifier === "current/pretext" ? "pretext" : "root";
+  const entry = resolve(
+    workspaceRoot,
+    `packages/vue-clamp/dist/${entrypoint === "pretext" ? "pretext" : "index"}.js`,
+  );
   if (!(await pathExists(entry))) {
     throw new Error(`Current package build did not create ${entry}`);
   }
@@ -197,7 +204,8 @@ async function currentTarget() {
 
   return {
     entry,
-    specifier: "current",
+    entrypoint,
+    specifier,
     version: packageJson.version ?? "0.0.0",
   };
 }
@@ -236,6 +244,7 @@ async function installedTarget(specifier) {
 
   return {
     entry,
+    entrypoint: "root",
     specifier,
     version: packageInfo.packageJson.version ?? "unknown",
   };
@@ -246,7 +255,10 @@ const targetBySpecifier = new Map();
 for (const specifier of targetSpecifiers) {
   let target = targetBySpecifier.get(specifier);
   if (!target) {
-    target = specifier === "current" ? await currentTarget() : await installedTarget(specifier);
+    target =
+      specifier === "current" || specifier === "current/pretext"
+        ? await currentTarget(specifier)
+        : await installedTarget(specifier);
     targetBySpecifier.set(specifier, target);
   }
 
@@ -256,6 +268,7 @@ for (const specifier of targetSpecifiers) {
 await run("vp", ["test", "-c", "tools/benchmark/vite.package.config.ts", ...passthroughArgs], {
   env: {
     VUE_CLAMP_BENCH_ENTRY: targets[0].entry,
+    VUE_CLAMP_BENCH_ENTRYPOINT: targets[0].entrypoint,
     VUE_CLAMP_BENCH_SCENARIOS: await scenarioFilterEnv(),
     VUE_CLAMP_BENCH_SPECIFIER: targets[0].specifier,
     VUE_CLAMP_BENCH_TARGETS: JSON.stringify(targets),
