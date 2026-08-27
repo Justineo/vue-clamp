@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vite-plus/test";
+import { describe, expect, it, vi } from "vite-plus/test";
 import * as exports from "../src/index.ts";
 
 describe("Public exports", () => {
@@ -17,5 +17,30 @@ describe("Public exports", () => {
     expect("borderBoxWidth" in exports).toBe(false);
     expect("clampTextToFit" in exports).toBe(false);
     expect("prepareRich" in exports).toBe(false);
+  });
+});
+
+describe("Module evaluation", () => {
+  it("does not construct a segmenter while loading the package", async () => {
+    const construct = vi.fn();
+    const NativeSegmenter = Intl.Segmenter;
+
+    class TrackedSegmenter extends NativeSegmenter {
+      constructor(...args: ConstructorParameters<typeof NativeSegmenter>) {
+        construct();
+        super(...args);
+      }
+    }
+
+    Object.defineProperty(Intl, "Segmenter", { configurable: true, value: TrackedSegmenter });
+    vi.resetModules();
+
+    try {
+      await import("../src/index.ts");
+      expect(construct).not.toHaveBeenCalled();
+    } finally {
+      Object.defineProperty(Intl, "Segmenter", { configurable: true, value: NativeSegmenter });
+      vi.resetModules();
+    }
   });
 });
