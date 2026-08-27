@@ -26,8 +26,9 @@ constraints.
 The Resize Observer processing model recalculates layout, delivers active observations, recalculates
 layout again when callbacks mutate DOM, and only then updates rendering. The component therefore
 mounts safely contained DOM, receives exact width from the browser, and commits the Pretext prefix
-inside the callback before paint. Native line clamp, an `lh` cap, and overflow clipping remain active
-throughout, so delayed or stale prediction is also paint-safe.
+inside the callback before paint. The visible source stays `visibility: hidden` until that first
+delivery; native line clamp and overflow clipping then contain stale predictions. An `Nlh` height cap
+was rejected because tall atomic inline boxes can expand real line boxes beyond computed line height.
 
 Two DOM changes make that callback minimal:
 

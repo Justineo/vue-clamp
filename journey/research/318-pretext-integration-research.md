@@ -73,10 +73,12 @@ the existing visible text node. It schedules no Vue component patch, creates or 
 does no work for an unchanged result.
 
 The initial DOM contains both a visually hidden accessible source and an `aria-hidden` visible full
-source. Native line clamp, an `lh` hard cap, and overflow clipping contain that visible node until the
-first observer delivery rewrites it. The same containment remains active for stale predictions, so
-model error cannot paint beyond the line limit; a zero-width result becomes an empty visible prefix.
-No prediction state or width input is public.
+source. The visible node starts `visibility: hidden`; the first observer delivery rewrites and reveals
+it inside the pre-paint callback. Native line clamp and overflow clipping remain active for stale
+predictions. The component deliberately derives no `max-height` from `line-height`: atomic inline
+boxes can make actual line boxes taller than an `lh` budget, and the root component's measured model
+does not make that approximation either. A zero-width result becomes an empty visible prefix. No
+prediction state or width input is public.
 
 ## Correctness evidence
 
@@ -145,13 +147,13 @@ batches, with continuous, bounded-jitter, and large-jump widths. The fixture sup
 CSS width to both entries and measures the public observer-driven Pretext path. The retained report
 was regenerated while the benchmark host was on AC power. Five-run medians show:
 
-- Pretext is faster in all 12 rows. Active time falls 29.4–81.0% per row and 62.4% in aggregate,
-  from 2,529.7 ms to 951.7 ms. All rows cross the matrix's variance gate, so the timing deltas are
-  directional rather than precise point estimates.
+- Pretext is faster in all 12 rows. Active time falls 33.0–84.9% per row and 62.5% in aggregate,
+  from 2,473.0 ms to 926.4 ms. Seven rows cross the matrix's variance gate, so those timing deltas
+  remain directional rather than precise point estimates.
 - Bounding-box reads fall from 88,057 to zero, ResizeObserver callbacks fall 93.8% from 10,688 to the
   exact 668 measured width steps, and mutation records fall 52.0% from 91,257 to 43,778. Pretext has
   no child-list mutation in any row.
-- The former English jump regression is removed: active time falls 70.6%, from 98.0 ms to 28.8 ms.
+- The former English jump regression is removed: active time falls 58.9%, from 97.5 ms to 40.1 ms.
   The width probe prevents text-height changes from creating extra observer deliveries.
 - Aggregate settled time is flat because both entries wait for the same quiet frames; it is not a
   CPU-speed signal. The matrix deliberately excludes cold preparation and bundle size, which remain
@@ -170,8 +172,8 @@ imported.
 | Consumer import      |      Gzip |
 | -------------------- | --------: |
 | Standard `LineClamp` |  9.095 kB |
-| Pretext `LineClamp`  | 20.479 kB |
-| Both components      | 28.947 kB |
+| Pretext `LineClamp`  | 20.524 kB |
+| Both components      | 28.978 kB |
 
 The large predictor payload is the principal trade-off. The subpath is justified only when its
 preparation cost and bytes are amortized across enough active resize work; the ordinary root import

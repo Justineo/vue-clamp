@@ -205,8 +205,10 @@ describe("Pretext LineClamp", () => {
 
       expect(source?.textContent).toBe(text);
       expect(visible?.textContent).toBe(text);
+      expect((visible as HTMLElement | undefined)?.style.visibility).toBe("hidden");
       await settle();
       expect(deliveredText.at(-1)).not.toBe(text);
+      expect((visible as HTMLElement | undefined)?.style.visibility).toBe("");
       expect(body.children[0]).toBe(source);
       expect(body.children[1]).toBe(visible);
       expect(visible?.firstChild).toBe(textNode);
@@ -220,6 +222,29 @@ describe("Pretext LineClamp", () => {
     } finally {
       globalThis.ResizeObserver = OriginalResizeObserver;
     }
+  });
+
+  it("does not approximate line boxes with an lh height cap", async () => {
+    const text =
+      "Release dashboards keep customer impact and regional mitigation visible while cards resize.";
+    const clamp = mountPretext(text, "16px Georgia", 180);
+    await settle();
+    const body = bodyElement(clamp);
+    const visible = body.children[1];
+    if (!(visible instanceof HTMLElement)) throw new Error("Expected visible text.");
+
+    const tallInline = document.createElement("span");
+    Object.assign(tallInline.style, {
+      display: "inline-block",
+      height: "80px",
+      verticalAlign: "bottom",
+      width: "1px",
+    });
+    visible.append(tallInline);
+    await frame();
+
+    expect(body.style.maxHeight).toBe("");
+    expect(body.getBoundingClientRect().height).toBeGreaterThan(3 * 22);
   });
 
   it("keeps predictive text current across successive clamped widths", async () => {

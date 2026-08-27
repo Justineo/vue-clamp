@@ -37,6 +37,7 @@ const lineLimit = computed(() => normalizeLineLimit(maxLines));
 const active = computed(() => !expanded.value && text.length > 0 && lineLimit.value !== undefined);
 const prepared = computed(() => prepareLineClamp(text, font));
 let observedWidth: number | null = null;
+let predictionReady = false;
 
 function resolve(): void {
   const limit = lineLimit.value;
@@ -57,6 +58,11 @@ function applyResult(result: ReturnType<typeof clampPreparedLine>): void {
     visibleText.text = result.text;
   }
 
+  if (active.value && !predictionReady) {
+    if (visibleRef.value) visibleRef.value.style.visibility = "";
+    predictionReady = true;
+  }
+
   clamped.value = result.clamped;
 }
 
@@ -64,6 +70,7 @@ const rootStyle: CSSProperties = {
   display: "block",
   overflow: "hidden",
 };
+const pendingStyle: CSSProperties = { visibility: "hidden" };
 // A zero-height target avoids observer loops when the visible text changes
 // the body's block size.
 const widthProbeStyle: CSSProperties = {
@@ -95,7 +102,6 @@ const bodyStyle = computed<CSSProperties>(() => {
     lineBreak: "auto",
     lineClamp: isActive ? String(limit) : undefined,
     lineHeight: "inherit",
-    maxHeight: isActive ? `${limit}lh` : undefined,
     overflow: "hidden",
     overflowWrap: "break-word",
     tabSize: 8,
@@ -138,6 +144,13 @@ watch(
 );
 
 watch([expanded, lineLimit, () => font, () => text], resolve, { immediate: true });
+watch(
+  active,
+  (value) => {
+    if (!value) predictionReady = false;
+  },
+  { flush: "sync" },
+);
 
 function render(): VNodeChild {
   const visible = h(
@@ -146,6 +159,7 @@ function render(): VNodeChild {
       "aria-hidden": true,
       key: "visible",
       ref: visibleRef,
+      style: active.value && !predictionReady ? pendingStyle : undefined,
     },
     [visibleText.text],
   );

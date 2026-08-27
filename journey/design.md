@@ -55,8 +55,9 @@
   layout inputs. It obtains exact width from `ResizeObserver` during the browser's pre-paint resize
   phase, commits the prediction inside that delivery, and does not expose width discovery to the
   application. It performs no synchronous geometry read, DOM candidate search, or hidden browser
-  fallback. Native line-clamp plus an `lh` cap is always active while collapsed, so neither the
-  initial full DOM source nor a stale prediction can paint beyond the line limit.
+  fallback. The visible source starts `visibility: hidden` and is revealed with the first prediction;
+  native line-clamp remains active while collapsed to contain stale predictions. It derives no height
+  from `line-height`, preserving the browser's actual line-box geometry.
 - Pretext preparation maps segment-aligned cursors directly to word/grapheme ranks, bounds the rare
   segment-internal lookup to that segment, and shares ellipsis width by font. It trusts the documented
   requirement that named fonts are loaded before use rather than coordinating `FontFaceSet` per
