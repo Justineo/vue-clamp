@@ -141,6 +141,36 @@ The large predictor payload is the principal trade-off. The subpath is justified
 preparation cost and bytes are amortized across enough active resize work; the ordinary root import
 continues to be the default recommendation.
 
+## Current optimization boundary
+
+The npm `latest` tag still points to `@chenglou/pretext` `0.0.8`. Upstream `main` at
+`ac49b09b7d83ede19581fa94a8b892b07d309baf` contains unreleased analysis and measurement
+simplifications but no new low-allocation cursor API. In a seven-run, counterbalanced Chromium spike
+over 1,000 dashboard rows, its median `prepareWithSegments()` time was 10.2 ms versus 12.8 ms for the
+published package, about 20% faster. The source tree does not publish built `dist` files from Git, so
+pointing the package dependency at that commit is not a safe consumer delivery path; vendoring or
+maintaining a fork would be a separate dependency-policy decision.
+
+A second spike separated the current wrapper from `layoutNextLineRange()` using 200,000 clamp calls:
+
+| Scenario   | Range walking | Complete wrapper | Range share |
+| ---------- | ------------: | ---------------: | ----------: |
+| English    |       26.6 ms |          28.5 ms |       93.3% |
+| CJK        |       30.5 ms |          32.0 ms |       95.3% |
+| Long token |       26.7 ms |          30.0 ms |       89.0% |
+
+Each public `layoutNextLineRange()` call allocates its result and cursor objects. The remaining
+meaningful hot-path opportunity therefore belongs upstream: an API that advances a caller-owned
+cursor and returns geometry without materializing range objects. Copying Pretext's internal line
+walker into `vue-clamp` would duplicate a large, browser-profile-sensitive algorithm and break the
+chosen authority boundary.
+
+Local alternatives were measured and rejected: result caches slowed mixed scripts and jumps;
+typed rank arrays traded a small hot-path regression for memory; a full `layout()` prepass doubled
+ordinary core time and made the long-token path roughly nine times slower; retaining a stable source
+DOM node did not reduce mutation work once text-copy semantics were preserved. No remaining local
+change has a reproducible benefit large enough to justify additional state or semantic risk.
+
 ## Deliberately rejected designs
 
 - **Pretext as a browser-search hint:** the existing browser path already derives an effective hint
