@@ -666,7 +666,7 @@ const reportTitle = isEntrypointMatrix
   ? "LineClamp entrypoint benchmark matrix"
   : "Package benchmark matrix";
 const reportDescription = isEntrypointMatrix
-  ? "This report compares the root and opt-in Pretext LineClamp entries on their shared public contract. The Pretext target receives the same numeric content width that styles each fixture, exercising its controlled `inlineSize` path. The primary timing signal is `active ms`; structural counters show the browser work behind each result, and sample CV / RME report active timing variance."
+  ? "This report compares the root and opt-in Pretext LineClamp entries on their shared public contract. The primary timing signal is `active ms`; structural counters show the browser work behind each result, and sample CV / RME report active timing variance."
   : "This report compares the public component benchmark matrix across package versions. The primary timing signal is `active ms`; `settled ms` preserves the end-to-end quiet-frame timing, counters explain whether a change came from layout reads, DOM cloning/replacement, or slot rendering, and sample CV / RME report active timing variance.";
 const reportColumnByReport = new Map(reportColumns.map((column) => [column.report, column]));
 const scenarioIds = [
@@ -1486,7 +1486,7 @@ if (adjacentPairs.length > 0) {
   markdown.push("");
   markdown.push(
     isEntrypointMatrix
-      ? "The entrypoints are comparable only on the Pretext contract represented here: plain text, an explicit canvas font shorthand, an exact numeric content width, maxLines, end truncation, word boundaries with grapheme fallback, and the default ellipsis. The result does not generalize to the root entry's broader layout-authoritative API or Pretext's observer fallback."
+      ? "The entrypoints are comparable only on the Pretext contract represented here: plain text, an explicit canvas font shorthand, maxLines, end truncation, word boundaries with grapheme fallback, and the default ellipsis. The result does not generalize to the root entry's broader layout-authoritative API."
       : "A faster older version is not automatically a performance win. When a release added missing reclamp coverage or fixed incorrect output, the extra work is correctness cost and the scenario should be interpreted with that caveat.",
   );
 

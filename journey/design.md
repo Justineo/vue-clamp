@@ -48,35 +48,32 @@
   - `InlineClamp` as the canonical single-line affix-friendly component name
   - `WrapClamp` as the canonical wrapped-item component name
 - `vue-clamp/pretext` separately exports a narrower `LineClamp` backed by Pretext. It requires an
-  explicit named `font`, accepts `text`, `maxLines`, `expanded`, `as`, and an optional exact
-  content-box `inlineSize`, and fixes semantics to end/word/default-ellipsis clamping. The separate
-  entry keeps `@chenglou/pretext` out of root consumers and makes the predictive layout contract an
-  explicit application choice.
-- The Pretext component treats source text, provided or observed content width, font, and line limit
-  as its only layout inputs. A provided `inlineSize` is authoritative: prediction is available to the
-  first render and no `ResizeObserver` is created. Without it, the component observes its content box
-  and resolves after delivery. Neither path performs DOM candidate search or geometry reads after
-  preparation or silently falls back to the browser engine. Native line-clamp plus an `lh` cap is the
-  pending and stale-result containment layer, so the visible body never paints beyond the line limit.
+  explicit named `font`, accepts only `text`, `maxLines`, `expanded`, and `as`, and fixes semantics to
+  end/word/default-ellipsis clamping. The separate entry keeps `@chenglou/pretext` out of root
+  consumers and makes the predictive layout contract an explicit application choice.
+- The Pretext component treats source text, observed content width, font, and line limit as its only
+  layout inputs. It obtains exact width from `ResizeObserver` during the browser's pre-paint resize
+  phase, commits the prediction inside that delivery, and does not expose width discovery to the
+  application. It performs no synchronous geometry read, DOM candidate search, or hidden browser
+  fallback. Native line-clamp plus an `lh` cap is always active while collapsed, so neither the
+  initial full DOM source nor a stale prediction can paint beyond the line limit.
 - Pretext preparation maps segment-aligned cursors directly to word/grapheme ranks, bounds the rare
   segment-internal lookup to that segment, and shares ellipsis width by font. It trusts the documented
   requirement that named fonts are loaded before use rather than coordinating `FontFaceSet` per
-  instance. Observer-driven active instances share one content-box observer; controlled, expanded,
-  empty, and unlimited instances do not observe. Shared delivery batches width inputs before Vue
-  flushes; unchanged results do no DOM work, and prefix-only changes update the stable visible text
-  node without scheduling a full component patch. The observer fallback is preferable when many
-  instances inherit one CSS-driven container width, while controlled sizing is preferable when the
-  application already owns each component's exact width. This policy is specific to the opt-in
-  high-volume engine and does not change the independent observers used by the browser-authoritative
-  components.
+  instance. Active instances share one content-box observer; expanded, empty, and unlimited instances
+  do not observe. Each component observes a zero-height width probe rather than its text body, so its
+  own block-size changes cannot cause resize feedback. The accessible full source and `aria-hidden`
+  visible text nodes remain mounted in every state. Resize delivery can therefore mutate only the
+  stable visible text node before paint; unchanged results do no DOM work and width changes schedule
+  no component patch. This policy is specific to the opt-in high-volume engine and does not change
+  the independent observers used by the browser-authoritative components.
 - The opt-in entry has a release-facing public-component matrix in
   `journey/research/319-pretext-performance-matrix.md`. It compares only the shared root/Pretext
   contract over 16-instance English, CJK, Thai, and long-token batches under continuous, jitter,
-  and jump width profiles. It supplies the same exact numeric width to the fixture style and the
-  Pretext component, so it measures the controlled best path rather than the observer fallback.
-  `vp run benchmark:pretext:matrix` regenerates the interleaved five-run report. Mounted resize
-  churn, cold preparation, and bundle size remain separate signals rather than being combined into
-  one speed claim.
+  and jump width profiles. It measures the public observer-driven path with real CSS width changes.
+  `vp run benchmark:pretext:matrix` regenerates the interleaved five-run report. Mounted resize churn,
+  cold preparation, and bundle size remain separate signals rather than being combined into one
+  speed claim.
 - There is no default export.
 - Type declarations follow explicit ownership layers:
   - shared public primitives and private shared type building blocks live in

@@ -24,7 +24,6 @@ The public props therefore contain only:
 
 - `text`
 - required `font`
-- optional exact content-box `inlineSize`
 - `maxLines`
 - `expanded` / `v-model:expanded`
 - `as`
@@ -32,8 +31,6 @@ The public props therefore contain only:
 The component retains the standard imperative `expand`, `collapse`, and `toggle` controls and emits
 `clampchange`. It fixes the clamp semantics to end truncation, word boundaries with grapheme fallback,
 and the default `…`. It does not accept `maxHeight`, `location`, `boundary`, `ellipsis`, or affix slots.
-`inlineSize` supplies layout knowledge to the predictor; it does not set the element's CSS width, so
-the caller must keep the numeric content-box width and the actual layout in sync.
 
 The required `font` is both the Pretext measurement input and an inline style on the rendered body.
 The body also fixes the text features that define the supported layout model: horizontal writing,
@@ -47,41 +44,39 @@ reactive, but the new named font must already be available when it is supplied.
 
 ## Runtime model
 
-The implementation has two phases and two ways to supply width:
+The implementation has two phases:
 
 1. Prepare the text once for each `text` / `font` pair. Pretext performs segmentation and canvas
    measurement, while `vue-clamp` prepares word boundaries and segment-level cursor ranks. A line
    ending inside a segment searches only that segment's word-boundary interval. Ellipsis measurement
    is shared by font shorthand, and ordinary non-normalizing source text avoids a redundant join.
-2. For each exact content-box width, walk only the lines needed to establish overflow, reserve the
-   default ellipsis on the final line, map the resulting cursor in constant time, and render that
-   prefix. When `inlineSize` is supplied, it is authoritative and the component computes the first
-   prefix during setup without creating a `ResizeObserver`. Otherwise a shared observer supplies the
-   width after browser delivery.
+2. For each exact observed content-box width, walk only the lines needed to establish overflow,
+   reserve the default ellipsis on the final line, map the resulting cursor in constant time, and
+   render that prefix.
 
 The resize hot path performs no DOM geometry reads or browser candidate search. `ResizeObserver`
-delivers the width; Pretext arithmetic produces the text. The implementation deliberately does not
-fall back to the standard engine because doing so would make performance and semantics depend on a
-hidden runtime mode.
+delivers the width after browser layout and before paint; Pretext arithmetic produces the text inside
+that callback. The Resize Observer processing loop recalculates layout again after callback DOM
+changes and before rendering, so exact discovery does not require width to be application state. The
+implementation deliberately does not fall back to the standard engine because doing so would make
+performance and semantics depend on a hidden runtime mode.
 
-Observer-driven active instances share one content-box observer. Controlled, expanded, empty, and
-unlimited instances do not observe at all, and the shared observer is released when its last active
-target disappears. Resize delivery resolves all changed entries in one batch. Widths that preserve
-the visible result do no DOM work; prefix-only changes update the stable visible text node directly,
-while Vue patches only when the visible/source accessibility structure changes.
+Active instances share one content-box observer. Expanded, empty, and unlimited instances do not
+observe at all, and the shared observer is released when its last active target disappears. Each
+instance observes an empty zero-height width probe rather than the text body. The probe follows the
+same inline size but does not change block size when the callback rewrites text, preventing resize
+feedback deliveries.
 
-These modes optimize different ownership models. Controlled sizing is the fastest path when a grid,
-virtualizer, or layout store already knows each clamp's exact width: it removes both width-discovery
-latency and observer work. It is not a recommendation to create another observer in application
-code. When many children merely inherit one CSS-driven container width, the observer fallback can
-avoid propagating that width through every child VNode and remains the better integration.
+The accessible full source and the `aria-hidden` visible text nodes remain mounted in all states.
+Resize delivery resolves all changed entries in one batch and writes a changed prefix directly into
+the existing visible text node. It schedules no Vue component patch, creates or removes no nodes, and
+does no work for an unchanged result.
 
-Before the first observer result, server output and hydration render the full source under native
-line-clamp plus an `lh` hard cap. The same containment remains active for controlled and stale
-predictions, so model error cannot paint visible content beyond the line limit. A non-positive exact
-width resolves to an empty visible prefix instead of exposing the source. Once a predicted prefix is
-visible, the full source remains in a visually hidden node and the prefix is `aria-hidden`, matching
-the package's accessibility pattern. No prediction state is public.
+The initial DOM contains both a visually hidden accessible source and an `aria-hidden` visible full
+source. Native line clamp, an `lh` hard cap, and overflow clipping contain that visible node until the
+first observer delivery rewrites it. The same containment remains active for stale predictions, so
+model error cannot paint beyond the line limit; a zero-width result becomes an empty visible prefix.
+No prediction state or width input is public.
 
 ## Correctness evidence
 
@@ -132,36 +127,35 @@ preparation decomposition, Pretext itself takes about 17.0 ms, word-boundary pre
 and the complete wrapper 19.9 ms. The added rank index is proportional to Pretext segments instead
 of source graphemes.
 
-The 200-instance benchmark separates width ownership from component work across 24 changes:
+The 200-instance benchmark separates browser delivery from component work across 24 changes:
 
-| Mode       | Profile | Observers / callbacks / entries | VNode updates | Mutation records | Resize wall time |
-| ---------- | ------- | ------------------------------: | ------------: | ---------------: | ---------------: |
-| Observed   | Smooth  |                  1 / 24 / 4,800 |           101 |              202 |         198.3 ms |
-| Observed   | Jumps   |                  1 / 24 / 4,800 |         3,200 |            7,200 |         225.4 ms |
-| Controlled | Smooth  |                       0 / 0 / 0 |         4,800 |              202 |         200.2 ms |
-| Controlled | Jumps   |                       0 / 0 / 0 |         4,800 |            8,000 |         224.6 ms |
+| Profile | Observers / callbacks / entries | VNode updates | Mutation records | Resize wall time |
+| ------- | ------------------------------: | ------------: | ---------------: | ---------------: |
+| Smooth  |                  1 / 24 / 4,800 |             0 |              101 |         199.9 ms |
+| Jumps   |                  1 / 24 / 4,800 |             0 |            4,000 |         225.1 ms |
 
-Controlled width removes all observer work, but blindly passing one reactive ancestor width to every
-child schedules every child VNode. The shared observer can therefore do less Vue work when a common
-CSS container owns sizing. The similar wall times are dominated by frame waits and confirm that no
-single width mode wins independent of application architecture.
+Before the stable-DOM change, the same profiles required 101 / 3,200 VNode updates and 202 / 7,200
+mutation records. Wall time remains dominated by animation-frame waits and is not treated as CPU
+time; the durable result is that every resize now bypasses Vue and structural DOM patching.
 
 The release-facing public-component slice is retained in
 [`319-pretext-performance-matrix.md`](319-pretext-performance-matrix.md). It interleaves the root and
 `vue-clamp/pretext` entries in one Chromium process over 16-instance English, CJK, Thai, and long-token
 batches, with continuous, bounded-jitter, and large-jump widths. The fixture supplies its exact
-numeric content width to the Pretext component, so this matrix measures the controlled best path;
-it does not generalize to the observer fallback. The retained report was regenerated while the
-benchmark host was on AC power. Five-run medians show:
+CSS width to both entries and measures the public observer-driven Pretext path. The retained report
+was regenerated while the benchmark host was on AC power. Five-run medians show:
 
-- Pretext is faster in all 12 rows. Active time falls 72.2–93.2% per row and 81.9% in aggregate,
-  from 2,613.0 ms to 473.5 ms. Seven rows cross the matrix's variance gate, so the aggregate and
-  marked row deltas remain directional rather than precise point estimates.
-- Bounding-box reads and ResizeObserver callbacks both fall to zero, from 88,057 and 10,688. Mutation
-  records fall 50.4%, from 91,257 to 45,294.
-- The controlled path removes the extra observer-delivery frame: aggregate settled time falls 33.4%.
-  Settled time is still dominated by quiet-frame waits and is not a CPU-speed signal. The matrix
-  deliberately excludes cold preparation and bundle size, which remain separate delivery costs.
+- Pretext is faster in all 12 rows. Active time falls 29.4–81.0% per row and 62.4% in aggregate,
+  from 2,529.7 ms to 951.7 ms. All rows cross the matrix's variance gate, so the timing deltas are
+  directional rather than precise point estimates.
+- Bounding-box reads fall from 88,057 to zero, ResizeObserver callbacks fall 93.8% from 10,688 to the
+  exact 668 measured width steps, and mutation records fall 52.0% from 91,257 to 43,778. Pretext has
+  no child-list mutation in any row.
+- The former English jump regression is removed: active time falls 70.6%, from 98.0 ms to 28.8 ms.
+  The width probe prevents text-height changes from creating extra observer deliveries.
+- Aggregate settled time is flat because both entries wait for the same quiet frames; it is not a
+  CPU-speed signal. The matrix deliberately excludes cold preparation and bundle size, which remain
+  separate delivery costs.
 
 `vp run benchmark:pretext:matrix` rebuilds both public entries, runs the interleaved slice, and
 regenerates its Markdown, SVG, and ignored raw JSON artifacts.
@@ -175,9 +169,9 @@ imported.
 
 | Consumer import      |      Gzip |
 | -------------------- | --------: |
-| Standard `LineClamp` |  9.097 kB |
-| Pretext `LineClamp`  | 20.499 kB |
-| Both components      | 28.942 kB |
+| Standard `LineClamp` |  9.095 kB |
+| Pretext `LineClamp`  | 20.479 kB |
+| Both components      | 28.947 kB |
 
 The large predictor payload is the principal trade-off. The subpath is justified only when its
 preparation cost and bytes are amortized across enough active resize work; the ordinary root import
@@ -209,13 +203,18 @@ chosen authority boundary.
 
 Local alternatives were measured and rejected: result caches slowed mixed scripts and jumps;
 typed rank arrays traded a small hot-path regression for memory; a full `layout()` prepass doubled
-ordinary core time and made the long-token path roughly nine times slower; retaining a stable source
-DOM node did not reduce mutation work once text-copy semantics were preserved. Synchronous geometry
-reads made the 200-instance jump case regress from about 225 ms to 540 ms through layout thrashing;
-sync watcher flushes and alternate source-node structures did not improve the controlled English jump
-case. The remaining local algorithmic work has no reproducible benefit large enough to justify more
-state or semantic risk. The material local optimization is instead architectural: accept an exact
-width from applications that already own it and retain observation for applications that do not.
+ordinary core time and made the long-token path roughly nine times slower. Synchronous geometry reads
+made the 200-instance jump case regress from about 225 ms to 540 ms through layout thrashing. An
+optional exact-width prop performed well in an artificial controlled matrix but moved discovery to
+callers that ordinarily do not own content-box size; propagating one reactive width through 200
+children caused 4,800 VNode updates. Sync watcher flushes and independent observers also had no
+reproducible benefit.
+
+Allowing the full source to exist in DOM before paint changed the useful local boundary. Permanently
+mounting both accessibility nodes lets observer delivery mutate one stable text node, and observing a
+zero-height width probe prevents the mutation from producing block-size feedback. These are retained
+because they remove Vue and structural DOM work without adding public state. The remaining local
+algorithmic work has no reproducible benefit large enough to justify more state or semantic risk.
 
 ## Deliberately rejected designs
 
@@ -231,5 +230,6 @@ width from applications that already own it and retain observation for applicati
 ## Sources
 
 - `@chenglou/pretext` `0.0.8` README and published sources
+- W3C Resize Observer processing model: <https://www.w3.org/TR/resize-observer/>
 - `journey/research/314-paid-signal-cold-search.md`
 - `journey/research/315-final-architecture-sprint.md`

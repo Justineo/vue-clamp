@@ -1,47 +1,48 @@
-# Pretext controlled-width exploration
+# Pretext width-discovery exploration
 
 Exact predictive clamping depends on source text, font, line limit, and content-box inline size. The
-last input cannot be inferred exactly from authored styles without asking browser layout: padding,
-box sizing, constraints, percentages, and inherited CSS can all change it. Under the requirement
-that collapsed content never paints past the line limit, the viable choices are therefore a
-caller-owned exact width, asynchronous observation under a hard visual cap, or a synchronous layout
-read. The retained design supports the first two and rejects the third.
+last input cannot be inferred from authored styles: padding, box sizing, constraints, percentages,
+and inherited CSS all affect it. Three width-discovery paths were evaluated under the stricter
+invariant that collapsed content may exist in the DOM but must not paint beyond its limit.
 
-## Retained hybrid
+## Rejected controlled width
 
-An optional `inlineSize` prop is an authoritative content-box width. When present, the component
-predicts before its first VNode and creates no `ResizeObserver`. When absent, the existing shared
-content-box observer remains. Native line clamp plus an `lh` height cap stays active in both modes,
-so pending, stale, or slightly pessimistic predictions cannot visibly overflow.
+An optional authoritative `inlineSize` prop eliminated observation in a controlled benchmark and
+reduced summed active time by 81.9%. It was still the wrong public contract. Ordinary component
+callers do not own the final content-box width; asking them to add another observer only moves the
+same work outward. In the 200-instance workload, pushing one reactive ancestor width through every
+child caused 4,800 VNode updates, versus 101 for smooth changes and 3,200 for jumps with shared
+observation. Wall time remained effectively equal. The prop and controlled benchmark were removed.
 
-The controlled public-component matrix reduced summed active time from 2,613.0 ms to 473.5 ms
-(`-81.9%`) across all 12 scenarios. Geometry reads fell from 88,057 to zero, resize callbacks from
-10,688 to zero, and mutation records from 91,257 to 45,294. Each row improved by 72.2–93.2%, though
-seven rows remain variance-gated. The Pretext consumer cost increased by 25 bytes gzip to 20,499
-bytes.
+## Rejected synchronous read
 
-## Why observation remains
+Reading geometry on mount and component updates discovered width synchronously but interleaved layout
+reads with reactive writes. The 200-instance jump workload regressed from about 225 ms to 540 ms.
+Parsing inline width was also rejected because it cannot establish actual content-box size across CSS
+constraints.
 
-In the 200-instance scale workload, pushing one shared reactive width through all children caused
-4,800 child VNode updates in both smooth and jump profiles. Shared observation needed only 101
-updates for smooth changes and 3,200 for jumps because unchanged visible prefixes bypassed Vue.
-Resize wall medians stayed effectively equal: 198.3 versus 200.2 ms for smooth changes and 225.4
-versus 224.6 ms for jumps. Controlled sizing is consequently the best path only when the application
-already owns the per-component width; synthesizing it with another observer merely moves work and
-can worsen propagation.
+## Retained pre-paint delivery
 
-## Rejected paths
+The Resize Observer processing model recalculates layout, delivers active observations, recalculates
+layout again when callbacks mutate DOM, and only then updates rendering. The component therefore
+mounts safely contained DOM, receives exact width from the browser, and commits the Pretext prefix
+inside the callback before paint. Native line clamp, an `lh` cap, and overflow clipping remain active
+throughout, so delayed or stale prediction is also paint-safe.
 
-- Synchronous geometry reads caused layout thrashing and raised the 200-instance jump workload from
-  about 225 ms to 540 ms.
-- Parsing an inline `width` style cannot establish exact content-box size across box-model and CSS
-  constraints, so it would turn an optimization into an implicit correctness heuristic.
-- Sync watcher flushing, retaining an always-empty hidden source node, and changing observer-effect
-  dependencies did not improve the controlled English jump case and added code or semantics.
-- Removing the shared observer would save little code but would discard the better path for
-  CSS-inherited sizing; independent observers previously changed 1 observer / 24 callbacks into
-  200 / 4,800 without a latency benefit.
+Two DOM changes make that callback minimal:
 
-The remaining meaningful computation optimization belongs upstream in Pretext: its public line
-walker allocates result and cursor objects, while the wrapper around that walker is already a small
-share of hot-path time. Duplicating the browser-sensitive walker locally is not justified.
+- The accessible full source and `aria-hidden` visible text nodes stay mounted in every state. Width
+  delivery mutates the existing visible text node directly and never needs a Vue component patch.
+- A zero-height width probe is observed instead of the text body. It follows the same content width
+  but cannot change block size when text changes, eliminating resize feedback deliveries.
+
+In the 200-instance benchmark, the stable DOM reduced smooth mutations from 202 to 101 and jump
+mutations from 7,200 to 4,000; VNode updates fell to zero in both profiles. The width probe reduced
+the focused English jump case from 39 resize callbacks to 27 and changed active time from a 12.8%
+regression to a 57.5% reduction relative to root. It adds one empty, hidden DOM node per instance but
+no public state or configuration.
+
+Sync watcher flushing, result caches, typed rank arrays, `layout()` prepasses, and independent
+observers had no reproducible benefit. The remaining meaningful computation optimization belongs
+upstream in Pretext: its public line walker allocates result and cursor objects, while the local
+wrapper is already a small share of hot-path time.

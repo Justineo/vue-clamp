@@ -32,7 +32,6 @@ function mountClamp(
   font: string,
   initialWidth: number,
   props: Record<string, unknown>,
-  controlled = false,
 ): MountedClamp {
   const container = document.createElement("div");
   const exposed = ref<LineClampExposed | null>(null);
@@ -43,7 +42,6 @@ function mountClamp(
         h(component, {
           maxLines: 3,
           ...props,
-          ...(controlled ? { inlineSize: width.value } : {}),
           ref: exposed,
           style: {
             font,
@@ -72,9 +70,8 @@ function mountPretext(
   font: string,
   width: number,
   props: Record<string, unknown> = {},
-  controlled = false,
 ): MountedClamp {
-  return mountClamp(LineClamp, text, font, width, { font, ...props }, controlled);
+  return mountClamp(LineClamp, text, font, width, { font, ...props });
 }
 
 function unmountClamp(clamp: MountedClamp): void {
@@ -185,30 +182,41 @@ describe("Pretext LineClamp", () => {
     expect(visibleText(clamp)).toBe(text);
   });
 
-  it("renders a controlled prediction without waiting for resize observation", async () => {
+  it("commits predictions inside ResizeObserver delivery without replacing text nodes", async () => {
     const OriginalResizeObserver = globalThis.ResizeObserver;
-    let observerInstances = 0;
+    const deliveredText: string[] = [];
+    let clamp: MountedClamp | undefined;
     globalThis.ResizeObserver = new Proxy(OriginalResizeObserver, {
-      construct(Target, argumentsList: ConstructorParameters<typeof ResizeObserver>) {
-        observerInstances += 1;
-        return new Target(...argumentsList);
+      construct(Target, [callback]: ConstructorParameters<typeof ResizeObserver>) {
+        return new Target((entries, observer) => {
+          callback(entries, observer);
+          if (clamp) deliveredText.push(visibleText(clamp));
+        });
       },
     });
 
     try {
       const text =
         "Release dashboards keep customer impact and regional mitigation visible while cards resize.";
-      const clamp = mountPretext(text, "16px Georgia", 180, {}, true);
+      clamp = mountPretext(text, "16px Georgia", 180);
+      const body = bodyElement(clamp);
+      const [source, visible] = [...body.children];
+      const textNode = visible?.firstChild;
 
-      expect(observerInstances).toBe(0);
-      expect(clamp.exposed.value?.clamped).toBe(true);
-      expect(visibleText(clamp)).not.toBe(text);
+      expect(source?.textContent).toBe(text);
+      expect(visible?.textContent).toBe(text);
+      await settle();
+      expect(deliveredText.at(-1)).not.toBe(text);
+      expect(body.children[0]).toBe(source);
+      expect(body.children[1]).toBe(visible);
+      expect(visible?.firstChild).toBe(textNode);
 
       clamp.width.value = 700;
-      await nextTick();
-      expect(observerInstances).toBe(0);
-      expect(clamp.exposed.value?.clamped).toBe(false);
-      expect(visibleText(clamp)).toBe(text);
+      await settle();
+      expect(deliveredText.at(-1)).toBe(text);
+      expect(body.children[0]).toBe(source);
+      expect(body.children[1]).toBe(visible);
+      expect(visible?.firstChild).toBe(textNode);
     } finally {
       globalThis.ResizeObserver = OriginalResizeObserver;
     }

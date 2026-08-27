@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { computed, h, mergeProps, shallowRef, useAttrs, watch, watchPostEffect } from "vue";
-import { trueOrUndefined } from "../attributes.ts";
 import { useClampControls } from "../controls.ts";
 import { normalizeLineLimit } from "../layout.ts";
 import { visuallyHiddenTextStyle } from "../styles.ts";
@@ -19,7 +18,6 @@ defineOptions({
 const {
   as: rootTag = "div",
   font,
-  inlineSize,
   maxLines,
   text = "",
 } = defineProps<Omit<LineClampProps, "expanded">>();
@@ -29,12 +27,14 @@ const expanded = defineModel<NonNullable<LineClampProps["expanded"]>>("expanded"
 const emit = defineEmits<Omit<ClampEmits, "update:expanded">>();
 const attrs = useAttrs();
 const controls = useClampControls(expanded);
-const bodyRef = shallowRef<HTMLElement | null>(null);
+const widthRef = shallowRef<HTMLElement | null>(null);
 const visibleRef = shallowRef<HTMLElement | null>(null);
-const visibleText = shallowRef({ text });
+// ResizeObserver delivers before paint, so stable DOM ownership lets the
+// callback commit a prefix without waiting for a Vue patch.
+const visibleText = { text };
 const clamped = shallowRef<boolean | null>(null);
-const sourceHidden = shallowRef(false);
 const lineLimit = computed(() => normalizeLineLimit(maxLines));
+const active = computed(() => !expanded.value && text.length > 0 && lineLimit.value !== undefined);
 const prepared = computed(() => prepareLineClamp(text, font));
 let observedWidth: number | null = null;
 
@@ -45,27 +45,18 @@ function resolve(): void {
     return;
   }
 
-  const availableWidth = inlineSize ?? observedWidth;
-  if (availableWidth === null) return;
+  if (observedWidth === null) return;
 
-  applyResult(clampPreparedLine(prepared.value, availableWidth, limit));
+  applyResult(clampPreparedLine(prepared.value, observedWidth, limit));
 }
 
 function applyResult(result: ReturnType<typeof clampPreparedLine>): void {
-  const nextSourceHidden = result.clamped && result.text !== text;
-  const currentText = visibleText.value;
-
-  if (sourceHidden.value !== nextSourceHidden) {
-    visibleText.value = { text: result.text };
-  } else if (currentText.text !== result.text) {
-    // Vue still owns source/visible structure changes; a stable prefix node can
-    // be updated in the shared observer batch without another component patch.
+  if (visibleText.text !== result.text) {
     const textNode = visibleRef.value?.firstChild;
     if (textNode?.nodeType === 3) textNode.nodeValue = result.text;
-    currentText.text = result.text;
+    visibleText.text = result.text;
   }
 
-  sourceHidden.value = nextSourceHidden;
   clamped.value = result.clamped;
 }
 
@@ -73,12 +64,27 @@ const rootStyle: CSSProperties = {
   display: "block",
   overflow: "hidden",
 };
+// A zero-height target avoids observer loops when the visible text changes
+// the body's block size.
+const widthProbeStyle: CSSProperties = {
+  border: 0,
+  boxSizing: "border-box",
+  display: "block",
+  height: 0,
+  margin: 0,
+  maxHeight: 0,
+  minHeight: 0,
+  overflow: "hidden",
+  padding: 0,
+  visibility: "hidden",
+  width: "100%",
+};
 const bodyStyle = computed<CSSProperties>(() => {
   const limit = lineLimit.value;
-  const active = !expanded.value && text.length > 0 && limit !== undefined;
+  const isActive = active.value;
 
   return {
-    display: active ? "-webkit-box" : "block",
+    display: isActive ? "-webkit-box" : "block",
     font,
     fontFeatureSettings: "normal",
     fontKerning: "auto",
@@ -87,9 +93,9 @@ const bodyStyle = computed<CSSProperties>(() => {
     hyphens: "manual",
     letterSpacing: "normal",
     lineBreak: "auto",
-    lineClamp: active ? String(limit) : undefined,
+    lineClamp: isActive ? String(limit) : undefined,
     lineHeight: "inherit",
-    maxHeight: active ? `${limit}lh` : undefined,
+    maxHeight: isActive ? `${limit}lh` : undefined,
     overflow: "hidden",
     overflowWrap: "break-word",
     tabSize: 8,
@@ -100,25 +106,19 @@ const bodyStyle = computed<CSSProperties>(() => {
     wordBreak: "normal",
     wordSpacing: "normal",
     writingMode: "horizontal-tb",
-    WebkitBoxOrient: active ? "vertical" : undefined,
-    WebkitLineClamp: active ? String(limit) : undefined,
+    WebkitBoxOrient: isActive ? "vertical" : undefined,
+    WebkitLineClamp: isActive ? String(limit) : undefined,
   };
 });
 
 watchPostEffect((onCleanup) => {
-  const body = bodyRef.value;
-  if (
-    !body ||
-    inlineSize !== undefined ||
-    expanded.value ||
-    text.length === 0 ||
-    lineLimit.value === undefined
-  ) {
+  const widthProbe = widthRef.value;
+  if (!widthProbe || !active.value) {
     observedWidth = null;
     return;
   }
 
-  const stop = observeContentBox(body, (entry) => {
+  const stop = observeContentBox(widthProbe, (entry) => {
     const nextWidth = entry.contentBoxSize[0]?.inlineSize ?? entry.contentRect.width;
     if (nextWidth === observedWidth) return;
 
@@ -137,24 +137,18 @@ watch(
   { flush: "post" },
 );
 
-watch([expanded, lineLimit, () => font, () => inlineSize, () => text], resolve, {
-  immediate: true,
-});
+watch([expanded, lineLimit, () => font, () => text], resolve, { immediate: true });
 
 function render(): VNodeChild {
-  const sourceIsHidden = sourceHidden.value;
   const visible = h(
     "span",
     {
-      "aria-hidden": trueOrUndefined(sourceIsHidden),
+      "aria-hidden": true,
       key: "visible",
       ref: visibleRef,
     },
-    [visibleText.value.text],
+    [visibleText.text],
   );
-  const children = sourceIsHidden
-    ? [h("span", { key: "source", style: visuallyHiddenTextStyle }, text), visible]
-    : visible;
 
   return h(
     rootTag,
@@ -162,15 +156,17 @@ function render(): VNodeChild {
       "data-part": "root",
       style: rootStyle,
     }),
-    h(
-      "span",
-      {
-        "data-part": "body",
-        ref: bodyRef,
-        style: bodyStyle.value,
-      },
-      children,
-    ),
+    [
+      h("span", { "aria-hidden": true, ref: widthRef, style: widthProbeStyle }),
+      h(
+        "span",
+        {
+          "data-part": "body",
+          style: bodyStyle.value,
+        },
+        [h("span", { key: "source", style: visuallyHiddenTextStyle }, text), visible],
+      ),
+    ],
   );
 }
 
