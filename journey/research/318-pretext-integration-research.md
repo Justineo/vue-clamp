@@ -43,16 +43,21 @@ component is mounted; `system-ui` remains outside the accuracy contract.
 The implementation has two phases:
 
 1. Prepare the text once for each `text` / `font` pair. Pretext performs segmentation and canvas
-   measurement, while `vue-clamp` prepares word boundaries for observable compatibility with the
-   standard component.
-2. On each `ResizeObserver` content-box width, walk at most `maxLines` Pretext ranges, reserve the
-   default ellipsis on the final line, map the resulting cursor to the nearest permitted boundary,
-   and render that prefix.
+   measurement, while `vue-clamp` prepares word boundaries and a direct mapping from Pretext cursors
+   to word/grapheme ranks. Ellipsis measurement is shared by font shorthand.
+2. On each `ResizeObserver` content-box width, walk only the lines needed to establish overflow,
+   reserve the default ellipsis on the final line, map the resulting cursor in constant time, and
+   render that prefix.
 
 The resize hot path performs no DOM geometry reads or browser candidate search. `ResizeObserver`
 delivers the width; Pretext arithmetic produces the text. The implementation deliberately does not
 fall back to the standard engine because doing so would make performance and semantics depend on a
 hidden runtime mode.
+
+Active instances share one content-box observer. Expanded, empty, and unlimited instances do not
+observe at all, and the shared observer is released when its last active target disappears. Resize
+results retain object identity when both visible text and clamp state are unchanged, so local width
+changes that do not cross a text boundary do not schedule component patches.
 
 Before the first observer result, server output and hydration render the full source under native
 line-clamp plus an `lh` hard cap. Once a predicted prefix is visible, the full source remains in a
@@ -84,17 +89,30 @@ counterbalanced Chromium runs:
 
 | Scenario | Browser-authoritative time | Pretext time | Pretext remaining time | Pretext geometry reads |
 | -------- | -------------------------: | -----------: | ---------------------: | ---------------------: |
-| English  |                9.7–19.3 ms |   0.2–0.3 ms |               1.0–3.1% |                      0 |
-| CJK      |                6.2–22.9 ms |       0.2 ms |               0.9–3.2% |                      0 |
-| Thai     |               12.2–57.6 ms |   0.1–0.2 ms |               0.3–0.9% |                      0 |
+| English  |                9.2–19.0 ms |       0.2 ms |               1.1–2.2% |                      0 |
+| CJK      |                5.7–23.0 ms |       0.2 ms |               0.9–3.5% |                      0 |
+| Thai     |               11.6–55.1 ms |       0.2 ms |               0.4–1.7% |                      0 |
 
 This means the measured synchronous resize work falls by roughly 97–99.8%; it does not mean total
 page render time falls by that amount. The browser path performs 424–1,937 authoritative geometry
 reads per row, while the prepared Pretext path performs none and lets the browser batch later style
 and paint work.
 
-Preparation costs 2.4–10.0 ms in the same cold-cache fixtures. The entry is therefore intended for
+Preparation costs 2.2–9.5 ms in the same cold-cache fixtures. The entry is therefore intended for
 high-volume or frequently resizing text, not as a claim that every one-off clamp is faster.
+
+Because the ordinary 560-change rows are below reliable sub-millisecond resolution, the retained
+benchmark also amplifies each path to 100,000 calls. Relative to the initial production version, the
+current core takes 11–39% less time for English, CJK, and Thai. The largest removed cost was repeated
+`Intl.Segmenter` work when a line ended inside a long token: the long-token fixture fell from
+608–695 ms to 15.7–18.3 ms per 100,000 calls, a 97.3–97.7% reduction. A 1,000-item repeated
+preparation batch fell from 26.6 ms to 21.6 ms after sharing ellipsis measurement.
+
+The 200-instance benchmark separates browser deliveries from component work. Across 24 observed
+width changes, active observer instances fall from 200 to 1 and observer callbacks from 4,800 to 24.
+For smooth one-pixel changes, stable results reduce component updates from 4,800 to 101; large jumps
+still update whenever the visible prefix actually changes. These counts are the durable evidence;
+the accompanying wall time includes animation-frame waits and is not treated as CPU time.
 
 ## Delivery cost
 
@@ -106,8 +124,8 @@ imported.
 | Consumer import      |      Gzip |
 | -------------------- | --------: |
 | Standard `LineClamp` |  9.097 kB |
-| Pretext `LineClamp`  | 20.401 kB |
-| Both components      | 28.672 kB |
+| Pretext `LineClamp`  | 20.414 kB |
+| Both components      | 28.872 kB |
 
 The large predictor payload is the principal trade-off. The subpath is justified only when its
 preparation cost and bytes are amortized across enough active resize work; the ordinary root import

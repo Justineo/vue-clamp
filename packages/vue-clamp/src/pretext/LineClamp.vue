@@ -5,6 +5,7 @@ import { useClampControls } from "../controls.ts";
 import { normalizeLineLimit } from "../layout.ts";
 import { visuallyHiddenTextStyle } from "../styles.ts";
 import { clampPreparedLine, prepareLineClamp } from "./clamp.ts";
+import { observeContentBox } from "./resize.ts";
 
 import type { CSSProperties, VNodeChild } from "vue";
 import type { ClampEmits } from "../types.ts";
@@ -36,17 +37,21 @@ const prepared = computed(() => prepareLineClamp(text, font));
 let fontRequest = 0;
 let hasResolved = false;
 
-const result = computed(() => {
+type Result = ReturnType<typeof clampPreparedLine> | null;
+
+const result = computed<Result>((previous) => {
   const limit = lineLimit.value;
   if (expanded.value || text.length === 0 || limit === undefined) {
-    return { clamped: false, text };
+    const next = { clamped: false, text };
+    return previous?.clamped === next.clamped && previous.text === next.text ? previous : next;
   }
 
   if (!fontReady.value || width.value === null) {
     return null;
   }
 
-  return clampPreparedLine(prepared.value, width.value, limit);
+  const next = clampPreparedLine(prepared.value, width.value, limit);
+  return previous?.clamped === next.clamped && previous.text === next.text ? previous : next;
 });
 
 const rootStyle: CSSProperties = {
@@ -106,22 +111,17 @@ watch(
 
 watchPostEffect((onCleanup) => {
   const body = bodyRef.value;
-  if (!body) {
+  if (!body || expanded.value || text.length === 0 || lineLimit.value === undefined) {
     width.value = null;
     return;
   }
 
-  const observer = new ResizeObserver(([entry]) => {
-    if (!entry) return;
-
+  const stop = observeContentBox(body, (entry) => {
     const nextWidth = entry.contentBoxSize[0]?.inlineSize ?? entry.contentRect.width;
     if (nextWidth !== width.value) width.value = nextWidth;
   });
-  observer.observe(body);
 
-  onCleanup(() => {
-    observer.disconnect();
-  });
+  onCleanup(stop);
 });
 
 watch(

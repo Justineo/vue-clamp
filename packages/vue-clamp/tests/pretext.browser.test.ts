@@ -201,6 +201,34 @@ describe("Pretext LineClamp", () => {
     expect(clamp.exposed.value?.expanded).toBe(false);
     expect(changes).toEqual([true, false, true]);
   });
+
+  it("shares active resize observation and releases it when idle", async () => {
+    const OriginalResizeObserver = globalThis.ResizeObserver;
+    let observerInstances = 0;
+    globalThis.ResizeObserver = new Proxy(OriginalResizeObserver, {
+      construct(Target, argumentsList: ConstructorParameters<typeof ResizeObserver>) {
+        observerInstances += 1;
+        return new Target(...argumentsList);
+      },
+    });
+
+    try {
+      const text = "Customer impact and mitigation stay visible while dashboards resize.";
+      const first = mountPretext(text, "16px Arial", 180);
+      const second = mountPretext(text, "16px Arial", 220);
+      mountPretext(text, "16px Arial", 220, { expanded: true });
+      await settle();
+      expect(observerInstances).toBe(1);
+
+      unmountClamp(first);
+      unmountClamp(second);
+      mountPretext(text, "16px Arial", 260);
+      await settle();
+      expect(observerInstances).toBe(2);
+    } finally {
+      globalThis.ResizeObserver = OriginalResizeObserver;
+    }
+  });
 });
 
 afterEach(() => {

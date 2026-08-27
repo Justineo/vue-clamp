@@ -55,6 +55,11 @@
   layout inputs. It does not perform DOM candidate search or geometry reads after preparation, does
   not silently fall back to the browser engine, and keeps native line-clamp plus an `lh` cap as its
   pending/overflow containment layer.
+- Pretext preparation maps layout cursors directly to word/grapheme ranks and shares ellipsis width
+  by font. Active component instances share one content-box observer; inactive instances do not
+  observe, and width changes preserve the previous render result when visible text and clamp state
+  are unchanged. This observer policy is specific to the opt-in high-volume engine and does not
+  change the independent observers used by the browser-authoritative components.
 - There is no default export.
 - Type declarations follow explicit ownership layers:
   - shared public primitives and private shared type building blocks live in

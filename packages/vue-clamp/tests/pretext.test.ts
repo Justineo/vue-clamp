@@ -43,4 +43,21 @@ describe("Pretext line clamping", () => {
       text: "",
     });
   });
+
+  it("never cuts through a composed grapheme", () => {
+    const source = "e\u0301👩‍🚀".repeat(12);
+    const prepared = prepareLineClamp(source, font);
+    const prefixes = new Set([""]);
+    let prefix = "";
+    for (const part of new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(source)) {
+      prefix += part.segment;
+      prefixes.add(prefix);
+    }
+
+    for (let width = 8; width <= 160; width += 4) {
+      const result = clampPreparedLine(prepared, width, 1);
+      const visiblePrefix = result.text.endsWith("…") ? result.text.slice(0, -1) : result.text;
+      expect(prefixes.has(visiblePrefix)).toBe(true);
+    }
+  });
 });
