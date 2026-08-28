@@ -2,13 +2,15 @@
 import { computed, h, mergeProps, shallowRef, useAttrs, watch, watchPostEffect } from "vue";
 import { useClampControls } from "../controls.ts";
 import { normalizeLineLimit } from "../layout.ts";
+import StandardLineClamp from "../line/LineClamp.vue";
 import { visuallyHiddenTextStyle } from "../styles.ts";
+import { normalizeLocationRatio } from "../text.ts";
 import { clampPreparedLine, prepareLineClamp } from "./clamp.ts";
 import { observeContentBox } from "./resize.ts";
 
 import type { CSSProperties, VNodeChild } from "vue";
 import type { ClampEmits } from "../types.ts";
-import type { LineClampExposed, LineClampProps } from "./types.ts";
+import type { LineClampExposed, LineClampProps, LineClampSlots } from "./types.ts";
 
 defineOptions({
   name: "LineClamp",
@@ -17,7 +19,11 @@ defineOptions({
 
 const {
   as: rootTag = "div",
+  boundary = "grapheme",
+  ellipsis = "…",
   font,
+  location = "end",
+  maxHeight,
   maxLines,
   text = "",
 } = defineProps<Omit<LineClampProps, "expanded">>();
@@ -25,6 +31,7 @@ const expanded = defineModel<NonNullable<LineClampProps["expanded"]>>("expanded"
   default: false,
 });
 const emit = defineEmits<Omit<ClampEmits, "update:expanded">>();
+const slots = defineSlots<LineClampSlots>();
 const attrs = useAttrs();
 const controls = useClampControls(expanded);
 const widthRef = shallowRef<HTMLElement | null>(null);
@@ -34,12 +41,36 @@ const visibleRef = shallowRef<HTMLElement | null>(null);
 const visibleText = { text };
 const clamped = shallowRef<boolean | null>(null);
 const lineLimit = computed(() => normalizeLineLimit(maxLines));
-const active = computed(() => !expanded.value && text.length > 0 && lineLimit.value !== undefined);
-const prepared = computed(() => prepareLineClamp(text, font));
+const predictiveProps = computed(
+  () =>
+    font !== undefined &&
+    font.trim() !== "" &&
+    maxHeight === undefined &&
+    ellipsis === "…" &&
+    normalizeLocationRatio(location) === 1 &&
+    boundary === "word" &&
+    lineLimit.value !== undefined,
+);
+// Once an affix participates, keep this instance browser-authoritative even if
+// a dynamic slot later disappears. This avoids switching back on non-reactive
+// slot metadata and is conservative for both semantics and performance.
+let affixFree = slots.before === undefined && slots.after === undefined;
+
+function shouldUsePretext(): boolean {
+  if (slots.before !== undefined || slots.after !== undefined) affixFree = false;
+  return affixFree && predictiveProps.value;
+}
+
+const active = computed(
+  () => affixFree && predictiveProps.value && !expanded.value && text.length > 0,
+);
+const prepared = computed(() => prepareLineClamp(text, font!));
 let observedWidth: number | null = null;
 let predictionReady = false;
 
 function resolve(): void {
+  if (!shouldUsePretext()) return;
+
   const limit = lineLimit.value;
   if (expanded.value || text.length === 0 || limit === undefined) {
     applyResult({ clamped: false, text });
@@ -143,7 +174,7 @@ watch(
   { flush: "post" },
 );
 
-watch([expanded, lineLimit, () => font, () => text], resolve, { immediate: true });
+watch([expanded, lineLimit, predictiveProps, () => font, () => text], resolve, { immediate: true });
 watch(
   active,
   (value) => {
@@ -153,6 +184,30 @@ watch(
 );
 
 function render(): VNodeChild {
+  if (!shouldUsePretext()) {
+    return h(
+      StandardLineClamp,
+      mergeProps(attrs, {
+        as: rootTag,
+        boundary,
+        ellipsis,
+        expanded: expanded.value,
+        location,
+        maxHeight,
+        maxLines,
+        onClampchange: (value: boolean) => {
+          clamped.value = value;
+        },
+        "onUpdate:expanded": (value: boolean) => {
+          expanded.value = value;
+        },
+        style: font ? { font } : undefined,
+        text,
+      }),
+      slots,
+    );
+  }
+
   const visible = h(
     "span",
     {

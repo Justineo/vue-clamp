@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it } from "vite-plus/test";
 import { LineClamp as BrowserLineClamp } from "../src/index.ts";
 import { LineClamp } from "../src/pretext.ts";
 
-import type { App, Component, Ref } from "vue";
+import type { App, Component, Ref, VNodeChild } from "vue";
 import type { LineClampExposed } from "../src/pretext.ts";
 
 type MountedClamp = {
@@ -32,6 +32,7 @@ function mountClamp(
   font: string,
   initialWidth: number,
   props: Record<string, unknown>,
+  slots?: Record<string, () => VNodeChild>,
 ): MountedClamp {
   const container = document.createElement("div");
   const exposed = ref<LineClampExposed | null>(null);
@@ -39,18 +40,22 @@ function mountClamp(
   const app = createApp(
     defineComponent(
       () => () =>
-        h(component, {
-          maxLines: 3,
-          ...props,
-          ref: exposed,
-          style: {
-            font,
-            lineHeight: "22px",
-            overflowWrap: "break-word",
-            width: `${width.value}px`,
+        h(
+          component,
+          {
+            maxLines: 3,
+            ...props,
+            ref: exposed,
+            style: {
+              font,
+              lineHeight: "22px",
+              overflowWrap: "break-word",
+              width: `${width.value}px`,
+            },
+            text: typeof text === "string" ? text : text.value,
           },
-          text: typeof text === "string" ? text : text.value,
-        }),
+          slots,
+        ),
     ),
   );
 
@@ -71,7 +76,7 @@ function mountPretext(
   width: number,
   props: Record<string, unknown> = {},
 ): MountedClamp {
-  return mountClamp(LineClamp, text, font, width, { font, ...props });
+  return mountClamp(LineClamp, text, font, width, { boundary: "word", font, ...props });
 }
 
 function unmountClamp(clamp: MountedClamp): void {
@@ -99,6 +104,56 @@ function visibleText(mountedClamp: MountedClamp): string {
 }
 
 describe("Pretext LineClamp", () => {
+  it("uses the standard native path before considering Pretext", async () => {
+    const text =
+      "Release dashboards keep customer impact and regional mitigation visible while cards resize.";
+    const clamp = mountClamp(LineClamp, text, "16px Georgia", 180, {
+      font: "16px Georgia",
+    });
+    await settle();
+
+    const content = rootElement(clamp).querySelector('[data-part="content"]');
+    expect(content).toBeInstanceOf(HTMLElement);
+    expect(getComputedStyle(content!).getPropertyValue("-webkit-line-clamp")).toBe("3");
+    expect(bodyElement(clamp).textContent).toBe(text);
+  });
+
+  it("uses Pretext only for its accelerated contract", async () => {
+    const text =
+      "Release dashboards keep customer impact and regional mitigation visible while cards resize.";
+    const predicted = mountPretext(text, "16px Georgia", 180);
+    const measured = mountPretext(text, "16px Georgia", 180, { ellipsis: "..." });
+    const affixed = mountClamp(
+      LineClamp,
+      text,
+      "16px Georgia",
+      180,
+      { boundary: "word", font: "16px Georgia" },
+      { after: () => h("button", { type: "button" }, "More") },
+    );
+    await settle();
+
+    expect(rootElement(predicted).querySelector('[data-part="content"]')).toBeNull();
+    expect(rootElement(measured).querySelector('[data-part="content"]')).toBeInstanceOf(
+      HTMLElement,
+    );
+    expect(visibleText(measured).endsWith("...")).toBe(true);
+    expect(rootElement(affixed).querySelector('[data-part="after"]')?.textContent).toBe("More");
+  });
+
+  it("falls back to the standard measured path when no predictive font is supplied", async () => {
+    const text =
+      "Release dashboards keep customer impact and regional mitigation visible while cards resize.";
+    const browser = mountBrowser(text, "16px Georgia", 180);
+    const fallback = mountClamp(LineClamp, text, "16px Georgia", 180, { boundary: "word" });
+    await settle();
+
+    expect(rootElement(fallback).querySelector('[data-part="content"]')).toBeInstanceOf(
+      HTMLElement,
+    );
+    expect(visibleText(fallback)).toBe(visibleText(browser));
+  });
+
   it("matches browser-authoritative word clamping in its supported contract", async () => {
     const scenarios = [
       {
@@ -266,6 +321,7 @@ describe("Pretext LineClamp", () => {
     const longText = "observabilityPlatformBoundaryWithoutBreaks".repeat(7);
     const text = ref(longText);
     const clamp = mountClamp(LineClamp, text, "16px Georgia", 180, {
+      boundary: "word",
       font: "16px Georgia",
     });
     await settle();

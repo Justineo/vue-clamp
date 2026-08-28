@@ -2,49 +2,64 @@
 
 ## Decision
 
-`vue-clamp` provides a separate `vue-clamp/pretext` entry for applications that can trade the
-general browser-authoritative contract for a smaller semantic surface and a faster resize hot path:
+`vue-clamp` provides a separate `vue-clamp/pretext` entry for applications that want a faster resize
+hot path without changing the standard `LineClamp` contract:
 
 ```ts
 import { LineClamp } from "vue-clamp/pretext";
 ```
 
-The root entry remains browser-authoritative and does not import `@chenglou/pretext`. Pretext is not
-an `engine` prop or an automatic fast path because those designs would load the predictor for users
-who did not select its contract and would mix two different sources of layout truth inside one
-component.
+The root entry remains browser-authoritative and does not import `@chenglou/pretext`. The subpath is
+a drop-in acceleration policy: native CSS remains first, the predictor runs only inside its proven
+model, and every other combination uses the standard measured component. Keeping that policy in a
+separate entry prevents the predictor from loading for root consumers.
 
 ## First-principles contract
 
 A pure predictive line clamp needs four facts: source text, available inline width, a canvas font
 shorthand, and a line limit. Everything else either changes those facts or requires browser layout
-knowledge that Pretext does not own.
+knowledge that Pretext does not own. That limits the predictive branch, not the public component.
 
-The public props therefore contain only:
+The subpath exposes the standard `LineClamp` props, slots, controls, events, and defaults plus an
+optional `font`. Dispatch follows one semantic order:
 
-- `text`
-- required `font`
-- `maxLines`
-- `expanded` / `v-model:expanded`
-- `as`
+1. the standard native end/grapheme/default-ellipsis subset uses native CSS;
+2. end/word/default-ellipsis `maxLines` cases with a non-empty `font`, no `maxHeight`, and no declared
+   affix slots use Pretext;
+3. every other combination uses standard browser measurement.
 
-The component retains the standard imperative `expand`, `collapse`, and `toggle` controls and emits
-`clampchange`. It fixes the clamp semantics to end truncation, word boundaries with grapheme fallback,
-and the default `…`. It does not accept `maxHeight`, `location`, `boundary`, `ellipsis`, or affix slots.
+The second step is the only predictive surface. Importing the subpath is the caller's explicit
+assertion that repeated or high-volume resizing can amortize preparation and payload cost; the
+component cannot know a workload's future resize count and does not benchmark itself at runtime.
 
-The required `font` is both the Pretext measurement input and an inline style on the rendered body.
+## Native capability baseline
+
+The implementation does not depend on the still-limited unprefixed `line-clamp` property. It emits
+the legacy `display: -webkit-box`, `-webkit-box-orient: vertical`, and `-webkit-line-clamp` combination
+that CSS Overflow 4 specifies as continuing behavior. MDN browser data records the prefixed property
+from Chrome 6, Firefox 68, and Safari 5, with current Edge and mobile engines mirrored from their
+upstream engines.
+
+This is older than the package's existing `ResizeObserver` baseline: Chrome 64, Firefox 69, and
+Safari 13.1. Any supported browser capable of running the component observation model therefore
+already has the legacy multiline clamp primitive. A cached `CSS.supports` check had negligible CPU
+cost but created different server and client render branches; removing it makes selection depend on
+semantics alone and keeps SSR markup deterministic.
+
+When present, `font` is both the Pretext measurement input and an inline style on the rendered body.
 The body also fixes the text features that define the supported layout model: horizontal writing,
 normal whitespace, normal word breaking, `overflow-wrap: break-word`, no text transform, normal
 letter/word spacing, and no automatic hyphenation. A named font must be registered before the
 component is mounted; `system-ui` remains outside the accuracy contract.
 
-The component trusts that contract instead of calling `document.fonts.check()` or loading fonts for
-every instance. Font registration and loading belong to the application; changing `font` remains
-reactive, but the new named font must already be available when it is supplied.
+The predictive branch trusts that contract instead of calling `document.fonts.check()` or loading
+fonts for every instance. Font registration and loading belong to the application; changing `font`
+remains reactive, but the new named font must already be available when it is supplied.
 
 ## Runtime model
 
-The implementation has two phases:
+After native and measured cases have been dispatched away, the predictive implementation has two
+phases:
 
 1. Prepare the text once for each `text` / `font` pair. Pretext performs segmentation and canvas
    measurement, while `vue-clamp` prepares word boundaries and segment-level cursor ranks. A line
@@ -57,9 +72,8 @@ The implementation has two phases:
 The resize hot path performs no DOM geometry reads or browser candidate search. `ResizeObserver`
 delivers the width after browser layout and before paint; Pretext arithmetic produces the text inside
 that callback. The Resize Observer processing loop recalculates layout again after callback DOM
-changes and before rendering, so exact discovery does not require width to be application state. The
-implementation deliberately does not fall back to the standard engine because doing so would make
-performance and semantics depend on a hidden runtime mode.
+changes and before rendering, so exact discovery does not require width to be application state.
+The standard engine remains the authority for inputs outside the predictive model.
 
 Active instances share one content-box observer. Expanded, empty, and unlimited instances do not
 observe at all, and the shared observer is released when its last active target disappears. Each
@@ -108,16 +122,16 @@ counterbalanced Chromium runs:
 
 | Scenario | Browser-authoritative time | Pretext time | Pretext remaining time | Pretext geometry reads |
 | -------- | -------------------------: | -----------: | ---------------------: | ---------------------: |
-| English  |                9.4–19.3 ms |   0.1–0.2 ms |               1.0–1.1% |                      0 |
-| CJK      |                6.1–23.3 ms |       0.2 ms |               0.9–3.3% |                      0 |
-| Thai     |               12.1–56.0 ms |   0.1–0.2 ms |               0.2–0.9% |                      0 |
+| English  |               10.9–22.2 ms |   0.2–0.3 ms |               0.9–1.8% |                      0 |
+| CJK      |                6.6–25.5 ms |   0.1–0.2 ms |               0.8–1.6% |                      0 |
+| Thai     |               12.2–61.5 ms |   0.1–0.2 ms |               0.3–0.8% |                      0 |
 
 This means the measured synchronous resize work falls by roughly 97–99.8%; it does not mean total
 page render time falls by that amount. The browser path performs 424–1,937 authoritative geometry
 reads per row, while the prepared Pretext path performs none and lets the browser batch later style
 and paint work.
 
-Preparation costs 2.4–9.5 ms in the same cold-cache fixtures. The entry is therefore intended for
+Preparation costs 2.5–12.1 ms in the same cold-cache fixtures. The entry is therefore intended for
 high-volume or frequently resizing text, not as a claim that every one-off clamp is faster.
 
 Because the ordinary 560-change rows are below reliable sub-millisecond resolution, the retained
@@ -147,13 +161,13 @@ batches, with continuous, bounded-jitter, and large-jump widths. The fixture sup
 CSS width to both entries and measures the public observer-driven Pretext path. The retained report
 was regenerated while the benchmark host was on AC power. Five-run medians show:
 
-- Pretext is faster in all 12 rows. Active time falls 33.0–84.9% per row and 62.5% in aggregate,
-  from 2,473.0 ms to 926.4 ms. Seven rows cross the matrix's variance gate, so those timing deltas
+- Pretext is faster in all 12 rows. Active time falls 47.3–86.6% per row and 74.0% in aggregate,
+  from 2,142.4 ms to 557.2 ms. Two rows cross the matrix's variance gate, so those timing deltas
   remain directional rather than precise point estimates.
 - Bounding-box reads fall from 88,057 to zero, ResizeObserver callbacks fall 93.8% from 10,688 to the
   exact 668 measured width steps, and mutation records fall 52.0% from 91,257 to 43,778. Pretext has
   no child-list mutation in any row.
-- The former English jump regression is removed: active time falls 58.9%, from 97.5 ms to 40.1 ms.
+- The former English jump regression is removed: active time falls 73.4%, from 82.2 ms to 21.9 ms.
   The width probe prevents text-height changes from creating extra observer deliveries.
 - Aggregate settled time is flat because both entries wait for the same quiet frames; it is not a
   CPU-speed signal. The matrix deliberately excludes cold preparation and bundle size, which remain
@@ -171,13 +185,15 @@ imported.
 
 | Consumer import      |      Gzip |
 | -------------------- | --------: |
-| Standard `LineClamp` |  9.095 kB |
-| Pretext `LineClamp`  | 20.524 kB |
-| Both components      | 28.978 kB |
+| Standard `LineClamp` |  9.000 kB |
+| Pretext `LineClamp`  | 29.120 kB |
+| Both components      | 29.135 kB |
 
-The large predictor payload is the principal trade-off. The subpath is justified only when its
-preparation cost and bytes are amortized across enough active resize work; the ordinary root import
-continues to be the default recommendation.
+The Pretext entry now includes the standard component needed for exact native and measured dispatch;
+importing both adds almost nothing because bundlers deduplicate that fallback. The predictor remains
+the principal delivery cost. The subpath is justified only when its preparation cost and bytes are
+amortized across enough active resize work; the ordinary root import continues to be the default
+recommendation.
 
 ## Current optimization boundary
 
@@ -225,13 +241,18 @@ algorithmic work has no reproducible benefit large enough to justify more state 
 - **Adaptive hinting for large jumps:** it can reduce some browser probes, but adds a second model and
   policy for a much smaller gain than pure authority.
 - **A shared component with an engine prop:** it weakens tree-shaking and makes one prop surface imply
-  semantics that the Pretext engine cannot uphold.
-- **Silent browser fallback:** it hides which performance contract the caller selected and would
-  require shipping both engines in the opt-in path.
+  that root consumers may load an engine they did not select. The separate subpath provides the same
+  drop-in behavior without changing the root dependency graph.
 
 ## Sources
 
 - `@chenglou/pretext` `0.0.8` README and published sources
+- MDN `line-clamp` reference and browser compatibility data:
+  <https://developer.mozilla.org/en-US/docs/Web/CSS/Reference/Properties/line-clamp>
+- MDN browser-compat-data `line-clamp` record:
+  <https://github.com/mdn/browser-compat-data/blob/main/css/properties/line-clamp.json>
+- MDN browser-compat-data `ResizeObserver` record:
+  <https://github.com/mdn/browser-compat-data/blob/main/api/ResizeObserver.json>
 - W3C Resize Observer processing model: <https://www.w3.org/TR/resize-observer/>
 - `journey/research/314-paid-signal-cold-search.md`
 - `journey/research/315-final-architecture-sprint.md`

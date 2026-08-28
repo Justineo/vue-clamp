@@ -97,22 +97,24 @@ import { LineClamp } from "vue-clamp/pretext";
 </script>
 
 <template>
-  <LineClamp :text="title" :max-lines="2" font="16px Inter" />
+  <LineClamp :text="title" :max-lines="2" boundary="word" font="16px Inter" />
 </template>
 ```
 
-This version uses Pretext arithmetic after initial canvas preparation and performs no DOM geometry
-reads during resize. Its contract is intentionally narrower:
+This entry has the same props, slots, controls, events, and fallback behavior as the standard
+`LineClamp`. It chooses the cheapest semantically exact engine for each instance:
 
-- `font` is required and must name a font that is loaded before mount; do not use `system-ui`.
-- Truncation is fixed to the end, word boundaries with grapheme fallback, and the default `…`.
-- Text uses normal horizontal wrapping, spacing, and casing with `overflow-wrap: break-word`.
-- `max-height`, custom ellipses, alternate locations or boundaries, and affix slots are unsupported.
-- `text`, `max-lines`, `expanded`, `v-model:expanded`, and `as` remain available, as do the standard
-  expansion methods and `clampchange` event.
+1. Native CSS for the standard default end/grapheme/`…` subset.
+2. Pretext for `max-lines` plus end/word/`…` clamping without affix slots or `max-height`, when a
+   non-empty `font` is supplied.
+3. The standard browser-measured engine for every other combination.
 
-Use the standard `vue-clamp` entry whenever browser CSS, platform fonts, slots, or general component
-semantics must remain authoritative.
+`font` is optional because it only enables the predictive path. When supplied, it must name a font
+that is loaded before mount; do not use `system-ui`. Predictive text uses normal horizontal wrapping,
+spacing, and casing with `overflow-wrap: break-word`. Its prepared resize path performs no DOM
+geometry reads. The subpath is intended for high-volume or frequently resizing text because cold
+font/text preparation and the extra predictor payload can outweigh the hot-path saving for one-off
+clamps.
 
 ## Trusted rich text
 
@@ -256,7 +258,7 @@ Stable styling hooks use `data-part` attributes:
 | `<RichLineClamp>`   | `root`, `content`, `before`, `body`, `after` |
 | `<InlineClamp>`     | `root`, `start`, `body`, `end`               |
 | `<WrapClamp>`       | `root`, `content`, `before`, `item`, `after` |
-| Pretext `LineClamp` | `root`, `body`                               |
+| Pretext `LineClamp` | `root`, `content`, `before`, `body`, `after` |
 
 Do not rely on internal DOM nesting as a styling contract.
 
@@ -266,3 +268,5 @@ Do not rely on internal DOM nesting as a styling contract.
   [migration guide](https://github.com/Justineo/vue-clamp/blob/main/MIGRATION.md) when upgrading
   from `0.x`.
 - `ResizeObserver` is part of the browser baseline.
+- Multiline native clamping uses the specified legacy `-webkit-line-clamp` combination. The
+  unprefixed `line-clamp` property is not required.

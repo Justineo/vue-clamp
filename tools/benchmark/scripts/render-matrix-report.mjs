@@ -1486,7 +1486,7 @@ if (adjacentPairs.length > 0) {
   markdown.push("");
   markdown.push(
     isEntrypointMatrix
-      ? "The entrypoints are comparable only on the Pretext contract represented here: plain text, an explicit canvas font shorthand, maxLines, end truncation, word boundaries with grapheme fallback, and the default ellipsis. The result does not generalize to the root entry's broader layout-authoritative API."
+      ? "The timing comparison covers only the predictive eligibility subset: plain text, an explicit canvas font shorthand, maxLines, end truncation, word boundaries with grapheme fallback, and the default ellipsis. Other Pretext-entry API combinations dispatch to the same native or measured engines as the root entry and are outside this performance slice."
       : "A faster older version is not automatically a performance win. When a release added missing reclamp coverage or fixed incorrect output, the extra work is correctness cost and the scenario should be interpreted with that caveat.",
   );
 

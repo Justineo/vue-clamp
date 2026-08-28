@@ -789,7 +789,8 @@ async function mountLineClampBatch(
             }
             if (target.entrypoint === "pretext") {
               props.font = options.font;
-            } else if (options.boundary !== undefined) {
+            }
+            if (options.boundary !== undefined) {
               props.boundary = options.boundary;
             }
             if (options.ellipsis !== undefined) {

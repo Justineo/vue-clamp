@@ -298,6 +298,7 @@ async function runScaleScenario(widths: readonly number[]): Promise<ScaleMetrics
         { style: { width: `${widths[0] ?? 460}px` } },
         Array.from({ length: scaleInstances }, (_, index) =>
           h(LineClamp, {
+            boundary: "word",
             font: "16px Arial",
             key: index,
             maxLines: lineLimit,
