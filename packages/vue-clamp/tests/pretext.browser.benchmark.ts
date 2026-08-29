@@ -6,10 +6,14 @@ import { LineClamp } from "../src/pretext.ts";
 import { clampPreparedLine, prepareLineClamp } from "../src/pretext/clamp.ts";
 
 import type { App } from "vue";
+import type { ClampBoundary } from "../src/types.ts";
 import type { PreparedText, TextClampResult } from "../src/text.ts";
 import type { PreparedLineClamp } from "../src/pretext/clamp.ts";
 
 type Scenario = {
+  readonly boundary?: ClampBoundary;
+  readonly ellipsis?: string;
+  readonly exact?: boolean;
   readonly font: string;
   readonly name: string;
   readonly text: string;
@@ -42,7 +46,6 @@ type ScaleMetrics = {
   readonly callbackCount: number;
   readonly entryCount: number;
   readonly instanceCount: number;
-  readonly mountMs: number;
   readonly mutationCount: number;
   readonly resizeMs: number;
   readonly vnodeUpdates: number;
@@ -56,6 +59,7 @@ const preparationCount = 1_000;
 const scaleInstances = 200;
 const scaleRepetitions = 3;
 const originalResizeObserver = globalThis.ResizeObserver;
+const graphemeSegmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
 
 function widthSweep(start: number, end: number, step: number): number[] {
   const widths: number[] = [];
@@ -95,23 +99,91 @@ const patterns: readonly Pattern[] = [
   },
 ];
 
-const scenarios: readonly Scenario[] = [
+const defaultScenarios: readonly Scenario[] = [
   {
+    exact: true,
     font: "16px Georgia",
     name: "english",
     text: "Release dashboards keep customer impact, regional mitigation, and follow-up ownership visible while responsive cards change width.",
   },
   {
+    exact: true,
     font: "16px Arial",
     name: "cjk",
     text: "国际响应团队需要在多区域故障期间保留客户沟通缓解措施和后续责任，同时避免关键短语被截断。",
   },
   {
+    exact: true,
     font: "16px Arial",
     name: "thai",
     text: "ทีมตอบสนองเหตุการณ์ต้องรักษาบริบทของลูกค้าและข้อมูลการแก้ไขปัญหาให้มองเห็นได้อย่างชัดเจน",
   },
+  {
+    font: "16px Arial",
+    name: "emoji",
+    text: "Status 👩🏽‍💻 ready, family 👨‍👩‍👧‍👦 notified, flags 🇺🇳🇯🇵 checked, and café e\u0301lan reviewed.",
+  },
+  {
+    font: "16px Arial",
+    name: "mixed-script",
+    text: "Incident تحديث 状態 update — 고객 영향, mitigación, and متابعة ownership remain visible.",
+  },
+  {
+    font: "16px Arial",
+    name: "long-token",
+    text: "observabilityPlatformBoundary👩‍🚀e\u0301".repeat(7),
+  },
 ];
+
+const customEllipsisScenarios: readonly Scenario[] = [
+  {
+    ellipsis: "...",
+    font: "16px Georgia",
+    name: "custom-english-word",
+    text: "Release dashboards keep customer impact, regional mitigation, and follow-up ownership visible while responsive cards change width.",
+  },
+  {
+    ellipsis: "...",
+    font: "16px Arial",
+    name: "custom-cjk-word",
+    text: "国际响应团队需要在多区域故障期间保留客户沟通缓解措施和后续责任，同时避免关键短语被截断。",
+  },
+  {
+    ellipsis: "[more]",
+    font: "16px Arial",
+    name: "custom-thai-word",
+    text: "ทีมตอบสนองเหตุการณ์ต้องรักษาบริบทของลูกค้าและข้อมูลการแก้ไขปัญหาให้มองเห็นได้อย่างชัดเจน",
+  },
+  {
+    boundary: "grapheme",
+    ellipsis: "↗",
+    font: "16px Arial",
+    name: "custom-emoji-grapheme",
+    text: "Status 👩🏽‍💻 ready, family 👨‍👩‍👧‍👦 notified, flags 🇺🇳🇯🇵 checked, and café e\u0301lan reviewed.",
+  },
+  {
+    boundary: "grapheme",
+    ellipsis: "...",
+    font: "16px Arial",
+    name: "custom-mixed-script-grapheme",
+    text: "Incident تحديث 状態 update — 고객 영향, mitigación, and متابعة ownership remain visible.",
+  },
+  {
+    boundary: "grapheme",
+    ellipsis: "[more]",
+    font: "16px Arial",
+    name: "custom-long-token-grapheme",
+    text: "observabilityPlatformBoundary👩‍🚀e\u0301".repeat(7),
+  },
+  {
+    ellipsis: "",
+    font: "16px Georgia",
+    name: "custom-empty-word",
+    text: "Release dashboards keep customer impact, regional mitigation, and follow-up ownership visible while responsive cards change width.",
+  },
+];
+
+const scenarios = [...defaultScenarios, ...customEllipsisScenarios];
 
 const edgeScenarios: readonly Scenario[] = [
   {
@@ -175,7 +247,7 @@ function runBrowser(scenario: Scenario, widths: readonly number[], prepared: Pre
 
   const common = {
     content: host.content,
-    ellipsis: "…",
+    ellipsis: scenario.ellipsis ?? "…",
     lineCapacity: lineLimit,
     lineLimit,
     maxHeight: undefined,
@@ -262,6 +334,30 @@ function runPretextCore(widths: readonly number[], prepared: PreparedLineClamp):
   return { checksum, ms: performance.now() - start };
 }
 
+function verifyPretextFits(
+  scenario: Scenario,
+  widths: readonly number[],
+  texts: readonly string[],
+) {
+  const initialWidth = widths[0];
+  if (initialWidth === undefined) throw new Error("Expected an initial width.");
+
+  const host = mountHost(scenario, initialWidth);
+  try {
+    for (let index = 0; index < texts.length; index += 1) {
+      const width = widths[index + 1];
+      if (width === undefined) throw new Error("Expected a matching width.");
+      host.root.style.width = `${width}px`;
+      setElementText(host.target, texts[index]!);
+      expect(host.root.scrollHeight, `${scenario.name} at ${width}px`).toBeLessThanOrEqual(
+        lineLimit * lineHeight + 0.5,
+      );
+    }
+  } finally {
+    host.container.remove();
+  }
+}
+
 function frame(): Promise<void> {
   return new Promise((resolve) => requestAnimationFrame(() => resolve()));
 }
@@ -299,13 +395,12 @@ async function runScaleScenario(widths: readonly number[]): Promise<ScaleMetrics
         Array.from({ length: scaleInstances }, (_, index) =>
           h(LineClamp, {
             boundary: "word",
-            font: "16px Arial",
             key: index,
             maxLines: lineLimit,
             onVnodeUpdated: () => {
               vnodeUpdates += 1;
             },
-            style: { lineHeight: `${lineHeight}px`, width: "100%" },
+            style: { font: "16px Arial", lineHeight: `${lineHeight}px`, width: "100%" },
             text: `Row ${index + 1} keeps customer impact, mitigation, ownership, and follow-up context visible while responsive dashboards resize.`,
           }),
         ),
@@ -314,11 +409,9 @@ async function runScaleScenario(widths: readonly number[]): Promise<ScaleMetrics
   const app: App = createApp(Host);
 
   try {
-    const mountStart = performance.now();
     app.mount(container);
     await settle();
     await frame();
-    const mountMs = performance.now() - mountStart;
     const host = container.firstElementChild;
     if (!(host instanceof HTMLElement)) throw new Error("Expected scale benchmark host.");
 
@@ -342,7 +435,6 @@ async function runScaleScenario(widths: readonly number[]): Promise<ScaleMetrics
       callbackCount,
       entryCount,
       instanceCount,
-      mountMs,
       mutationCount,
       resizeMs,
       vnodeUpdates,
@@ -363,13 +455,29 @@ function round(value: number): number {
   return Math.round(value * 1000) / 1000;
 }
 
+function visiblePrefix(output: string, source: string, ellipsis: string): string | null {
+  if (output === source) return source;
+  if (!output.endsWith(ellipsis)) return null;
+
+  const prefix = ellipsis.length === 0 ? output : output.slice(0, -ellipsis.length);
+  return source.startsWith(prefix) ? prefix : null;
+}
+
+function graphemeCount(value: string): number {
+  return [...graphemeSegmenter.segment(value)].length;
+}
+
 describe("Pretext LineClamp benchmark", () => {
   it("compares the browser and Pretext resize hot paths", () => {
     const results = scenarios.flatMap((scenario) => {
-      const browserPrepared = prepareText(scenario.text, "word");
+      const boundary = scenario.boundary ?? "word";
+      const browserPrepared = prepareText(scenario.text, boundary);
       clearCache();
       const prepareStart = performance.now();
-      const pretextPrepared = prepareLineClamp(scenario.text, scenario.font);
+      const pretextPrepared = prepareLineClamp(scenario.text, scenario.font, {
+        boundary,
+        ...(scenario.ellipsis === undefined ? {} : { ellipsis: scenario.ellipsis }),
+      });
       const prepareMs = performance.now() - prepareStart;
 
       return patterns.map((pattern) => {
@@ -389,7 +497,40 @@ describe("Pretext LineClamp benchmark", () => {
           }
         }
 
-        expect(pretextRuns[0]?.texts).toEqual(browserRuns[0]?.texts);
+        const browserTexts = browserRuns[0]?.texts ?? [];
+        const pretextTexts = pretextRuns[0]?.texts ?? [];
+        const marker = scenario.ellipsis ?? "…";
+        const exactOutputs = pretextTexts.filter(
+          (output, index) => output === browserTexts[index],
+        ).length;
+        const deficits: number[] = [];
+
+        if (scenario.exact) {
+          expect(pretextTexts).toEqual(browserTexts);
+        }
+        expect(pretextTexts).toHaveLength(browserTexts.length);
+        for (let index = 0; index < pretextTexts.length; index += 1) {
+          const pretextPrefix = visiblePrefix(pretextTexts[index]!, scenario.text, marker);
+          const browserPrefix = visiblePrefix(browserTexts[index]!, scenario.text, marker);
+          expect(
+            pretextPrefix,
+            `${scenario.name} ${pattern.name} at ${pattern.widths[index + 1]}px`,
+          ).not.toBeNull();
+          expect(
+            browserPrefix,
+            `${scenario.name} ${pattern.name} at ${pattern.widths[index + 1]}px`,
+          ).not.toBeNull();
+          expect(
+            pretextPrefix!.length,
+            `${scenario.name} ${pattern.name} at ${pattern.widths[index + 1]}px`,
+          ).toBeLessThanOrEqual(browserPrefix!.length);
+          expect(
+            browserPrepared.fallbackBoundaryOffsets ?? browserPrepared.boundaryOffsets,
+            `${scenario.name} ${pattern.name} at ${pattern.widths[index + 1]}px`,
+          ).toContain(pretextPrefix!.length);
+          deficits.push(graphemeCount(browserPrefix!) - graphemeCount(pretextPrefix!));
+        }
+        verifyPretextFits(scenario, pattern.widths, pretextTexts);
         const browserMs = median(browserRuns.map((run) => run.ms));
         const pretextMs = median(pretextRuns.map((run) => run.ms));
 
@@ -403,11 +544,14 @@ describe("Pretext LineClamp benchmark", () => {
               (pattern.widths.length * coreCycles),
           ),
           name: scenario.name,
+          outputMatchPercent: round((exactOutputs / pretextTexts.length) * 100),
           pattern: pattern.name,
           pretextLayoutReads: 0,
           pretextMs: round(pretextMs),
           pretextPrepareMs: round(prepareMs),
           remainingTimePercent: round((pretextMs / browserMs) * 100),
+          shorterOutputs: deficits.filter((deficit) => deficit > 0).length,
+          worstGraphemeDeficit: Math.max(0, ...deficits),
         };
       });
     });
@@ -441,7 +585,6 @@ describe("Pretext LineClamp benchmark", () => {
         changes,
         entryCount: median(runs.map((run) => run.entryCount)),
         instances: scaleInstances,
-        mountMs: round(median(runs.map((run) => run.mountMs))),
         mutationCount: median(runs.map((run) => run.mutationCount)),
         observerInstances: median(runs.map((run) => run.instanceCount)),
         resizeMs: round(median(runs.map((run) => run.resizeMs))),
@@ -449,8 +592,8 @@ describe("Pretext LineClamp benchmark", () => {
       };
 
       expect(summary.entryCount).toBe(scaleInstances * changes);
-      expect(summary.callbackCount).toBe(changes);
-      expect(summary.observerInstances).toBe(1);
+      expect(summary.callbackCount).toBe(scaleInstances * changes);
+      expect(summary.observerInstances).toBe(scaleInstances);
       results.push({ name: pattern.name, runs, summary });
     }
 
@@ -461,7 +604,10 @@ describe("Pretext LineClamp benchmark", () => {
     const results = edgeScenarios.flatMap((scenario) => {
       clearCache();
       const prepareStart = performance.now();
-      const prepared = prepareLineClamp(scenario.text, scenario.font);
+      const prepared = prepareLineClamp(scenario.text, scenario.font, {
+        ...(scenario.boundary === undefined ? {} : { boundary: scenario.boundary }),
+        ...(scenario.ellipsis === undefined ? {} : { ellipsis: scenario.ellipsis }),
+      });
       const prepareMs = performance.now() - prepareStart;
 
       return patterns.map((pattern) => {
@@ -514,7 +660,7 @@ describe("Pretext LineClamp benchmark", () => {
 
       const wrapperStart = performance.now();
       for (const text of texts) {
-        checksum += prepareLineClamp(text, "16px Arial").segmentWordRanks.length;
+        checksum += prepareLineClamp(text, "16px Arial").segmentBoundaryRanks.length;
       }
       runs.wrapper.push(performance.now() - wrapperStart);
     }

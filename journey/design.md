@@ -17,7 +17,8 @@
   `journey/research/309-forward-outlook-research.md`: prioritize SSR / hydration contract design,
   release-visible benchmarks, RichLineClamp development diagnostics, locale-aware boundaries, and
   accessibility recipes. Pretext acceleration has moved from a general-engine experiment to the
-  strict opt-in subpath recorded in `journey/research/318-pretext-integration-research.md`. The
+  drop-in opt-in subpath with strict predictive eligibility recorded in
+  `journey/research/318-pretext-integration-research.md`. The
   earlier WrapClamp generic slot typing opportunity has been addressed by the SFC migration.
 
 ## Product Goals
@@ -47,34 +48,33 @@
   - `RichLineClamp` as the canonical multiline rich-html component name
   - `InlineClamp` as the canonical single-line affix-friendly component name
   - `WrapClamp` as the canonical wrapped-item component name
-- `vue-clamp/pretext` separately exports a narrower `LineClamp` backed by Pretext. It requires an
-  explicit named `font`, accepts only `text`, `maxLines`, `expanded`, and `as`, and fixes semantics to
-  end/word/default-ellipsis clamping. The separate entry keeps `@chenglou/pretext` out of root
-  consumers and makes the predictive layout contract an explicit application choice.
-- The Pretext component treats source text, observed content width, font, and line limit as its only
-  layout inputs. It obtains exact width from `ResizeObserver` during the browser's pre-paint resize
-  phase, commits the prediction inside that delivery, and does not expose width discovery to the
-  application. It performs no synchronous geometry read, DOM candidate search, or hidden browser
-  fallback. The visible source starts `visibility: hidden` and is revealed with the first prediction;
-  native line-clamp remains active while collapsed to contain stale predictions. It derives no height
-  from `line-height`, preserving the browser's actual line-box geometry.
-- Pretext preparation maps segment-aligned cursors directly to word/grapheme ranks, bounds the rare
-  segment-internal lookup to that segment, and shares ellipsis width by font. It trusts the documented
-  requirement that named fonts are loaded before use rather than coordinating `FontFaceSet` per
-  instance. Active instances share one content-box observer; expanded, empty, and unlimited instances
-  do not observe. Each component observes a zero-height width probe rather than its text body, so its
-  own block-size changes cannot cause resize feedback. The accessible full source and `aria-hidden`
-  visible text nodes remain mounted in every state. Resize delivery can therefore mutate only the
-  stable visible text node before paint; unchanged results do no DOM work and width changes schedule
-  no component patch. This policy is specific to the opt-in high-volume engine and does not change
-  the independent observers used by the browser-authoritative components.
-- The opt-in entry has a release-facing public-component matrix in
-  `journey/research/319-pretext-performance-matrix.md`. It compares only the shared root/Pretext
-  contract over 16-instance English, CJK, Thai, and long-token batches under continuous, jitter,
-  and jump width profiles. It measures the public observer-driven path with real CSS width changes.
-  `vp run benchmark:pretext:matrix` regenerates the interleaved five-run report. Mounted resize churn,
-  cold preparation, and bundle size remain separate signals rather than being combined into one
-  speed claim.
+- `vue-clamp/pretext` separately exports a `LineClamp` with exactly the standard props, slots,
+  controls, events, and defaults. It decorates the standard component with a predictive path for
+  end truncation with `maxLines`, no affixes or `maxHeight`, and either word boundaries or a custom
+  single-line ellipsis. Default end/grapheme cases remain native; native and remaining measured
+  cases use the self-contained standard component. This keeps the root dependency graph unchanged
+  and avoids a component-shaped internal composable API.
+- Runtime native selection is based only on semantic eligibility. Multiline containment uses the
+  fully specified legacy `display: -webkit-box` / `-webkit-box-orient: vertical` /
+  `-webkit-line-clamp` combination, so no render-time `CSS.supports` branch is needed. This keeps SSR
+  and the first client VNode deterministic; the unprefixed `line-clamp` declaration remains an
+  additive future-facing declaration rather than a compatibility requirement.
+- The predictive branch caches the rendered font and the Pretext-supported `white-space`,
+  `word-break`, and numeric `letter-spacing` inputs. Other CSS is an explicit accuracy-for-throughput
+  tradeoff. Each active instance observes a zero-height width probe and mutates one stable visible
+  text node during the pre-paint `ResizeObserver` delivery, with no synchronous geometry search or
+  Vue patch. It does not derive height from `line-height`, and a shared observer remains rejected
+  because it reduced callback objects without reducing measured active work.
+- Predictive custom ellipses are measured with the same prepared typography and cached with the
+  source state. Forced-line-break ellipses stay measured because the fast path treats the marker as
+  one final-line unit. Grapheme prediction is allowed when a custom ellipsis makes native clamping
+  semantically ineligible; it must preserve grapheme boundaries and containment, but may keep a
+  conservative shorter prefix than browser measurement.
+- No public stability hint is exposed for Pretext affixes. Because the existing affix wrapper is
+  already an atomic, no-wrap inline box, a caller guarantee that its dimensions never change would
+  make its measured geometry reusable even when the slot's internal content changes. Pretext would
+  still need explicit first-line `before` and final-line `after` occupancy logic. A public contract
+  is justified only after that solver shows a structural and timing win over measured fallback.
 - There is no default export.
 - Type declarations follow explicit ownership layers:
   - shared public primitives and private shared type building blocks live in
@@ -175,7 +175,8 @@
   Each remains the macro and type surface, while a setup-local `render()` function is the runtime
   render entry. `WrapClamp` delegates root/content/item structure to `wrap/render.ts`; `LineClamp`
   and `RichLineClamp` assemble affix wrappers only when the corresponding slot exists and produces
-  content.
+  content. The Pretext render function either owns its predictive DOM or returns the standard
+  `LineClamp` component.
 - Render-only component SFCs bind their setup-local render entry through Vue Macros
   `defineRender(render)`. This keeps render-only SFC sources explicit without carrying local
   marker-template plugins or a custom template compiler.
@@ -190,10 +191,11 @@
   A retained size audit rejected `vp pack --minify` because it made single-component consumer
   bundles keep every component. Subpaths for the existing browser-authoritative components remain
   unjustified because they saved only about 74-180 bytes gzip per direct import while increasing the
-  published package by about 7.9 kB raw. `vue-clamp/pretext` is a semantic and dependency boundary,
-  not a component-size optimization: it prevents the much larger predictive engine from entering
-  root consumers. The retained runtime-helper cleanup reduced the current package by about 1.7 kB
-  raw / 0.4 kB gzip without changing root exports.
+  published package by about 7.9 kB raw. `vue-clamp/pretext` is a dependency and policy boundary, not
+  a component-size optimization: its drop-in fallback includes the browser-authoritative engine,
+  while the much larger predictive engine still never enters root consumers. The retained
+  runtime-helper cleanup reduced the current package by about 1.7 kB raw / 0.4 kB gzip without
+  changing root exports.
 - `ClampControls`, `ClampState`, `ClampSlotProps`, and `ClampExposed` are private building blocks in
   `types.ts`; they keep concrete public contracts aligned without creating a generic cross-component
   public abstraction and are not root package exports.
@@ -292,7 +294,8 @@
   - `packages/vue-clamp/src/layout.ts` for the remaining shared primitives worth centralizing:
     line-limit normalization, CSS length normalization, subpixel border-box signatures,
     ResizeObserver entry-signature comparison, and fit checks
-- `packages/vue-clamp/src/line/LineClamp.vue` now owns only text behavior:
+- `packages/vue-clamp/src/line/LineClamp.vue` owns browser-authoritative Native/Measured text
+  behavior and is exported from the root barrel as `LineClamp`:
   - a shallow visible-text snapshot that lets measured clamped-to-clamped passes patch text DOM
     directly without forcing a Vue render, while still re-rendering when the accessibility structure
     or clamped state changes
@@ -390,7 +393,7 @@
   rather than a boolean or CSS-mechanism-specific strings:
   - `"single-line"` for the exact one-line end/grapheme/default-ellipsis subset
   - `"multi-line"` for the exact multiline end/grapheme/default-ellipsis subset when `maxHeight`
-    and `after` are absent and browser support is present
+    and `after` are absent
   - `null` for measured DOM clamping
 - Native CSS clamp eligibility and style details stay outside `LineClamp.vue`; the component only
   resolves the mode for the current render/recompute and applies the resulting text state.
@@ -1254,13 +1257,55 @@
 
 ### SSR direction
 
-- The preferred SSR direction remains a DOM-preserving visual skeleton rather than approximate
-  native CSS fallback.
-- The package currently has no stylesheet delivery contract or CSS side-effect entry. Because the
-  skeleton requires media-aware CSS such as `@media (scripting: enabled)` to keep full content
-  visible for no-JS users, it is deferred until the CSS delivery contract is designed.
-- Exact native SSR subsets may still render full content with native styles when the component can
-  prove semantic equivalence, but unsupported browsers must hydrate into the measured DOM path.
+- Collapsed SSR has an absolute paint-safety invariant: no state may paint content beyond the active
+  `maxLines` or `maxHeight`. Full-then-clamp, fade, and a visibly clipped line-count approximation are
+  rejected. Full source content may remain in SSR HTML for indexing, recovery, and accessibility,
+  but an unproved visual candidate must stay hard-contained or `visibility: hidden`.
+- Exact server-side measured truncation is not a truthful promise because final width, fonts, CSS,
+  browser line breaking, and slot geometry are client inputs. The target architecture combines a
+  universal fail-closed baseline with a React Wrap Balancer-like parser-time browser solver that
+  reveals only an exact result.
+- A real `renderToString` -> Chromium hydration audit found a current correctness defect in the
+  native multi-line partition. Server rendering sees no `CSS` global and chooses measured markup;
+  the first client render chooses native styles, and Rich also omits the server probe. Vue reports
+  style/children mismatches and does not apply the expected native style, leaving the tested output
+  unclamped. Native selection is now render-time semantic eligibility only: server and first client
+  render emit identical legacy line-clamp styles, and the package browser baseline relies on that
+  fully specified, widely implemented combination instead of a post-mount capability branch.
+- The initial containment partition is explicit:
+  - configured `maxHeight` is an exact server paint cap
+  - native single-line and semantically eligible legacy multi-line modes render exact CSS from the
+    server
+  - measured Line may use an `lh` budget only as a non-overpainting guard while exact measurement
+    runs
+  - Wrap rows, measured Rich, and arbitrary slot geometry remain hidden inside a bounded placeholder
+    until their exact result exists
+- Containment needed for correctness belongs in component markup, not an optional stylesheet. An
+  explicit `vue-clamp/ssr.css` entry may style placeholders, but `@media (scripting)` is not a proof
+  that hydration succeeded. When bootstrap is blocked by CSP, an extension, a failed bundle, or lazy
+  hydration, active collapsed output must fail closed instead of revealing full content.
+- Pending is semantically distinct from measured false. Future public design should expose a stable
+  root state hook and additive pending slot state; `clampchange` should represent a real browser
+  decision rather than an initial synthetic false.
+- A Vue 3.5 spike proved that a React Wrap Balancer-like parser-time result can hydrate cleanly:
+  `useId()` identifies the SSR node, an adjacent script records a result seed, and client setup reads
+  the seed before the first VNode. The eager path is the target for exact first visible paint, starting
+  with plain measured Line/Inline and slot-independent Wrap; the hidden baseline covers streaming
+  gaps before the adjacent classic script executes.
+- Arbitrary result-dependent slots and measured Rich are the honest boundary. A bootstrap script
+  cannot execute Vue slot render functions, and duplicating the Rich solver is too large and reopens
+  clone/resource/custom-element safety risks. These modes stay invisible until Vue computes an exact
+  result unless a narrower `ssrStable` slot contract is introduced. Rich's unsafe-source fallback
+  may preserve authored DOM but must no longer reveal the full collapsed source; it fails closed or
+  requires explicit expansion.
+- Paint safety also applies during post-hydration revalidation. Candidate text/item growth must run
+  synchronously without a paint opportunity or under a temporary hidden/hard cap. Wrap's async
+  materialization paths need an explicit measuring guard; Rich already searches in a hidden probe.
+- Eager bootstrap work must support nonce plus a static/hashable or external path for strict-CSP
+  static sites, avoid embedding user content in executable strings, install font/resize invalidation
+  before hydration, and prove first-paint/CLS gains against payload and parser-blocking cost.
+- The complete evidence and delivery order are recorded in
+  `journey/research/317-ssr-hydration-contract.md`.
 
 ### Reactivity and trade-offs
 
@@ -1403,8 +1448,9 @@
     so every target has the same measured sample count for that scenario. Single-target runs keep
     the original schema v3 payload.
   - `current/pretext` resolves the built `vue-clamp/pretext` entry as a distinct benchmark target.
-    Scenarios declare which public entrypoints they support, so the narrow Pretext contract is never
-    run through root-only affix, height, location, or custom-ellipsis workloads.
+    The focused matrix supplies the exact predictive eligibility contract to both entrypoints; other
+    API combinations are behavior-tested as native or standard measured dispatch rather than counted
+    as Pretext performance rows.
   - duplicate target specifiers in a multi-target run are resolved once and then repeated in the
     browser target list. This keeps same-version noise checks such as `--targets current,current`
     from rebuilding or reinstalling the same package twice while preserving two report columns.
@@ -1820,6 +1866,23 @@
     and without browser hyphenation
   - the preview keeps the example focused on article copy itself and uses the expand toggle as the
     only chrome around the clamp
+- The website exposes `vue-clamp/pretext` as an opt-in `LineClamp` engine rather than a fifth public
+  component:
+  - the top-level surface guide, component tabs, and route hashes continue to represent only the four
+    public components. Selecting `LineClamp` reveals a local Standard/Pretext engine switch; changing
+    that switch does not change the active component or URL
+  - the Pretext engine view documents predictive eligibility, measured behavior, modeled typography,
+    and the explicit CSS accuracy tradeoff
+  - its main demo renders eight synchronized predictive-eligible `LineClamp` instances from the
+    Pretext entry; shared width and line controls exercise the actual word-boundary prediction path,
+    while the stress playground remains the place for Standard/Pretext comparison
+  - its usage snippet imports `LineClamp` from `vue-clamp/pretext`
+  - the predictor component is loaded only when the Pretext engine is selected, so the default
+    `LineClamp` view does not absorb the opt-in engine payload
+  - the stress playground compares standard and Pretext `LineClamp` with the same boundary, limit,
+    affix, text, count, and width inputs. Word-boundary line limits without an affix exercise the
+    predictive path; height, affix, and grapheme cases exercise the same native or measured
+    partitions as standard `LineClamp`
 - The website component demos use one sticky shared-controls bar below the component tabs:
   - the component tabs have a fixed block size and shared controls use that same value as their
     sticky `top`, so the two sticky surfaces stack without a gap
@@ -1835,12 +1898,16 @@
     place to avoid cramped wrapping
   - the demo section has a manual stress playground modal for high-count workloads across all four
     public components:
-    it opens with the currently active component selected, renders 10-200 real instances on a
-    linear count slider, switches between `LineClamp`, `RichLineClamp`, `InlineClamp`, and
-    `WrapClamp`, scales text length or wrapped item count, chooses one active `maxLines` or
+    it opens with the currently active surface selected, renders 10-200 real instances on a linear
+    count slider, switches between `LineClamp`, `RichLineClamp`, `InlineClamp`, and `WrapClamp`,
+    scales text length or wrapped item count, chooses one active `maxLines` or
     `maxHeight` limit mode at a time, shares one width slider across every item, and keeps the FPS
-    meter scoped to that modal instead of the normal demo surface. When the `LineClamp` workload
-    matches the native CSS fast-path conditions, the playground shows a compact native marker. It
+    meter scoped to that modal instead of the normal demo surface. Standard and Pretext `LineClamp`
+    share a nested engine switch and grapheme/word boundary control, and show which native, measured,
+    or predictive partition is active. The resize-stress action preserves the selected
+    component count, payload, limit, boundary, slot, and engine settings and continuously sweeps only
+    the shared width, so switching the two entries compares their sustained resize paths under the
+    user's chosen workload instead of isolated slider changes. It
     locks page scroll, keeps keyboard focus inside the modal, and stays in a centered section after
     the normal examples. It loads only when opened because it is diagnostic tooling rather than the
     primary demo path.
@@ -1854,7 +1921,7 @@
     `#components`
 - The website "Choose a surface" section is now a simplified surface guide:
   - no dedicated heading; the section is introduced by one short sentence describing the four
-    exported components directly
+    exported components
   - four linked tiles in a simple responsive grid
   - each tile keeps only the component name plus one concise chooser sentence
   - the grid stays sharp and structural rather than leaning on soft card styling

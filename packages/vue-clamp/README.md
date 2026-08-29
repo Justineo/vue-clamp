@@ -22,13 +22,12 @@ depend on it.
 
 ## Components
 
-| Component           | Use it for                                                          |
-| ------------------- | ------------------------------------------------------------------- |
-| `<LineClamp>`       | Multiline plain text with optional start, middle, or end ellipsis.  |
-| `<RichLineClamp>`   | Trusted inline HTML that should keep formatting while clamping.     |
-| `<InlineClamp>`     | One-line strings with fixed affixes and configurable ellipsis.      |
-| `<WrapClamp>`       | Wrapped atomic items such as tags, filters, chips, and breadcrumbs. |
-| Pretext `LineClamp` | Predictive multiline text in controlled high-resize workloads.      |
+| Component         | Use it for                                                          |
+| ----------------- | ------------------------------------------------------------------- |
+| `<LineClamp>`     | Multiline plain text with optional start, middle, or end ellipsis.  |
+| `<RichLineClamp>` | Trusted inline HTML that should keep formatting while clamping.     |
+| `<InlineClamp>`   | One-line strings with fixed affixes and configurable ellipsis.      |
+| `<WrapClamp>`     | Wrapped atomic items such as tags, filters, chips, and breadcrumbs. |
 
 The package has named exports only:
 
@@ -88,8 +87,19 @@ Useful props:
 
 ## Predictive plain text
 
-Use `vue-clamp/pretext` when many text blocks resize frequently and the typography can stay inside
-a strict model:
+The root entry should remain the default. Choose `vue-clamp/pretext` only when all of these are true:
+
+- Many mounted plain-text clamps change width repeatedly, such as dense dashboards, resizable panes,
+  or responsive result grids. A few clamps that render once usually cannot amortize preparation and
+  the additional predictor payload.
+- The accelerated API shape fits the product: `max-lines`, end truncation, no `before` / `after`
+  slots or `max-height`, and either `boundary="word"` or a custom single-line ellipsis.
+- Text typography is stable, a named font is loaded before mount, and the application accepts the
+  documented differences from the browser's full inline-layout model.
+
+The subpath is usually not useful for default grapheme clamps, because those already use native CSS,
+or for API combinations that fall back to standard measurement. In either case it produces the same
+result while adding approximately 20 kB gzip to a production consumer bundle.
 
 ```vue
 <script setup lang="ts">
@@ -97,24 +107,40 @@ import { LineClamp } from "vue-clamp/pretext";
 </script>
 
 <template>
-  <LineClamp :text="title" :max-lines="2" boundary="word" font="16px Inter" />
+  <LineClamp class="title" :text="title" :max-lines="2" boundary="word" />
 </template>
+
+<style>
+.title {
+  font:
+    16px Inter,
+    sans-serif;
+}
+</style>
 ```
 
-This entry has the same props, slots, controls, events, and fallback behavior as the standard
-`LineClamp`. It chooses the cheapest semantically exact engine for each instance:
+This entry has the same public API as the standard `LineClamp`. It chooses an engine from the
+requested API shape:
 
 1. Native CSS for the standard default end/grapheme/`…` subset.
-2. Pretext for `max-lines` plus end/word/`…` clamping without affix slots or `max-height`, when a
-   non-empty `font` is supplied.
+2. Pretext for end truncation with `max-lines`, no affix slots or `max-height`, and either word
+   boundaries or a custom single-line ellipsis. Custom ellipses work with word or grapheme
+   boundaries; ellipses containing forced line breaks remain browser-measured.
 3. The standard browser-measured engine for every other combination.
 
-`font` is optional because it only enables the predictive path. When supplied, it must name a font
-that is loaded before mount; do not use `system-ui`. Predictive text uses normal horizontal wrapping,
-spacing, and casing with `overflow-wrap: break-word`. Its prepared resize path performs no DOM
-geometry reads. The subpath is intended for high-volume or frequently resizing text because cold
-font/text preparation and the extra predictor payload can outweigh the hot-path saving for one-off
-clamps.
+Before its first prediction, the component reads the rendered element's canvas font shorthand and
+the Pretext-supported `white-space`, `word-break`, and numeric `letter-spacing` values. It caches that
+typography for the instance's resize lifetime. All other CSS still renders normally but is outside
+the predictive model, so dynamic typography changes and features such as automatic hyphenation,
+contextual spacing, or font feature settings can shift the chosen prefix. Native line-clamp and
+overflow containment still prevent extra lines from being painted. Prediction can conservatively
+keep a shorter prefix than browser measurement, especially for custom grapheme ellipses or long
+unbroken text.
+
+Use a loaded named font for the most predictable result; Pretext documents `system-ui` as unsafe on
+macOS. After preparation, the resize path performs no DOM geometry or computed-style reads. The
+root entry remains the better choice whenever full browser CSS fidelity is more important than
+repeated-resize throughput.
 
 ## Trusted rich text
 
@@ -252,15 +278,17 @@ ref.
 
 Stable styling hooks use `data-part` attributes:
 
-| Component           | Parts                                        |
-| ------------------- | -------------------------------------------- |
-| `<LineClamp>`       | `root`, `content`, `before`, `body`, `after` |
-| `<RichLineClamp>`   | `root`, `content`, `before`, `body`, `after` |
-| `<InlineClamp>`     | `root`, `start`, `body`, `end`               |
-| `<WrapClamp>`       | `root`, `content`, `before`, `item`, `after` |
-| Pretext `LineClamp` | `root`, `content`, `before`, `body`, `after` |
+| Component         | Parts                                        |
+| ----------------- | -------------------------------------------- |
+| `<LineClamp>`     | `root`, `content`, `before`, `body`, `after` |
+| `<RichLineClamp>` | `root`, `content`, `before`, `body`, `after` |
+| `<InlineClamp>`   | `root`, `start`, `body`, `end`               |
+| `<WrapClamp>`     | `root`, `content`, `before`, `item`, `after` |
 
 Do not rely on internal DOM nesting as a styling contract.
+
+The Pretext entry uses `root` and `body` on its predictive path; native and browser-measured shapes
+use the standard `LineClamp` parts.
 
 ## Notes
 

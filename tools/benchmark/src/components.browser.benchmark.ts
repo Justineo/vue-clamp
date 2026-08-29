@@ -24,7 +24,6 @@ type VueClampModule = Partial<Record<ComponentName, Component>>;
 
 type BenchmarkTarget = {
   entry: string;
-  entrypoint: "pretext" | "root";
   module: VueClampModule;
   specifier: string;
   version: string;
@@ -49,14 +48,9 @@ type MountedScenario = {
 type PublicScenario = {
   beforeStep?: (mounted: MountedScenario, stepIndex: number) => Promise<void> | void;
   component: ComponentName;
-  entrypoints?: readonly BenchmarkTarget["entrypoint"][];
   group: "inline" | "line" | "pretext" | "rich" | "wrap";
   minVersion?: string;
-  mount: (
-    component: Component,
-    initialWidth: number,
-    target: BenchmarkTarget,
-  ) => Promise<MountedScenario>;
+  mount: (component: Component, initialWidth: number) => Promise<MountedScenario>;
   name: string;
   unsupportedReason?: string;
   widths: readonly number[];
@@ -479,11 +473,10 @@ function compareVersions(left: string, right: string): number {
 
 function unsupportedScenarioReason(
   scenario: PublicScenario,
-  target: Pick<BenchmarkTarget, "entrypoint" | "version">,
+  target: Pick<BenchmarkTarget, "specifier" | "version">,
 ): string | null {
-  const entrypoints = scenario.entrypoints ?? ["root"];
-  if (!entrypoints.includes(target.entrypoint)) {
-    return `${scenario.name} does not apply to the ${target.entrypoint} entry.`;
+  if (target.specifier === "current/pretext" && scenario.group !== "pretext") {
+    return `${scenario.name} does not apply to the Pretext entry.`;
   }
 
   if (scenario.minVersion && compareVersions(target.version, scenario.minVersion) < 0) {
@@ -722,8 +715,7 @@ function splitPath(value: string): { body: string; end?: string; start?: string 
 }
 
 function lineClampBatch(options: LineClampBatchOptions = {}): PublicScenario["mount"] {
-  return (component, initialWidth, target) =>
-    mountLineClampBatch(component, initialWidth, target, options);
+  return (component, initialWidth) => mountLineClampBatch(component, initialWidth, options);
 }
 
 function inlineClampBatch(options: InlineClampBatchOptions = {}): PublicScenario["mount"] {
@@ -737,13 +729,8 @@ function richLineClampBatch(options: RichLineClampBatchOptions = {}): PublicScen
 async function mountLineClampBatch(
   component: Component,
   initialWidth: number,
-  target: BenchmarkTarget,
   options: LineClampBatchOptions = {},
 ): Promise<MountedScenario> {
-  if (target.entrypoint === "pretext" && !options.font) {
-    throw new Error(`Scenario for ${target.specifier} must provide a canvas font shorthand.`);
-  }
-
   const width = ref(initialWidth);
   const contentRevision = ref(0);
   const beforeSlotCalls = createCounter();
@@ -786,9 +773,6 @@ async function mountLineClampBatch(
             }
             if (options.location !== undefined) {
               props.location = options.location;
-            }
-            if (target.entrypoint === "pretext") {
-              props.font = options.font;
             }
             if (options.boundary !== undefined) {
               props.boundary = options.boundary;
@@ -1332,7 +1316,6 @@ function pretextScenarios(): PublicScenario[] {
   return fixtures.flatMap((fixture) =>
     patterns.map((pattern) => ({
       component: "LineClamp" as const,
-      entrypoints: ["root", "pretext"] as const,
       group: "pretext" as const,
       mount: lineClampBatch({
         boundary: "word",
@@ -2748,9 +2731,9 @@ function scenarioMatchesFilter(scenario: PublicScenario, filter: string): boolea
 }
 
 function selectedScenarios(): PublicScenario[] {
-  const hasPretextTarget = targets.some((target) => target.entrypoint === "pretext");
+  const hasPretextTarget = targets.some((target) => target.specifier === "current/pretext");
   const allScenarios = scenarios().filter(
-    (scenario) => !scenario.entrypoints?.includes("pretext") || hasPretextTarget,
+    (scenario) => scenario.group !== "pretext" || hasPretextTarget,
   );
   const filter = new Set(__VUE_CLAMP_BENCH_SCENARIOS__);
   if (filter.size === 0) {
@@ -2803,14 +2786,13 @@ function emptyStepDiagnostics(): StepDiagnostics {
 async function runScenarioOnce(
   scenario: PublicScenario,
   component: Component,
-  target: BenchmarkTarget,
 ): Promise<BenchmarkRun> {
   const initialWidth = scenario.widths[0];
   if (initialWidth === undefined) {
     throw new Error(`Scenario ${scenario.name} must provide at least one width.`);
   }
 
-  const mounted = await scenario.mount(component, initialWidth, target);
+  const mounted = await scenario.mount(component, initialWidth);
   const activityTracker = createActivityTracker(mounted.root);
   const performanceTracker = createPerformanceTracker();
 
@@ -2914,19 +2896,18 @@ async function runScenarioOnce(
 async function runBenchmark(
   scenario: PublicScenario,
   component: Component,
-  target: BenchmarkTarget,
 ): Promise<BenchmarkSummary> {
   const runs: BenchmarkRun[] = [];
   let summary: BenchmarkSummary | null = null;
 
   for (let index = 0; index < benchmarkSamplingConfig.warmupRuns; index += 1) {
-    await runScenarioOnce(scenario, component, target);
+    await runScenarioOnce(scenario, component);
   }
 
   const measuredStartedAt = performance.now();
 
   for (let index = 0; index < benchmarkSamplingConfig.maxRuns; index += 1) {
-    const run = await runScenarioOnce(scenario, component, target);
+    const run = await runScenarioOnce(scenario, component);
     runs.push(run);
 
     if (runs.length >= benchmarkSamplingConfig.minRuns) {
@@ -3275,7 +3256,6 @@ function compactTargetReport(target: BenchmarkTarget, results: ScenarioResult[])
     ...(Object.keys(extraTotals).length > 0 ? { extraTotals } : {}),
     scenarios,
     target: {
-      entrypoint: target.entrypoint,
       specifier: target.specifier,
       version: target.version,
     },
@@ -3324,7 +3304,7 @@ async function runTargetBenchmarks(
     const input = inputs[0]!;
     return [
       {
-        summary: await runBenchmark(scenario, input.component, input.target),
+        summary: await runBenchmark(scenario, input.component),
         target: input.target,
       },
     ];
@@ -3333,7 +3313,7 @@ async function runTargetBenchmarks(
   for (let index = 0; index < benchmarkSamplingConfig.warmupRuns; index += 1) {
     const roundInputs = index % 2 === 0 ? inputs : [...inputs].reverse();
     for (const input of roundInputs) {
-      await runScenarioOnce(scenario, input.component, input.target);
+      await runScenarioOnce(scenario, input.component);
     }
   }
 
@@ -3349,7 +3329,7 @@ async function runTargetBenchmarks(
     const roundStates = round % 2 === 0 ? states : [...states].reverse();
     for (const state of roundStates) {
       const startedAt = performance.now();
-      const run = await runScenarioOnce(scenario, state.component, state.target);
+      const run = await runScenarioOnce(scenario, state.component);
       state.sampleWallMs += performance.now() - startedAt;
       state.runs.push(run);
     }
@@ -3547,7 +3527,6 @@ describe("vue-clamp package benchmark", () => {
       scenarios: resultsByTarget.get(target)!,
       target: {
         entry: target.entry,
-        entrypoint: target.entrypoint,
         specifier: target.specifier,
         version: target.version,
       },

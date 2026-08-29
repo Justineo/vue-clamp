@@ -2,15 +2,20 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { X } from "@lucide/vue";
 import { InlineClamp, LineClamp, RichLineClamp, WrapClamp } from "vue-clamp";
+import { LineClamp as PretextLineClamp } from "vue-clamp/pretext";
 import FpsMeter from "./FpsMeter.vue";
 import { lockPageScroll, trapDialogFocus } from "./modal";
 import { overlayScrollbarsDirective } from "./overlayScrollbars";
 
 type StressSurface = "line" | "rich" | "inline" | "wrap";
+type LineEngine = "standard" | "pretext";
+type StressBoundary = "grapheme" | "word";
 type StressLimitKind = "height" | "lines";
-type NativeClampStatus = {
-  feature: string;
-  mode: "single-line" | "multi-line";
+type StressEngineStatus = {
+  engine: "measured" | "native" | "pretext";
+  label: string;
+  nativeMode?: "single-line" | "multi-line";
+  title: string;
 };
 
 type StressWrapItem = {
@@ -27,7 +32,12 @@ type StressItem = {
   wrapItems: StressWrapItem[];
 };
 
-const { initialSurface = "line", returnFocusTo = null } = defineProps<{
+const {
+  initialLineEngine = "standard",
+  initialSurface = "line",
+  returnFocusTo = null,
+} = defineProps<{
+  initialLineEngine?: LineEngine;
   initialSurface?: StressSurface;
   returnFocusTo?: HTMLElement | null;
 }>();
@@ -40,13 +50,16 @@ const vOverlayScrollbars = overlayScrollbarsDirective;
 const closeButtonRef = ref<HTMLButtonElement | null>(null);
 const dialogRef = ref<HTMLElement | null>(null);
 const selectedSurface = ref<StressSurface>(initialSurface);
+const lineEngine = ref<LineEngine>(initialLineEngine);
 const componentCount = ref(10);
 const sharedWidth = ref(360);
 const workloadScale = ref(3);
 const limitKind = ref<StressLimitKind>("lines");
+const boundary = ref<StressBoundary>("word");
 const maxLines = ref(3);
 const maxHeight = ref(96);
 const showAfterSlot = ref(false);
+const resizeStressActive = ref(false);
 
 function noop(): void {}
 
@@ -59,10 +72,20 @@ const surfaceOptions = [
   { label: "WrapClamp", value: "wrap" },
 ] satisfies { label: string; value: StressSurface }[];
 
+const lineEngineOptions = [
+  { label: "Standard", value: "standard" },
+  { label: "Pretext", value: "pretext" },
+] satisfies { label: string; value: LineEngine }[];
+
 const limitKindOptions = [
   { label: "Lines", value: "lines" },
   { label: "Height", value: "height" },
 ] satisfies { label: string; value: StressLimitKind }[];
+
+const boundaryOptions = [
+  { label: "Grapheme", value: "grapheme" },
+  { label: "Word", value: "word" },
+] satisfies { label: string; value: StressBoundary }[];
 
 const sampleTexts = [
   "Vue Clamp keeps dense application text readable while preserving the full source text for assistive technology.",
@@ -101,6 +124,17 @@ watch(
   },
 );
 
+watch(
+  () => initialLineEngine,
+  (engine) => {
+    lineEngine.value = engine;
+  },
+);
+
+watch(selectedSurface, (surface) => {
+  if (surface !== "line") stopResizeStress();
+});
+
 const selectedSurfaceLabel = computed(
   () => surfaceOptions.find((option) => option.value === selectedSurface.value)?.label ?? "",
 );
@@ -114,26 +148,50 @@ const workloadDescription = computed(() =>
 );
 const hasLimitControls = computed(() => selectedSurface.value !== "inline");
 const supportsAfterSlot = computed(() => selectedSurface.value !== "inline");
-const nativeClampStatus = computed<NativeClampStatus | null>(() => {
-  if (selectedSurface.value !== "line" || limitKind.value !== "lines") {
+const isLineComparison = computed(() => selectedSurface.value === "line");
+const textClampComponent = computed(() =>
+  lineEngine.value === "pretext" ? PretextLineClamp : LineClamp,
+);
+const textClampLimit = computed(() =>
+  limitKind.value === "lines" ? { maxLines: maxLines.value } : { maxHeight: maxHeight.value },
+);
+const engineStatus = computed<StressEngineStatus | null>(() => {
+  if (!isLineComparison.value) {
     return null;
   }
 
-  if (maxLines.value === 1) {
+  if (
+    lineEngine.value === "pretext" &&
+    boundary.value === "word" &&
+    limitKind.value === "lines" &&
+    !showAfterSlot.value
+  ) {
     return {
-      feature: "text-overflow",
-      mode: "single-line",
+      engine: "pretext",
+      label: "Pretext",
+      title: "Pretext word-boundary prediction",
     };
   }
 
-  if (maxLines.value > 1 && !showAfterSlot.value && supportsNativeLineClamp()) {
+  if (
+    boundary.value === "grapheme" &&
+    limitKind.value === "lines" &&
+    (maxLines.value === 1 || !showAfterSlot.value)
+  ) {
+    const nativeMode = maxLines.value === 1 ? "single-line" : "multi-line";
     return {
-      feature: "line-clamp",
-      mode: "multi-line",
+      engine: "native",
+      label: "Native",
+      nativeMode,
+      title: `Native CSS ${nativeMode === "single-line" ? "text-overflow" : "line-clamp"}`,
     };
   }
 
-  return null;
+  return {
+    engine: "measured",
+    label: "Measured",
+    title: "Browser-measured LineClamp",
+  };
 });
 
 const stressItems = computed<StressItem[]>(() =>
@@ -222,12 +280,38 @@ function wrapAfterLabel(hiddenItems: readonly unknown[]): string {
   return hiddenItems.length > 0 ? `+${hiddenItems.length}` : "Action";
 }
 
-function supportsNativeLineClamp(): boolean {
-  if (typeof CSS === "undefined" || typeof CSS.supports !== "function") {
-    return false;
+let resizeFrame: number | null = null;
+let resizeDirection = 1;
+
+function toggleResizeStress(): void {
+  if (resizeStressActive.value) {
+    stopResizeStress();
+    return;
   }
 
-  return CSS.supports("-webkit-line-clamp", "2") || CSS.supports("line-clamp", "2");
+  if (sharedWidth.value >= 720) resizeDirection = -1;
+  if (sharedWidth.value <= 180) resizeDirection = 1;
+  resizeStressActive.value = true;
+  resizeFrame = requestAnimationFrame(resizeStep);
+}
+
+function resizeStep(): void {
+  const next = sharedWidth.value + resizeDirection * 8;
+
+  if (next >= 720 || next <= 180) {
+    resizeDirection *= -1;
+  }
+
+  sharedWidth.value = Math.min(720, Math.max(180, next));
+  resizeFrame = requestAnimationFrame(resizeStep);
+}
+
+function stopResizeStress(): void {
+  resizeStressActive.value = false;
+  if (resizeFrame !== null) {
+    cancelAnimationFrame(resizeFrame);
+    resizeFrame = null;
+  }
 }
 
 function close(): void {
@@ -250,6 +334,7 @@ onMounted(() => {
 });
 
 onBeforeUnmount(() => {
+  stopResizeStress();
   releaseModal();
 });
 </script>
@@ -270,14 +355,16 @@ onBeforeUnmount(() => {
               <div class="stress-title-row">
                 <h3 id="stress-playground-title">Stress playground</h3>
                 <span
-                  v-if="nativeClampStatus"
-                  class="stress-native-marker"
-                  data-stress-native-status
-                  :data-stress-native-mode="nativeClampStatus.mode"
-                  :aria-label="`Native CSS ${nativeClampStatus.feature}`"
-                  :title="`Native CSS ${nativeClampStatus.feature}`"
+                  v-if="engineStatus"
+                  class="stress-engine-marker"
+                  data-stress-engine-status
+                  :data-stress-engine="engineStatus.engine"
+                  :data-stress-native-status="engineStatus.engine === 'native' ? '' : undefined"
+                  :data-stress-native-mode="engineStatus.nativeMode"
+                  :aria-label="engineStatus.title"
+                  :title="engineStatus.title"
                 >
-                  Native
+                  {{ engineStatus.label }}
                 </span>
               </div>
               <p>
@@ -342,6 +429,42 @@ onBeforeUnmount(() => {
                   </span>
                 </div>
 
+                <div v-if="isLineComparison" class="stress-control stress-boundary-control">
+                  <span class="stress-control-label">Boundary</span>
+                  <span class="stress-surface-options" role="group" aria-label="Stress boundary">
+                    <button
+                      v-for="option in boundaryOptions"
+                      :key="option.value"
+                      class="stress-surface-option"
+                      :class="{ active: boundary === option.value }"
+                      :data-stress-boundary="option.value"
+                      type="button"
+                      :aria-pressed="boundary === option.value"
+                      @click="boundary = option.value"
+                    >
+                      {{ option.label }}
+                    </button>
+                  </span>
+                </div>
+
+                <div v-if="isLineComparison" class="stress-control stress-engine-control">
+                  <span class="stress-control-label">Engine</span>
+                  <span class="stress-surface-options" role="group" aria-label="LineClamp engine">
+                    <button
+                      v-for="option in lineEngineOptions"
+                      :key="option.value"
+                      class="stress-surface-option"
+                      :class="{ active: lineEngine === option.value }"
+                      :data-stress-line-engine="option.value"
+                      type="button"
+                      :aria-pressed="lineEngine === option.value"
+                      @click="lineEngine = option.value"
+                    >
+                      {{ option.label }}
+                    </button>
+                  </span>
+                </div>
+
                 <label v-if="supportsAfterSlot" class="stress-control stress-slot-control">
                   <span class="stress-control-label">Slots</span>
                   <span class="stress-toggle-row">
@@ -360,6 +483,22 @@ onBeforeUnmount(() => {
                     </span>
                   </span>
                 </label>
+              </div>
+
+              <div v-if="isLineComparison" class="stress-control-band stress-resize-band">
+                <p>
+                  Uses the same inputs for both engines. Run a continuous width sweep without
+                  changing the current workload, then switch between Standard and Pretext.
+                </p>
+                <button
+                  class="stress-resize-toggle"
+                  data-stress-resize-toggle
+                  type="button"
+                  :aria-pressed="resizeStressActive"
+                  @click="toggleResizeStress"
+                >
+                  {{ resizeStressActive ? "Stop resize stress" : "Run resize stress" }}
+                </button>
               </div>
 
               <div class="stress-control-band stress-slider-band">
@@ -465,32 +604,18 @@ onBeforeUnmount(() => {
                     {{ selectedSurfaceLabel }} · {{ item.limitKind }}
                   </span>
 
-                  <template v-if="selectedSurface === 'line'">
-                    <LineClamp
-                      v-if="item.limitKind === 'lines'"
-                      class="stress-clamp"
-                      :text="item.text"
-                      :max-lines="maxLines"
-                    >
-                      <template #after>
-                        <span v-if="showAfterSlot" class="stress-after-slot" data-stress-after-slot>
-                          After
-                        </span>
-                      </template>
-                    </LineClamp>
-                    <LineClamp
-                      v-else
-                      class="stress-clamp"
-                      :text="item.text"
-                      :max-height="maxHeight"
-                    >
-                      <template #after>
-                        <span v-if="showAfterSlot" class="stress-after-slot" data-stress-after-slot>
-                          After
-                        </span>
-                      </template>
-                    </LineClamp>
-                  </template>
+                  <component
+                    :is="textClampComponent"
+                    v-if="isLineComparison"
+                    class="stress-clamp"
+                    :text="item.text"
+                    :boundary="boundary"
+                    v-bind="textClampLimit"
+                  >
+                    <template v-if="showAfterSlot" #after>
+                      <span class="stress-after-slot" data-stress-after-slot>After</span>
+                    </template>
+                  </component>
 
                   <template v-else-if="selectedSurface === 'rich'">
                     <RichLineClamp
@@ -867,7 +992,7 @@ onBeforeUnmount(() => {
   color: var(--c-text);
 }
 
-.stress-native-marker {
+.stress-engine-marker {
   display: inline-flex;
   align-items: center;
   flex: 0 0 auto;
@@ -882,6 +1007,41 @@ onBeforeUnmount(() => {
   border-radius: 999px;
   letter-spacing: 0;
   text-transform: uppercase;
+}
+
+.stress-resize-band {
+  gap: 9px;
+}
+
+.stress-resize-band p {
+  margin: 0;
+  font-size: 0.76rem;
+  line-height: 1.45;
+  color: var(--c-text-3);
+}
+
+.stress-resize-toggle {
+  min-height: 32px;
+  padding: 0 12px;
+  font-family: inherit;
+  font-size: 0.78rem;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--c-accent-text);
+  background: var(--c-accent-soft);
+  border: 1px solid color-mix(in srgb, var(--c-accent) 24%, transparent);
+  border-radius: 7px;
+  cursor: pointer;
+}
+
+.stress-resize-toggle[aria-pressed="true"] {
+  color: var(--c-bg);
+  background: var(--c-accent);
+}
+
+.stress-resize-toggle:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
 }
 
 .stress-workload {
@@ -907,6 +1067,7 @@ onBeforeUnmount(() => {
   display: grid;
   gap: 5px;
   flex: 0 0 min(100%, var(--stress-width));
+  min-inline-size: 0;
   padding: 8px 10px;
   background: var(--c-bg);
   border: 1px solid color-mix(in srgb, var(--c-border) 78%, transparent);
@@ -925,6 +1086,7 @@ onBeforeUnmount(() => {
 
 .stress-clamp {
   display: block;
+  min-inline-size: 0;
   max-width: 100%;
   font-size: 0.82rem;
   line-height: 1.45;

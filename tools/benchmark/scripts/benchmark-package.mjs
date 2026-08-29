@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 
 import { createHash } from "node:crypto";
-import { spawn } from "node:child_process";
 import { createRequire } from "node:module";
 import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { run } from "./run.mjs";
 
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const workspaceRoot = resolve(packageRoot, "../..");
@@ -31,36 +31,6 @@ async function pathExists(path) {
   } catch {
     return false;
   }
-}
-
-function run(command, args, options = {}) {
-  return new Promise((resolveRun, rejectRun) => {
-    const child = spawn(command, args, {
-      cwd: options.cwd ?? workspaceRoot,
-      env: {
-        ...process.env,
-        ...options.env,
-      },
-      shell: process.platform === "win32",
-      stdio: "inherit",
-    });
-
-    child.on("error", rejectRun);
-    child.on("exit", (code, signal) => {
-      if (code === 0) {
-        resolveRun();
-        return;
-      }
-
-      rejectRun(
-        new Error(
-          signal
-            ? `${command} ${args.join(" ")} exited with signal ${signal}`
-            : `${command} ${args.join(" ")} exited with code ${code ?? "unknown"}`,
-        ),
-      );
-    });
-  });
 }
 
 function splitCliArgs(args) {
@@ -188,13 +158,12 @@ async function findPackageFromEntry(entry, packageName) {
 let currentBuild;
 
 async function currentTarget(specifier) {
-  currentBuild ??= run("vp", ["run", "vue-clamp#build"]);
+  currentBuild ??= run("vp", ["run", "vue-clamp#build"], { cwd: workspaceRoot });
   await currentBuild;
 
-  const entrypoint = specifier === "current/pretext" ? "pretext" : "root";
   const entry = resolve(
     workspaceRoot,
-    `packages/vue-clamp/dist/${entrypoint === "pretext" ? "pretext" : "index"}.js`,
+    `packages/vue-clamp/dist/${specifier === "current/pretext" ? "pretext" : "index"}.js`,
   );
   if (!(await pathExists(entry))) {
     throw new Error(`Current package build did not create ${entry}`);
@@ -204,7 +173,6 @@ async function currentTarget(specifier) {
 
   return {
     entry,
-    entrypoint,
     specifier,
     version: packageJson.version ?? "0.0.0",
   };
@@ -244,7 +212,6 @@ async function installedTarget(specifier) {
 
   return {
     entry,
-    entrypoint: "root",
     specifier,
     version: packageInfo.packageJson.version ?? "unknown",
   };
@@ -266,12 +233,9 @@ for (const specifier of targetSpecifiers) {
 }
 
 await run("vp", ["test", "-c", "tools/benchmark/vite.package.config.ts", ...passthroughArgs], {
+  cwd: workspaceRoot,
   env: {
-    VUE_CLAMP_BENCH_ENTRY: targets[0].entry,
-    VUE_CLAMP_BENCH_ENTRYPOINT: targets[0].entrypoint,
     VUE_CLAMP_BENCH_SCENARIOS: await scenarioFilterEnv(),
-    VUE_CLAMP_BENCH_SPECIFIER: targets[0].specifier,
     VUE_CLAMP_BENCH_TARGETS: JSON.stringify(targets),
-    VUE_CLAMP_BENCH_VERSION: targets[0].version,
   },
 });

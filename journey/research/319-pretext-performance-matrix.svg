@@ -8,7 +8,7 @@ text{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;fill:#17
 <text class="title" x="32" y="34">LineClamp entrypoint benchmark matrix</text>
 <text class="axis" x="32" y="56">Only the shared root/Pretext public contract is shown. N/A means a target does not implement the scenario.</text>
 <text class="axis" x="32" y="74">Green is lower cost, red is higher cost. The first panel shows active ms; the second shows root-to-Pretext deltas.</text>
-<text class="axis" x="32" y="92">Timing applies to synchronous component work under the explicit-font predictive contract; see Markdown comparability notes.</text>
+<text class="axis" x="32" y="92">Timing applies to synchronous component work under the CSS-controlled predictive contract; see Markdown comparability notes.</text>
 <text class="axis" x="32" y="110">~ and a top-right triangle mark low-confidence deltas; high CV, overlapping mean MOE, or median/mean direction mismatch is the trigger.</text>
 <text class="panelTitle" x="32" y="128">Active time by entrypoint</text>
 <text class="axis" x="32" y="146">Cell text is median active ms; color is delta vs this scenario's first supported target.</text>
@@ -16,106 +16,115 @@ text{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;fill:#17
 <text class="axis" x="550" y="164" text-anchor="middle">current/pretext</text>
 <text class="group" x="32" y="186">PRETEXT</text>
 <text class="scenario" x="112" y="186">line-pretext-english-batch-continuous</text>
-<rect class="cell" x="412" y="172" width="92" height="22" fill="#f1f5f9"><title>current line-pretext-english-batch-continuous: active 124.7ms, delta 0.0%, active RME 13.7%, active CV 11.0%, active stddev 14.4ms, bbox reads 6080, client rects 0, client rect entries 0, offset reads 0, mean active MOE 0.3ms, total sampled active 654.1ms, sample wall 8887.3ms, samples 5</title></rect>
-<text class="cellValue" x="458" y="186" text-anchor="middle">125</text>
-<rect class="cell" x="504" y="172" width="92" height="22" fill="#0f766e"><title>current/pretext line-pretext-english-batch-continuous: active 55.0ms, delta -55.9%, active RME 3.2%, active CV 2.6%, active stddev 1.4ms, bbox reads 0, client rects 0, client rect entries 0, offset reads 0, mean active MOE 0.0ms, total sampled active 275.5ms, sample wall 8873.5ms, samples 5</title></rect>
-<text class="cellValue" x="550" y="186" text-anchor="middle">55</text>
+<rect class="cell" x="412" y="172" width="92" height="22" fill="#f1f5f9"><title>current line-pretext-english-batch-continuous: active 201.3ms, delta 0.0%, active RME 28.8%, active CV 23.2%, active stddev 41.3ms, bbox reads 6080, client rects 0, client rect entries 0, offset reads 0, mean active MOE 0.7ms, total sampled active 890.8ms, sample wall 8874.7ms, samples 5</title></rect>
+<text class="cellValue" x="458" y="186" text-anchor="middle">201</text>
+<rect class="cell" x="504" y="172" width="92" height="22" fill="#0f766e"><title>current/pretext line-pretext-english-batch-continuous: active 97.5ms, delta -51.6%, active RME 20.2%, active CV 16.3%, active stddev 16.3ms, bbox reads 0, client rects 0, client rect entries 0, offset reads 0, mean active MOE 0.3ms, total sampled active 500.0ms, sample wall 8872.5ms, samples 5</title></rect>
+<text class="cellValue" x="550" y="186" text-anchor="middle">98</text>
 <text class="scenario" x="112" y="208">line-pretext-english-batch-jitter</text>
-<rect class="cell" x="412" y="194" width="92" height="22" fill="#f1f5f9"><title>current line-pretext-english-batch-jitter: active 144.3ms, delta 0.0%, active RME 0.9%, active CV 0.7%, active stddev 1.0ms, bbox reads 7360, client rects 0, client rect entries 0, offset reads 0, mean active MOE 0.0ms, total sampled active 721.7ms, sample wall 8874.1ms, samples 5</title></rect>
-<text class="cellValue" x="458" y="208" text-anchor="middle">144</text>
-<rect class="cell" x="504" y="194" width="92" height="22" fill="#0f766e"><title>current/pretext line-pretext-english-batch-jitter: active 54.6ms, delta -62.2%, active RME 2.5%, active CV 2.0%, active stddev 1.1ms, bbox reads 0, client rects 0, client rect entries 0, offset reads 0, mean active MOE 0.0ms, total sampled active 275.9ms, sample wall 8875.7ms, samples 5</title></rect>
-<text class="cellValue" x="550" y="208" text-anchor="middle">55</text>
+<rect class="cell" x="412" y="194" width="92" height="22" fill="#f1f5f9"><title>current line-pretext-english-batch-jitter: active 210.5ms, delta 0.0%, active RME 11.0%, active CV 8.9%, active stddev 18.2ms, bbox reads 7360, client rects 0, client rect entries 0, offset reads 0, mean active MOE 0.3ms, total sampled active 1027.0ms, sample wall 8874.0ms, samples 5</title></rect>
+<text class="cellValue" x="458" y="208" text-anchor="middle">211</text>
+<rect class="cell" x="504" y="194" width="92" height="22" fill="#14b8a6"><title>current/pretext line-pretext-english-batch-jitter: active 107.1ms, delta -49.1%, active RME 37.6%, active CV 30.2%, active stddev 30.1ms, bbox reads 0, client rects 0, client rect entries 0, offset reads 0, mean active MOE 0.5ms, total sampled active 497.8ms, sample wall 8875.1ms, samples 5</title></rect>
+<text class="cellValue" x="550" y="208" text-anchor="middle">107</text>
 <text class="scenario" x="112" y="230">line-pretext-english-batch-jumps</text>
-<rect class="cell" x="412" y="216" width="92" height="22" fill="#f1f5f9"><title>current line-pretext-english-batch-jumps: active 82.2ms, delta 0.0%, active RME 2.3%, active CV 1.9%, active stddev 1.6ms, bbox reads 4752, client rects 0, client rect entries 0, offset reads 0, mean active MOE 0.1ms, total sampled active 414.9ms, sample wall 3502.2ms, samples 5</title></rect>
-<text class="cellValue" x="458" y="230" text-anchor="middle">82</text>
-<rect class="cell" x="504" y="216" width="92" height="22" fill="#0f766e"><title>current/pretext line-pretext-english-batch-jumps: active 21.9ms, delta -73.4%, active RME 3.4%, active CV 2.7%, active stddev 0.6ms, bbox reads 0, client rects 0, client rect entries 0, offset reads 0, mean active MOE 0.0ms, total sampled active 110.5ms, sample wall 3501.6ms, samples 5</title></rect>
-<text class="cellValue" x="550" y="230" text-anchor="middle">22</text>
+<rect class="cell" x="412" y="216" width="92" height="22" fill="#f1f5f9"><title>current line-pretext-english-batch-jumps: active 95.2ms, delta 0.0%, active RME 15.8%, active CV 12.7%, active stddev 11.4ms, bbox reads 4752, client rects 0, client rect entries 0, offset reads 0, mean active MOE 0.5ms, total sampled active 447.1ms, sample wall 3503.7ms, samples 5</title></rect>
+<text class="cellValue" x="458" y="230" text-anchor="middle">95</text>
+<rect class="cell" x="504" y="216" width="92" height="22" fill="#0f766e"><title>current/pretext line-pretext-english-batch-jumps: active 31.8ms, delta -66.6%, active RME 39.3%, active CV 31.6%, active stddev 11.6ms, bbox reads 0, client rects 0, client rect entries 0, offset reads 0, mean active MOE 0.5ms, total sampled active 183.6ms, sample wall 3500.9ms, samples 5</title></rect>
+<text class="cellValue" x="550" y="230" text-anchor="middle">32</text>
 <text class="scenario" x="112" y="252">line-pretext-cjk-batch-continuous</text>
-<rect class="cell" x="412" y="238" width="92" height="22" fill="#f1f5f9"><title>current line-pretext-cjk-batch-continuous: active 109.1ms, delta 0.0%, active RME 1.7%, active CV 1.4%, active stddev 1.5ms, bbox reads 5232, client rects 0, client rect entries 0, offset reads 0, mean active MOE 0.0ms, total sampled active 547.5ms, sample wall 8872.6ms, samples 5</title></rect>
-<text class="cellValue" x="458" y="252" text-anchor="middle">109</text>
-<rect class="cell" x="504" y="238" width="92" height="22" fill="#14b8a6"><title>current/pretext line-pretext-cjk-batch-continuous: active 55.0ms, delta -49.6%, active RME 18.3%, active CV 14.8%, active stddev 9.0ms, bbox reads 0, client rects 0, client rect entries 0, offset reads 0, mean active MOE 0.2ms, total sampled active 305.4ms, sample wall 8870.2ms, samples 5</title></rect>
-<text class="cellValue" x="550" y="252" text-anchor="middle">55</text>
+<rect class="cell" x="412" y="238" width="92" height="22" fill="#f1f5f9"><title>current line-pretext-cjk-batch-continuous: active 172.4ms, delta 0.0%, active RME 7.7%, active CV 6.2%, active stddev 11.1ms, bbox reads 5232, client rects 0, client rect entries 0, offset reads 0, mean active MOE 0.2ms, total sampled active 891.2ms, sample wall 8872.3ms, samples 5</title></rect>
+<text class="cellValue" x="458" y="252" text-anchor="middle">172</text>
+<rect class="cell" x="504" y="238" width="92" height="22" fill="#14b8a6"><title>current/pretext line-pretext-cjk-batch-continuous: active 119.3ms, delta -30.8%, active RME 13.7%, active CV 11.0%, active stddev 13.6ms, bbox reads 0, client rects 0, client rect entries 0, offset reads 0, mean active MOE 0.2ms, total sampled active 615.2ms, sample wall 8875.8ms, samples 5</title></rect>
+<text class="cellValue" x="550" y="252" text-anchor="middle">119</text>
 <text class="scenario" x="112" y="274">line-pretext-cjk-batch-jitter</text>
-<rect class="cell" x="412" y="260" width="92" height="22" fill="#f1f5f9"><title>current line-pretext-cjk-batch-jitter: active 178.2ms, delta 0.0%, active RME 1.6%, active CV 1.2%, active stddev 2.2ms, bbox reads 7712, client rects 0, client rect entries 0, offset reads 0, mean active MOE 0.0ms, total sampled active 894.5ms, sample wall 8876.4ms, samples 5</title></rect>
-<text class="cellValue" x="458" y="274" text-anchor="middle">178</text>
-<rect class="cell" x="504" y="260" width="92" height="22" fill="#0f766e"><title>current/pretext line-pretext-cjk-batch-jitter: active 56.8ms, delta -68.1%, active RME 1.5%, active CV 1.2%, active stddev 0.7ms, bbox reads 0, client rects 0, client rect entries 0, offset reads 0, mean active MOE 0.0ms, total sampled active 285.2ms, sample wall 8873.6ms, samples 5</title></rect>
-<text class="cellValue" x="550" y="274" text-anchor="middle">57</text>
+<rect class="cell" x="412" y="260" width="92" height="22" fill="#f1f5f9"><title>current line-pretext-cjk-batch-jitter: active 235.4ms, delta 0.0%, active RME 23.5%, active CV 18.9%, active stddev 41.4ms, bbox reads 7712, client rects 0, client rect entries 0, offset reads 0, mean active MOE 0.7ms, total sampled active 1092.3ms, sample wall 8874.5ms, samples 5</title></rect>
+<text class="cellValue" x="458" y="274" text-anchor="middle">235</text>
+<rect class="cell" x="504" y="260" width="92" height="22" fill="#0f766e"><title>current/pretext line-pretext-cjk-batch-jitter: active 98.8ms, delta -58.0%, active RME 39.6%, active CV 31.9%, active stddev 27.5ms, bbox reads 0, client rects 0, client rect entries 0, offset reads 0, mean active MOE 0.5ms, total sampled active 431.6ms, sample wall 8873.9ms, samples 5</title></rect>
+<text class="cellValue" x="550" y="274" text-anchor="middle">99</text>
 <text class="scenario" x="112" y="296">line-pretext-cjk-batch-jumps</text>
-<rect class="cell" x="412" y="282" width="92" height="22" fill="#f1f5f9"><title>current line-pretext-cjk-batch-jumps: active 96.4ms, delta 0.0%, active RME 1.9%, active CV 1.5%, active stddev 1.4ms, bbox reads 4688, client rects 0, client rect entries 0, offset reads 0, mean active MOE 0.1ms, total sampled active 480.9ms, sample wall 3498.9ms, samples 5</title></rect>
-<text class="cellValue" x="458" y="296" text-anchor="middle">96</text>
-<rect class="cell" x="504" y="282" width="92" height="22" fill="#0f766e"><title>current/pretext line-pretext-cjk-batch-jumps: active 22.6ms, delta -76.6%, active RME 3.5%, active CV 2.8%, active stddev 0.6ms, bbox reads 0, client rects 0, client rect entries 0, offset reads 0, mean active MOE 0.0ms, total sampled active 111.7ms, sample wall 3498.9ms, samples 5</title></rect>
-<text class="cellValue" x="550" y="296" text-anchor="middle">23</text>
+<rect class="cell" x="412" y="282" width="92" height="22" fill="#f1f5f9"><title>current line-pretext-cjk-batch-jumps: active 91.7ms, delta 0.0%, active RME 16.8%, active CV 13.5%, active stddev 13.5ms, bbox reads 4688, client rects 0, client rect entries 0, offset reads 0, mean active MOE 0.6ms, total sampled active 497.0ms, sample wall 3499.8ms, samples 5</title></rect>
+<text class="cellValue" x="458" y="296" text-anchor="middle">92</text>
+<rect class="cell" x="504" y="282" width="92" height="22" fill="#0f766e"><title>current/pretext line-pretext-cjk-batch-jumps: active 22.2ms, delta -75.8%, active RME 28.8%, active CV 23.2%, active stddev 5.7ms, bbox reads 0, client rects 0, client rect entries 0, offset reads 0, mean active MOE 0.3ms, total sampled active 121.7ms, sample wall 3499.2ms, samples 5</title></rect>
+<text class="cellValue" x="550" y="296" text-anchor="middle">22</text>
 <text class="scenario" x="112" y="318">line-pretext-thai-batch-continuous</text>
-<rect class="cell" x="412" y="304" width="92" height="22" fill="#f1f5f9"><title>current line-pretext-thai-batch-continuous: active 122.6ms, delta 0.0%, active RME 1.4%, active CV 1.1%, active stddev 1.3ms, bbox reads 4677, client rects 0, client rect entries 0, offset reads 0, mean active MOE 0.0ms, total sampled active 610.0ms, sample wall 8873.6ms, samples 5</title></rect>
-<text class="cellValue" x="458" y="318" text-anchor="middle">123</text>
-<rect class="cell" x="504" y="304" width="92" height="22" fill="#0f766e"><title>current/pretext line-pretext-thai-batch-continuous: active 60.6ms, delta -50.6%, active RME 1.5%, active CV 1.2%, active stddev 0.7ms, bbox reads 0, client rects 0, client rect entries 0, offset reads 0, mean active MOE 0.0ms, total sampled active 303.4ms, sample wall 8875.5ms, samples 5</title></rect>
-<text class="cellValue" x="550" y="318" text-anchor="middle">61</text>
+<rect class="cell" x="412" y="304" width="92" height="22" fill="#f1f5f9"><title>current line-pretext-thai-batch-continuous: active 119.4ms, delta 0.0%, active RME 10.2%, active CV 8.2%, active stddev 9.9ms, bbox reads 4677, client rects 0, client rect entries 0, offset reads 0, mean active MOE 0.2ms, total sampled active 599.7ms, sample wall 8872.6ms, samples 5</title></rect>
+<text class="cellValue" x="458" y="318" text-anchor="middle">119</text>
+<rect class="cell" x="504" y="304" width="92" height="22" fill="#14b8a6"><title>current/pretext line-pretext-thai-batch-continuous: active 59.9ms, delta -49.8%, active RME 3.5%, active CV 2.8%, active stddev 1.7ms, bbox reads 0, client rects 0, client rect entries 0, offset reads 0, mean active MOE 0.0ms, total sampled active 299.4ms, sample wall 8877.9ms, samples 5</title></rect>
+<text class="cellValue" x="550" y="318" text-anchor="middle">60</text>
 <text class="scenario" x="112" y="340">line-pretext-thai-batch-jitter</text>
-<rect class="cell" x="412" y="326" width="92" height="22" fill="#f1f5f9"><title>current line-pretext-thai-batch-jitter: active 124.1ms, delta 0.0%, active RME 0.8%, active CV 0.7%, active stddev 0.8ms, bbox reads 4852, client rects 0, client rect entries 0, offset reads 0, mean active MOE 0.0ms, total sampled active 622.1ms, sample wall 8873.0ms, samples 5</title></rect>
-<text class="cellValue" x="458" y="340" text-anchor="middle">124</text>
-<rect class="cell" x="504" y="326" width="92" height="22" fill="#14b8a6"><title>current/pretext line-pretext-thai-batch-jitter: active 65.4ms, delta -47.3%, active RME 1.6%, active CV 1.3%, active stddev 0.8ms, bbox reads 0, client rects 0, client rect entries 0, offset reads 0, mean active MOE 0.0ms, total sampled active 327.6ms, sample wall 8875.5ms, samples 5</title></rect>
-<text class="cellValue" x="550" y="340" text-anchor="middle">65</text>
+<rect class="cell" x="412" y="326" width="92" height="22" fill="#f1f5f9"><title>current line-pretext-thai-batch-jitter: active 195.0ms, delta 0.0%, active RME 7.1%, active CV 5.7%, active stddev 11.4ms, bbox reads 4852, client rects 0, client rect entries 0, offset reads 0, mean active MOE 0.2ms, total sampled active 990.9ms, sample wall 8875.4ms, samples 5</title></rect>
+<text class="cellValue" x="458" y="340" text-anchor="middle">195</text>
+<rect class="cell" x="504" y="326" width="92" height="22" fill="#14b8a6"><title>current/pretext line-pretext-thai-batch-jitter: active 112.5ms, delta -42.3%, active RME 15.5%, active CV 12.5%, active stddev 14.8ms, bbox reads 0, client rects 0, client rect entries 0, offset reads 0, mean active MOE 0.3ms, total sampled active 593.2ms, sample wall 8875.1ms, samples 5</title></rect>
+<text class="cellValue" x="550" y="340" text-anchor="middle">113</text>
 <text class="scenario" x="112" y="362">line-pretext-thai-batch-jumps</text>
-<rect class="cell" x="412" y="348" width="92" height="22" fill="#f1f5f9"><title>current line-pretext-thai-batch-jumps: active 188.6ms, delta 0.0%, active RME 2.9%, active CV 2.4%, active stddev 4.4ms, bbox reads 4688, client rects 0, client rect entries 0, offset reads 0, mean active MOE 0.2ms, total sampled active 938.2ms, sample wall 3507.7ms, samples 5</title></rect>
-<text class="cellValue" x="458" y="362" text-anchor="middle">189</text>
-<rect class="cell" x="504" y="348" width="92" height="22" fill="#0f766e"><title>current/pretext line-pretext-thai-batch-jumps: active 25.2ms, delta -86.6%, active RME 3.3%, active CV 2.7%, active stddev 0.7ms, bbox reads 0, client rects 0, client rect entries 0, offset reads 0, mean active MOE 0.0ms, total sampled active 125.5ms, sample wall 3497.2ms, samples 5</title></rect>
+<rect class="cell" x="412" y="348" width="92" height="22" fill="#f1f5f9"><title>current line-pretext-thai-batch-jumps: active 169.8ms, delta 0.0%, active RME 7.7%, active CV 6.2%, active stddev 10.8ms, bbox reads 4688, client rects 0, client rect entries 0, offset reads 0, mean active MOE 0.5ms, total sampled active 875.5ms, sample wall 3501.2ms, samples 5</title></rect>
+<text class="cellValue" x="458" y="362" text-anchor="middle">170</text>
+<rect class="cell" x="504" y="348" width="92" height="22" fill="#0f766e"><title>current/pretext line-pretext-thai-batch-jumps: active 24.5ms, delta -85.6%, active RME 32.2%, active CV 25.9%, active stddev 7.2ms, bbox reads 0, client rects 0, client rect entries 0, offset reads 0, mean active MOE 0.3ms, total sampled active 138.2ms, sample wall 3497.8ms, samples 5</title></rect>
 <text class="cellValue" x="550" y="362" text-anchor="middle">25</text>
 <text class="scenario" x="112" y="384">line-pretext-long-token-batch-continuous</text>
-<rect class="cell" x="412" y="370" width="92" height="22" fill="#f1f5f9"><title>current line-pretext-long-token-batch-continuous: active 408.6ms, delta 0.0%, active RME 0.6%, active CV 0.5%, active stddev 1.8ms, bbox reads 15904, client rects 0, client rect entries 0, offset reads 0, mean active MOE 0.0ms, total sampled active 2037.0ms, sample wall 8923.7ms, samples 5</title></rect>
-<text class="cellValue" x="458" y="384" text-anchor="middle">409</text>
-<rect class="cell" x="504" y="370" width="92" height="22" fill="#0f766e"><title>current/pretext line-pretext-long-token-batch-continuous: active 58.7ms, delta -85.6%, active RME 2.1%, active CV 1.7%, active stddev 1.0ms, bbox reads 0, client rects 0, client rect entries 0, offset reads 0, mean active MOE 0.0ms, total sampled active 295.8ms, sample wall 8876.7ms, samples 5</title></rect>
-<text class="cellValue" x="550" y="384" text-anchor="middle">59</text>
+<rect class="cell" x="412" y="370" width="92" height="22" fill="#f1f5f9"><title>current line-pretext-long-token-batch-continuous: active 437.2ms, delta 0.0%, active RME 3.4%, active CV 2.7%, active stddev 12.2ms, bbox reads 15904, client rects 0, client rect entries 0, offset reads 0, mean active MOE 0.2ms, total sampled active 2222.1ms, sample wall 8942.2ms, samples 5</title></rect>
+<text class="cellValue" x="458" y="384" text-anchor="middle">437</text>
+<rect class="cell" x="504" y="370" width="92" height="22" fill="#0f766e"><title>current/pretext line-pretext-long-token-batch-continuous: active 111.9ms, delta -74.4%, active RME 19.2%, active CV 15.5%, active stddev 18.0ms, bbox reads 0, client rects 0, client rect entries 0, offset reads 0, mean active MOE 0.3ms, total sampled active 580.9ms, sample wall 8873.6ms, samples 5</title></rect>
+<text class="cellValue" x="550" y="384" text-anchor="middle">112</text>
 <text class="scenario" x="112" y="406">line-pretext-long-token-batch-jitter</text>
-<rect class="cell" x="412" y="392" width="92" height="22" fill="#f1f5f9"><title>current line-pretext-long-token-batch-jitter: active 402.5ms, delta 0.0%, active RME 1.0%, active CV 0.8%, active stddev 3.1ms, bbox reads 15936, client rects 0, client rect entries 0, offset reads 0, mean active MOE 0.1ms, total sampled active 2009.2ms, sample wall 8890.3ms, samples 5</title></rect>
-<text class="cellValue" x="458" y="406" text-anchor="middle">403</text>
-<rect class="cell" x="504" y="392" width="92" height="22" fill="#0f766e"><title>current/pretext line-pretext-long-token-batch-jitter: active 58.2ms, delta -85.5%, active RME 1.7%, active CV 1.4%, active stddev 0.8ms, bbox reads 0, client rects 0, client rect entries 0, offset reads 0, mean active MOE 0.0ms, total sampled active 292.9ms, sample wall 8875.3ms, samples 5</title></rect>
-<text class="cellValue" x="550" y="406" text-anchor="middle">58</text>
+<rect class="cell" x="412" y="392" width="92" height="22" fill="#f1f5f9"><title>current line-pretext-long-token-batch-jitter: active 441.3ms, delta 0.0%, active RME 0.8%, active CV 0.7%, active stddev 2.9ms, bbox reads 15936, client rects 0, client rect entries 0, offset reads 0, mean active MOE 0.1ms, total sampled active 2207.0ms, sample wall 8914.3ms, samples 5</title></rect>
+<text class="cellValue" x="458" y="406" text-anchor="middle">441</text>
+<rect class="cell" x="504" y="392" width="92" height="22" fill="#0f766e"><title>current/pretext line-pretext-long-token-batch-jitter: active 125.9ms, delta -71.5%, active RME 27.2%, active CV 21.9%, active stddev 26.8ms, bbox reads 0, client rects 0, client rect entries 0, offset reads 0, mean active MOE 0.5ms, total sampled active 612.1ms, sample wall 8877.3ms, samples 5</title></rect>
+<text class="cellValue" x="550" y="406" text-anchor="middle">126</text>
 <text class="scenario" x="112" y="428">line-pretext-long-token-batch-jumps</text>
-<rect class="cell" x="412" y="414" width="92" height="22" fill="#f1f5f9"><title>current line-pretext-long-token-batch-jumps: active 161.1ms, delta 0.0%, active RME 1.1%, active CV 0.9%, active stddev 1.4ms, bbox reads 6176, client rects 0, client rect entries 0, offset reads 0, mean active MOE 0.1ms, total sampled active 805.4ms, sample wall 3508.2ms, samples 5</title></rect>
-<text class="cellValue" x="458" y="428" text-anchor="middle">161</text>
-<rect class="cell" x="504" y="414" width="92" height="22" fill="#0f766e"><title>current/pretext line-pretext-long-token-batch-jumps: active 23.2ms, delta -85.6%, active RME 1.9%, active CV 1.5%, active stddev 0.3ms, bbox reads 0, client rects 0, client rect entries 0, offset reads 0, mean active MOE 0.0ms, total sampled active 115.1ms, sample wall 3498.5ms, samples 5</title></rect>
-<text class="cellValue" x="550" y="428" text-anchor="middle">23</text>
+<rect class="cell" x="412" y="414" width="92" height="22" fill="#f1f5f9"><title>current line-pretext-long-token-batch-jumps: active 180.8ms, delta 0.0%, active RME 4.7%, active CV 3.8%, active stddev 6.9ms, bbox reads 6176, client rects 0, client rect entries 0, offset reads 0, mean active MOE 0.3ms, total sampled active 905.5ms, sample wall 3531.4ms, samples 5</title></rect>
+<text class="cellValue" x="458" y="428" text-anchor="middle">181</text>
+<rect class="cell" x="504" y="414" width="92" height="22" fill="#0f766e"><title>current/pretext line-pretext-long-token-batch-jumps: active 45.5ms, delta -74.8%, active RME 36.4%, active CV 29.3%, active stddev 13.2ms, bbox reads 0, client rects 0, client rect entries 0, offset reads 0, mean active MOE 0.6ms, total sampled active 224.3ms, sample wall 3499.8ms, samples 5</title></rect>
+<text class="cellValue" x="550" y="428" text-anchor="middle">46</text>
 <text class="panelTitle" x="32" y="482">Root-to-Pretext deltas</text>
 <text class="axis" x="32" y="500">Cell text is the root-to-Pretext active-time delta for the same scenario.</text>
 <text class="axis" x="458" y="518" text-anchor="middle">current&gt;current/pretext</text>
 <text class="group" x="32" y="540">PRETEXT</text>
 <text class="scenario" x="112" y="540">line-pretext-english-batch-continuous</text>
-<rect class="cell" x="412" y="526" width="92" height="22" fill="#0f766e"><title>current &gt; current/pretext line-pretext-english-batch-continuous: active 124.7ms -&gt; 55.0ms, delta -55.9%, bbox -100.0%, client rect N/A, client rect entries N/A, mutation records -32.8%, offset N/A, low confidence: high active-time CV</title></rect>
+<rect class="cell" x="412" y="526" width="92" height="22" fill="#0f766e"><title>current &gt; current/pretext line-pretext-english-batch-continuous: active 201.3ms -&gt; 97.5ms, delta -51.6%, bbox -100.0%, client rect N/A, client rect entries N/A, mutation records -32.8%, offset N/A, low confidence: high active-time CV</title></rect>
 <polygon points="494,527 503,527 503,536" fill="#111827" opacity="0.78"><title>Low confidence: high active-time CV</title></polygon>
-<text class="cellValue" x="458" y="540" text-anchor="middle">~-55.9%</text>
+<text class="cellValue" x="458" y="540" text-anchor="middle">~-51.6%</text>
 <text class="scenario" x="112" y="562">line-pretext-english-batch-jitter</text>
-<rect class="cell" x="412" y="548" width="92" height="22" fill="#0f766e"><title>current &gt; current/pretext line-pretext-english-batch-jitter: active 144.3ms -&gt; 54.6ms, delta -62.2%, bbox -100.0%, client rect N/A, client rect entries N/A, mutation records -31.9%, offset N/A, max work-counter delta +Infinity%</title></rect>
-<text class="cellValue" x="458" y="562" text-anchor="middle">-62.2%</text>
+<rect class="cell" x="412" y="548" width="92" height="22" fill="#14b8a6"><title>current &gt; current/pretext line-pretext-english-batch-jitter: active 210.5ms -&gt; 107.1ms, delta -49.1%, bbox -100.0%, client rect N/A, client rect entries N/A, mutation records -31.9%, offset N/A, low confidence: high active-time CV</title></rect>
+<polygon points="494,549 503,549 503,558" fill="#111827" opacity="0.78"><title>Low confidence: high active-time CV</title></polygon>
+<text class="cellValue" x="458" y="562" text-anchor="middle">~-49.1%</text>
 <text class="scenario" x="112" y="584">line-pretext-english-batch-jumps</text>
-<rect class="cell" x="412" y="570" width="92" height="22" fill="#0f766e"><title>current &gt; current/pretext line-pretext-english-batch-jumps: active 82.2ms -&gt; 21.9ms, delta -73.4%, bbox -100.0%, client rect N/A, client rect entries N/A, mutation records -59.1%, offset N/A, max work-counter delta +Infinity%</title></rect>
-<text class="cellValue" x="458" y="584" text-anchor="middle">-73.4%</text>
+<rect class="cell" x="412" y="570" width="92" height="22" fill="#0f766e"><title>current &gt; current/pretext line-pretext-english-batch-jumps: active 95.2ms -&gt; 31.8ms, delta -66.6%, bbox -100.0%, client rect N/A, client rect entries N/A, mutation records -59.1%, offset N/A, low confidence: high active-time CV</title></rect>
+<polygon points="494,571 503,571 503,580" fill="#111827" opacity="0.78"><title>Low confidence: high active-time CV</title></polygon>
+<text class="cellValue" x="458" y="584" text-anchor="middle">~-66.6%</text>
 <text class="scenario" x="112" y="606">line-pretext-cjk-batch-continuous</text>
-<rect class="cell" x="412" y="592" width="92" height="22" fill="#14b8a6"><title>current &gt; current/pretext line-pretext-cjk-batch-continuous: active 109.1ms -&gt; 55.0ms, delta -49.6%, bbox -100.0%, client rect N/A, client rect entries N/A, mutation records -22.5%, offset N/A, low confidence: high active-time CV</title></rect>
+<rect class="cell" x="412" y="592" width="92" height="22" fill="#14b8a6"><title>current &gt; current/pretext line-pretext-cjk-batch-continuous: active 172.4ms -&gt; 119.3ms, delta -30.8%, bbox -100.0%, client rect N/A, client rect entries N/A, mutation records -22.5%, offset N/A, low confidence: high active-time CV</title></rect>
 <polygon points="494,593 503,593 503,602" fill="#111827" opacity="0.78"><title>Low confidence: high active-time CV</title></polygon>
-<text class="cellValue" x="458" y="606" text-anchor="middle">~-49.6%</text>
+<text class="cellValue" x="458" y="606" text-anchor="middle">~-30.8%</text>
 <text class="scenario" x="112" y="628">line-pretext-cjk-batch-jitter</text>
-<rect class="cell" x="412" y="614" width="92" height="22" fill="#0f766e"><title>current &gt; current/pretext line-pretext-cjk-batch-jitter: active 178.2ms -&gt; 56.8ms, delta -68.1%, bbox -100.0%, client rect N/A, client rect entries N/A, mutation records -37.8%, offset N/A, max work-counter delta +Infinity%</title></rect>
-<text class="cellValue" x="458" y="628" text-anchor="middle">-68.1%</text>
+<rect class="cell" x="412" y="614" width="92" height="22" fill="#0f766e"><title>current &gt; current/pretext line-pretext-cjk-batch-jitter: active 235.4ms -&gt; 98.8ms, delta -58.0%, bbox -100.0%, client rect N/A, client rect entries N/A, mutation records -37.8%, offset N/A, low confidence: high active-time CV</title></rect>
+<polygon points="494,615 503,615 503,624" fill="#111827" opacity="0.78"><title>Low confidence: high active-time CV</title></polygon>
+<text class="cellValue" x="458" y="628" text-anchor="middle">~-58.0%</text>
 <text class="scenario" x="112" y="650">line-pretext-cjk-batch-jumps</text>
-<rect class="cell" x="412" y="636" width="92" height="22" fill="#0f766e"><title>current &gt; current/pretext line-pretext-cjk-batch-jumps: active 96.4ms -&gt; 22.6ms, delta -76.6%, bbox -100.0%, client rect N/A, client rect entries N/A, mutation records -59.6%, offset N/A, max work-counter delta +Infinity%</title></rect>
-<text class="cellValue" x="458" y="650" text-anchor="middle">-76.6%</text>
+<rect class="cell" x="412" y="636" width="92" height="22" fill="#0f766e"><title>current &gt; current/pretext line-pretext-cjk-batch-jumps: active 91.7ms -&gt; 22.2ms, delta -75.8%, bbox -100.0%, client rect N/A, client rect entries N/A, mutation records -59.6%, offset N/A, low confidence: high active-time CV</title></rect>
+<polygon points="494,637 503,637 503,646" fill="#111827" opacity="0.78"><title>Low confidence: high active-time CV</title></polygon>
+<text class="cellValue" x="458" y="650" text-anchor="middle">~-75.8%</text>
 <text class="scenario" x="112" y="672">line-pretext-thai-batch-continuous</text>
-<rect class="cell" x="412" y="658" width="92" height="22" fill="#0f766e"><title>current &gt; current/pretext line-pretext-thai-batch-continuous: active 122.6ms -&gt; 60.6ms, delta -50.6%, bbox -100.0%, client rect N/A, client rect entries N/A, mutation records -13.1%, offset N/A, max work-counter delta +Infinity%</title></rect>
-<text class="cellValue" x="458" y="672" text-anchor="middle">-50.6%</text>
+<rect class="cell" x="412" y="658" width="92" height="22" fill="#14b8a6"><title>current &gt; current/pretext line-pretext-thai-batch-continuous: active 119.4ms -&gt; 59.9ms, delta -49.8%, bbox -100.0%, client rect N/A, client rect entries N/A, mutation records -13.1%, offset N/A, max work-counter delta +Infinity%</title></rect>
+<text class="cellValue" x="458" y="672" text-anchor="middle">-49.8%</text>
 <text class="scenario" x="112" y="694">line-pretext-thai-batch-jitter</text>
-<rect class="cell" x="412" y="680" width="92" height="22" fill="#14b8a6"><title>current &gt; current/pretext line-pretext-thai-batch-jitter: active 124.1ms -&gt; 65.4ms, delta -47.3%, bbox -100.0%, client rect N/A, client rect entries N/A, mutation records -17.4%, offset N/A, max work-counter delta +Infinity%</title></rect>
-<text class="cellValue" x="458" y="694" text-anchor="middle">-47.3%</text>
+<rect class="cell" x="412" y="680" width="92" height="22" fill="#14b8a6"><title>current &gt; current/pretext line-pretext-thai-batch-jitter: active 195.0ms -&gt; 112.5ms, delta -42.3%, bbox -100.0%, client rect N/A, client rect entries N/A, mutation records -17.4%, offset N/A, low confidence: high active-time CV</title></rect>
+<polygon points="494,681 503,681 503,690" fill="#111827" opacity="0.78"><title>Low confidence: high active-time CV</title></polygon>
+<text class="cellValue" x="458" y="694" text-anchor="middle">~-42.3%</text>
 <text class="scenario" x="112" y="716">line-pretext-thai-batch-jumps</text>
-<rect class="cell" x="412" y="702" width="92" height="22" fill="#0f766e"><title>current &gt; current/pretext line-pretext-thai-batch-jumps: active 188.6ms -&gt; 25.2ms, delta -86.6%, bbox -100.0%, client rect N/A, client rect entries N/A, mutation records -60.1%, offset N/A, max work-counter delta +Infinity%</title></rect>
-<text class="cellValue" x="458" y="716" text-anchor="middle">-86.6%</text>
+<rect class="cell" x="412" y="702" width="92" height="22" fill="#0f766e"><title>current &gt; current/pretext line-pretext-thai-batch-jumps: active 169.8ms -&gt; 24.5ms, delta -85.6%, bbox -100.0%, client rect N/A, client rect entries N/A, mutation records -60.1%, offset N/A, low confidence: high active-time CV</title></rect>
+<polygon points="494,703 503,703 503,712" fill="#111827" opacity="0.78"><title>Low confidence: high active-time CV</title></polygon>
+<text class="cellValue" x="458" y="716" text-anchor="middle">~-85.6%</text>
 <text class="scenario" x="112" y="738">line-pretext-long-token-batch-continuous</text>
-<rect class="cell" x="412" y="724" width="92" height="22" fill="#0f766e"><title>current &gt; current/pretext line-pretext-long-token-batch-continuous: active 408.6ms -&gt; 58.7ms, delta -85.6%, bbox -100.0%, client rect N/A, client rect entries N/A, mutation records -68.2%, offset N/A, max work-counter delta +Infinity%</title></rect>
-<text class="cellValue" x="458" y="738" text-anchor="middle">-85.6%</text>
+<rect class="cell" x="412" y="724" width="92" height="22" fill="#0f766e"><title>current &gt; current/pretext line-pretext-long-token-batch-continuous: active 437.2ms -&gt; 111.9ms, delta -74.4%, bbox -100.0%, client rect N/A, client rect entries N/A, mutation records -68.2%, offset N/A, low confidence: high active-time CV</title></rect>
+<polygon points="494,725 503,725 503,734" fill="#111827" opacity="0.78"><title>Low confidence: high active-time CV</title></polygon>
+<text class="cellValue" x="458" y="738" text-anchor="middle">~-74.4%</text>
 <text class="scenario" x="112" y="760">line-pretext-long-token-batch-jitter</text>
-<rect class="cell" x="412" y="746" width="92" height="22" fill="#0f766e"><title>current &gt; current/pretext line-pretext-long-token-batch-jitter: active 402.5ms -&gt; 58.2ms, delta -85.5%, bbox -100.0%, client rect N/A, client rect entries N/A, mutation records -69.1%, offset N/A, max work-counter delta +Infinity%</title></rect>
-<text class="cellValue" x="458" y="760" text-anchor="middle">-85.5%</text>
+<rect class="cell" x="412" y="746" width="92" height="22" fill="#0f766e"><title>current &gt; current/pretext line-pretext-long-token-batch-jitter: active 441.3ms -&gt; 125.9ms, delta -71.5%, bbox -100.0%, client rect N/A, client rect entries N/A, mutation records -69.1%, offset N/A, low confidence: high active-time CV</title></rect>
+<polygon points="494,747 503,747 503,756" fill="#111827" opacity="0.78"><title>Low confidence: high active-time CV</title></polygon>
+<text class="cellValue" x="458" y="760" text-anchor="middle">~-71.5%</text>
 <text class="scenario" x="112" y="782">line-pretext-long-token-batch-jumps</text>
-<rect class="cell" x="412" y="768" width="92" height="22" fill="#0f766e"><title>current &gt; current/pretext line-pretext-long-token-batch-jumps: active 161.1ms -&gt; 23.2ms, delta -85.6%, bbox -100.0%, client rect N/A, client rect entries N/A, mutation records -68.7%, offset N/A, max work-counter delta +Infinity%</title></rect>
-<text class="cellValue" x="458" y="782" text-anchor="middle">-85.6%</text>
-<text class="axis" x="32" y="846">Generated from /var/folders/cl/rgck0fr94vjb9t0xtr467ngw0000gn/T/vue-clamp-pretext-matrix-QOsjaE by render-matrix-report.mjs</text>
+<rect class="cell" x="412" y="768" width="92" height="22" fill="#0f766e"><title>current &gt; current/pretext line-pretext-long-token-batch-jumps: active 180.8ms -&gt; 45.5ms, delta -74.8%, bbox -100.0%, client rect N/A, client rect entries N/A, mutation records -68.7%, offset N/A, low confidence: high active-time CV</title></rect>
+<polygon points="494,769 503,769 503,778" fill="#111827" opacity="0.78"><title>Low confidence: high active-time CV</title></polygon>
+<text class="cellValue" x="458" y="782" text-anchor="middle">~-74.8%</text>
+<text class="axis" x="32" y="846">Generated from /var/folders/cl/rgck0fr94vjb9t0xtr467ngw0000gn/T/vue-clamp-pretext-matrix-q5WJfI by render-matrix-report.mjs</text>
 </svg>

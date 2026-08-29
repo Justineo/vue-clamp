@@ -5,4 +5,4 @@ export type {
   LineClampProps,
   LineClampSlotProps,
   LineClampSlots,
-} from "./pretext/types.ts";
+} from "./line/types.ts";

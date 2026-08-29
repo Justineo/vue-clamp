@@ -1,11 +1,11 @@
 import { gzipSync } from "node:zlib";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { build } from "vite";
 
-const workspaceRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
+const workspaceRoot = resolve(import.meta.dirname, "../../..");
 const packageDist = resolve(workspaceRoot, "packages/vue-clamp/dist");
 const cases = {
   browser: `export { LineClamp } from ${JSON.stringify(pathToFileURL(resolve(packageDist, "index.js")).href)};`,
@@ -15,13 +15,12 @@ export { LineClamp as PretextLineClamp } from ${JSON.stringify(pathToFileURL(res
 };
 
 const results = [];
+const directory = await mkdtemp(join(tmpdir(), "vue-clamp-pretext-size-"));
 
-for (const [name, source] of Object.entries(cases)) {
-  const directory = await mkdtemp(join(tmpdir(), `vue-clamp-${name}-`));
-  const entry = join(directory, "entry.js");
-  const output = join(directory, "dist");
-
-  try {
+try {
+  for (const [name, source] of Object.entries(cases)) {
+    const entry = join(directory, `${name}.js`);
+    const output = join(directory, name);
     await writeFile(entry, source);
     await build({
       configFile: false,
@@ -46,9 +45,9 @@ for (const [name, source] of Object.entries(cases)) {
       name,
       rawBytes: bundle.length,
     });
-  } finally {
-    await rm(directory, { force: true, recursive: true });
   }
+} finally {
+  await rm(directory, { force: true, recursive: true });
 }
 
 console.log(`PRETEXT_SIZE_RESULT ${JSON.stringify(results)}`);

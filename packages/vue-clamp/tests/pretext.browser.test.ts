@@ -1,73 +1,27 @@
-import { createApp, defineComponent, h, nextTick, ref } from "vue";
+import { createApp, defineComponent, h, ref } from "vue";
 import { afterEach, describe, expect, it } from "vite-plus/test";
-import { LineClamp as BrowserLineClamp } from "../src/index.ts";
+import { LineClamp as StandardLineClamp } from "../src/index.ts";
 import { LineClamp } from "../src/pretext.ts";
+import {
+  bodyElement,
+  cleanupMounted,
+  frame,
+  mountClamp,
+  rootElement,
+  settle as settleBrowser,
+  textElement,
+  unmountClamp,
+} from "./browser.ts";
 
-import type { App, Component, Ref, VNodeChild } from "vue";
-import type { LineClampExposed } from "../src/pretext.ts";
-
-type MountedClamp = {
-  readonly app: App;
-  readonly container: HTMLElement;
-  readonly exposed: Ref<LineClampExposed | null>;
-  readonly width: Ref<number>;
-};
-
-const mounted = new Set<MountedClamp>();
-
-function frame(): Promise<void> {
-  return new Promise((resolve) => requestAnimationFrame(() => resolve()));
-}
+import type { MountedClamp } from "./browser.ts";
+import type { Component } from "vue";
 
 async function settle(): Promise<void> {
-  for (let index = 0; index < 4; index += 1) {
-    await nextTick();
-    await frame();
-  }
-}
-
-function mountClamp(
-  component: Component,
-  text: string | Ref<string>,
-  font: string,
-  initialWidth: number,
-  props: Record<string, unknown>,
-  slots?: Record<string, () => VNodeChild>,
-): MountedClamp {
-  const container = document.createElement("div");
-  const exposed = ref<LineClampExposed | null>(null);
-  const width = ref(initialWidth);
-  const app = createApp(
-    defineComponent(
-      () => () =>
-        h(
-          component,
-          {
-            maxLines: 3,
-            ...props,
-            ref: exposed,
-            style: {
-              font,
-              lineHeight: "22px",
-              overflowWrap: "break-word",
-              width: `${width.value}px`,
-            },
-            text: typeof text === "string" ? text : text.value,
-          },
-          slots,
-        ),
-    ),
-  );
-
-  document.body.append(container);
-  app.mount(container);
-  const result = { app, container, exposed, width };
-  mounted.add(result);
-  return result;
+  await settleBrowser(4);
 }
 
 function mountBrowser(text: string, font: string, width: number): MountedClamp {
-  return mountClamp(BrowserLineClamp, text, font, width, { boundary: "word" });
+  return mountLineClamp(StandardLineClamp, text, font, width);
 }
 
 function mountPretext(
@@ -75,83 +29,204 @@ function mountPretext(
   font: string,
   width: number,
   props: Record<string, unknown> = {},
+  style?: string,
 ): MountedClamp {
-  return mountClamp(LineClamp, text, font, width, { boundary: "word", font, ...props });
+  return mountLineClamp(LineClamp, text, font, width, props, style);
 }
 
-function unmountClamp(clamp: MountedClamp): void {
-  clamp.app.unmount();
-  clamp.container.remove();
-  mounted.delete(clamp);
-}
-
-function rootElement(mountedClamp: MountedClamp): HTMLElement {
-  const root = mountedClamp.container.firstElementChild;
-  if (!(root instanceof HTMLElement)) throw new Error("Expected clamp root.");
-  return root;
-}
-
-function bodyElement(mountedClamp: MountedClamp): HTMLElement {
-  const body = rootElement(mountedClamp).querySelector('[data-part="body"]');
-  if (!(body instanceof HTMLElement)) throw new Error("Expected clamp body.");
-  return body;
+function mountLineClamp(
+  component: Component,
+  text: string,
+  font: string,
+  width: number,
+  props: Record<string, unknown> = {},
+  style?: string,
+): MountedClamp {
+  return mountClamp({
+    component,
+    font,
+    lineHeight: "22px",
+    props: { boundary: "word", maxLines: 3, ...props },
+    ...(style === undefined ? {} : { style }),
+    text,
+    width,
+  });
 }
 
 function visibleText(mountedClamp: MountedClamp): string {
-  const body = bodyElement(mountedClamp);
-  const visible = [...body.children].find((child) => child.getAttribute("aria-hidden") === "true");
-  return visible?.textContent ?? body.textContent ?? "";
+  return visibleTextIn(mountedClamp.container);
+}
+
+function visibleTextIn(container: HTMLElement): string {
+  return textElement(rootElement(container)).textContent ?? "";
+}
+
+function rootFor(mountedClamp: MountedClamp): HTMLElement {
+  return rootElement(mountedClamp.container);
+}
+
+function bodyFor(mountedClamp: MountedClamp): HTMLElement {
+  return bodyElement(rootFor(mountedClamp));
 }
 
 describe("Pretext LineClamp", () => {
   it("uses the standard native path before considering Pretext", async () => {
     const text =
       "Release dashboards keep customer impact and regional mitigation visible while cards resize.";
-    const clamp = mountClamp(LineClamp, text, "16px Georgia", 180, {
-      font: "16px Georgia",
+    const clamp = mountLineClamp(LineClamp, text, "16px Georgia", 180, {
+      boundary: "grapheme",
     });
     await settle();
 
-    const content = rootElement(clamp).querySelector('[data-part="content"]');
+    const root = rootFor(clamp);
+    const content = root.querySelector('[data-part="content"]');
     expect(content).toBeInstanceOf(HTMLElement);
     expect(getComputedStyle(content!).getPropertyValue("-webkit-line-clamp")).toBe("3");
-    expect(bodyElement(clamp).textContent).toBe(text);
+    expect(bodyElement(root).textContent).toBe(text);
   });
 
   it("uses Pretext only for its accelerated contract", async () => {
     const text =
       "Release dashboards keep customer impact and regional mitigation visible while cards resize.";
     const predicted = mountPretext(text, "16px Georgia", 180);
-    const measured = mountPretext(text, "16px Georgia", 180, { ellipsis: "..." });
-    const affixed = mountClamp(
-      LineClamp,
+    const custom = mountPretext(text, "16px Georgia", 180, { ellipsis: "..." });
+    const customBrowser = mountLineClamp(StandardLineClamp, text, "16px Georgia", 180, {
+      ellipsis: "...",
+    });
+    const empty = mountPretext(text, "16px Georgia", 180, { ellipsis: "" });
+    const measured = mountPretext(text, "16px Georgia", 180, { ellipsis: "more\n..." });
+    const affixed = mountClamp({
+      after: () => h("button", { type: "button" }, "More"),
+      component: LineClamp,
+      font: "16px Georgia",
+      lineHeight: "22px",
+      props: { boundary: "word", maxLines: 3 },
       text,
-      "16px Georgia",
-      180,
-      { boundary: "word", font: "16px Georgia" },
-      { after: () => h("button", { type: "button" }, "More") },
-    );
+      width: 180,
+    });
     await settle();
 
-    expect(rootElement(predicted).querySelector('[data-part="content"]')).toBeNull();
-    expect(rootElement(measured).querySelector('[data-part="content"]')).toBeInstanceOf(
-      HTMLElement,
-    );
-    expect(visibleText(measured).endsWith("...")).toBe(true);
-    expect(rootElement(affixed).querySelector('[data-part="after"]')?.textContent).toBe("More");
+    expect(rootFor(predicted).querySelector('[data-part="content"]')).toBeNull();
+    expect(rootFor(custom).querySelector('[data-part="content"]')).toBeNull();
+    expect(visibleText(custom)).toBe(visibleText(customBrowser));
+    expect(rootFor(empty).querySelector('[data-part="content"]')).toBeNull();
+    expect(empty.exposed.value?.clamped).toBe(true);
+    expect(visibleText(empty)).not.toContain("…");
+    expect(rootFor(measured).querySelector('[data-part="content"]')).toBeInstanceOf(HTMLElement);
+    expect(rootFor(affixed).querySelector('[data-part="after"]')?.textContent).toBe("More");
   });
 
-  it("falls back to the standard measured path when no predictive font is supplied", async () => {
+  it("keeps custom-ellipsis grapheme predictions within the requested lines", async () => {
+    const scenarios = [
+      {
+        font: "16px Georgia",
+        text: "Release dashboards keep customer impact and regional mitigation visible while cards resize.",
+      },
+      {
+        font: "16px Arial",
+        text: "国际响应团队需要在多区域故障期间保留客户沟通缓解措施和后续责任。",
+      },
+      {
+        font: "16px Arial",
+        text: "e\u0301\ud83d\udc69‍\ud83d\ude80".repeat(24),
+      },
+    ];
+    const segmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+
+    for (const scenario of scenarios) {
+      const prefixes = new Set([""]);
+      let sourcePrefix = "";
+      for (const part of segmenter.segment(scenario.text)) {
+        sourcePrefix += part.segment;
+        prefixes.add(sourcePrefix.trim());
+      }
+      const predicted = mountPretext(scenario.text, scenario.font, 180, {
+        boundary: "grapheme",
+        ellipsis: "...",
+      });
+
+      for (const width of [180, 220, 260, 300]) {
+        predicted.width.value = width;
+        await settle();
+
+        const root = rootFor(predicted);
+        const body = bodyFor(predicted);
+        const output = visibleText(predicted);
+        const prefix = output.endsWith("...") ? output.slice(0, -3) : output;
+
+        expect(root.querySelector('[data-part="content"]')).toBeNull();
+        expect(prefixes.has(prefix), `${scenario.font} at ${width}px`).toBe(true);
+        expect(body.scrollHeight, `${scenario.font} at ${width}px`).toBeLessThanOrEqual(
+          body.clientHeight + 0.5,
+        );
+      }
+
+      unmountClamp(predicted);
+    }
+  });
+
+  it("reads the rendered font for prediction", async () => {
     const text =
       "Release dashboards keep customer impact and regional mitigation visible while cards resize.";
     const browser = mountBrowser(text, "16px Georgia", 180);
-    const fallback = mountClamp(LineClamp, text, "16px Georgia", 180, { boundary: "word" });
+    const predicted = mountPretext(text, "16px Georgia", 180);
     await settle();
 
-    expect(rootElement(fallback).querySelector('[data-part="content"]')).toBeInstanceOf(
-      HTMLElement,
-    );
-    expect(visibleText(fallback)).toBe(visibleText(browser));
+    expect(rootFor(predicted).querySelector('[data-part="content"]')).toBeNull();
+    expect(bodyFor(predicted).style.font).toBe("");
+    expect(getComputedStyle(bodyFor(predicted)).fontFamily).toContain("Georgia");
+    expect(visibleText(predicted)).toBe(visibleText(browser));
+  });
+
+  it("models supported typography from computed style", async () => {
+    const scenarios: Array<{
+      readonly font: string;
+      readonly style: string;
+      readonly text: string;
+      readonly width: number;
+    }> = [
+      {
+        font: "16px Georgia",
+        style: "letter-spacing:1.5px",
+        text: "Release dashboards preserve customer context while responsive cards resize.",
+        width: 210,
+      },
+      {
+        font: "16px Arial",
+        style: "word-break:keep-all",
+        text: "国际响应团队需要保留 customer impact 和 mitigation context，同时避免错误断行。",
+        width: 180,
+      },
+      {
+        font: "16px Georgia",
+        style: "white-space:pre-wrap",
+        text: "Release  dashboards preserve spacing\nwhile cards resize across narrow layouts.",
+        width: 180,
+      },
+    ];
+
+    for (const scenario of scenarios) {
+      const browser = mountLineClamp(
+        StandardLineClamp,
+        scenario.text,
+        scenario.font,
+        scenario.width,
+        {},
+        scenario.style,
+      );
+      const predicted = mountPretext(
+        scenario.text,
+        scenario.font,
+        scenario.width,
+        {},
+        scenario.style,
+      );
+      await settle();
+
+      expect(visibleText(predicted)).toBe(visibleText(browser));
+      unmountClamp(browser);
+      unmountClamp(predicted);
+    }
   });
 
   it("matches browser-authoritative word clamping in its supported contract", async () => {
@@ -207,9 +282,10 @@ describe("Pretext LineClamp", () => {
     await settle();
     expect(clamp.exposed.value?.clamped).toBe(true);
 
-    const root = rootElement(clamp);
-    const body = bodyElement(clamp);
+    const root = rootFor(clamp);
+    const body = bodyFor(clamp);
     let geometryReads = 0;
+    let typographyReads = 0;
     for (const element of [root, body]) {
       Object.defineProperties(element, {
         getBoundingClientRect: {
@@ -229,10 +305,21 @@ describe("Pretext LineClamp", () => {
       });
     }
 
-    clamp.width.value = 700;
-    await settle();
+    const originalGetComputedStyle = globalThis.getComputedStyle;
+    globalThis.getComputedStyle = (element, pseudoElement) => {
+      if (element === body) typographyReads += 1;
+      return originalGetComputedStyle(element, pseudoElement);
+    };
+
+    try {
+      clamp.width.value = 700;
+      await settle();
+    } finally {
+      globalThis.getComputedStyle = originalGetComputedStyle;
+    }
 
     expect(geometryReads).toBe(0);
+    expect(typographyReads).toBe(0);
     expect(clamp.exposed.value?.clamped).toBe(false);
     expect(visibleText(clamp)).toBe(text);
   });
@@ -254,7 +341,7 @@ describe("Pretext LineClamp", () => {
       const text =
         "Release dashboards keep customer impact and regional mitigation visible while cards resize.";
       clamp = mountPretext(text, "16px Georgia", 180);
-      const body = bodyElement(clamp);
+      const body = bodyFor(clamp);
       const [source, visible] = [...body.children];
       const textNode = visible?.firstChild;
 
@@ -284,7 +371,7 @@ describe("Pretext LineClamp", () => {
       "Release dashboards keep customer impact and regional mitigation visible while cards resize.";
     const clamp = mountPretext(text, "16px Georgia", 180);
     await settle();
-    const body = bodyElement(clamp);
+    const body = bodyFor(clamp);
     const visible = body.children[1];
     if (!(visible instanceof HTMLElement)) throw new Error("Expected visible text.");
 
@@ -319,22 +406,51 @@ describe("Pretext LineClamp", () => {
 
   it("recomputes when the source text changes", async () => {
     const longText = "observabilityPlatformBoundaryWithoutBreaks".repeat(7);
-    const text = ref(longText);
-    const clamp = mountClamp(LineClamp, text, "16px Georgia", 180, {
-      boundary: "word",
-      font: "16px Georgia",
-    });
+    const clamp = mountPretext(longText, "16px Georgia", 180);
     await settle();
     expect(clamp.exposed.value?.clamped).toBe(true);
 
-    text.value = "Short source";
+    clamp.text.value = "Short source";
     await settle();
     expect(clamp.exposed.value?.clamped).toBe(false);
     expect(visibleText(clamp)).toBe("Short source");
 
-    text.value = longText;
+    clamp.text.value = longText;
     await settle();
     expect(clamp.exposed.value?.clamped).toBe(true);
+  });
+
+  it("recomputes when a custom ellipsis changes", async () => {
+    const container = document.createElement("div");
+    const ellipsis = ref("...");
+    const text =
+      "Release dashboards keep customer impact and regional mitigation visible while cards resize.";
+    const app = createApp(
+      defineComponent(
+        () => () =>
+          h(LineClamp, {
+            boundary: "word",
+            ellipsis: ellipsis.value,
+            maxLines: 3,
+            style: "font:16px Georgia;line-height:22px;overflow-wrap:break-word;width:180px",
+            text,
+          }),
+      ),
+    );
+    document.body.append(container);
+
+    try {
+      app.mount(container);
+      await settle();
+      expect(visibleTextIn(container).endsWith("...")).toBe(true);
+
+      ellipsis.value = "[more]";
+      await settle();
+      expect(visibleTextIn(container).endsWith("[more]")).toBe(true);
+    } finally {
+      app.unmount();
+      container.remove();
+    }
   });
 
   it("keeps the full source available when predicted text is visible", async () => {
@@ -342,7 +458,7 @@ describe("Pretext LineClamp", () => {
     const clamp = mountPretext(text, "16px Arial", 150);
     await settle();
 
-    const [source, visible] = [...bodyElement(clamp).children];
+    const [source, visible] = [...bodyFor(clamp).children];
     expect(source?.textContent).toBe(text);
     expect(visible?.getAttribute("aria-hidden")).toBe("true");
     expect(visible?.textContent?.endsWith("…")).toBe(true);
@@ -356,17 +472,17 @@ describe("Pretext LineClamp", () => {
     });
     await settle();
 
-    expect(changes).toEqual([true]);
+    expect(changes).toEqual([false, true]);
     clamp.exposed.value?.expand();
     await settle();
     expect(clamp.exposed.value?.expanded).toBe(true);
     expect(visibleText(clamp)).toBe(text);
-    expect(changes).toEqual([true, false]);
+    expect(changes).toEqual([false, true, false]);
 
     clamp.exposed.value?.collapse();
     await settle();
     expect(clamp.exposed.value?.expanded).toBe(false);
-    expect(changes).toEqual([true, false, true]);
+    expect(changes).toEqual([false, true, false, true]);
   });
 
   it("reports the initial inactive state", async () => {
@@ -380,7 +496,7 @@ describe("Pretext LineClamp", () => {
     expect(changes).toEqual([false]);
   });
 
-  it("shares active resize observation and releases it when idle", async () => {
+  it("owns resize observation only while active", async () => {
     const OriginalResizeObserver = globalThis.ResizeObserver;
     let observerInstances = 0;
     globalThis.ResizeObserver = new Proxy(OriginalResizeObserver, {
@@ -396,21 +512,17 @@ describe("Pretext LineClamp", () => {
       const second = mountPretext(text, "16px Arial", 220);
       mountPretext(text, "16px Arial", 220, { expanded: true });
       await settle();
-      expect(observerInstances).toBe(1);
+      expect(observerInstances).toBe(2);
 
       unmountClamp(first);
       unmountClamp(second);
       mountPretext(text, "16px Arial", 260);
       await settle();
-      expect(observerInstances).toBe(2);
+      expect(observerInstances).toBe(3);
     } finally {
       globalThis.ResizeObserver = OriginalResizeObserver;
     }
   });
 });
 
-afterEach(() => {
-  for (const clamp of mounted) {
-    unmountClamp(clamp);
-  }
-});
+afterEach(cleanupMounted);

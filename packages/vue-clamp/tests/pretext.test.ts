@@ -22,6 +22,27 @@ describe("Pretext line clamping", () => {
     });
   });
 
+  it("supports custom ellipses", () => {
+    const prepared = prepareLineClamp("alpha beta gamma", font, { ellipsis: "..." });
+
+    expect(clampPreparedLine(prepared, 96, 1)).toEqual({
+      clamped: true,
+      text: "alpha...",
+    });
+  });
+
+  it("supports grapheme boundaries when native clamping cannot", () => {
+    const prepared = prepareLineClamp("alphabet", font, {
+      boundary: "grapheme",
+      ellipsis: "...",
+    });
+
+    expect(clampPreparedLine(prepared, 40, 1)).toEqual({
+      clamped: true,
+      text: "al...",
+    });
+  });
+
   it("falls back inside a word when necessary", () => {
     const prepared = prepareLineClamp("alphabet", font);
 
