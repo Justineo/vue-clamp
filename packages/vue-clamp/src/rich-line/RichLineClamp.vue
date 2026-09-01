@@ -124,7 +124,7 @@ const {
   expand,
   collapse,
   toggle,
-  observedSizeSignature,
+  observedSizeSnapshot,
   affixSlotProps,
   setBeforeElement,
   setAfterElement,
@@ -304,12 +304,12 @@ function syncProbeContent(
   const beforeClone = syncProbeAffixClone(
     elements.affixes.before,
     beforeElement,
-    observedSizeSignature(beforeElement),
+    observedSizeSnapshot(beforeElement).signature,
   );
   const afterClone = syncProbeAffixClone(
     elements.affixes.after,
     afterElement,
-    observedSizeSignature(afterElement),
+    observedSizeSnapshot(afterElement).signature,
   );
 
   if (!beforeClone && !afterClone) {

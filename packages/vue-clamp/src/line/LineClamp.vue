@@ -22,20 +22,21 @@ import {
   nativeTextStyle,
   resolveNativeMode,
 } from "../native.ts";
-import { visuallyHiddenTextStyle } from "../styles.ts";
-import { clampTextToLayout, normalizeLocationRatio, prepareText } from "../text.ts";
+import {
+  predictivePendingStyle,
+  predictiveRootStyle,
+  predictiveWidthStyle,
+  visuallyHiddenTextStyle,
+} from "../styles.ts";
+import { clampTextToLayout, normalizeLocationRatio, prepareText, setElementText } from "../text.ts";
+import { useLineClampPredictor } from "./predictor.ts";
 
 import type { CSSProperties, VNodeChild } from "vue";
-import type { SimpleLineFit } from "../layout.ts";
+import type { BorderBoxSizeSnapshot, SimpleLineFit } from "../layout.ts";
 import type { ClampEmits } from "../types.ts";
 import type { LineClampExposed, LineClampProps, LineClampSlots } from "./types.ts";
 import type { NativeClampMode } from "../native.ts";
 import type { TextClampResult } from "../text.ts";
-
-type AffixLayout = {
-  readonly hasAffixes: boolean;
-  readonly key: string;
-};
 
 type LineFitResult = {
   readonly fit: SimpleLineFit | undefined;
@@ -67,8 +68,10 @@ const expanded = defineModel<NonNullable<LineClampProps["expanded"]>>("expanded"
 const emit = defineEmits<Omit<ClampEmits, "update:expanded">>();
 const slots = defineSlots<LineClampSlots>();
 const attrs = useAttrs();
+const predictor = useLineClampPredictor();
 
 const textRef = shallowRef<HTMLElement | null>(null);
+const predictiveWidthRef = predictor ? shallowRef<HTMLElement | null>(null) : undefined;
 // Search writes the final text into the live node; the shallow snapshot only
 // triggers Vue when the rendered structure must change.
 const visibleText = shallowRef({ text });
@@ -77,6 +80,7 @@ const overflowHiddenRootStyle: CSSProperties = { overflow: "hidden" };
 let lastTextClamp: TextClampResult | null = null;
 let lineFitCache: { fit: SimpleLineFit; key: string } | null = null;
 let lineFitKey: string | null = null;
+let predictionReady = false;
 
 const lineLimit = computed(() => normalizeLineLimit(maxLines));
 const preparedText = computed(() => prepareText(text, boundary));
@@ -97,7 +101,7 @@ const {
   expand,
   collapse,
   toggle,
-  observedSizeSignature,
+  observedSizeSnapshot,
   affixSlotProps,
   setBeforeElement,
   setAfterElement,
@@ -107,10 +111,12 @@ const {
   expanded,
   onFontLoad: () => {
     lineFitCache = null;
+    predictor?.invalidate();
   },
   onClampedChange: (value) => {
     emit("clampchange", value);
   },
+  predictiveWidthRef,
   recompute: async (expanded, rootWidthSnapshot): Promise<void> => {
     const currentLineLimit = lineLimit.value;
     if (expanded.value || text.length === 0 || !hasClampLimit(currentLineLimit)) {
@@ -144,20 +150,51 @@ const {
         nativeMode,
         nativeMode === "multi-line" ? rootWidthSnapshot : undefined,
       );
-      await applyTextState(text, nextClamped ?? false);
+      await applyTextState(text, nextClamped ?? false, false);
       return;
     }
 
+    const beforeSize = observedSizeSnapshot(beforeRef.value);
+    const afterSize = observedSizeSnapshot(afterRef.value);
+    const predicting = usesPredictor();
+    const rootWidth =
+      rootWidthSnapshot ??
+      (predicting
+        ? observedSizeSnapshot(predictiveWidthRef?.value ?? null).width
+        : borderBoxWidth(rootElement));
+    if (predicting && rootWidthSnapshot === undefined && rootWidth <= 0) return;
+    if (predicting && predictor && currentLineLimit !== undefined) {
+      const prediction = predictor.predict({
+        afterWidth: afterSize.width,
+        beforeWidth: beforeSize.width,
+        boundary,
+        ellipsis,
+        lineLimit: currentLineLimit,
+        rootWidth,
+        text,
+        textElement,
+      });
+      if (prediction) {
+        resetTextClampHint();
+        if (visibleText.value.text !== prediction.text) {
+          setElementText(textElement, prediction.text);
+        }
+        revealPrediction(textElement);
+        await applyTextState(prediction.text, prediction.clamped, true);
+        return;
+      }
+    }
+
+    const layoutKey = `${beforeSize.signature}|${afterSize.signature}`;
+    const hasAffixes =
+      hasBorderBoxSize(beforeSize.signature) || hasBorderBoxSize(afterSize.signature);
     const prepared = preparedText.value;
-    const rootWidth = rootWidthSnapshot ?? borderBoxWidth(rootElement);
-    const affixLayout = currentAffixLayout();
-    const layoutKey = affixLayout.key;
     const lineCapacity = estimateLineCapacity(rootElement, maxHeight, currentLineLimit);
     const lineFitResult = lineFit(currentLineLimit, rootElement, textElement, layoutKey);
     const nextResult = clampTextToLayout({
       content: contentElement,
       ellipsis,
-      hasAffixes: affixLayout.hasAffixes,
+      hasAffixes,
       hint: lastTextClamp,
       lineCapacity,
       layoutKey,
@@ -167,8 +204,7 @@ const {
       ratio: locationRatio,
       root: rootElement,
       rootWidth,
-      reuseFullFitOnGrow:
-        !lineFitResult.metricsChanged && !affixLayout.hasAffixes && maxHeight === undefined,
+      reuseFullFitOnGrow: !lineFitResult.metricsChanged && !hasAffixes && maxHeight === undefined,
       simpleLineFit: lineFitResult.fit,
       target: textElement,
     });
@@ -181,16 +217,49 @@ const {
     }
 
     lastTextClamp = nextResult;
-    await applyTextState(nextResult.text, nextResult.text !== prepared.text);
+    if (predicting) revealPrediction(textElement);
+    await applyTextState(nextResult.text, nextResult.text !== prepared.text, predicting);
   },
 });
 
-async function applyTextState(nextText: string, nextClamped: boolean): Promise<void> {
-  const visible = visibleText.value;
-  const sourceHiddenChanged = (visible.text !== text) !== (nextText !== text);
-  const changed = sourceHiddenChanged || isClamped.value !== nextClamped;
+function usesPredictor(): boolean {
+  if (!predictor || !hasActiveClamp.value) {
+    return false;
+  }
 
-  if (changed) {
+  const currentLineLimit = lineLimit.value;
+  const locationRatio = normalizeLocationRatio(location);
+  if (
+    !predictor.supports({
+      boundary,
+      ellipsis,
+      lineLimit: currentLineLimit,
+      locationRatio,
+      maxHeight,
+    })
+  ) {
+    return false;
+  }
+
+  return getNativeMode(afterRef.value !== null, currentLineLimit, locationRatio) === null;
+}
+
+function revealPrediction(element: HTMLElement): void {
+  if (predictionReady) return;
+  element.style.visibility = "";
+  predictionReady = true;
+}
+
+async function applyTextState(
+  nextText: string,
+  nextClamped: boolean,
+  predicting: boolean,
+): Promise<void> {
+  const visible = visibleText.value;
+  const structureChanged = !predicting && (visible.text !== text) !== (nextText !== text);
+  const stateChanged = isClamped.value !== nextClamped;
+
+  if (structureChanged) {
     visibleText.value = { text: nextText };
   } else {
     visible.text = nextText;
@@ -198,7 +267,7 @@ async function applyTextState(nextText: string, nextClamped: boolean): Promise<v
 
   isClamped.value = nextClamped;
 
-  if (changed) {
+  if (structureChanged || stateChanged) {
     // DOM measurement has already completed synchronously; this tick only lets
     // Vue commit the final visible state before callers observe it.
     await nextTick();
@@ -207,22 +276,12 @@ async function applyTextState(nextText: string, nextClamped: boolean): Promise<v
 
 async function resetClamp(): Promise<void> {
   resetTextClampHint();
-  return applyTextState(text, false);
+  return applyTextState(text, false, usesPredictor());
 }
 
 function resetTextClampHint(): void {
   lastTextClamp = null;
   resetLineFitState();
-}
-
-function currentAffixLayout(): AffixLayout {
-  const before = observedSizeSignature(beforeRef.value);
-  const after = observedSizeSignature(afterRef.value);
-
-  return {
-    hasAffixes: hasBorderBoxSize(before) || hasBorderBoxSize(after),
-    key: `${before}|${after}`,
-  };
 }
 
 function hasClampLimit(currentLineLimit: number | undefined): boolean {
@@ -344,16 +403,23 @@ function renderBody(
   renderedText: string,
   sourceIsHidden: boolean,
   nativeMode: NativeClampMode | null,
+  predicting: boolean,
 ): VNodeChild {
+  const predictivePending = predicting && !predictionReady;
   const textNode = h(
     "span",
     {
       "aria-hidden": trueOrUndefined(sourceIsHidden),
       key: "text",
       ref: textRef,
-      style: nativeMode === "single-line" ? nativeTextStyle : undefined,
+      style:
+        nativeMode === "single-line"
+          ? nativeTextStyle
+          : predictivePending
+            ? predictivePendingStyle
+            : undefined,
     },
-    renderedText,
+    [renderedText],
   );
 
   return h(
@@ -375,15 +441,20 @@ function render(): VNodeChild {
   const lineLimitValue = lineLimit.value;
   const locationRatio = normalizeLocationRatio(location);
   const nativeMode = getNativeMode(afterRef.value !== null, lineLimitValue, locationRatio);
+  const predicting = usesPredictor();
   const slotStyle = nativeMode === "single-line" ? multilineNativeSlotStyle : multilineSlotStyle;
   const hasLimit = hasClampLimit(lineLimitValue);
-  const sourceIsHidden = !nativeMode && currentText !== text && hasLimit && !expanded.value;
-  const rendersSourceText = nativeMode || expanded.value || currentText.length === 0 || !hasLimit;
+  const sourceIsHidden =
+    !nativeMode && hasLimit && !expanded.value && (predicting || currentText !== text);
+  const rendersSourceText =
+    nativeMode || expanded.value || (!predicting && currentText.length === 0) || !hasLimit;
   const renderedText = rendersSourceText ? text : currentText;
   const collapsedMaxHeight = !expanded.value ? cssLength(maxHeight) : undefined;
   const rootStyle =
     collapsedMaxHeight === undefined
-      ? overflowHiddenRootStyle
+      ? predicting
+        ? predictiveRootStyle
+        : overflowHiddenRootStyle
       : { maxHeight: collapsedMaxHeight, overflow: "hidden" };
   const children: VNodeChild[] = [];
   const beforeSlot = renderAffixSlot("before", slotStyle);
@@ -391,12 +462,27 @@ function render(): VNodeChild {
     children.push(beforeSlot);
   }
 
-  children.push(renderBody(renderedText, sourceIsHidden, nativeMode));
+  children.push(renderBody(renderedText, sourceIsHidden, nativeMode, predicting));
 
   const afterSlot = renderAffixSlot("after", slotStyle);
   if (afterSlot) {
     children.push(afterSlot);
   }
+
+  const content = h(
+    "span",
+    {
+      "data-part": "content",
+      ref: contentRef,
+      // Prediction chooses the visible prefix; line-clamp remains as a
+      // line-box-aware safety net for browser shaping outside its model.
+      style: getNativeContentStyle(
+        nativeMode ?? (predicting ? "multi-line" : null),
+        lineLimitValue,
+      ),
+    },
+    children,
+  );
 
   return h(
     rootTag,
@@ -405,15 +491,16 @@ function render(): VNodeChild {
       ref: rootRef,
       style: rootStyle,
     }),
-    h(
-      "span",
-      {
-        "data-part": "content",
-        ref: contentRef,
-        style: getNativeContentStyle(nativeMode, lineLimitValue),
-      },
-      children,
-    ),
+    predicting
+      ? [
+          h("span", {
+            "aria-hidden": true,
+            ref: predictiveWidthRef,
+            style: predictiveWidthStyle,
+          }),
+          content,
+        ]
+      : content,
   );
 }
 
@@ -424,10 +511,24 @@ watch(
   () => {
     // Any semantic prop change invalidates the previous kept-count hint.
     resetTextClampHint();
+    if (usesPredictor()) {
+      predictionReady = false;
+      if (textRef.value) textRef.value.style.visibility = "hidden";
+    }
     visibleText.value = { text };
     requestRecompute();
   },
   { flush: "post" },
+);
+
+watch(
+  usesPredictor,
+  (value) => {
+    predictionReady = false;
+    if (textRef.value) textRef.value.style.visibility = value ? "hidden" : "";
+    requestRecompute();
+  },
+  { flush: "sync" },
 );
 
 defineExpose({

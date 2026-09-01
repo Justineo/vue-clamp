@@ -28,7 +28,11 @@ export type BenchmarkMetrics = {
   offsetHeightReads: number;
   offsetWidthReads: number;
   replaceChildrenCalls: number;
+  resizeObserverCallbackMaxMs: number;
+  resizeObserverCallbackMs: number;
+  resizeObserverCallbackP95Ms: number;
   resizeObserverCallbacks: number;
+  resizeObserverEntries: number;
   removedNodes: number;
   scrollHeightReads: number;
   scrollWidthReads: number;
@@ -147,6 +151,7 @@ let originalRangeCloneDescriptor: PropertyDescriptor | undefined;
 let originalGetComputedStyle: typeof getComputedStyle | undefined;
 let originalResizeObserver: typeof ResizeObserver | undefined;
 let getterPatches: GetterPatch[] = [];
+let resizeObserverCallbackDurations: number[] = [];
 
 function emptyMetrics(): BenchmarkMetrics {
   return {
@@ -177,7 +182,11 @@ function emptyMetrics(): BenchmarkMetrics {
     offsetHeightReads: 0,
     offsetWidthReads: 0,
     replaceChildrenCalls: 0,
+    resizeObserverCallbackMaxMs: 0,
+    resizeObserverCallbackMs: 0,
+    resizeObserverCallbackP95Ms: 0,
     resizeObserverCallbacks: 0,
+    resizeObserverEntries: 0,
     removedNodes: 0,
     scrollHeightReads: 0,
     scrollWidthReads: 0,
@@ -444,17 +453,34 @@ function patchResizeObserver(): void {
     constructor(callback: ResizeObserverCallback) {
       const publicObserver = this as unknown as ResizeObserver;
       this.observer = new OriginalResizeObserver((entries) => {
-        const trackedCallback = entries.some((entry) => isTrackedElement(entry.target));
-
-        if (trackedMetrics && trackedCallback) {
-          trackedMetrics.resizeObserverCallbacks += 1;
-        }
+        const metrics = trackedMetrics;
+        let trackedEntryCount = 0;
 
         for (const entry of entries) {
+          if (metrics && isTrackedElement(entry.target)) trackedEntryCount += 1;
           markActivityForElement(entry.target);
         }
 
-        callback.call(publicObserver, entries, publicObserver);
+        if (metrics && trackedEntryCount > 0) {
+          metrics.resizeObserverCallbacks += 1;
+          metrics.resizeObserverEntries += trackedEntryCount;
+        }
+
+        const startedAt = metrics && trackedEntryCount > 0 ? performance.now() : 0;
+
+        try {
+          callback.call(publicObserver, entries, publicObserver);
+        } finally {
+          if (metrics && trackedEntryCount > 0) {
+            const duration = performance.now() - startedAt;
+            metrics.resizeObserverCallbackMs += duration;
+            metrics.resizeObserverCallbackMaxMs = Math.max(
+              metrics.resizeObserverCallbackMaxMs,
+              duration,
+            );
+            resizeObserverCallbackDurations.push(duration);
+          }
+        }
       });
     }
 
@@ -551,19 +577,23 @@ export function restoreBenchmarkSpies(): void {
 export function beginTracking(...roots: HTMLElement[]): void {
   trackedRoots.length = 0;
   trackedRoots.push(...roots);
-  trackedMetrics = countersInstalled ? emptyMetrics() : null;
+  trackedMetrics = emptyMetrics();
+  resizeObserverCallbackDurations = [];
 }
 
 export function endTracking(): BenchmarkMetrics {
   const metrics = trackedMetrics ?? emptyMetrics();
+  metrics.resizeObserverCallbackP95Ms = percentile(resizeObserverCallbackDurations, 0.95);
   trackedRoots.length = 0;
   trackedMetrics = null;
+  resizeObserverCallbackDurations = [];
   return metrics;
 }
 
 export function resetBenchmarkDom(): void {
   trackedRoots.length = 0;
   trackedMetrics = null;
+  resizeObserverCallbackDurations = [];
   document.body.innerHTML = "";
 }
 
@@ -590,7 +620,7 @@ export function createActivityTracker(root: HTMLElement): ActivityTracker {
   };
   const record: ActivityRecord = { mark, root };
   const observer = new MutationObserver((records) => {
-    if (trackedMetrics) {
+    if (trackedMetrics && countersInstalled) {
       trackedMetrics.mutationCallbacks += 1;
       trackedMetrics.mutationRecords += records.length;
 

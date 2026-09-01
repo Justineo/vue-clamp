@@ -92,8 +92,8 @@ The root entry should remain the default. Choose `vue-clamp/pretext` only when a
 - Many mounted plain-text clamps change width repeatedly, such as dense dashboards, resizable panes,
   or responsive result grids. A few clamps that render once usually cannot amortize preparation and
   the additional predictor payload.
-- The accelerated API shape fits the product: `max-lines`, end truncation, no `before` / `after`
-  slots or `max-height`, and either `boundary="word"` or a custom single-line ellipsis.
+- The clamp uses `max-lines` and end truncation without `max-height`, and native CSS cannot express
+  the requested word boundary, custom ellipsis, or multiline `after` slot.
 - Text typography is stable, a named font is loaded before mount, and the application accepts the
   documented differences from the browser's full inline-layout model.
 
@@ -123,10 +123,15 @@ This entry has the same public API as the standard `LineClamp`. It chooses an en
 requested API shape:
 
 1. Native CSS for the standard default end/grapheme/`…` subset.
-2. Pretext for end truncation with `max-lines`, no affix slots or `max-height`, and either word
-   boundaries or a custom single-line ellipsis. Custom ellipses work with word or grapheme
-   boundaries; ellipses containing forced line breaks remain browser-measured.
+2. Pretext for non-native end truncation with `max-lines` and no `max-height`. It accounts for the
+   observed border-box widths of `before` and `after`; slot-size changes are observed automatically.
+   Custom ellipses work with word or grapheme boundaries, while ellipses containing forced line
+   breaks remain browser-measured.
 3. The standard browser-measured engine for every other combination.
+
+All three choices run through the same `LineClamp` DOM, observation, accessibility, controls, and
+event runtime. The subpath injects only a private prediction strategy; it does not nest a second
+clamp runtime or expose an engine prop.
 
 Before its first prediction, the component reads the rendered element's canvas font shorthand and
 the Pretext-supported `white-space`, `word-break`, and numeric `letter-spacing` values. It caches that
@@ -287,8 +292,7 @@ Stable styling hooks use `data-part` attributes:
 
 Do not rely on internal DOM nesting as a styling contract.
 
-The Pretext entry uses `root` and `body` on its predictive path; native and browser-measured shapes
-use the standard `LineClamp` parts.
+The Pretext entry uses the same parts on native, predictive, and browser-measured paths.
 
 ## Notes
 

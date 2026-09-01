@@ -1519,7 +1519,7 @@ describe("Website demo page", () => {
 
     (afterToggle as HTMLInputElement).click();
     await settle(2);
-    expect(stressEngineLabel()).toBe("Measured");
+    expect(stressEngineLabel()).toBe("Pretext");
 
     (afterToggle as HTMLInputElement).click();
     heightModeButton.click();
@@ -1756,11 +1756,12 @@ describe("Website demo page", () => {
 
     for (const item of items) {
       const body = item.querySelector('[data-part="body"]');
+      const content = item.querySelector('[data-part="content"]');
       expect(body).toBeInstanceOf(HTMLElement);
-      expect(getComputedStyle(body as HTMLElement).getPropertyValue("-webkit-line-clamp")).toBe(
+      expect(content).toBeInstanceOf(HTMLElement);
+      expect(getComputedStyle(content as HTMLElement).getPropertyValue("-webkit-line-clamp")).toBe(
         "2",
       );
-      expect(item.querySelector('[data-part="content"]')).toBeNull();
       expect(item.querySelector('[aria-hidden="true"]')).toBeInstanceOf(HTMLElement);
     }
   });
@@ -1817,7 +1818,8 @@ describe("Website demo page", () => {
     expect(pretextNotice.textContent).toContain("When Pretext pays off");
     expect(pretextNotice.textContent).toContain("resize repeatedly");
     expect(pretextNotice.textContent).toContain("word boundaries");
-    expect(pretextNotice.textContent).toContain("custom single-line ellipsis");
+    expect(pretextNotice.textContent).toContain("custom ellipsis");
+    expect(pretextNotice.textContent).toContain("multiline after slot");
     expect(pretextNotice.textContent).toContain("named font is loaded");
 
     await selectSurface(mountedPage.container, "rich");

@@ -1,7 +1,12 @@
 import { layoutNextLineRange, measureNaturalWidth, prepareWithSegments } from "@chenglou/pretext";
 import { prepareText } from "../text.ts";
 
-import type { LayoutCursor, PreparedTextWithSegments, PrepareOptions } from "@chenglou/pretext";
+import type {
+  LayoutCursor,
+  LayoutLineRange,
+  PreparedTextWithSegments,
+  PrepareOptions,
+} from "@chenglou/pretext";
 import type { ClampBoundary } from "../types.ts";
 import type { PreparedText } from "../text.ts";
 
@@ -91,6 +96,18 @@ function cursorGrapheme(input: PreparedLineClamp, cursor: LayoutCursor): number 
   return input.segmentGraphemeStarts[cursor.segmentIndex]! + cursor.graphemeIndex;
 }
 
+function browserLineEnd(line: LayoutLineRange, hasBefore: boolean): LayoutCursor {
+  if (!hasBefore || line.end.graphemeIndex === 0) return line.end;
+
+  // `overflow-wrap: break-word` first moves an unbreakable token to a fresh
+  // line. Pretext can emergency-break it into the space after an atomic
+  // leading affix, so keep only the complete segments from that first line.
+  return {
+    graphemeIndex: 0,
+    segmentIndex: line.end.segmentIndex,
+  };
+}
+
 function displayEndClamp(
   text: string,
   offsets: readonly number[],
@@ -123,41 +140,56 @@ export function clampPreparedLine(
   input: PreparedLineClamp,
   maxWidth: number,
   maxLines: number,
+  beforeWidth = 0,
+  afterWidth = 0,
 ): LineClampResult {
   if (input.source.length === 0 || maxLines < 1) {
     return { clamped: false, text: input.source };
   }
   if (maxWidth <= 0) return { clamped: true, text: "" };
 
+  const before = Math.max(0, beforeWidth);
+  const after = Math.max(0, afterWidth);
   let cursor = start;
+  let lastLineWidth = maxWidth;
 
-  for (let line = 1; line < maxLines; line += 1) {
-    const range = layoutNextLineRange(input.prepared, cursor, maxWidth);
+  for (let line = 0; line < maxLines; line += 1) {
+    lastLineWidth = line === 0 ? maxWidth - before : maxWidth;
+    if (lastLineWidth <= 0) {
+      if (line < maxLines - 1) continue;
+      break;
+    }
+
+    const range = layoutNextLineRange(input.prepared, cursor, lastLineWidth);
     if (range === null) {
-      return { clamped: false, text: input.source };
+      return after <= maxWidth + 0.5
+        ? { clamped: false, text: input.source }
+        : { clamped: true, text: "" };
     }
 
-    cursor = range.end;
-    if (cursor.segmentIndex >= input.prepared.segments.length) {
-      return { clamped: false, text: input.source };
+    const end = browserLineEnd(range, line === 0 && before > 0);
+    const consumed = end === range.end && range.end.segmentIndex >= input.prepared.segments.length;
+    if (consumed) {
+      if (range.width + after <= lastLineWidth + 0.5 || line < maxLines - 1) {
+        return { clamped: false, text: input.source };
+      }
     }
+
+    if (line === maxLines - 1) break;
+    cursor = end;
   }
 
-  const fullLastLine = layoutNextLineRange(input.prepared, cursor, maxWidth);
-  if (fullLastLine === null || fullLastLine.end.segmentIndex >= input.prepared.segments.length) {
-    return { clamped: false, text: input.source };
-  }
-
-  const lastLineWidth = maxWidth - input.ellipsisWidth;
-  if (lastLineWidth <= 0) {
+  const reservedWidth = input.ellipsisWidth + after;
+  const availableWidth = lastLineWidth - reservedWidth;
+  if (availableWidth <= 0) {
     return {
       clamped: true,
-      text: input.ellipsisWidth <= maxWidth ? input.ellipsis : "",
+      text: reservedWidth <= lastLineWidth + 0.5 ? input.ellipsis : "",
     };
   }
 
-  const lastLine = layoutNextLineRange(input.prepared, fullLastLine.start, lastLineWidth);
-  if (lastLine === null || lastLine.width > lastLineWidth + 0.5) {
+  const lastLine = layoutNextLineRange(input.prepared, cursor, availableWidth);
+  if (lastLine === null || lastLine.width + reservedWidth > lastLineWidth + 0.5) {
     return { clamped: true, text: input.ellipsis };
   }
 

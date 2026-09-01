@@ -1329,9 +1329,9 @@ const highlightedCode = {
               <ul>
                 <li>Many mounted plain-text clamps resize repeatedly.</li>
                 <li>
-                  Use <code>max-lines</code>, end truncation, no affix slots or
-                  <code>max-height</code>, and either word boundaries or a custom single-line
-                  ellipsis.
+                  Use <code>max-lines</code> and end truncation without <code>max-height</code> when
+                  word boundaries, a custom ellipsis, or a multiline <code>after</code> slot
+                  prevents native CSS.
                 </li>
                 <li>
                   Typography stays stable, a named font is loaded, and exact browser-only text

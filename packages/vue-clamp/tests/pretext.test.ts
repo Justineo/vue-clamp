@@ -69,6 +69,25 @@ describe("Pretext line clamping", () => {
     });
   });
 
+  it("accounts for before and after affix occupancy", () => {
+    const prepared = prepareLineClamp("alpha beta gamma delta epsilon", font);
+    const plain = clampPreparedLine(prepared, 120, 2);
+    const affixed = clampPreparedLine(prepared, 120, 2, 32, 28);
+
+    expect(affixed.clamped).toBe(true);
+    expect(affixed.text.endsWith("…")).toBe(true);
+    expect(affixed.text.length).toBeLessThan(plain.text.length);
+  });
+
+  it("moves an emergency-broken leading token to the next line", () => {
+    const prepared = prepareLineClamp("observabilityPlatformBoundary".repeat(6), font);
+    const plain = clampPreparedLine(prepared, 180, 3, 0, 32);
+    const withBefore = clampPreparedLine(prepared, 180, 3, 40, 32);
+
+    expect(withBefore.clamped).toBe(true);
+    expect(withBefore.text.length).toBeLessThanOrEqual(plain.text.length);
+  });
+
   it("never cuts through a composed grapheme", () => {
     const source = "e\u0301👩‍🚀".repeat(12);
     const prepared = prepareLineClamp(source, font);

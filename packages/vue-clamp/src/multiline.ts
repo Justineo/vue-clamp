@@ -10,7 +10,6 @@ import {
 import { useClampControls } from "./controls.ts";
 import {
   borderBoxSizeSnapshot,
-  borderBoxSizeSignature,
   createCoalescingRunner,
   emptyBorderBoxSignature,
   listenForFontLoads,
@@ -41,6 +40,7 @@ export type MultilineShellOptions = {
   readonly expanded: Ref<boolean>;
   readonly onClampedChange: (value: boolean) => void;
   readonly onFontLoad?: () => void;
+  readonly predictiveWidthRef?: Ref<HTMLElement | null>;
   readonly recompute: (expanded: Ref<boolean>, rootWidth?: number) => Promise<void>;
   readonly syncAffixSignaturesOnRootChange?: boolean;
 };
@@ -49,11 +49,16 @@ export type MultilineShell = ShellState & {
   readonly expand: () => void;
   readonly collapse: () => void;
   readonly affixSlotProps: () => ClampSlotProps;
-  readonly observedSizeSignature: (element: HTMLElement | null) => string;
+  readonly observedSizeSnapshot: (element: HTMLElement | null) => BorderBoxSizeSnapshot;
   readonly setBeforeElement: MultilineAffixRefSetter;
   readonly setAfterElement: MultilineAffixRefSetter;
   readonly toggle: () => void;
   readonly requestRecompute: () => void;
+};
+
+const emptySizeSnapshot: BorderBoxSizeSnapshot = {
+  signature: emptyBorderBoxSignature,
+  width: 0,
 };
 
 function createMultilineAffixRefSetter(
@@ -82,6 +87,7 @@ export function useMultilineClamp(options: MultilineShellOptions): MultilineShel
     expanded,
     onClampedChange,
     onFontLoad,
+    predictiveWidthRef,
     recompute,
     syncAffixSignaturesOnRootChange = false,
   } = options;
@@ -96,10 +102,9 @@ export function useMultilineClamp(options: MultilineShellOptions): MultilineShel
   };
 
   let lastLayoutSignature: string | null = null;
-  let lastRootSizeSignature = emptyBorderBoxSignature;
-  let lastContentSizeSignature = emptyBorderBoxSignature;
-  let lastBeforeSizeSignature = emptyBorderBoxSignature;
-  let lastAfterSizeSignature = emptyBorderBoxSignature;
+  const observedSizes = new WeakMap<Element, BorderBoxSizeSnapshot>();
+  let observedPredictiveElement: Element | null = null;
+  let observedPredictiveWidth = 0;
   let pendingRootWidth: number | undefined;
   let pendingAffixSignaturesFresh = false;
   let recomputeEpoch = 0;
@@ -107,72 +112,38 @@ export function useMultilineClamp(options: MultilineShellOptions): MultilineShel
   let fontRecomputeFrame: number | null = null;
 
   function readRootSnapshot(): BorderBoxSizeSnapshot {
-    const snapshot = borderBoxSizeSnapshot(state.rootRef.value);
-    lastRootSizeSignature = snapshot.signature;
-
-    return snapshot;
-  }
-
-  function readRootSignature(): void {
-    lastRootSizeSignature = borderBoxSizeSignature(state.rootRef.value);
+    return readSize(state.rootRef.value);
   }
 
   function readLayoutSignature(reuseAffixSignatures = false): string {
     // The content shell captures body geometry, while slots are tracked
     // separately. This signature only needs to decide whether another
     // synchronous clamp pass is needed.
-    lastContentSizeSignature = borderBoxSizeSignature(state.contentRef.value);
+    const content = readSize(state.contentRef.value);
     if (!reuseAffixSignatures) {
-      lastBeforeSizeSignature = borderBoxSizeSignature(state.beforeRef.value);
-      lastAfterSizeSignature = borderBoxSizeSignature(state.afterRef.value);
+      readAffixSignatures();
     }
 
     return (
-      lastRootSizeSignature +
+      observedSizeSnapshot(state.rootRef.value).signature +
       "|" +
-      lastContentSizeSignature +
+      content.signature +
       "|" +
-      lastBeforeSizeSignature +
+      observedSizeSnapshot(state.beforeRef.value).signature +
       "|" +
-      lastAfterSizeSignature
+      observedSizeSnapshot(state.afterRef.value).signature
     );
   }
 
   function readAffixSignatures(): void {
-    lastBeforeSizeSignature = borderBoxSizeSignature(state.beforeRef.value);
-    lastAfterSizeSignature = borderBoxSizeSignature(state.afterRef.value);
+    readSize(state.beforeRef.value);
+    readSize(state.afterRef.value);
   }
 
-  function lastObservedSignature(element: Element): string | null {
-    if (element === state.rootRef.value) {
-      return lastRootSizeSignature;
-    }
-
-    if (element === state.contentRef.value) {
-      return lastContentSizeSignature;
-    }
-
-    if (element === state.beforeRef.value) {
-      return lastBeforeSizeSignature;
-    }
-
-    if (element === state.afterRef.value) {
-      return lastAfterSizeSignature;
-    }
-
-    return null;
-  }
-
-  function updateObservedSignature(element: Element, signature: string): void {
-    if (element === state.rootRef.value) {
-      lastRootSizeSignature = signature;
-    } else if (element === state.contentRef.value) {
-      lastContentSizeSignature = signature;
-    } else if (element === state.beforeRef.value) {
-      lastBeforeSizeSignature = signature;
-    } else if (element === state.afterRef.value) {
-      lastAfterSizeSignature = signature;
-    }
+  function readSize(element: HTMLElement | null): BorderBoxSizeSnapshot {
+    const snapshot = borderBoxSizeSnapshot(element);
+    if (element) observedSizes.set(element, snapshot);
+    return snapshot;
   }
 
   function requestRecompute(rootWidth?: number): void {
@@ -187,23 +158,38 @@ export function useMultilineClamp(options: MultilineShellOptions): MultilineShel
     let changed = false;
 
     for (const entry of entries) {
-      const previousSignature = lastObservedSignature(entry.target);
-      if (previousSignature === null) {
+      if (entry.target === predictiveWidthRef?.value) {
+        // The zero-border/padding probe needs only inline size; bypass generic 2D
+        // signatures and WeakMap traffic on the predictive resize hot path.
+        const firstEntry = entry.target !== observedPredictiveElement;
+        const width = entry.contentBoxSize[0]?.inlineSize ?? entry.contentRect.width;
+        if (!firstEntry && width === observedPredictiveWidth) {
+          continue;
+        }
+
+        observedPredictiveElement = entry.target;
+        observedPredictiveWidth = width;
+        pendingRootWidth = width;
+        changed = true;
         continue;
       }
 
-      const snapshot = observedBorderBoxSizeSnapshot(entry, previousSignature);
+      const previous = observedSizes.get(entry.target);
+      const snapshot = observedBorderBoxSizeSnapshot(
+        entry,
+        previous?.signature ?? emptySizeSnapshot.signature,
+        !predictiveWidthRef?.value,
+      );
       if (snapshot === null) {
         changed = true;
         continue;
       }
 
-      const nextSignature = snapshot.signature;
-      if (previousSignature === nextSignature) {
+      if (previous?.signature === snapshot.signature) {
         continue;
       }
 
-      updateObservedSignature(entry.target, nextSignature);
+      observedSizes.set(entry.target, snapshot);
       if (entry.target === state.rootRef.value) {
         pendingRootWidth = snapshot.width;
       }
@@ -213,10 +199,15 @@ export function useMultilineClamp(options: MultilineShellOptions): MultilineShel
     return changed;
   }
 
-  function observedSizeSignature(element: HTMLElement | null): string {
-    return element
-      ? (lastObservedSignature(element) ?? borderBoxSizeSignature(element))
-      : emptyBorderBoxSignature;
+  function observedSizeSnapshot(element: HTMLElement | null): BorderBoxSizeSnapshot {
+    if (element && element === observedPredictiveElement) {
+      return {
+        signature: emptyBorderBoxSignature,
+        width: observedPredictiveWidth,
+      };
+    }
+
+    return element ? (observedSizes.get(element) ?? emptySizeSnapshot) : emptySizeSnapshot;
   }
 
   function affixSlotProps(): ClampSlotProps {
@@ -242,7 +233,14 @@ export function useMultilineClamp(options: MultilineShellOptions): MultilineShel
       lastLayoutSignature = null;
       return;
     }
-    readRootSignature();
+    if (predictiveWidthRef?.value) {
+      // Width and affix entries are the predictive path's complete geometry
+      // input. Direct text writes do not need a synchronous settled-layout
+      // snapshot; later size changes arrive through the same observer.
+      lastLayoutSignature = null;
+      return;
+    }
+    readRootSnapshot();
     lastLayoutSignature = readLayoutSignature(
       affixSignaturesFresh && wasClamped === state.isClamped.value,
     );
@@ -291,16 +289,14 @@ export function useMultilineClamp(options: MultilineShellOptions): MultilineShel
       return;
     }
 
+    const observed = predictiveWidthRef?.value
+      ? [predictiveWidthRef.value, state.beforeRef.value, state.afterRef.value]
+      : [state.rootRef.value, state.contentRef.value, state.beforeRef.value, state.afterRef.value];
     const stopObserving = observeBorderBoxSizes(
-      [
-        state.rootRef.value,
-        state.contentRef.value,
-        state.beforeRef.value,
-        state.afterRef.value,
-      ].filter((element): element is HTMLElement => element instanceof HTMLElement),
+      observed.filter((element): element is HTMLElement => element instanceof HTMLElement),
       (entries) => {
-        // ResizeObserver is the async catch-all for layout changes not caused by
-        // Vue props, such as container resizes and slot content dimensions.
+        // ResizeObserver is the async catch-all for container and slot sizes.
+        // Predictive text changes do not observe their own block-size output.
         if (hasObservedSizeChange(entries)) {
           requestRecompute();
         }
@@ -323,11 +319,11 @@ export function useMultilineClamp(options: MultilineShellOptions): MultilineShel
   });
 
   onUpdated(() => {
-    if (!active.value) {
+    if (!active.value || predictiveWidthRef?.value) {
       return;
     }
 
-    const previousRootSizeSignature = lastRootSizeSignature;
+    const previousRootSizeSignature = observedSizeSnapshot(state.rootRef.value).signature;
     const rootSnapshot = readRootSnapshot();
     if (rootSnapshot.signature !== previousRootSizeSignature) {
       // A root change is enough to start the same-flush pass. Rich opts into
@@ -356,7 +352,7 @@ export function useMultilineClamp(options: MultilineShellOptions): MultilineShel
     ...state,
     ...controls,
     affixSlotProps,
-    observedSizeSignature,
+    observedSizeSnapshot,
     setBeforeElement,
     setAfterElement,
     requestRecompute,

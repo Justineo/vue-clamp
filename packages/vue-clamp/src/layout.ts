@@ -8,8 +8,8 @@ export function observeBorderBoxSizes(
   elements: readonly Element[],
   listener: BorderBoxResizeListener,
 ): () => void {
-  // Keep delivery independent per clamp. A shared hub reduced callback objects
-  // but not measured active work, while coupling otherwise unrelated instances.
+  // Keep delivery independent per clamp. A shared hub reduces callback objects
+  // without reducing resize work and adds dispatch overhead on every frame.
   const observer = new ResizeObserver(listener);
   for (const element of elements) {
     observer.observe(element, borderBoxObserverOptions);
@@ -267,13 +267,16 @@ function entrySizeSnapshot(entry: ResizeObserverEntry): BorderBoxSizeSnapshot | 
 export function observedBorderBoxSizeSnapshot(
   entry: ResizeObserverEntry,
   previousSignature: string,
+  useVisualFallback = true,
 ): BorderBoxSizeSnapshot | null {
   const snapshot = entrySizeSnapshot(entry);
   if (!snapshot || snapshot.signature === previousSignature) {
     return snapshot;
   }
 
-  return entry.target instanceof HTMLElement && needsVisualBorderBoxFallback(entry.target)
+  return useVisualFallback &&
+    entry.target instanceof HTMLElement &&
+    needsVisualBorderBoxFallback(entry.target)
     ? borderBoxSizeSnapshot(entry.target)
     : snapshot;
 }

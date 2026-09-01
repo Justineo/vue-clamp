@@ -16,7 +16,7 @@ import {
   type StepDiagnostics,
 } from "./helpers.ts";
 
-import type { App, Component, Ref, VNodeChild } from "vue";
+import type { App, Component, VNodeChild, VNodeRef } from "vue";
 
 type ComponentName = "InlineClamp" | "LineClamp" | "RichLineClamp" | "WrapClamp";
 
@@ -42,13 +42,14 @@ type MountedScenario = {
   container: HTMLElement;
   resetExtraMetrics?: () => void;
   root: HTMLElement;
-  width: Ref<number>;
+  setWidth: (value: number) => void;
 };
 
 type PublicScenario = {
   beforeStep?: (mounted: MountedScenario, stepIndex: number) => Promise<void> | void;
   component: ComponentName;
   group: "inline" | "line" | "pretext" | "rich" | "wrap";
+  maxStableFrames?: number;
   minVersion?: string;
   mount: (component: Component, initialWidth: number) => Promise<MountedScenario>;
   name: string;
@@ -660,6 +661,7 @@ type LineClampBatchOptions = {
   boundary?: "grapheme" | "word";
   contentUpdates?: boolean;
   direction?: "ltr" | "rtl";
+  directWidth?: boolean;
   ellipsis?: string;
   externalWidth?: boolean;
   font?: string;
@@ -668,6 +670,7 @@ type LineClampBatchOptions = {
   maxHeight?: string;
   maxLines?: number;
   text?: string;
+  transitionMs?: number;
 };
 
 type InlineClampBatchOptions = {
@@ -732,6 +735,11 @@ async function mountLineClampBatch(
   options: LineClampBatchOptions = {},
 ): Promise<MountedScenario> {
   const width = ref(initialWidth);
+  let widthElement: HTMLElement | null = null;
+  const containerWidth = options.directWidth || options.externalWidth;
+  const setWidthElement: VNodeRef = (element) => {
+    widthElement = element instanceof HTMLElement ? element : null;
+  };
   const contentRevision = ref(0);
   const beforeSlotCalls = createCounter();
   const afterSlotCalls = createCounter();
@@ -745,8 +753,11 @@ async function mountLineClampBatch(
         h(
           "div",
           {
-            style: options.externalWidth
-              ? `${batchHostStyle()};width:${width.value}px`
+            ...(options.directWidth ? { ref: setWidthElement } : {}),
+            style: containerWidth
+              ? `${batchHostStyle()};width:${options.directWidth ? initialWidth : width.value}px${
+                  options.transitionMs ? `;transition:width ${options.transitionMs}ms linear` : ""
+                }`
               : batchHostStyle(),
           },
           instances.map((index) => {
@@ -754,7 +765,7 @@ async function mountLineClampBatch(
               key: index,
               maxLines: options.maxLines,
               style: blockStyle(
-                options.externalWidth ? "100%" : width.value,
+                containerWidth ? "100%" : width.value,
                 options.fontSize,
                 options.direction,
                 options.font,
@@ -837,7 +848,13 @@ async function mountLineClampBatch(
       beforeSlotCalls.reset();
     },
     root: trackElement(container),
-    width,
+    setWidth: (value) => {
+      if (options.directWidth) {
+        widthElement?.style.setProperty("width", `${value}px`);
+      } else {
+        width.value = value;
+      }
+    },
   };
 }
 
@@ -895,7 +912,9 @@ async function mountInlineClampBatch(
     collectExtraMetrics: () => ({ componentInstances: inlineBatchSize }),
     container,
     root: trackElement(container),
-    width,
+    setWidth: (value) => {
+      width.value = value;
+    },
   };
 }
 
@@ -1009,7 +1028,9 @@ async function mountRichLineClampBatch(
       beforeSlotCalls.reset();
     },
     root: trackElement(container),
-    width,
+    setWidth: (value) => {
+      width.value = value;
+    },
   };
 }
 
@@ -1055,7 +1076,9 @@ async function mountDenseRichLineClamp(
     collectExtraMetrics: () => ({ componentInstances: denseRichHtmls.length }),
     container,
     root: trackElement(container),
-    width,
+    setWidth: (value) => {
+      width.value = value;
+    },
   };
 }
 
@@ -1206,7 +1229,9 @@ async function mountWrapTableScenario(
       itemSlotCalls.reset();
     },
     root: trackElement(container),
-    width,
+    setWidth: (value) => {
+      width.value = value;
+    },
   };
 }
 
@@ -1296,29 +1321,78 @@ async function mountWrapSingleLineScenario(
       itemSlotCalls.reset();
     },
     root: trackElement(container),
-    width,
+    setWidth: (value) => {
+      width.value = value;
+    },
   };
 }
 
 function pretextScenarios(): PublicScenario[] {
-  const fixtures = [
-    { font: "16px Georgia", name: "english", text: wordBoundaryText },
-    { font: "16px Arial", name: "cjk", text: cjkWordBoundaryText },
-    { font: "16px Arial", name: "thai", text: thaiWordBoundaryText },
-    { font: "16px Georgia", name: "long-token", text: fallbackWordBoundaryText },
-  ] as const;
+  const fixtures: readonly {
+    readonly after?: boolean;
+    readonly before?: boolean;
+    readonly directWidth?: boolean;
+    readonly font: string;
+    readonly name: string;
+    readonly text: string;
+  }[] = [
+    {
+      font: "16px Georgia",
+      name: "english",
+      text: wordBoundaryText,
+    },
+    {
+      directWidth: true,
+      font: "16px Georgia",
+      name: "english-dom-resize",
+      text: wordBoundaryText,
+    },
+    {
+      font: "16px Arial",
+      name: "cjk",
+      text: cjkWordBoundaryText,
+    },
+    {
+      font: "16px Arial",
+      name: "thai",
+      text: thaiWordBoundaryText,
+    },
+    {
+      font: "16px Georgia",
+      name: "long-token",
+      text: fallbackWordBoundaryText,
+    },
+    {
+      after: true,
+      before: true,
+      font: "16px Georgia",
+      name: "english-affixed",
+      text: wordBoundaryText,
+    },
+    {
+      after: true,
+      before: true,
+      directWidth: true,
+      font: "16px Georgia",
+      name: "english-affixed-dom-resize",
+      text: wordBoundaryText,
+    },
+  ];
   const patterns = [
     { name: "continuous", widths: pretextContinuousWidths },
     { name: "jitter", widths: pretextJitterWidths },
     { name: "jumps", widths: pretextJumpWidths },
   ] as const;
 
-  return fixtures.flatMap((fixture) =>
+  const resizeScenarios = fixtures.flatMap((fixture) =>
     patterns.map((pattern) => ({
       component: "LineClamp" as const,
       group: "pretext" as const,
       mount: lineClampBatch({
+        after: fixture.after ?? false,
+        before: fixture.before ?? false,
         boundary: "word",
+        directWidth: fixture.directWidth ?? false,
         font: fixture.font,
         maxLines: 3,
         text: fixture.text,
@@ -1327,6 +1401,27 @@ function pretextScenarios(): PublicScenario[] {
       widths: pattern.widths,
     })),
   );
+
+  return [
+    ...resizeScenarios,
+    ...([false, true] as const).map((affixed) => ({
+      component: "LineClamp" as const,
+      group: "pretext" as const,
+      maxStableFrames: 90,
+      mount: lineClampBatch({
+        after: affixed,
+        before: affixed,
+        boundary: "word",
+        directWidth: true,
+        font: "16px Georgia",
+        maxLines: 3,
+        text: wordBoundaryText,
+        transitionMs: 240,
+      }),
+      name: `line-pretext-english${affixed ? "-affixed" : ""}-batch-css-transition`,
+      widths: [460, 180, 460],
+    })),
+  ];
 }
 
 function scenarios(): PublicScenario[] {
@@ -2809,11 +2904,11 @@ async function runScenarioOnce(
       await scenario.beforeStep?.(mounted, stepIndex);
 
       if (typeof step === "number") {
-        mounted.width.value = step;
+        mounted.setWidth(step);
         await flushVueUpdates();
       } else {
         for (const width of step) {
-          mounted.width.value = width;
+          mounted.setWidth(width);
           await flushVueUpdates();
         }
       }
@@ -2826,7 +2921,10 @@ async function runScenarioOnce(
       await flushVueUpdates();
       const updatedAt = performance.now();
       activityTracker.mark(updatedAt);
-      const stable = await activityTracker.waitForStable({ since: startedAt });
+      const stable = await activityTracker.waitForStable({
+        ...(scenario.maxStableFrames ? { maxFrames: scenario.maxStableFrames } : {}),
+        since: startedAt,
+      });
       const settledAt = performance.now();
       const performanceWindow = performanceTracker.measure(startedAt, settledAt);
       const stepSettledMs = settledAt - startedAt;
@@ -2995,6 +3093,7 @@ function isCompactExtraMetric(summaryKey: string): boolean {
   return (
     metricKey === "componentInstances" ||
     metricKey === "cloneNodeMs" ||
+    metricKey.startsWith("resizeObserver") ||
     metricKey.endsWith("Calls") ||
     metricKey.endsWith("Callbacks") ||
     metricKey.endsWith("Nodes") ||
@@ -3428,6 +3527,8 @@ function logScenarioResult(target: BenchmarkTarget, result: ScenarioResult): voi
       `scrollHeightReads=${formatMetric(summary.medianScrollHeightReads)}`,
       `scrollWidthReads=${formatMetric(summary.medianScrollWidthReads)}`,
       `styleReads=${formatMetric(summary.medianStyleReads)}`,
+      `resizeCallbackMs=${formatMetric(summary.medianResizeObserverCallbackMs, 2)}`,
+      `resizeCallbackP95Ms=${formatMetric(summary.medianResizeObserverCallbackP95Ms, 2)}`,
       ...(extra ? [`extra=${JSON.stringify(extra)}`] : []),
     ].join(" "),
   );

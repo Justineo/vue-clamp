@@ -49,11 +49,12 @@
   - `InlineClamp` as the canonical single-line affix-friendly component name
   - `WrapClamp` as the canonical wrapped-item component name
 - `vue-clamp/pretext` separately exports a `LineClamp` with exactly the standard props, slots,
-  controls, events, and defaults. It decorates the standard component with a predictive path for
-  end truncation with `maxLines`, no affixes or `maxHeight`, and either word boundaries or a custom
-  single-line ellipsis. Default end/grapheme cases remain native; native and remaining measured
-  cases use the self-contained standard component. This keeps the root dependency graph unchanged
-  and avoids a component-shaped internal composable API.
+  controls, events, and defaults. Its thin provider decorates the standard component with a private
+  predictor strategy; native, predictive, and measured modes all run in the same `LineClamp` DOM and
+  lifecycle. Prediction covers non-native end truncation with `maxLines` and no `maxHeight`, including
+  observed `before` / `after` occupancy. Unsupported predictions continue directly into the
+  standard measured solver in that same runtime. This keeps the root dependency graph unchanged and
+  avoids both a second nested clamp runtime and a component-shaped internal composable API.
 - Runtime native selection is based only on semantic eligibility. Multiline containment uses the
   fully specified legacy `display: -webkit-box` / `-webkit-box-orient: vertical` /
   `-webkit-line-clamp` combination, so no render-time `CSS.supports` branch is needed. This keeps SSR
@@ -63,18 +64,30 @@
   `word-break`, and numeric `letter-spacing` inputs. Other CSS is an explicit accuracy-for-throughput
   tradeoff. Each active instance observes a zero-height width probe and mutates one stable visible
   text node during the pre-paint `ResizeObserver` delivery, with no synchronous geometry search or
-  Vue patch. It does not derive height from `line-height`, and a shared observer remains rejected
-  because it reduced callback objects without reducing measured active work.
+  Vue patch. The same observer also caches affix border-box sizes, so width-only passes need no
+  synchronous affix reads and an affix-size change invalidates both standard measurement and
+  prediction through the same mechanism. It does not derive height from `line-height`, and a shared
+  observer remains rejected because it reduced callback objects without reducing measured active
+  work.
+- Sharing the standard `LineClamp` runtime is the maintainability choice. Predictive writes update
+  one stable text node, and the zero-border width probe keeps only numeric inline size on its hot
+  path. A dedicated component can have less orchestration overhead, but duplicating DOM, fallback,
+  accessibility, and lifecycle ownership is rejected. Performance evidence and the remaining cost
+  budget live in `journey/research/318-pretext-integration-research.md`.
 - Predictive custom ellipses are measured with the same prepared typography and cached with the
   source state. Forced-line-break ellipses stay measured because the fast path treats the marker as
   one final-line unit. Grapheme prediction is allowed when a custom ellipsis makes native clamping
   semantically ineligible; it must preserve grapheme boundaries and containment, but may keep a
   conservative shorter prefix than browser measurement.
-- No public stability hint is exposed for Pretext affixes. Because the existing affix wrapper is
-  already an atomic, no-wrap inline box, a caller guarantee that its dimensions never change would
-  make its measured geometry reusable even when the slot's internal content changes. Pretext would
-  still need explicit first-line `before` and final-line `after` occupancy logic. A public contract
-  is justified only after that solver shows a structural and timing win over measured fallback.
+- No public affix-stability prop is needed. The existing wrappers already expose their actual
+  border-box sizes to the shared `ResizeObserver`; prediction consumes those observed values and
+  automatically reacts when they change. A size-stability promise would not make slot output safe to
+  cache because slots may still capture changing parent state. Observer-driven resizes already skip
+  slot execution while `clamped` / `expanded` stay stable; only Vue-driven parent updates retain the
+  normal slot contract. `before` reduces the first-line width and `after` reserves final-line width.
+  Leading-affix long tokens use browser-compatible emergency-wrap cursor handling. A line-box-aware
+  CSS clamp remains active as a paint-safety net for shaping features outside the predictor model; no
+  `Nlh` height approximation is used.
 - There is no default export.
 - Type declarations follow explicit ownership layers:
   - shared public primitives and private shared type building blocks live in
@@ -175,8 +188,8 @@
   Each remains the macro and type surface, while a setup-local `render()` function is the runtime
   render entry. `WrapClamp` delegates root/content/item structure to `wrap/render.ts`; `LineClamp`
   and `RichLineClamp` assemble affix wrappers only when the corresponding slot exists and produces
-  content. The Pretext render function either owns its predictive DOM or returns the standard
-  `LineClamp` component.
+  content. The Pretext entry only provides its private strategy and forwards the public contract to
+  the standard `LineClamp`; it owns no alternate clamp DOM or lifecycle.
 - Render-only component SFCs bind their setup-local render entry through Vue Macros
   `defineRender(render)`. This keeps render-only SFC sources explicit without carrying local
   marker-template plugins or a custom template compiler.
@@ -195,7 +208,10 @@
   a component-size optimization: its drop-in fallback includes the browser-authoritative engine,
   while the much larger predictive engine still never enters root consumers. The retained
   runtime-helper cleanup reduced the current package by about 1.7 kB raw / 0.4 kB gzip without
-  changing root exports.
+  changing root exports. The shared Pretext strategy hook costs about 0.61 kB gzip in a
+  standard-only consumer; that bounded cost is accepted to remove the alternate DOM,
+  observation, accessibility, and measured-fallback implementation. Importing both standard and
+  Pretext adds only 17 bytes gzip over Pretext alone after deduplication.
 - `ClampControls`, `ClampState`, `ClampSlotProps`, and `ClampExposed` are private building blocks in
   `types.ts`; they keep concrete public contracts aligned without creating a generic cross-component
   public abstraction and are not root package exports.
@@ -330,6 +346,11 @@
   - the actual clamp logic still stays local to each component
   - the shell observes root/content/before/after border-box changes; the body ref stays available
     to components, but content already captures body geometry for shell invalidation
+  - the optional Line predictor switches that same shell to a zero-height width target plus the
+    existing before/after wrappers; observer entries supply all predictive geometry and skip the
+    settled synchronous signature pass that direct text writes do not need
+  - observed snapshots retain both the subpixel signature and numeric width, allowing Rich to keep
+    signature-based clone validation while Line prediction reuses the same affix measurements
   - Line/Rich layout signatures use subpixel border-box measurements rather than integer
     `offsetWidth` / `offsetHeight`, because fractional width changes can affect text wrapping
   - those subpixel signatures are quantized to 1/1000 CSS px keys to avoid float-string formatting
@@ -1448,9 +1469,22 @@
     so every target has the same measured sample count for that scenario. Single-target runs keep
     the original schema v3 payload.
   - `current/pretext` resolves the built `vue-clamp/pretext` entry as a distinct benchmark target.
-    The focused matrix supplies the exact predictive eligibility contract to both entrypoints; other
-    API combinations are behavior-tested as native or standard measured dispatch rather than counted
-    as Pretext performance rows.
+    The focused matrix supplies the exact predictive eligibility contract to both entrypoints and
+    includes a before-and-after affix workload; other API combinations are behavior-tested as native
+    or standard measured dispatch rather than counted as Pretext performance rows. Its reactive-width
+    rows intentionally include parent VNode and slot work, while its direct outer-DOM resize rows leave
+    the component VNode unchanged and isolate observer-driven runtime work. These drivers must remain
+    separate: combining them would misattribute application render cost to the clamp engine.
+  - The focused matrix also contains real CSS-transition rows. They write the outer width once and let
+    the browser interpolate it, so fixed animation wall/active time is excluded from speed totals.
+    ResizeObserver callback CPU, per-entry CPU, callback p95/max, frame p95, and dropped frames are the
+    primary transition signals. The current 16-instance, two-transition run reduces callback CPU by
+    88.6–91.7% with Pretext while both entries remain below the dropped-frame threshold.
+  - The direct Pretext affix rows are the slot invalidation contract. Width changes that keep
+    `clamped` stable make zero before/after slot calls; real clamped/full transitions render the slots
+    because their public payload changed. A fixed affix box is not sufficient evidence to cache an
+    arbitrary slot VNode, since the slot may capture reactive parent state. No public stability hint is
+    introduced for this case.
   - duplicate target specifiers in a multi-target run are resolved once and then repeated in the
     browser target list. This keeps same-version noise checks such as `--targets current,current`
     from rebuilding or reinstalling the same package twice while preserving two report columns.
@@ -1547,12 +1581,13 @@
   - package benchmark runs define `process.env.NODE_ENV` as `"production"` so the measured Vue
     runtime path matches production package use instead of Vitest's default test/dev runtime branch.
   - package benchmark counter tracking is enabled by default. `VUE_CLAMP_BENCH_COUNTERS=0` leaves
-    the ResizeObserver-based stability wait in place but disables the monkey-patched layout, style,
-    clone, replacement, and mutation counters. This mode is only for active-time probe-overhead
-    checks; reports include `counterTracking` and render structural summaries or deltas as `N/A`
-    when counters are off, so zero counters are not mistaken for reduced browser work. Recent
-    focused counters-on/off runs put low-noise probe overhead in the low single digits, so timing
-    deltas in that band need structural-counter support or a counters-off confirmation.
+    the ResizeObserver-based stability wait and callback timing in place but disables the
+    monkey-patched layout, style, clone, replacement, and mutation counters. This mode checks timing
+    without structural-probe overhead; reports include `counterTracking` and render structural
+    summaries or deltas as `N/A` when counters are off, so zero counters are not mistaken for reduced
+    browser work. Recent focused counters-on/off transition runs reproduced the same roughly 89%
+    callback-CPU reduction, while timing deltas in the low single digits still need structural-counter
+    support or a counters-off confirmation.
   - each package scenario logs a concise `BENCH_SCENARIO` line when it finishes, including version,
     target specifier, component, scenario, sample count, measured wall time, accumulated active time,
     median/mean active time, active standard deviation, active CV, active RME, core structural
@@ -1880,9 +1915,8 @@
   - the predictor component is loaded only when the Pretext engine is selected, so the default
     `LineClamp` view does not absorb the opt-in engine payload
   - the stress playground compares standard and Pretext `LineClamp` with the same boundary, limit,
-    affix, text, count, and width inputs. Word-boundary line limits without an affix exercise the
-    predictive path; height, affix, and grapheme cases exercise the same native or measured
-    partitions as standard `LineClamp`
+    affix, text, count, and width inputs. Non-native end `maxLines` cases, including observed affix
+    occupancy, exercise prediction; native-eligible cases stay native and `maxHeight` stays measured
 - The website component demos use one sticky shared-controls bar below the component tabs:
   - the component tabs have a fixed block size and shared controls use that same value as their
     sticky `top`, so the two sticky surfaces stack without a gap

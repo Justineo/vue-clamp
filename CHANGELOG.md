@@ -4,15 +4,17 @@ All notable changes to this project will be documented in this file.
 
 ## [1.7.0]
 
-Minor release adding an opt-in predictive engine for resize-heavy multiline text. Existing root
-imports and behavior remain unchanged.
+Minor release adding an opt-in predictive engine for resize-heavy multiline text. Root imports keep
+the existing browser-authoritative behavior and do not include the Pretext engine.
 
 ### Added
 
 - Added `vue-clamp/pretext`, which exports a drop-in `<LineClamp>` for applications that want to
   accelerate resize-heavy end truncation with `maxLines`, including word boundaries and custom
-  single-line ellipses. It uses native CSS when possible and the standard browser-measured behavior
-  for combinations outside the predictive path.
+  single-line ellipses. It uses native CSS when possible, accounts for rendered `before` and `after`
+  slot sizes during prediction, and keeps browser-measured behavior for unsupported combinations.
+  After preparation, eligible resizes avoid browser geometry reads; in the 16-instance CSS
+  transition benchmark, ResizeObserver callback CPU was 89–92% lower than the measured engine.
 
 ## [1.6.0]
 

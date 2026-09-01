@@ -3,11 +3,14 @@ import { afterEach, describe, expect, it } from "vite-plus/test";
 import { LineClamp as StandardLineClamp } from "../src/index.ts";
 import { LineClamp } from "../src/pretext.ts";
 import {
+  afterElement,
   bodyElement,
+  beforeElement,
   cleanupMounted,
   frame,
   mountClamp,
   rootElement,
+  sampleVisibleLineCounts,
   settle as settleBrowser,
   textElement,
   unmountClamp,
@@ -69,6 +72,35 @@ function bodyFor(mountedClamp: MountedClamp): HTMLElement {
   return bodyElement(rootFor(mountedClamp));
 }
 
+function fixedAffix(width: number) {
+  return () => h("span", { style: `display:inline-block;height:18px;width:${width}px` });
+}
+
+function trackGeometryReads(elements: readonly unknown[]): () => number {
+  let reads = 0;
+  for (const element of elements) {
+    if (!(element instanceof HTMLElement)) throw new Error("Expected clamp geometry.");
+    Object.defineProperties(element, {
+      getBoundingClientRect: {
+        configurable: true,
+        value: () => {
+          reads += 1;
+          return new DOMRect();
+        },
+      },
+      getClientRects: {
+        configurable: true,
+        value: () => {
+          reads += 1;
+          return [];
+        },
+      },
+    });
+  }
+
+  return () => reads;
+}
+
 describe("Pretext LineClamp", () => {
   it("uses the standard native path before considering Pretext", async () => {
     const text =
@@ -85,6 +117,34 @@ describe("Pretext LineClamp", () => {
     expect(bodyElement(root).textContent).toBe(text);
   });
 
+  it("does not pass its predictor to LineClamp instances rendered by slots", async () => {
+    const clamp = mountClamp({
+      after: () =>
+        h(StandardLineClamp, {
+          boundary: "word",
+          class: "nested-standard-clamp",
+          maxLines: 2,
+          style: "display:block;font:16px Georgia;line-height:22px;width:120px",
+          text: "Nested standard clamps keep browser-authoritative measurement.",
+        }),
+      component: LineClamp,
+      font: "16px Georgia",
+      lineHeight: "22px",
+      props: { boundary: "word", maxLines: 3 },
+      text: "The outer Pretext clamp owns only its direct prediction strategy.",
+      width: 360,
+    });
+    await settle();
+
+    const nestedRoot = rootFor(clamp).querySelector(".nested-standard-clamp");
+    expect(nestedRoot).toBeInstanceOf(HTMLElement);
+    expect(nestedRoot?.firstElementChild?.getAttribute("data-part")).toBe("content");
+    expect(
+      (nestedRoot?.querySelector('[data-part="content"]') as HTMLElement | null)?.style
+        .webkitLineClamp,
+    ).toBe("");
+  });
+
   it("uses Pretext only for its accelerated contract", async () => {
     const text =
       "Release dashboards keep customer impact and regional mitigation visible while cards resize.";
@@ -95,6 +155,9 @@ describe("Pretext LineClamp", () => {
     });
     const empty = mountPretext(text, "16px Georgia", 180, { ellipsis: "" });
     const measured = mountPretext(text, "16px Georgia", 180, { ellipsis: "more\n..." });
+    const measuredBrowser = mountLineClamp(StandardLineClamp, text, "16px Georgia", 180, {
+      ellipsis: "more\n...",
+    });
     const affixed = mountClamp({
       after: () => h("button", { type: "button" }, "More"),
       component: LineClamp,
@@ -106,13 +169,14 @@ describe("Pretext LineClamp", () => {
     });
     await settle();
 
-    expect(rootFor(predicted).querySelector('[data-part="content"]')).toBeNull();
-    expect(rootFor(custom).querySelector('[data-part="content"]')).toBeNull();
+    expect(rootFor(predicted).querySelector('[data-part="content"]')).toBeInstanceOf(HTMLElement);
+    expect(rootFor(custom).querySelector('[data-part="content"]')).toBeInstanceOf(HTMLElement);
     expect(visibleText(custom)).toBe(visibleText(customBrowser));
-    expect(rootFor(empty).querySelector('[data-part="content"]')).toBeNull();
+    expect(rootFor(empty).querySelector('[data-part="content"]')).toBeInstanceOf(HTMLElement);
     expect(empty.exposed.value?.clamped).toBe(true);
     expect(visibleText(empty)).not.toContain("…");
     expect(rootFor(measured).querySelector('[data-part="content"]')).toBeInstanceOf(HTMLElement);
+    expect(visibleText(measured)).toBe(visibleText(measuredBrowser));
     expect(rootFor(affixed).querySelector('[data-part="after"]')?.textContent).toBe("More");
   });
 
@@ -154,7 +218,7 @@ describe("Pretext LineClamp", () => {
         const output = visibleText(predicted);
         const prefix = output.endsWith("...") ? output.slice(0, -3) : output;
 
-        expect(root.querySelector('[data-part="content"]')).toBeNull();
+        expect(root.querySelector('[data-part="content"]')).toBeInstanceOf(HTMLElement);
         expect(prefixes.has(prefix), `${scenario.font} at ${width}px`).toBe(true);
         expect(body.scrollHeight, `${scenario.font} at ${width}px`).toBeLessThanOrEqual(
           body.clientHeight + 0.5,
@@ -172,7 +236,7 @@ describe("Pretext LineClamp", () => {
     const predicted = mountPretext(text, "16px Georgia", 180);
     await settle();
 
-    expect(rootFor(predicted).querySelector('[data-part="content"]')).toBeNull();
+    expect(rootFor(predicted).querySelector('[data-part="content"]')).toBeInstanceOf(HTMLElement);
     expect(bodyFor(predicted).style.font).toBe("");
     expect(getComputedStyle(bodyFor(predicted)).fontFamily).toContain("Georgia");
     expect(visibleText(predicted)).toBe(visibleText(browser));
@@ -284,26 +348,8 @@ describe("Pretext LineClamp", () => {
 
     const root = rootFor(clamp);
     const body = bodyFor(clamp);
-    let geometryReads = 0;
+    const geometryReads = trackGeometryReads([root, body]);
     let typographyReads = 0;
-    for (const element of [root, body]) {
-      Object.defineProperties(element, {
-        getBoundingClientRect: {
-          configurable: true,
-          value: () => {
-            geometryReads += 1;
-            return new DOMRect();
-          },
-        },
-        getClientRects: {
-          configurable: true,
-          value: () => {
-            geometryReads += 1;
-            return [];
-          },
-        },
-      });
-    }
 
     const originalGetComputedStyle = globalThis.getComputedStyle;
     globalThis.getComputedStyle = (element, pseudoElement) => {
@@ -318,10 +364,222 @@ describe("Pretext LineClamp", () => {
       globalThis.getComputedStyle = originalGetComputedStyle;
     }
 
-    expect(geometryReads).toBe(0);
+    expect(geometryReads()).toBe(0);
     expect(typographyReads).toBe(0);
     expect(clamp.exposed.value?.clamped).toBe(false);
     expect(visibleText(clamp)).toBe(text);
+  });
+
+  it("does not rerender affix slots for container resizes while clamp state is stable", async () => {
+    for (const component of [StandardLineClamp, LineClamp]) {
+      let beforeCalls = 0;
+      let afterCalls = 0;
+      const clamp = mountClamp({
+        after: () => {
+          afterCalls += 1;
+          return h("span", { style: "display:inline-block;height:18px;width:24px" });
+        },
+        applyWidthToComponent: false,
+        before: () => {
+          beforeCalls += 1;
+          return h("span", { style: "display:inline-block;height:18px;width:32px" });
+        },
+        component,
+        containerStyle: "width:180px",
+        font: "16px Georgia",
+        lineHeight: "22px",
+        props: { boundary: "word", maxLines: 3 },
+        text: "Release dashboards keep customer impact and regional mitigation visible while cards resize.",
+      });
+      await settle();
+
+      expect(clamp.exposed.value?.clamped).toBe(true);
+      const initialBeforeCalls = beforeCalls;
+      const initialAfterCalls = afterCalls;
+
+      clamp.container.style.width = "200px";
+      await settle();
+
+      expect(clamp.exposed.value?.clamped).toBe(true);
+      expect(beforeCalls).toBe(initialBeforeCalls);
+      expect(afterCalls).toBe(initialAfterCalls);
+
+      clamp.container.style.width = "900px";
+      await settle();
+
+      expect(clamp.exposed.value?.clamped).toBe(false);
+      expect(beforeCalls).toBeGreaterThan(initialBeforeCalls);
+      expect(afterCalls).toBeGreaterThan(initialAfterCalls);
+      const expandedBeforeCalls = beforeCalls;
+      const expandedAfterCalls = afterCalls;
+
+      clamp.container.style.width = "850px";
+      await settle();
+
+      expect(clamp.exposed.value?.clamped).toBe(false);
+      expect(beforeCalls).toBe(expandedBeforeCalls);
+      expect(afterCalls).toBe(expandedAfterCalls);
+      unmountClamp(clamp);
+    }
+  });
+
+  it("settles an initially zero-width prediction", async () => {
+    const clamp = mountPretext("Hidden until there is room", "16px Georgia", 0);
+    await settle();
+
+    const visible = bodyFor(clamp).children[1];
+    expect(visible).toBeInstanceOf(HTMLElement);
+    expect((visible as HTMLElement).style.visibility).toBe("");
+    expect(visible?.textContent).toBe("");
+    expect(clamp.exposed.value?.clamped).toBe(true);
+  });
+
+  it("uses observed affix sizes on the prediction path", async () => {
+    const afterWidth = ref(20);
+    const text =
+      "Release dashboards keep customer impact and regional mitigation visible while cards resize.";
+    const clamp = mountClamp({
+      after: () =>
+        h("span", {
+          style: `display:inline-block;height:18px;width:${afterWidth.value}px`,
+        }),
+      before: () => h("span", { style: "display:inline-block;height:18px;width:36px" }),
+      component: LineClamp,
+      font: "16px Georgia",
+      lineHeight: "22px",
+      props: { boundary: "word", maxLines: 2 },
+      text,
+      width: 170,
+    });
+    await settle();
+
+    const root = rootFor(clamp);
+    const initial = visibleText(clamp);
+    expect(beforeElement(root)?.getBoundingClientRect().width).toBeCloseTo(36, 3);
+    expect(afterElement(root)?.getBoundingClientRect().width).toBeCloseTo(20, 3);
+    expect(initial).not.toBe(text);
+    expect(await sampleVisibleLineCounts(root)).toEqual([2, 2, 2]);
+
+    afterWidth.value = 110;
+    await settleBrowser(8);
+
+    expect(afterElement(root)?.getBoundingClientRect().width).toBeCloseTo(110, 3);
+    expect(visibleText(clamp).length).toBeLessThan(initial.length);
+    expect(await sampleVisibleLineCounts(root)).toEqual([2, 2, 2]);
+  });
+
+  it("keeps varied affix predictions on source boundaries and within the line limit", async () => {
+    const scenarios = [
+      {
+        after: 56,
+        before: 0,
+        font: "16px Georgia",
+        name: "English after",
+        text: "Release dashboards keep customer impact, mitigation, and ownership visible while cards resize.",
+      },
+      {
+        after: 0,
+        before: 44,
+        font: "16px Arial",
+        name: "CJK before",
+        text: "国际响应团队需要在多区域故障期间保留客户沟通缓解措施和后续责任。",
+      },
+      {
+        after: 60,
+        before: 0,
+        font: "16px Arial",
+        name: "Thai after",
+        text: "ทีมตอบสนองเหตุการณ์ต้องรักษาบริบทของลูกค้าและข้อมูลการแก้ไขปัญหาให้มองเห็นได้อย่างชัดเจน",
+      },
+      {
+        after: 56,
+        before: 40,
+        font: "16px Arial",
+        name: "Emoji both",
+        text: "Status 👩🏽‍💻 ready, family 👨‍👩‍👧‍👦 notified, flags 🇺🇳🇯🇵 checked, and café e\u0301lan reviewed.",
+      },
+      {
+        after: 64,
+        before: 44,
+        font: "16px Arial",
+        name: "Long token both",
+        text: "observabilityPlatformBoundary👩‍🚀e\u0301".repeat(7),
+      },
+    ] as const;
+    const segmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+
+    for (const scenario of scenarios) {
+      const clamp = mountClamp({
+        ...(scenario.after > 0 ? { after: fixedAffix(scenario.after) } : {}),
+        ...(scenario.before > 0 ? { before: fixedAffix(scenario.before) } : {}),
+        component: LineClamp,
+        font: scenario.font,
+        lineHeight: "22px",
+        props: { boundary: "word", maxLines: 3 },
+        text: scenario.text,
+        width: 180,
+      });
+      const boundaries = new Set([
+        0,
+        ...[...segmenter.segment(scenario.text)].map((part) => part.index + part.segment.length),
+      ]);
+
+      for (const width of [180, 260, 460, 220, 330]) {
+        clamp.width.value = width;
+        await settle();
+
+        const output = visibleText(clamp);
+        const prefix = output === scenario.text ? output : output.slice(0, -1);
+        expect(scenario.text.startsWith(prefix), `${scenario.name} at ${width}px`).toBe(true);
+        expect(boundaries.has(prefix.length), `${scenario.name} at ${width}px`).toBe(true);
+        expect(
+          (await sampleVisibleLineCounts(rootFor(clamp), 1))[0],
+          `${scenario.name} at ${width}px`,
+        ).toBeLessThanOrEqual(3);
+      }
+
+      unmountClamp(clamp);
+    }
+  });
+
+  it("reuses ResizeObserver affix geometry without synchronous reads while resizing", async () => {
+    const text =
+      "Release dashboards keep customer impact and regional mitigation visible while cards resize.";
+    const clamp = mountClamp({
+      after: fixedAffix(48),
+      before: fixedAffix(36),
+      component: LineClamp,
+      font: "16px Georgia",
+      lineHeight: "22px",
+      props: { boundary: "word", maxLines: 2 },
+      text,
+      width: 170,
+    });
+    await settle();
+
+    const root = rootFor(clamp);
+    const content = root.querySelector('[data-part="content"]');
+    const before = beforeElement(root);
+    const after = afterElement(root);
+    const geometryReads = trackGeometryReads([root, content, bodyFor(clamp), before, after]);
+    let styleReads = 0;
+
+    const originalGetComputedStyle = globalThis.getComputedStyle;
+    globalThis.getComputedStyle = (...argumentsList) => {
+      styleReads += 1;
+      return originalGetComputedStyle(...argumentsList);
+    };
+
+    try {
+      clamp.width.value = 260;
+      await settle();
+    } finally {
+      globalThis.getComputedStyle = originalGetComputedStyle;
+    }
+
+    expect(geometryReads()).toBe(0);
+    expect(styleReads).toBe(0);
+    expect(visibleText(clamp).length).toBeGreaterThan(0);
   });
 
   it("commits predictions inside ResizeObserver delivery without replacing text nodes", async () => {
@@ -366,6 +624,45 @@ describe("Pretext LineClamp", () => {
     }
   });
 
+  it("keeps one visible text node through repeated predictive resizes", async () => {
+    const text =
+      "Release dashboards keep customer impact and regional mitigation visible while cards resize.";
+    const clamp = mountPretext(text, "16px Georgia", 460);
+    await settle();
+
+    const visible = bodyFor(clamp).children[1];
+    const textNode = visible?.firstChild;
+    if (!(visible instanceof HTMLElement) || !(textNode instanceof Text)) {
+      throw new Error("Expected a visible text node.");
+    }
+
+    const childListRecords: MutationRecord[] = [];
+    const characterDataRecords: MutationRecord[] = [];
+    const observer = new MutationObserver((records) => {
+      for (const record of records) {
+        if (record.type === "childList") childListRecords.push(record);
+        if (record.type === "characterData") characterDataRecords.push(record);
+      }
+    });
+    observer.observe(visible, { characterData: true, childList: true, subtree: true });
+
+    try {
+      for (const width of [420, 360, 300, 240, 180, 260, 340, 440]) {
+        clamp.width.value = width;
+        await settle();
+        expect(visible.firstChild).toBe(textNode);
+      }
+
+      childListRecords.push(
+        ...observer.takeRecords().filter((record) => record.type === "childList"),
+      );
+      expect(childListRecords).toHaveLength(0);
+      expect(characterDataRecords.length).toBeGreaterThan(0);
+    } finally {
+      observer.disconnect();
+    }
+  });
+
   it("does not approximate line boxes with an lh height cap", async () => {
     const text =
       "Release dashboards keep customer impact and regional mitigation visible while cards resize.";
@@ -387,6 +684,19 @@ describe("Pretext LineClamp", () => {
 
     expect(body.style.maxHeight).toBe("");
     expect(body.getBoundingClientRect().height).toBeGreaterThan(3 * 22);
+  });
+
+  it("contains shaping outside the prediction model by line box", async () => {
+    const text =
+      "Release dashboards keep customer impact and regional mitigation visible while cards resize.";
+    const clamp = mountPretext(text, "16px Georgia", 150, {}, "word-spacing:28px");
+    await settle();
+
+    const root = rootFor(clamp);
+    const content = root.querySelector('[data-part="content"]');
+    expect(content).toBeInstanceOf(HTMLElement);
+    expect(getComputedStyle(content!).getPropertyValue("-webkit-line-clamp")).toBe("3");
+    expect((await sampleVisibleLineCounts(root)).every((lines) => lines <= 3)).toBe(true);
   });
 
   it("keeps predictive text current across successive clamped widths", async () => {
