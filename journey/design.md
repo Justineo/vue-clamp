@@ -1827,8 +1827,30 @@
 ## Repo Standards
 
 - Use Vite+ commands only.
+- Workspace type checking uses the exact
+  `typescript-native-bridge@6.0.3-bridge.15.tsgo.7.0.2` package through the `typescript` catalog
+  alias and a workspace-wide override. This keeps the classic TypeScript 6.0.3 package/API surface
+  required by `vue-tsc`, Vite+, and other JavaScript tooling while delegating semantic checking to
+  the TypeScript 7.0.2 native engine. Stock `typescript@7` is not usable here yet because it does
+  not export the classic `typescript/lib/tsc` entry consumed by `vue-tsc`. The exact bridge pin is
+  intentional because its prerelease-style versions do not follow ordinary caret updates; update
+  the bridge/API/engine tuple together after the repository's release-age gate. Native bridge
+  binaries support the current macOS, Windows, and glibc-based Linux development/CI targets, but
+  Alpine/musl is not a supported type-check environment.
+- The workspace root declares `typescript` directly even though application code lives in child
+  packages. Vite+ has a TypeScript peer dependency; without the root declaration, pnpm can
+  auto-install stock TypeScript 7 for the root Vite+ instance beside the bridge used by child
+  packages, which breaks declaration builds before the bridge is reached.
+- The native checker currently reaches its recursive type-comparison limit when Vite+ checks the
+  combined Vite/Rolldown plugin arrays in `vite.config.ts`. Only those two arrays are asserted to
+  their config-owned plugin types; the exported object still uses `satisfies UserConfig` so every
+  other config field remains checked. Remove this escape hatch when the native checker can compare
+  the plugin graph directly.
+- Vite+ 0.3 keeps the Playwright browser provider opt-in. The root package declares
+  `@vitest/browser-playwright` at the exact version of Vite+'s bundled Vitest because the browser
+  configs and provider helper are root-owned.
 - Workspace catalog dependencies use public npm package names directly; `vite` resolves to public
-  npm `vite@^8.0.11` rather than a package-manager alias.
+  npm `vite@^8.2.2` rather than a package-manager alias.
 - The website hero should lead with real use cases instead of component taxonomy. The animated line
   now rotates through a randomized but category-balanced set of concrete nouns from the multiline,
   rich, inline, and wrapped-item surfaces, while the API names remain `LineClamp`,
@@ -1946,7 +1968,7 @@
   - Git-tracked deployment behavior should come from authored Vite/Void config instead
 - The website is intentionally a plain Vue SPA even though it deploys through the Void CLI:
   - [packages/website/vite.config.ts](/Users/yiling.gu@konghq.com/Developer/Justineo/vue-clamp/packages/website/vite.config.ts) exports a plain Vite config object and uses only the Vue plugin, not `voidPlugin()`
-  - `void@0.7.1` is installed as a normal website dev dependency from the public npm registry
+  - `void@0.10.13` is installed as a normal website dev dependency from the public npm registry
   - [packages/website/void.json](/Users/yiling.gu@konghq.com/Developer/Justineo/vue-clamp/packages/website/void.json) explicitly sets `inference.appType: "spa"` and `inference.outputDir: "dist"`
   - this keeps the build output in the standard Vite SPA layout and avoids the extra `dist/client` / `dist/ssr` split that was previously causing deploy confusion
 - GitHub automation now follows a three-lane automation model:

@@ -496,7 +496,7 @@ function formatMarkdownTable(rows) {
 function formatMarkdownTables(lines) {
   const formatted = [];
 
-  for (let index = 0; index < lines.length; ) {
+  for (let index = 0; index < lines.length;) {
     if (!isTableRow(lines[index]) || !isTableRow(lines[index + 1] ?? "")) {
       formatted.push(lines[index]);
       index += 1;

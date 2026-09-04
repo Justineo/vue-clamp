@@ -26,12 +26,14 @@
   "devDependencies": {
     "@types/node": "catalog:",
     "@vitejs/plugin-vue": "catalog:",
+    "@vitest/browser-playwright": "catalog:",
     "@vue-macros/define-render": "catalog:",
     "@vue/compiler-dom": "catalog:",
     "@vue/compiler-sfc": "catalog:",
     "bumpp": "catalog:",
     "playwright": "catalog:",
     "releaselog": "catalog:",
+    "typescript": "catalog:",
     "unplugin-vue": "catalog:",
     "vite": "catalog:",
     "vite-plus": "catalog:"
@@ -39,5 +41,5 @@
   "engines": {
     "node": ">=22.12.0"
   },
-  "packageManager": "pnpm@11.7.0"
+  "packageManager": "pnpm@11.25.0"
 }
