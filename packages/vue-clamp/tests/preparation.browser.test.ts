@@ -71,6 +71,95 @@ describe("deferred search preparation", () => {
     }
   });
 
+  it.each([{ maxLines: 2 }, { maxHeight: 48 }])(
+    "preserves serial Rich slot and text settlement while updating measured peers: %j",
+    async (limits) => {
+      const source = ref(
+        "A long source with enough words to overflow the available space. ".repeat(12),
+      );
+      const width = ref(220);
+      const container = document.createElement("div");
+      document.body.append(container);
+      const app = createApp({
+        setup: () => () =>
+          h(
+            "div",
+            { style: { width: `${width.value}px` } },
+            Array.from({ length: 5 }, (_, index) =>
+              h(
+                RichLineClamp,
+                {
+                  key: index,
+                  html: source.value,
+                  boundary: "word",
+                  ...limits,
+                  // The last sibling has the same physical width but no declared width,
+                  // so it remains a serial reference for the four eligible peers.
+                  style: {
+                    display: "block",
+                    font: "16px/24px Arial",
+                    ...(index < 4 ? { width: `${width.value}px` } : {}),
+                  },
+                },
+                {
+                  after: ({ clamped }: { clamped: boolean }) =>
+                    h(
+                      "span",
+                      {
+                        "data-clamped": String(clamped),
+                        style: "display:inline-block;width:40px",
+                      },
+                      "More",
+                    ),
+                },
+              ),
+            ),
+          ),
+      });
+      const snapshots = () =>
+        [...container.querySelectorAll('[data-part="root"]')].map((root) => ({
+          text: root.querySelector('[data-part="body"]')!.textContent,
+          clamped: root.querySelector("[data-clamped]")!.getAttribute("data-clamped"),
+        }));
+      const expectSame = () => {
+        const states = snapshots();
+        expect(states).toHaveLength(5);
+        for (const state of states.slice(0, 4)) expect(state).toEqual(states[4]);
+      };
+      try {
+        app.mount(container);
+        await settle();
+        for (const text of [
+          "Ready",
+          "A changed long source. ".repeat(50),
+          "Another long source. ".repeat(60),
+          "Done",
+        ]) {
+          source.value = text;
+          await nextTick();
+          expectSame();
+          await settle();
+          for (const state of snapshots()) {
+            const clamped = text.length > 100;
+            expect(state.clamped).toBe(String(clamped));
+            if (clamped) expect(state.text).toContain("…");
+            else expect(state.text).toBe(text);
+          }
+        }
+        source.value = "Warm remeasurement of a plain text source. ".repeat(6);
+        await settle();
+        for (const nextWidth of [150, 3000, 180, 260]) {
+          width.value = nextWidth;
+          await settle();
+          expectSame();
+        }
+      } finally {
+        app.unmount();
+        container.remove();
+      }
+    },
+  );
+
   for (const [name, component] of Object.entries({ LineClamp, InlineClamp, RichLineClamp })) {
     it(`${name} segments a full-fit source only when a later shrink needs a cut`, async () => {
       const width = ref(1000);

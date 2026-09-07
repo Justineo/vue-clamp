@@ -1,0 +1,38 @@
+--- a/packages/vue-clamp/src/text.ts
++++ b/packages/vue-clamp/src/text.ts
+@@ -306,19 +306,29 @@
+ 
+ // Keep only one bounded, layout-independent preparation. DOM and search hints
+ // stay with each component; large sources evict the entry instead of being retained.
+-let sharedTextPreparation: PreparedText | null = null;
++const sharedTextPreparations: PreparedText[] = [];
++let sharedTextLength = 0;
+ export function prepareSharedText(
+   text: string,
+   boundary: ClampBoundary = "grapheme",
+ ): PreparedText {
+   if (text.length > 8192) {
+-    sharedTextPreparation = null;
++    sharedTextPreparations.length = 0;
++    sharedTextLength = 0;
+     return new DeferredText(text, boundary);
+   }
+-  if (sharedTextPreparation?.text === text && sharedTextPreparation.boundary === boundary) {
+-    return sharedTextPreparation;
+-  }
+-  return (sharedTextPreparation = new DeferredText(text, boundary));
++  const index = sharedTextPreparations.findIndex((prepared) => prepared.text === text && prepared.boundary === boundary);
++  if (index !== -1) {
++    const prepared = sharedTextPreparations[index]!;
++    if (index > 0) { sharedTextPreparations.splice(index, 1); sharedTextPreparations.unshift(prepared); }
++    return prepared;
++  }
++  const prepared = new DeferredText(text, boundary);
++  while (sharedTextPreparations.length && (sharedTextPreparations.length >= 4 || sharedTextLength + text.length > 8192))
++    sharedTextLength -= sharedTextPreparations.pop()!.text.length;
++  sharedTextPreparations.unshift(prepared);
++  sharedTextLength += text.length;
++  return prepared;
+ }
+ 
+ export function displayTextForKeptCount(

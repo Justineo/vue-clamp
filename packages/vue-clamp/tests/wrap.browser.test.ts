@@ -560,53 +560,59 @@ describe("WrapClamp browser contract", () => {
     expect(root.querySelector('[data-part="item"][aria-hidden="true"]')).toBeNull();
   });
 
-  it("continues dense height-constrained growth without rerendering every intervening prefix", async () => {
-    const items = Array.from({ length: 1000 }, (_, index) => String(index));
-    const itemSlot = ({ item, index }: WrapClampItemSlotProps<string>) =>
-      h(
-        "span",
-        { style: `display:block;width:${index % 2 ? 3 : 5}px;height:16px;font-size:0` },
-        item,
-      );
-    let itemCalls = 0;
-    const clamp = mountWrapClamp({
-      items,
-      width: 64,
-      props: { maxHeight: 48 },
-      item: (props) => {
-        itemCalls += 1;
-        return itemSlot(props);
-      },
-    });
-    const reference = mountWrapClamp({
-      items,
-      width: 64,
-      props: { expanded: true, maxHeight: 48 },
-      item: itemSlot,
-    });
-    await settle(5);
-    itemCalls = 0;
-    for (const width of [1200, 64, 2000, 300, 1200]) {
-      clamp.width.value = width;
-      reference.width.value = width;
-      await settle(6);
-      const root = rootElement(clamp.container);
-      const referenceRoot = rootElement(reference.container);
-      const top = referenceRoot.getBoundingClientRect().top;
-      const expected = wrapItems(referenceRoot).filter(
-        (item) => item.getBoundingClientRect().bottom <= top + 48.5,
-      ).length;
-      expect(wrapItems(root)).toHaveLength(expected);
-      expect(wrapSnapshot(root).items).toEqual(items.slice(0, expected));
-      expect(root.querySelector('[data-part="item"][aria-hidden="true"]')).toBeNull();
-      if (width === 1200 && expected > 400) {
-        // A linear grow rerenders hundreds of prefixes, even though the item
-        // geometry is fixed. Bound slot work, not machine-dependent elapsed time.
-        expect(itemCalls).toBeLessThan(20_000);
-      }
+  it.each([{ maxHeight: 48 }, { maxLines: 3 }])(
+    "continues dense growth without rerendering every intervening prefix: %j",
+    async (limits) => {
+      const items = Array.from({ length: 1000 }, (_, index) => String(index));
+      const itemSlot = ({ item, index }: WrapClampItemSlotProps<string>) =>
+        h(
+          "span",
+          { style: `display:block;width:${index % 2 ? 3 : 5}px;height:16px;font-size:0` },
+          item,
+        );
+      let itemCalls = 0;
+      const clamp = mountWrapClamp({
+        items,
+        width: 64,
+        props: limits,
+        item: (props) => {
+          itemCalls += 1;
+          return itemSlot(props);
+        },
+      });
+      const reference = mountWrapClamp({
+        items,
+        width: 64,
+        props: { expanded: true, ...limits },
+        item: itemSlot,
+      });
+      await settle(5);
       itemCalls = 0;
-    }
-  });
+      for (const width of [1200, 64, 2000, 137, 1200]) {
+        clamp.width.value = width;
+        reference.width.value = width;
+        await settle(6);
+        const root = rootElement(clamp.container);
+        const referenceRoot = rootElement(reference.container);
+        const top = referenceRoot.getBoundingClientRect().top;
+        const rects = wrapItems(referenceRoot).map((item) => item.getBoundingClientRect());
+        const rowTops = [...new Set(rects.map((rect) => rect.top))];
+        const lastRowTop = rowTops[Math.min(2, rowTops.length - 1)]!;
+        const expected = rects.filter((rect) =>
+          limits.maxLines ? rect.top <= lastRowTop + 0.5 : rect.bottom <= top + 48.5,
+        ).length;
+        expect(wrapItems(root)).toHaveLength(expected);
+        expect(wrapSnapshot(root).items).toEqual(items.slice(0, expected));
+        expect(root.querySelector('[data-part="item"][aria-hidden="true"]')).toBeNull();
+        if (width === 1200 && expected > 400) {
+          // A linear grow rerenders hundreds of prefixes, even though the item
+          // geometry is fixed. Bound slot work, not machine-dependent elapsed time.
+          expect(itemCalls).toBeLessThan(20_000);
+        }
+        itemCalls = 0;
+      }
+    },
+  );
 
   it("continues settling after fallback-budget materialized grow starts without measured widths", async () => {
     const initialItems = Array.from({ length: 60 }, (_, index) => `Wide${index + 1}`);

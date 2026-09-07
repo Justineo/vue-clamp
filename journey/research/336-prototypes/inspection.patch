@@ -1,0 +1,79 @@
+--- a/packages/vue-clamp/src/rich.ts
++++ b/packages/vue-clamp/src/rich.ts
+@@ -1525,6 +1525,7 @@
+ type RichMeasurement = {
+   readonly state: RichState;
+   readonly stable: boolean;
++  readonly inspection?: boolean;
+   write: () => void;
+   read: () => boolean;
+ };
+@@ -1571,20 +1572,12 @@
+   const textOnly =
+     input.prepared.root.childNodes.length === 1 &&
+     input.prepared.root.firstChild?.nodeType === Node.TEXT_NODE;
+-  if (
+-    !textOnly &&
+-    (!input.skipFullFit ||
+-      input.verifyFullCandidate ||
+-      !input.preferHintedTextRun ||
+-      textPrefixForPoint(input.prepared.root, from.point) === null)
+-  ) {
+-    return { result: clampRich(input) };
+-  }
+   const originPath = from.point.path;
+-  const search = searchRich(input, false);
++  const search = searchRich(input, false, true);
+   let step = search.next();
+   function stable(measurement: RichMeasurement): boolean {
+     return (
++      measurement.inspection ||
+       textOnly ||
+       (measurement.stable &&
+         measurement.state.kind === "clamped" &&
+@@ -1632,6 +1625,7 @@
+     verifyFullCandidate = true,
+   }: RichClampOptions,
+   reuseRootPosition = true,
++  stageInspection = false,
+ ): RichSearch {
+   const { body, content, root, width } = probe;
+ 
+@@ -1722,18 +1716,25 @@
+     return fits;
+   }
+ 
+-  if (!nextSearchIndex) {
+-    applyFullCandidate();
+-    nextSearchIndex = createSearchIndex(prepared, body, inspectLayout(body));
+-  } else if (nextSearchIndex.hasElements) {
+-    // CSSOM cannot describe every context that affects descendant layout
+-    // (cross-origin rules, container queries, ancestor attributes, shadow
+-    // boundaries). Restore the full probe and inspect the browser's computed
+-    // result instead of treating a stylesheet fingerprint as proof.
+-    applyFullCandidate();
+-    currentFit = null;
+-    checkedFullCandidate = false;
+-    nextSearchIndex = createSearchIndex(prepared, body, inspectLayout(body));
++  if (!nextSearchIndex || nextSearchIndex.hasElements) {
++    const inspect = () => {
++      currentFit = null;
++      checkedFullCandidate = false;
++      nextSearchIndex = createSearchIndex(prepared, body, inspectLayout(body));
++      return true;
++    };
++    if (stageInspection) {
++      yield {
++        state: FULL_STATE,
++        stable: false,
++        inspection: true,
++        write: applyFullCandidate,
++        read: inspect,
++      };
++    } else {
++      applyFullCandidate();
++      inspect();
++    }
+   }
+ 
+   if (!nextSearchIndex) {

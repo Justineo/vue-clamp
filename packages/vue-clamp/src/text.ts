@@ -134,13 +134,13 @@ export type TextClampLayoutInput = {
   readonly target: HTMLElement;
 };
 
-function asciiBoundaryOffsets(text: string): number[] | null {
+function unitBoundaryOffsets(text: string): number[] | null {
   const offsets = Array<number>(text.length + 1);
   offsets[0] = 0;
 
   for (let index = 0; index < text.length; index += 1) {
     const code = text.charCodeAt(index);
-    if ((code < 0x20 || code > 0x7e) && code !== 0x09 && code !== 0x0a) {
+    if ((code < 0x20 || code > 0x2ff) && code !== 0x09 && code !== 0x0a) {
       return null;
     }
 
@@ -165,20 +165,20 @@ function graphemeBoundaryOffsets(text: string): number[] {
 function wordBoundaryOffsets(
   text: string,
   fallbackBoundaryOffsets: readonly number[],
-  asciiSafe: boolean,
+  unitSafe: boolean,
 ): number[] {
   const boundaryOffsets = [0];
   let fallbackIndex = 0;
 
   for (const part of wordSegmenter.segment(text)) {
     const offset = part.index + part.segment.length;
-    while (!asciiSafe && (fallbackBoundaryOffsets[fallbackIndex] ?? Infinity) < offset) {
+    while (!unitSafe && (fallbackBoundaryOffsets[fallbackIndex] ?? Infinity) < offset) {
       fallbackIndex += 1;
     }
 
     // Only keep word boundaries that are also grapheme boundaries. This prevents
     // a word-level cut from landing inside a composed character.
-    const isGraphemeBoundary = asciiSafe || fallbackBoundaryOffsets[fallbackIndex] === offset;
+    const isGraphemeBoundary = unitSafe || fallbackBoundaryOffsets[fallbackIndex] === offset;
     if (isGraphemeBoundary && boundaryOffsets[boundaryOffsets.length - 1] !== offset) {
       boundaryOffsets.push(offset);
     }
@@ -192,18 +192,18 @@ function wordBoundaryOffsets(
 }
 
 export function prepareText(text: string, boundary: ClampBoundary = "grapheme"): PreparedText {
-  // ASCII has one UTF-16 code unit per grapheme in the accepted range, so the
-  // common path builds its boundaries while checking safety in a single pass.
-  const asciiOffsets = asciiBoundaryOffsets(text);
-  const asciiSafe = asciiOffsets !== null;
-  const fallbackBoundaryOffsets = asciiOffsets ?? graphemeBoundaryOffsets(text);
+  // U+0020–U+02FF plus tab/LF have one UTF-16 unit per grapheme when the whole
+  // source is admitted. Combining marks start at U+0300; CR stays excluded.
+  const unitOffsets = unitBoundaryOffsets(text);
+  const unitSafe = unitOffsets !== null;
+  const fallbackBoundaryOffsets = unitOffsets ?? graphemeBoundaryOffsets(text);
 
   if (boundary === "grapheme") {
     return {
       text,
       boundary,
       boundaryOffsets: fallbackBoundaryOffsets,
-      hasCursiveText: !asciiSafe && hasCursiveText(text),
+      hasCursiveText: !unitSafe && hasCursiveText(text),
     };
   }
 
@@ -212,15 +212,15 @@ export function prepareText(text: string, boundary: ClampBoundary = "grapheme"):
   return {
     text,
     boundary,
-    boundaryOffsets: wordBoundaryOffsets(text, fallbackBoundaryOffsets, asciiSafe),
+    boundaryOffsets: wordBoundaryOffsets(text, fallbackBoundaryOffsets, unitSafe),
     fallbackBoundaryOffsets,
-    hasCursiveText: !asciiSafe && hasCursiveText(text),
+    hasCursiveText: !unitSafe && hasCursiveText(text),
   };
 }
 
 function prepareWordText(text: string): PreparedText {
-  const asciiSafe = /^[\x20-\x7e\t\n]*$/u.test(text);
-  const graphemes = asciiSafe ? null : graphemeSegmenter.segment(text)[Symbol.iterator]();
+  const unitSafe = /^[\x20-\u02ff\t\n]*$/u.test(text);
+  const graphemes = unitSafe ? null : graphemeSegmenter.segment(text)[Symbol.iterator]();
   let graphemeEnd = 0;
   const boundaryOffsets = [0];
   for (const part of wordSegmenter.segment(text)) {
@@ -233,7 +233,7 @@ function prepareWordText(text: string): PreparedText {
       if (next.done) break;
       graphemeEnd += next.value.segment.length;
     }
-    if (asciiSafe || graphemeEnd === end) {
+    if (unitSafe || graphemeEnd === end) {
       boundaryOffsets.push(end);
     }
   }
@@ -243,9 +243,9 @@ function prepareWordText(text: string): PreparedText {
     text,
     boundary: "word",
     boundaryOffsets,
-    hasCursiveText: !asciiSafe && hasCursiveText(text),
+    hasCursiveText: !unitSafe && hasCursiveText(text),
     get fallbackBoundaryOffsets() {
-      return (fallback ??= asciiBoundaryOffsets(text) ?? graphemeBoundaryOffsets(text));
+      return (fallback ??= unitBoundaryOffsets(text) ?? graphemeBoundaryOffsets(text));
     },
   };
 }
@@ -304,21 +304,36 @@ export function fullTextClampResult(
   return Object.assign(new FullTextResult(prepared, rootWidth), context);
 }
 
-// Keep only one bounded, layout-independent preparation. DOM and search hints
-// stay with each component; large sources evict the entry instead of being retained.
-let sharedTextPreparation: PreparedText | null = null;
+// Share at most four pure preparations with an 8,192-unit combined source budget.
+// DOM and search hints stay with each component; oversized sources clear the pool.
+const sharedTextPreparations: PreparedText[] = [];
+let sharedTextLength = 0;
 export function prepareSharedText(
   text: string,
   boundary: ClampBoundary = "grapheme",
 ): PreparedText {
   if (text.length > 8192) {
-    sharedTextPreparation = null;
+    sharedTextPreparations.length = 0;
+    sharedTextLength = 0;
     return new DeferredText(text, boundary);
   }
-  if (sharedTextPreparation?.text === text && sharedTextPreparation.boundary === boundary) {
-    return sharedTextPreparation;
+  const index = sharedTextPreparations.findIndex(
+    (prepared) => prepared.text === text && prepared.boundary === boundary,
+  );
+  if (index !== -1) {
+    const prepared = sharedTextPreparations[index]!;
+    if (index > 0) {
+      sharedTextPreparations.splice(index, 1);
+      sharedTextPreparations.unshift(prepared);
+    }
+    return prepared;
   }
-  return (sharedTextPreparation = new DeferredText(text, boundary));
+  const prepared = new DeferredText(text, boundary);
+  while (sharedTextPreparations.length >= 4 || sharedTextLength + text.length > 8192)
+    sharedTextLength -= sharedTextPreparations.pop()!.text.length;
+  sharedTextPreparations.unshift(prepared);
+  sharedTextLength += text.length;
+  return prepared;
 }
 
 export function displayTextForKeptCount(

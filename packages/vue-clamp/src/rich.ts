@@ -1557,25 +1557,38 @@ export function clampRich(input: RichClampOptions): RichClampResult {
   return finishRichSearch(searchRich(input));
 }
 
-// Probe preparation and structural candidates stay synchronous. Only a positive
-// cut in the original text leaf may join another component's measurement rounds.
+// Probe preparation and structural candidates stay synchronous. A warm one-text
+// source may also test its full candidate in the batch; markup-bearing sources
+// may batch only stable cuts in the original text leaf.
 export function prepareRichTextBatch(
   input: RichClampOptions,
 ):
   | { result: RichClampResult }
   | { task: Generator<() => boolean, RichClampResult | (() => RichClampResult), boolean> } {
   const from = input.from;
-  if (from?.kind !== "clamped" || textPrefixForPoint(input.prepared.root, from.point) === null) {
+  if (from?.kind !== "clamped") return { result: clampRich(input) };
+
+  const textOnly =
+    input.prepared.root.childNodes.length === 1 &&
+    input.prepared.root.firstChild?.nodeType === Node.TEXT_NODE;
+  if (
+    !textOnly &&
+    (!input.skipFullFit ||
+      input.verifyFullCandidate ||
+      !input.preferHintedTextRun ||
+      textPrefixForPoint(input.prepared.root, from.point) === null)
+  ) {
     return { result: clampRich(input) };
   }
-  const origin = from;
+  const originPath = from.point.path;
   const search = searchRich(input, false);
   let step = search.next();
   function stable(measurement: RichMeasurement): boolean {
     return (
-      measurement.stable &&
-      measurement.state.kind === "clamped" &&
-      samePath(measurement.state.point.path, origin.point.path)
+      textOnly ||
+      (measurement.stable &&
+        measurement.state.kind === "clamped" &&
+        samePath(measurement.state.point.path, originPath))
     );
   }
   while (!step.done && !stable(step.value)) {
@@ -1686,8 +1699,9 @@ function* searchRich(
       state: FULL_STATE,
       stable: false,
       write: applyFullCandidate,
-      read: () =>
-        fitsContent(
+      read: () => {
+        if (!reuseRootPosition && visibleBoundsCache) visibleBoundsCache.top = undefined;
+        return fitsContent(
           root,
           content,
           lineLimit,
@@ -1696,7 +1710,8 @@ function* searchRich(
           visibleBoundsCache,
           simpleLineFit,
           captureFullFit,
-        ),
+        );
+      },
     };
 
     currentFit = {

@@ -24,7 +24,9 @@ their existing browser-authoritative behavior and do not include the Pretext eng
   updates, and measured fallbacks in `vue-clamp/pretext`.
 - Reduced `<InlineClamp>` overhead when replacing text or split content.
 - Reduced memory use for long measured text and rich HTML, and unnecessary work when full content fits.
-- Improved long multiline text updates, especially in very narrow containers.
+- Reduced update overhead for small groups of repeated text.
+- Reduced text preparation overhead for Latin text with precomposed accented characters.
+- Improved resize and font-change responsiveness for `<RichLineClamp>` with plain-text HTML.
 - Improved expansion of dense `<WrapClamp>` lists without an `after` slot.
 - Reduced processing overhead after fonts load when many clamps are active.
 

@@ -7,8 +7,86 @@ import {
 } from "../src/text.ts";
 
 describe("text helpers", () => {
-  it("prepares ascii text as single-code-unit grapheme boundaries", () => {
+  it("prepares ASCII grapheme boundaries", () => {
     expect(prepareText("abc").boundaryOffsets).toEqual([0, 1, 2, 3]);
+  });
+
+  it("matches native boundaries across writing systems and composed sequences", () => {
+    const graphemes = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+    const words = new Intl.Segmenter(undefined, { granularity: "word" });
+    const alphabet = "A\t\n、。，㐀䶿一鿿";
+    for (const text of [
+      "ASCII text\twith a line\nbreak",
+      "A\r\nB",
+      "a\u0301b",
+      alphabet,
+      "Voilà Καλημέρα Быстрая 한글 かな مرحبا ܐܒܓ",
+      alphabet + "中\uFE0F文",
+      alphabet + "中\u{E0100}文",
+      alphabet + "a\u0301",
+      alphabet + "\r\n",
+      alphabet + "👩🏽‍💻🇨🇳\u{20000}",
+      alphabet + "\u0600中",
+      alphabet + "\uD800",
+    ]) {
+      const fallback = [
+        0,
+        ...Array.from(graphemes.segment(text), (part) => part.index + part.segment.length),
+      ];
+      const wordOffsets = [
+        0,
+        ...Array.from(words.segment(text), (part) => part.index + part.segment.length).filter(
+          (offset) => fallback.includes(offset),
+        ),
+      ];
+      for (const boundary of ["word", "grapheme"] as const) {
+        for (const prepare of [prepareText, prepareSharedText]) {
+          const prepared = prepare(text, boundary);
+          expect(prepared.boundaryOffsets).toEqual(boundary === "word" ? wordOffsets : fallback);
+          if (boundary === "word") expect(prepared.fallbackBoundaryOffsets).toEqual(fallback);
+        }
+      }
+    }
+  });
+
+  it("matches native boundaries throughout the compact single-unit range", () => {
+    const graphemes = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+    const words = new Intl.Segmenter(undefined, { granularity: "word" });
+    const alphabet = Array.from({ length: 0x300 - 0x20 }, (_, index) =>
+      String.fromCharCode(index + 0x20),
+    ).join("");
+    const sources = [
+      "Café déjà prêt, Straße, smörgås, niño, œuvre, Łódź",
+      "\u02e5\u02e9\u02e5\u02e9",
+      "\u02ff\u0300",
+      "\u00ad\u0301",
+      "é\r\nœ",
+      "e\u0301 o\u0308",
+      "l’œuvre — déjà…",
+      "é👩🏽‍💻œ",
+    ];
+    for (let start = 0; start < alphabet.length; start += 32) {
+      const chunk = alphabet.slice(start, start + 32);
+      sources.push("A\t\n" + chunk + chunk.split("").reverse().join("") + "Z");
+    }
+    for (const text of sources) {
+      const fallback = [
+        0,
+        ...Array.from(graphemes.segment(text), (part) => part.index + part.segment.length),
+      ];
+      const wordOffsets = [
+        0,
+        ...Array.from(words.segment(text), (part) => part.index + part.segment.length).filter(
+          (offset) => fallback.includes(offset),
+        ),
+      ];
+      for (const prepare of [prepareText, prepareSharedText]) {
+        expect(prepare(text).boundaryOffsets).toEqual(fallback);
+        const prepared = prepare(text, "word");
+        expect(prepared.boundaryOffsets).toEqual(wordOffsets);
+        expect(prepared.fallbackBoundaryOffsets).toEqual(fallback);
+      }
+    }
   });
 
   it("keeps deferred word boundaries and fallbacks identical across mixed Unicode sources", () => {
@@ -273,4 +351,28 @@ it("includes the size boundary and separates successive sources", () => {
   const b = prepareSharedText(text + "b");
   expect(b).not.toBe(a);
   expect(b.text).toBe(text + "b");
+});
+
+it("reuses four interleaved sources and evicts the least recently used preparation", () => {
+  prepareSharedText("x".repeat(8193));
+  const entries = ["a", "b", "c", "d"].map((text) => prepareSharedText(text, "word"));
+  for (const entry of entries) expect(prepareSharedText(entry.text, "word")).toBe(entry);
+  expect(prepareSharedText("a", "word")).toBe(entries[0]);
+  prepareSharedText("e", "word");
+  expect(prepareSharedText("a", "word")).toBe(entries[0]);
+  expect(prepareSharedText("c", "word")).toBe(entries[2]);
+  expect(prepareSharedText("d", "word")).toBe(entries[3]);
+  expect(prepareSharedText("b", "word")).not.toBe(entries[1]);
+});
+
+it("bounds the combined source budget across preparation entries", () => {
+  prepareSharedText("x".repeat(8193));
+  const a = prepareSharedText("a".repeat(4096));
+  const b = prepareSharedText("b".repeat(4096));
+  expect(prepareSharedText(a.text)).toBe(a);
+  expect(prepareSharedText(b.text)).toBe(b);
+  const small = prepareSharedText("c");
+  expect(prepareSharedText(b.text)).toBe(b);
+  expect(prepareSharedText(small.text)).toBe(small);
+  expect(prepareSharedText(a.text)).not.toBe(a);
 });

@@ -389,16 +389,18 @@ async function applyStaticFlowMaterializedGrow(
     }
 
     let shownCount = currentVisibleCount;
-    const bestFitCount = findLargestFittingCount(
-      currentVisibleCount,
-      searchItemCount,
-      (candidate) => {
-        shownCount = showItemCandidate(itemElements, shownCount, candidate);
-
-        const measurement = measureSequence(rootElement, contentElement, limits);
-        return measurement.allFit && measurement.visibleItems === candidate;
-      },
-    );
+    const fits = (candidate: number) => {
+      shownCount = showItemCandidate(itemElements, shownCount, candidate);
+      const measurement = measureSequence(rootElement, contentElement, limits);
+      return measurement.allFit && measurement.visibleItems === candidate;
+    };
+    // Later geometric chunks often fit in full. Keep the initial frontier order,
+    // then avoid midpoint probes when the measured upper endpoint already fits.
+    const checkUpper = additionalItems > 1;
+    const upperFits = checkUpper && fits(searchItemCount);
+    const bestFitCount = upperFits
+      ? searchItemCount
+      : findLargestFittingCount(currentVisibleCount, searchItemCount - (checkUpper ? 1 : 0), fits);
 
     showItemCandidate(itemElements, shownCount, currentVisibleCount);
     await applyVisibleCount(bestFitCount);

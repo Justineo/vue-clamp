@@ -1,0 +1,19 @@
+--- a/tools/benchmark/scripts/measure-update-costs.mjs
++++ b/tools/benchmark/scripts/measure-update-costs.mjs
+@@ -37,7 +37,7 @@
+ if (![rounds, steps, ...counts].every((number) => Number.isInteger(number) && number > 0))
+   throw new Error("Counts, rounds, and steps must be positive integers.");
+ const allowedTokens = new Set(
+-  "source resize noop font item metrics line inline rich wrap plain distinct large huge short full cjk emoji grapheme longword needle nested atomic affix height tiny".split(
++  "highlines source resize noop font item metrics line inline rich wrap plain distinct large huge short full cjk emoji grapheme longword needle nested atomic affix height tiny".split(
+     " ",
+   ),
+ );
+@@ -185,6 +185,7 @@
+           else if (scenario.includes("height")) props.maxHeight = 48;
+           else
+             props.maxLines = scenario.includes("full") ? 3000 : scenario.includes("needle") ? 1 : 3;
++          if (scenario.includes("highlines")) { props.maxLines = 500; props.maxHeight = 20000; style.overflowWrap = "anywhere"; }
+           const slots =
+             kind === "wrap"
+               ? {

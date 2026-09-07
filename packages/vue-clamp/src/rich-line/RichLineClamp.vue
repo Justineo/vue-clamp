@@ -271,13 +271,29 @@ const {
       ellipsis === input.ellipsis &&
       beforeRef.value === beforeElement &&
       afterRef.value === afterElement;
+    // Return the existing settlement promise directly: another async boundary
+    // would let nextTick observe stale slot status after the text is committed.
+    function commit(result: RichClampResult): Promise<void> {
+      measuredState = result.state;
+      probeSearchIndex = result.searchIndex ?? null;
+      measuredAffixSignature = affixSignature;
+      measuredWidth = probe.width;
+      updateRankHint(result, probe.width, sameAffix);
+      updateClampedMaxWidth(result, probe.width, sameAffix);
+      if (!result.state) {
+        // A zero-width probe should not replace visible content with a guessed rich
+        // fragment.
+        return resetClamp();
+      }
+
+      patchVisible(prepared, result.state);
+      return applyStatus(result.state.kind === "clamped", result.fallback);
+    }
+    let settlement: Promise<void> | undefined;
     let result: RichClampResult | null = null;
     if (
       hasMeasuredPeers() &&
       ellipsis.length > 0 &&
-      skipFullFit &&
-      !input.verifyFullCandidate &&
-      preferHintedTextRun &&
       visibleState === measuredState &&
       rootRef.value &&
       hasExplicitTextWidth(rootRef.value)
@@ -285,27 +301,19 @@ const {
       const measurement = prepareRichTextBatch(input);
       if ("result" in measurement) result = measurement.result;
       else {
-        const measured = await measureLayout(measurement.task, isCurrent, () => {});
+        const measured = await measureLayout(measurement.task, isCurrent, (next) => {
+          if (typeof next !== "function") settlement = commit(next);
+        });
         if (!isCurrent()) return;
+        if (settlement) {
+          await settlement;
+          return;
+        }
         result = typeof measured === "function" ? measured() : measured;
       }
     }
     result ??= clampRich(input);
-    measuredState = result.state;
-    probeSearchIndex = result.searchIndex ?? null;
-    measuredAffixSignature = affixSignature;
-    measuredWidth = probe.width;
-    updateRankHint(result, probe.width, sameAffix);
-    updateClampedMaxWidth(result, probe.width, sameAffix);
-    if (!result.state) {
-      // A zero-width probe should not replace visible content with a guessed rich
-      // fragment.
-      await resetClamp();
-      return;
-    }
-
-    patchVisible(prepared, result.state);
-    await applyStatus(result.state.kind === "clamped", result.fallback);
+    await commit(result);
   },
 });
 

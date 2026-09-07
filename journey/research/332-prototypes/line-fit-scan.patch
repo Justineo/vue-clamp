@@ -1,0 +1,28 @@
+--- a/packages/vue-clamp/src/layout.ts
++++ b/packages/vue-clamp/src/layout.ts
+@@ -625,6 +625,7 @@
+   }
+ 
+   const lines: LineBox[] = [];
++  let maxTop = -Infinity;
+   let visibleTop = 0;
+   let visibleBottom = 0;
+   let measuredVisibleBounds = false;
+@@ -650,13 +651,16 @@
+     }
+ 
+     if (lineLimit !== undefined) {
+-      if (!lines.some((line) => sameLineBox(line, rect))) {
++      const previous = lines[lines.length - 1];
++      if (!(previous && sameLineBox(previous, rect)) &&
++          (rect.top > maxTop + 0.5 || !lines.some((line) => sameLineBox(line, rect)))) {
+         // Browser rects are the source of truth for wrapped lines; grouping by
+         // vertical bounds handles inline content that splits into many boxes.
+         lines.push({
+           bottom: rect.bottom,
+           top: rect.top,
+         });
++        maxTop = Math.max(maxTop, rect.top);
+         if (lines.length > lineLimit) {
+           cacheSimpleLineBoxHeight(simpleLineFit, rects);
+           cacheSimpleOverflowHeight(simpleLineFit, lineLimit, heightVerifyHeight);

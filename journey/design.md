@@ -867,9 +867,15 @@
     structure. This does not reduce the number of candidate text writes, but it turns most measured
     text rewrites from child-list node replacement into character-data mutation and avoids repeated
     text-node allocation/removal in LineClamp and InlineClamp hot paths.
-  - ASCII preparation validates the accepted ASCII range and fills grapheme offsets in one pass.
-    Non-ASCII text still delegates to `Intl.Segmenter`; word preparation keeps the same grapheme-safe
-    fallback metadata.
+  - Simple, provably safe segmentation fast paths are allowed when they do not require enumerating
+    language characters or maintaining Unicode lookup data. The compact fast path checks
+    U+0020–U+02FF plus tab/LF with numeric bounds and generates unit offsets; the entire source must pass,
+    so CRLF and adjoining combining characters stay native. Other sources use `Intl.Segmenter`, and
+    word segmentation remains native. Research `journey/research/338-compact-unit-range.md` widens
+    only the former ASCII upper bound, retaining the same branch structure and no lookup data.
+    Do not restore the dedicated Han/punctuation whitelist or the
+    generated Unicode admission table from research 335. The latter's roughly 2.1 KB gzip cost was
+    rejected. Bounded preparation sharing and lazy word fallback remain enabled for every language.
   - a cold failed full-text layout probe may reuse its already-paid physical line count, or bounding
     height for `maxHeight`, as a proportional first-rank hint. The hint is enabled only when the full
     source is at least three times the measured capacity and more than 16 candidate boundaries
@@ -1901,14 +1907,42 @@
 
 ### Current reliability and performance queue
 
+- Research `journey/research/338-compact-unit-range.md` now expands the original ASCII shortcut to
+  the continuous U+0020–U+02FF range plus tab/LF. Native checks across three engines cover every
+  admitted character and fallback sequences; no lookup table, normalization or language list is
+  added. The research-337 Rich recommendation below remains unapplied.
+- The recommended smaller final combination is recorded in
+  `journey/research/337-performance-balance.md`: keep the compact unit shortcut, bounded four-entry
+  preparation pool and Wrap growth probe, and remove only the newer warm single-text-node Rich
+  extension while preserving the earlier same-leaf path. This recommendation is not yet applied;
+  the current source still contains all three research-332 routes listed below. An isolated reversal
+  passed 174 browser assertions. At 20 plain Rich peers the extension saves about 0.58 ms per resize
+  cohort update or 0.95 ms per synthetic font update, with no established gain at 1–4 instances or
+  in actual rich markup. Favor the smaller set of completion/slot-settlement invariants; do not
+  generalize this workload-specific trade-off or expand the cache without new usage evidence.
+- Three research-332 routes remain implemented, with integration evidence in
+  `journey/research/333-preparation-and-warm-measurement.md`: a bounded four-entry preparation pool,
+  an upper-endpoint probe on later geometric Wrap growth chunks, and warm single-text-node Rich batching. Rich requires a previously clamped
+  state and commits visible/status changes inside measurement completion; cold/full source batching
+  remains serial. Heap snapshots at 20 and 80 instances found no additional retained closures,
+  scope contexts or text-index arrays. The earlier small total-heap increase was dominated by
+  compiled code and did not scale with instance count. CSS Typed OM width eligibility and high-limit
+  fit-loop grouping remain conditional research leads; Typed OM still lacks a content-independence
+  proof.
+- Research `journey/research/336-rich-structure-batching-exploration.md` tested real-rich leaf-crossing
+  rejoining, shared full-tree inspection and their combination without integrating them. Fewer native
+  layouts did not establish broad elapsed-time gains; combined font changes improved about 4%, while
+  images with a height limit regressed about 4.7%. Three-engine immediate/settled output screens found
+  no differences in the tested fixtures, but do not prove arbitrary CSS independence. Size was nearly
+  neutral. Keep the narrow Rich paths; their plain-text gains are not evidence for broader rich batching.
 - The broad post-batching investigation in research 328 is now implemented and extended in
   `journey/research/329-preparation-and-growth-optimization.md`. Retained changes cover bounded shared
   Line/Inline preparation, shared font notification/frame delivery, geometric continuation of
   no-after Wrap materialization, compact Rich boundaries, deferred full-fit preparation, lazy
   measured-word fallback, and linear processing of ordinarily ordered line-box lists.
-- Plain preparations retain at most one adjacent text/boundary input of 8,192 UTF-16 units; larger
-  inputs evict it. Source identity and a full-fit hint do not require segmentation. Full-fit results
-  still expose a lazily resolved internal rank for later shrink search. Existing full-fit-on-grow
+- Plain preparations retain at most four exact text/boundary inputs with an 8,192 UTF-16-unit
+  combined source budget and MRU eviction; oversized inputs clear the pool. Source identity and a
+  full-fit hint do not require segmentation. Full-fit results still expose a lazily resolved internal rank for later shrink search. Existing full-fit-on-grow
   eligibility is unchanged, and same-width rechecks still measure current DOM. Inline keeps only
   clamped historical ranks because a full-fit entry cannot seed a historical cut.
 - Measured word preparation validates primary cuts with a forward grapheme iterator and retains
