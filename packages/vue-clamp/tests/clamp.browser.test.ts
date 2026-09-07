@@ -81,6 +81,121 @@ afterEach(() => {
   cleanupMounted();
 });
 
+it("keeps updated LineClamp output and accessible source equal to a fresh mount", async () => {
+  for (const props of [
+    { maxLines: 2 },
+    { maxLines: 2, boundary: "word" as const },
+    { maxLines: 2, location: "middle" as const, ellipsis: "..." },
+    { maxHeight: 40, boundary: "word" as const },
+  ]) {
+    const after =
+      props.boundary === undefined && props.location === undefined
+        ? undefined
+        : ({ clamped }: { clamped: boolean }) =>
+            h("span", { style: "display:inline-block;width:32px" }, clamped ? "More" : "All");
+    const options = { props, width: 180, ...(after ? { after } : {}) };
+    const mounted = mountClamp({ ...options, text: DEMO_TEXT });
+    await settle();
+
+    for (const text of [
+      "国际团队 e\u0301 👩‍🚀 maintains customer context. ".repeat(5),
+      "Short",
+      "",
+      "W".repeat(180),
+      DEMO_TEXT,
+    ]) {
+      mounted.text.value = text;
+      await settle();
+      const reference = mountClamp({ ...options, text });
+      await settle();
+      const root = rootElement(mounted.container);
+      const referenceRoot = rootElement(reference.container);
+      expect(bodyElement(root).innerHTML).toBe(bodyElement(referenceRoot).innerHTML);
+      expect(afterElement(root)?.textContent).toBe(afterElement(referenceRoot)?.textContent);
+      expect(mounted.exposed.value?.clamped).toBe(reference.exposed.value?.clamped);
+    }
+  }
+});
+
+it("shares rich source preparation while keeping each rendered tree and layout independent", async () => {
+  const html =
+    "<strong>Shared preparation 国际团队</strong> <em>keeps every independently sized card accurate 👩‍🚀.</em>".repeat(
+      4,
+    );
+  const parseSpy = vi.spyOn(DOMParser.prototype, "parseFromString");
+  try {
+    const fonts = ["Georgia", "Arial", "monospace"];
+    const instances = [130, 240, 390].map((width, index) =>
+      mountRichClamp({
+        html,
+        width,
+        style: `font-family:${fonts[index]}`,
+        props: { maxLines: 2, boundary: "word" },
+      }),
+    );
+    await settle();
+    expect(parseSpy).toHaveBeenCalledOnce();
+    const firstRoot = rootElement(instances[0]!.container);
+    const secondRoot = rootElement(instances[1]!.container);
+    expect(richContentElement(firstRoot).firstChild).not.toBe(
+      richContentElement(secondRoot).firstChild,
+    );
+
+    for (const [index, instance] of instances.entries()) {
+      instance.width.value = [310, 150, 210][index]!;
+      await settle();
+      const reference = mountRichClamp({
+        html: `${html}<!-- independent preparation ${index} -->`,
+        width: instance.width.value,
+        style: `font-family:${fonts[index]}`,
+        props: { maxLines: 2, boundary: "word" },
+      });
+      await settle();
+      expect(richContentElement(rootElement(instance.container)).textContent).toBe(
+        richContentElement(rootElement(reference.container)).textContent,
+      );
+      expect(instance.exposed.value?.clamped).toBe(reference.exposed.value?.clamped);
+    }
+
+    instances[0]!.html.value = "<strong>Changed</strong>";
+    await settle();
+    expect(richContentElement(secondRoot).textContent).toContain("Shared preparation");
+  } finally {
+    parseSpy.mockRestore();
+  }
+});
+
+it("separates rich boundary preparations and evicts the shared source for oversized HTML", async () => {
+  const html = "<em>Boundary preparation keeps international customer context intact.</em>".repeat(
+    4,
+  );
+  const parseSpy = vi.spyOn(DOMParser.prototype, "parseFromString");
+  try {
+    for (const boundary of ["word", "grapheme"] as const) {
+      mountRichClamp({ html, width: 160, props: { boundary, ellipsis: "...", maxLines: 2 } });
+      await settle();
+    }
+    expect(parseSpy).toHaveBeenCalledTimes(2);
+
+    const oversizedHtml = `<em>${"context ".repeat(1030)}</em>`;
+    for (let index = 0; index < 2; index += 1) {
+      mountRichClamp({ html: oversizedHtml, width: 160, props: { boundary: "word", maxLines: 2 } });
+      await settle();
+    }
+    expect(parseSpy).toHaveBeenCalledTimes(4);
+
+    mountRichClamp({
+      html,
+      width: 160,
+      props: { boundary: "grapheme", ellipsis: "...", maxLines: 2 },
+    });
+    await settle();
+    expect(parseSpy).toHaveBeenCalledTimes(5);
+  } finally {
+    parseSpy.mockRestore();
+  }
+});
+
 function richImage(root: HTMLElement, message: string): HTMLImageElement {
   const image = richContentElement(root).querySelector("img");
   if (!(image instanceof HTMLImageElement)) {
@@ -1358,6 +1473,45 @@ describe("LineClamp browser contract", () => {
     expect(root.getAttribute("data-part")).toBe("root");
     expect(root.querySelector('[data-part="content"]')).toBeInstanceOf(HTMLElement);
     expect(root.querySelector('[data-part="body"]')).toBeInstanceOf(HTMLElement);
+  });
+
+  it("keeps measurement refs current when the root tag changes with unchanged text", async () => {
+    const tag = ref("article");
+    const mounted = mountClamp({
+      text: DEMO_TEXT,
+      width: 4000,
+      props: {
+        get as() {
+          return tag.value;
+        },
+        boundary: "word",
+        maxLines: 2,
+      },
+    });
+    await settle();
+
+    for (const [nextTag, width] of [
+      ["section", 4000],
+      ["article", 160],
+      ["div", 160],
+      ["section", 4000],
+    ] as const) {
+      tag.value = nextTag;
+      mounted.width.value = width;
+      await settle();
+      const reference = mountClamp({
+        text: DEMO_TEXT,
+        width,
+        props: { as: nextTag, boundary: "word", maxLines: 2 },
+      });
+      await settle();
+      const root = rootElement(mounted.container);
+      expect(root.tagName.toLowerCase()).toBe(nextTag);
+      expect(bodyElement(root).innerHTML).toBe(
+        bodyElement(rootElement(reference.container)).innerHTML,
+      );
+      expect(mounted.exposed.value?.clamped).toBe(reference.exposed.value?.clamped);
+    }
   });
 
   it("emits update:expanded when the exposed toggle is called", async () => {
@@ -4621,6 +4775,45 @@ describe("LineClamp browser contract", () => {
     ).toBe(false);
   });
 
+  it("preserves every grapheme rank across nested leaves, comments, and atomic runs", () => {
+    const fixture = createRichClampFixture({
+      html: '<span><!-- comment -->ab👩🏽‍💻 é</span><span style="display:inline-block">atomic</span><em>中X</em><br><strong>尾</strong>',
+      width: 600,
+      lineLimit: 3,
+    });
+    try {
+      const result = fixture.clamp();
+      const searchIndex = result.searchIndex;
+      if (!searchIndex) throw new Error("Expected a supported rich search index.");
+      const points = [
+        { path: [], offset: 0 },
+        ...[1, 2, 9, 10, 12].map((offset) => ({ path: [0, 1], offset })),
+        { path: [], offset: 2 },
+        { path: [2, 0], offset: 1 },
+        { path: [2, 0], offset: 2 },
+        { path: [], offset: 4 },
+        { path: [4, 0], offset: 1 },
+      ];
+      for (let rank = 0; rank <= points.length; rank += 1) {
+        const state = richStateForRank(searchIndex, rank);
+        expect(state).toEqual(
+          rank === points.length ? { kind: "full" } : { kind: "clamped", point: points[rank] },
+        );
+        expect(rankRichState(searchIndex, state!)?.rank).toBe(rank);
+        expect(rankRichState(searchIndex, state!)?.rankCount).toBe(points.length);
+      }
+      expect(richStateForRank(searchIndex, points.length + 1)).toBeNull();
+      expect(
+        rankRichState(searchIndex, { kind: "clamped", point: { path: [0, 1], offset: 3 } }),
+      ).toBeNull();
+      expect(
+        rankRichState(searchIndex, { kind: "clamped", point: { path: [1, 0], offset: 1 } }),
+      ).toBeNull();
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
   it("captures ranked rich layout cost without runtime diagnostics", async () => {
     const longToken = "observabilityPlatformTelemetryPipeline";
     const fixture = createRichClampFixture({
@@ -5787,7 +5980,7 @@ describe("LineClamp browser contract", () => {
       const result = fixture.reclamp(first);
 
       expect(result.fallback).toBe(false);
-      expect(result.searchIndex?.runs.map((run) => run.kind)).toEqual(["atomic", "text"]);
+      expect(result.searchIndex?.data.runs.map((run) => run.kind)).toEqual(["atomic", "text"]);
       expect(fixture.body.querySelector("span")?.textContent).toBe("observabilityPlatform1");
     } finally {
       fixture.cleanup();
@@ -5809,13 +6002,13 @@ describe("LineClamp browser contract", () => {
       await settle(1);
       const first = fixture.clamp();
 
-      expect(first.searchIndex?.runs.map((run) => run.kind)).toEqual(["text"]);
+      expect(first.searchIndex?.data.runs.map((run) => run.kind)).toEqual(["text"]);
       fixture.root.dataset.atomic = "";
 
       const result = fixture.reclamp(first);
 
       expect(result.fallback).toBe(false);
-      expect(result.searchIndex?.runs.map((run) => run.kind)).toEqual(["atomic", "text"]);
+      expect(result.searchIndex?.data.runs.map((run) => run.kind)).toEqual(["atomic", "text"]);
       expect(fixture.body.textContent).toBe("…");
     } finally {
       fixture.cleanup();

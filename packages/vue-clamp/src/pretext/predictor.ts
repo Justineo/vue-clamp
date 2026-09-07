@@ -1,8 +1,8 @@
+import { clearCache } from "@chenglou/pretext";
 import { clampPreparedLine, prepareLineClamp } from "./clamp.ts";
 
 import type { PrepareOptions } from "@chenglou/pretext";
 import type { LineClampPredictionInput, LineClampPredictor } from "../line/predictor.ts";
-import type { PreparedLineClamp } from "./clamp.ts";
 
 type Typography = {
   readonly font: string;
@@ -12,9 +12,16 @@ type Typography = {
 type PreparedCache = {
   readonly boundary: LineClampPredictionInput["boundary"];
   readonly ellipsis: string;
-  readonly prepared: PreparedLineClamp;
+  readonly prepared: ReturnType<typeof prepareLineClamp>;
   readonly text: string;
+  readonly typography: Typography;
 };
+
+const maxSharedPreparationLength = 8192;
+let fontMetricsDirty = false;
+// One width-independent preparation can serve adjacent identical instances.
+// Bound retained input size and never cache a rendered clamp result.
+let lastPreparation: PreparedCache | null = null;
 
 function fallbackFont(style: CSSStyleDeclaration): string {
   const variant = style.fontVariantCaps === "small-caps" ? "small-caps" : "normal";
@@ -48,6 +55,10 @@ export function createPretextLineClampPredictor(): LineClampPredictor {
 
   return {
     invalidate() {
+      // All affected instances invalidate before their queued predictions.
+      // Clear shared font metrics once when the next prediction needs them.
+      fontMetricsDirty = true;
+      lastPreparation = null;
       preparedCache = null;
       typography = null;
     },
@@ -67,16 +78,40 @@ export function createPretextLineClampPredictor(): LineClampPredictor {
         preparedCache.boundary !== input.boundary ||
         preparedCache.ellipsis !== input.ellipsis
       ) {
-        preparedCache = {
-          boundary: input.boundary,
-          ellipsis: input.ellipsis,
-          prepared: prepareLineClamp(input.text, typography.font, {
-            ...typography.options,
+        if (fontMetricsDirty) {
+          clearCache();
+          fontMetricsDirty = false;
+        }
+        const shared = lastPreparation;
+        if (
+          shared &&
+          shared.text === input.text &&
+          shared.boundary === input.boundary &&
+          shared.ellipsis === input.ellipsis &&
+          shared.typography.font === typography.font &&
+          shared.typography.options.letterSpacing === typography.options.letterSpacing &&
+          shared.typography.options.whiteSpace === typography.options.whiteSpace &&
+          shared.typography.options.wordBreak === typography.options.wordBreak
+        ) {
+          preparedCache = shared;
+        } else {
+          preparedCache = {
             boundary: input.boundary,
             ellipsis: input.ellipsis,
-          }),
-          text: input.text,
-        };
+            prepared: prepareLineClamp(input.text, typography.font, {
+              ...typography.options,
+              boundary: input.boundary,
+              ellipsis: input.ellipsis,
+            }),
+            text: input.text,
+            typography,
+          };
+          lastPreparation =
+            input.text.length + input.ellipsis.length + typography.font.length <=
+            maxSharedPreparationLength
+              ? preparedCache
+              : null;
+        }
       }
 
       return clampPreparedLine(

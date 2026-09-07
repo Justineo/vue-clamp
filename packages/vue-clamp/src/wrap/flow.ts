@@ -131,6 +131,7 @@ export function measureSequence(
     // Missing content is a lifecycle state, not evidence that items are hidden.
     return {
       allFit: true,
+      beforeSize: null,
       visibleItems: 0,
     };
   }
@@ -150,6 +151,7 @@ export function measureSequence(
   let lineTop = 0;
   let lineBottom = 0;
   let visibleItems = 0;
+  let beforeSize: Size | null = null;
 
   for (const child of contentElement.children) {
     if (!(child instanceof HTMLElement)) {
@@ -165,6 +167,10 @@ export function measureSequence(
     const rect = child.getBoundingClientRect();
     if (!isPositiveFiniteSize(rect.width) || !isPositiveFiniteSize(rect.height)) {
       continue;
+    }
+    if (part === "before") {
+      // The same read also supplies affix-stability checks after a count change.
+      beforeSize = { height: rect.height, width: rect.width };
     }
 
     if (lineCount === 0) {
@@ -190,6 +196,7 @@ export function measureSequence(
       // the full item count.
       return {
         allFit: false,
+        beforeSize,
         visibleItems,
       };
     }
@@ -201,6 +208,7 @@ export function measureSequence(
       // maxHeight can reject a sequence even when the line count is acceptable.
       return {
         allFit: false,
+        beforeSize,
         visibleItems,
       };
     }
@@ -213,6 +221,7 @@ export function measureSequence(
 
   return {
     allFit: true,
+    beforeSize,
     visibleItems,
   };
 }

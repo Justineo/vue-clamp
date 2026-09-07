@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, h, mergeProps, nextTick, shallowRef, useAttrs, watch } from "vue";
+import { computed, h, mergeProps, nextTick, shallowRef, useAttrs, watch, withMemo } from "vue";
 import { trueOrUndefined } from "../attributes.ts";
 import {
   borderBoxWidth,
@@ -8,11 +8,15 @@ import {
   hasBorderBoxSize,
   hasInlineFontMetrics,
   hasInlineLineMetrics,
+  hasMeasuredPeers,
   hasUnresolvedInlineTextWidthStyle,
   normalizeLineLimit,
+  observeBorderBoxSizes,
+  observeMeasuredBorderBoxSizes,
   simpleLineFitFromStyle,
 } from "../layout.ts";
 import { useMultilineClamp } from "../multiline.ts";
+import { hasExplicitTextWidth, measureLayout } from "../measure.ts";
 import { renderMultilineAffixSlot } from "../multiline-render.ts";
 import { multilineNativeSlotStyle, multilineSlotStyle } from "../multiline-styles.ts";
 import {
@@ -28,10 +32,16 @@ import {
   predictiveWidthStyle,
   visuallyHiddenTextStyle,
 } from "../styles.ts";
-import { clampTextToLayout, normalizeLocationRatio, prepareText, setElementText } from "../text.ts";
+import {
+  clampTextToLayout,
+  searchTextLayout,
+  normalizeLocationRatio,
+  prepareSharedText,
+  setElementText,
+} from "../text.ts";
 import { useLineClampPredictor } from "./predictor.ts";
 
-import type { CSSProperties, VNodeChild } from "vue";
+import type { CSSProperties, VNode, VNodeChild } from "vue";
 import type { BorderBoxSizeSnapshot, SimpleLineFit } from "../layout.ts";
 import type { ClampEmits } from "../types.ts";
 import type { LineClampExposed, LineClampProps, LineClampSlots } from "./types.ts";
@@ -83,7 +93,7 @@ let lineFitKey: string | null = null;
 let predictionReady = false;
 
 const lineLimit = computed(() => normalizeLineLimit(maxLines));
-const preparedText = computed(() => prepareText(text, boundary));
+const preparedText = computed(() => prepareSharedText(text, boundary));
 const hasActiveClamp = computed(
   () =>
     !expanded.value &&
@@ -108,9 +118,19 @@ const {
   requestRecompute,
 } = useMultilineClamp({
   active: hasActiveClamp,
+  observeSizes: (elements, listener) => {
+    const serial =
+      usesPredictor() ||
+      getNativeMode(afterRef.value !== null, lineLimit.value, normalizeLocationRatio(location)) !==
+        null;
+    return (serial ? observeBorderBoxSizes : observeMeasuredBorderBoxSizes)(elements, listener);
+  },
   expanded,
   onFontLoad: () => {
     lineFitCache = null;
+    // Loading a face can change glyph widths without changing computed font CSS.
+    // A simultaneous grow must measure again instead of reusing the old full fit.
+    if (lastTextClamp?.text === text) lastTextClamp = null;
     predictor?.invalidate();
   },
   onClampedChange: (value) => {
@@ -150,13 +170,17 @@ const {
         nativeMode,
         nativeMode === "multi-line" ? rootWidthSnapshot : undefined,
       );
+      // Native rendering already committed the full source with no hidden copy.
+      visibleText.value.text = text;
       await applyTextState(text, nextClamped ?? false, false);
       return;
     }
 
-    const beforeSize = observedSizeSnapshot(beforeRef.value);
-    const afterSize = observedSizeSnapshot(afterRef.value);
-    const predicting = usesPredictor();
+    const beforeElement = beforeRef.value;
+    const afterElement = afterRef.value;
+    const beforeSize = observedSizeSnapshot(beforeElement);
+    const afterSize = observedSizeSnapshot(afterElement);
+    const predicting = usesPredictor(nativeMode);
     const rootWidth =
       rootWidthSnapshot ??
       (predicting
@@ -191,7 +215,7 @@ const {
     const prepared = preparedText.value;
     const lineCapacity = estimateLineCapacity(rootElement, maxHeight, currentLineLimit);
     const lineFitResult = lineFit(currentLineLimit, rootElement, textElement, layoutKey);
-    const nextResult = clampTextToLayout({
+    const input = {
       content: contentElement,
       ellipsis,
       hasAffixes,
@@ -207,22 +231,58 @@ const {
       reuseFullFitOnGrow: !lineFitResult.metricsChanged && !hasAffixes && maxHeight === undefined,
       simpleLineFit: lineFitResult.fit,
       target: textElement,
-    });
-
-    if (nextResult === null) {
-      // A zero-width root cannot produce a stable clamp; keep source text until
-      // layout becomes measurable.
-      await resetClamp();
-      return;
+    };
+    // Candidate writes only change the body text. Slot rendering happens after
+    // the search commits; each pass keeps its current affix elements and metrics.
+    // Full-text reuse has no iterative layout work to amortize across instances.
+    let settled: Promise<void> | undefined;
+    function commit(nextResult: TextClampResult | null): void {
+      if (nextResult === null) {
+        settled = resetClamp();
+      } else {
+        lastTextClamp = nextResult;
+        if (predicting) revealPrediction(textElement!);
+        settled = applyTextState(nextResult.text, nextResult.text !== prepared.text, predicting);
+      }
     }
-
-    lastTextClamp = nextResult;
-    if (predicting) revealPrediction(textElement);
-    await applyTextState(nextResult.text, nextResult.text !== prepared.text, predicting);
+    if (
+      !predicting &&
+      hasMeasuredPeers() &&
+      ellipsis.length > 0 &&
+      lastTextClamp?.text !== prepared.text &&
+      hasExplicitTextWidth(rootElement)
+    ) {
+      await measureLayout(
+        searchTextLayout(input, false),
+        () =>
+          rootRef.value === rootElement &&
+          textRef.value === textElement &&
+          preparedText.value === prepared &&
+          hasActiveClamp.value &&
+          lineLimit.value === currentLineLimit &&
+          maxHeight === input.maxHeight &&
+          ellipsis === input.ellipsis &&
+          normalizeLocationRatio(location) === locationRatio &&
+          beforeRef.value === beforeElement &&
+          afterRef.value === afterElement,
+        commit,
+      );
+      // Completion commits inside Vue's flush. Its recursive render pass has
+      // settled before this await resumes; another tick would delay queued inputs.
+    } else {
+      commit(clampTextToLayout(input));
+      await settled;
+    }
   },
 });
 
-function usesPredictor(): boolean {
+function usesPredictor(
+  nativeMode = getNativeMode(
+    afterRef.value !== null,
+    lineLimit.value,
+    normalizeLocationRatio(location),
+  ),
+): boolean {
   if (!predictor || !hasActiveClamp.value) {
     return false;
   }
@@ -231,7 +291,6 @@ function usesPredictor(): boolean {
   const locationRatio = normalizeLocationRatio(location);
   if (
     !predictor.supports({
-      boundary,
       ellipsis,
       lineLimit: currentLineLimit,
       locationRatio,
@@ -241,7 +300,7 @@ function usesPredictor(): boolean {
     return false;
   }
 
-  return getNativeMode(afterRef.value !== null, currentLineLimit, locationRatio) === null;
+  return nativeMode === null;
 }
 
 function revealPrediction(element: HTMLElement): void {
@@ -404,22 +463,32 @@ function renderBody(
   sourceIsHidden: boolean,
   nativeMode: NativeClampMode | null,
   predicting: boolean,
+  renderCache: VNode[],
 ): VNodeChild {
   const predictivePending = predicting && !predictionReady;
-  const textNode = h(
-    "span",
-    {
-      "aria-hidden": trueOrUndefined(sourceIsHidden),
-      key: "text",
-      ref: textRef,
-      style:
-        nativeMode === "single-line"
-          ? nativeTextStyle
-          : predictivePending
-            ? predictivePendingStyle
-            : undefined,
-    },
-    [renderedText],
+  // Width-only updates often keep the same text and attributes. Reuse this
+  // internal leaf without caching body layout or consumer-owned slot output.
+  // Vue owns the cache and clears it when the leaf is unmounted.
+  const textNode = withMemo(
+    [renderedText, sourceIsHidden, nativeMode, predictivePending],
+    () =>
+      h(
+        "span",
+        {
+          "aria-hidden": trueOrUndefined(sourceIsHidden),
+          key: "text",
+          ref: textRef,
+          style:
+            nativeMode === "single-line"
+              ? nativeTextStyle
+              : predictivePending
+                ? predictivePendingStyle
+                : undefined,
+        },
+        [renderedText],
+      ),
+    renderCache,
+    0,
   );
 
   return h(
@@ -433,7 +502,7 @@ function renderBody(
   );
 }
 
-function render(): VNodeChild {
+function render(_context: unknown, renderCache: VNode[]): VNodeChild {
   // Use the rendered after wrapper rather than `slots.after`: filtered or
   // dynamic slots can be declared while producing no DOM, and native clamp
   // remains valid.
@@ -441,7 +510,7 @@ function render(): VNodeChild {
   const lineLimitValue = lineLimit.value;
   const locationRatio = normalizeLocationRatio(location);
   const nativeMode = getNativeMode(afterRef.value !== null, lineLimitValue, locationRatio);
-  const predicting = usesPredictor();
+  const predicting = usesPredictor(nativeMode);
   const slotStyle = nativeMode === "single-line" ? multilineNativeSlotStyle : multilineSlotStyle;
   const hasLimit = hasClampLimit(lineLimitValue);
   const sourceIsHidden =
@@ -462,7 +531,7 @@ function render(): VNodeChild {
     children.push(beforeSlot);
   }
 
-  children.push(renderBody(renderedText, sourceIsHidden, nativeMode, predicting));
+  children.push(renderBody(renderedText, sourceIsHidden, nativeMode, predicting, renderCache));
 
   const afterSlot = renderAffixSlot("after", slotStyle);
   if (afterSlot) {
@@ -515,21 +584,24 @@ watch(
       predictionReady = false;
       if (textRef.value) textRef.value.style.visibility = "hidden";
     }
-    visibleText.value = { text };
+    // Commit only the solved state. A temporary full-source state would schedule
+    // another Vue render even when the hidden-source structure stays unchanged.
     requestRecompute();
   },
   { flush: "post" },
 );
 
-watch(
-  usesPredictor,
-  (value) => {
-    predictionReady = false;
-    if (textRef.value) textRef.value.style.visibility = value ? "hidden" : "";
-    requestRecompute();
-  },
-  { flush: "sync" },
-);
+if (predictor) {
+  watch(
+    usesPredictor,
+    (value) => {
+      predictionReady = false;
+      if (textRef.value) textRef.value.style.visibility = value ? "hidden" : "";
+      requestRecompute();
+    },
+    { flush: "sync" },
+  );
+}
 
 defineExpose({
   expand,

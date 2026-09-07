@@ -705,7 +705,7 @@ const reportText = (entrypoint, releases) => (isEntrypointMatrix ? entrypoint : 
 const reportTitle = reportText("LineClamp entrypoint benchmark matrix", "Package benchmark matrix");
 const reportDescription = reportText(
   "This report compares the root and opt-in Pretext LineClamp entries on their shared public contract. Settled resize workloads use `active ms`; real CSS transitions use ResizeObserver callback CPU and frame health because their wall duration is fixed by CSS. Structural counters show the browser work behind each result.",
-  "This report compares the public component benchmark matrix across package versions. The primary timing signal is `active ms`; `settled ms` preserves the end-to-end quiet-frame timing, counters explain whether a change came from layout reads, DOM cloning/replacement, or slot rendering, and sample CV / RME report active timing variance.",
+  "This report compares the public component benchmark matrix across package versions and snapshots. The primary timing signal is `active ms`; `settled ms` preserves the end-to-end quiet-frame timing, counters explain whether a change came from layout reads, DOM cloning/replacement, or slot rendering, and sample CV / RME report active timing variance.",
 );
 const reportColumnByReport = new Map(reportColumns.map((column) => [column.report, column]));
 const scenarioIds = [
@@ -1536,7 +1536,7 @@ for (const { components, version } of structuralHotspotComponentGroups) {
 
 if (adjacentSummaries.length > 0) {
   markdown.push("");
-  markdown.push(reportText("## Entrypoint comparison summary", "## Adjacent release summary"));
+  markdown.push(reportText("## Entrypoint comparison summary", "## Adjacent target summary"));
   markdown.push("");
   markdown.push(
     "| From | To | Comparable scenarios | Low-conf active rows | Active delta | Active ms | BBox delta | Client rect delta | Client rect entry delta | Resize callback delta | Mutation delta | Offset delta | Style delta | Slot delta | Settled delta | Long task delta |",
@@ -1647,7 +1647,7 @@ if (adjacentPairs.length > 0) {
   }
 
   markdown.push("");
-  markdown.push(reportText("## Top movers by entrypoint", "## Top movers by adjacent release"));
+  markdown.push(reportText("## Top movers by entrypoint", "## Top movers by adjacent target"));
 
   for (const pair of adjacentPairs) {
     const movers = topMoversForPair(pair);
@@ -1709,7 +1709,7 @@ if (adjacentPairs.length > 0) {
     markdown.push(
       reportText(
         "## Top structural movers by entrypoint",
-        "## Top structural movers by adjacent release",
+        "## Top structural movers by adjacent target",
       ),
     );
   }
@@ -1748,7 +1748,7 @@ markdown.push("");
 markdown.push(
   reportText(
     "The SVG contains two panels for settled resize workloads: absolute active time by entrypoint and the root-to-Pretext active-time delta. CSS transition rows are N/A because their fixed-duration comparison is reported separately above.",
-    "The SVG contains two panels: absolute active time by version and adjacent active-time delta by release pair.",
+    "The SVG contains two panels: absolute active time by target and adjacent active-time delta by target pair.",
   ),
 );
 markdown.push("");
@@ -1783,7 +1783,7 @@ svg.push(
   `<desc id="desc">${escapeXml(
     reportText(
       "LineClamp root and Pretext entrypoint matrix with active time and target deltas.",
-      "Full package benchmark matrix with active time by version and adjacent release deltas.",
+      "Full package benchmark matrix with active time by target and adjacent target deltas.",
     ),
   )}</desc>`,
 );
@@ -1798,7 +1798,7 @@ svg.push(
   `<text class="axis" x="32" y="56">${escapeXml(
     reportText(
       "Only the shared root/Pretext public contract is shown. N/A means a target does not implement the scenario.",
-      "All published versions are shown. N/A means the version or scenario has no Vue 3 public-matrix payload.",
+      "Selected versions and snapshots are shown. N/A means no comparable public-matrix payload was supplied.",
     ),
   )}</text>`,
 );
@@ -1806,7 +1806,7 @@ svg.push(
   `<text class="axis" x="32" y="74">${escapeXml(
     reportText(
       "Green is lower cost, red is higher cost. The first panel shows active ms; the second shows root-to-Pretext deltas.",
-      "Green is lower cost, red is higher cost. The first panel shows active ms; the second shows adjacent release deltas.",
+      "Green is lower cost, red is higher cost. The first panel shows active ms; the second shows adjacent target deltas.",
     ),
   )}</text>`,
 );
@@ -1922,7 +1922,7 @@ drawMatrixPanel({
     "target",
     "version",
   )}.`,
-  title: reportText("Active time by entrypoint", "Active time by version"),
+  title: reportText("Active time by entrypoint", "Active time by target"),
   top: absolutePanelTop,
 });
 
@@ -1993,7 +1993,7 @@ drawMatrixPanel({
     "Cell text is the root-to-Pretext active-time delta for the same scenario.",
     "Cell text is active-time delta between adjacent versions for the same scenario.",
   ),
-  title: reportText("Root-to-Pretext deltas", "Adjacent release deltas"),
+  title: reportText("Root-to-Pretext deltas", "Adjacent target deltas"),
   top: adjacentPanelTop,
 });
 

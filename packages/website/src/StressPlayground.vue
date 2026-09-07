@@ -14,7 +14,6 @@ type StressLimitKind = "height" | "lines";
 type StressEngineStatus = {
   engine: "measured" | "native" | "pretext";
   label: string;
-  nativeMode?: "single-line" | "multi-line";
   title: string;
 };
 
@@ -178,12 +177,10 @@ const engineStatus = computed<StressEngineStatus | null>(() => {
     limitKind.value === "lines" &&
     (maxLines.value === 1 || !showAfterSlot.value)
   ) {
-    const nativeMode = maxLines.value === 1 ? "single-line" : "multi-line";
     return {
       engine: "native",
       label: "Native",
-      nativeMode,
-      title: `Native CSS ${nativeMode === "single-line" ? "text-overflow" : "line-clamp"}`,
+      title: `Native CSS ${maxLines.value === 1 ? "text-overflow" : "line-clamp"}`,
     };
   }
 
@@ -359,8 +356,6 @@ onBeforeUnmount(() => {
                   class="stress-engine-marker"
                   data-stress-engine-status
                   :data-stress-engine="engineStatus.engine"
-                  :data-stress-native-status="engineStatus.engine === 'native' ? '' : undefined"
-                  :data-stress-native-mode="engineStatus.nativeMode"
                   :aria-label="engineStatus.title"
                   :title="engineStatus.title"
                 >

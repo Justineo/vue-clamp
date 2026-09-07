@@ -22,12 +22,17 @@ describe("Pretext line clamping", () => {
     });
   });
 
-  it("supports custom ellipses", () => {
+  it("supports custom and empty ellipses", () => {
     const prepared = prepareLineClamp("alpha beta gamma", font, { ellipsis: "..." });
+    const empty = prepareLineClamp("alpha beta gamma", font, { ellipsis: "" });
 
     expect(clampPreparedLine(prepared, 96, 1)).toEqual({
       clamped: true,
       text: "alpha...",
+    });
+    expect(clampPreparedLine(empty, 96, 1)).toEqual({
+      clamped: true,
+      text: "alpha beta",
     });
   });
 
@@ -77,6 +82,13 @@ describe("Pretext line clamping", () => {
     expect(affixed.clamped).toBe(true);
     expect(affixed.text.endsWith("…")).toBe(true);
     expect(affixed.text.length).toBeLessThan(plain.text.length);
+  });
+
+  it("does not treat spare lines as room for an oversized grapheme", () => {
+    const prepared = prepareLineClamp("W", font);
+
+    expect(clampPreparedLine(prepared, 4, 3)).toEqual({ clamped: true, text: "" });
+    expect(clampPreparedLine(prepared, 12, 2, 8)).toEqual({ clamped: false, text: "W" });
   });
 
   it("moves an emergency-broken leading token to the next line", () => {

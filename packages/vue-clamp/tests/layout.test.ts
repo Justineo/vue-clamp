@@ -48,6 +48,44 @@ describe("layout style helpers", () => {
     expect(countLineBoxes(rects)).toBe(2);
   });
 
+  it("preserves tolerant line grouping for overlapping and unordered fragments", () => {
+    let seed = 329;
+    for (let sample = 0; sample < 64; sample += 1) {
+      const rects = Array.from({ length: 160 }, (_, index) => {
+        seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+        const top = (seed % 400) / 10 - 20;
+        const height = index % 17 === 0 ? 0 : 18 + (seed % 3);
+        return { top, bottom: top + height, height };
+      });
+      const representatives: typeof rects = [];
+      for (const rect of rects) {
+        if (
+          rect.height > 0 &&
+          !representatives.some(
+            (line) =>
+              Math.abs(line.top - rect.top) <= 0.5 && Math.abs(line.bottom - rect.bottom) <= 0.5,
+          )
+        )
+          representatives.push(rect);
+      }
+      expect(countLineBoxes(rects as unknown as DOMRectList)).toBe(representatives.length);
+    }
+  });
+
+  it("processes long ordered line lists without comparing every earlier line", () => {
+    let reads = 0;
+    const rects = Array.from({ length: 4000 }, (_, index) => ({
+      get top() {
+        reads += 1;
+        return Math.floor(index / 2) * 20;
+      },
+      bottom: (Math.floor(index / 2) + 1) * 20,
+      height: 20,
+    }));
+    expect(countLineBoxes(rects as unknown as DOMRectList)).toBe(2000);
+    expect(reads).toBeLessThan(20000);
+  });
+
   it("detects unresolved width references", () => {
     expect(hasUnresolvedStyleReference("calc(100% - 8px)")).toBe(true);
     expect(hasUnresolvedStyleReference("var(--clamp-width)")).toBe(true);

@@ -864,7 +864,7 @@ function median(values: number[]): number {
     : (sorted[middle] ?? 0);
 }
 
-function mean(values: number[]): number {
+function mean(values: readonly number[]): number {
   return values.reduce((total, value) => total + value, 0) / values.length;
 }
 
@@ -892,6 +892,37 @@ function tCritical95(sampleCount: number): number {
   }
 
   return values[degreesOfFreedom - 1] ?? 1.96;
+}
+
+export function summarizePairedSamples(before: readonly number[], after: readonly number[]) {
+  if (
+    before.length < 2 ||
+    before.length !== after.length ||
+    [...before, ...after].some((value) => !Number.isFinite(value))
+  ) {
+    throw new Error(
+      "Paired samples require matching finite observations from at least two rounds.",
+    );
+  }
+
+  const differences = after.map((value, index) => value - before[index]!);
+  const meanDelta = mean(differences);
+  const margin =
+    (tCritical95(differences.length) * sampleStandardDeviation(differences, meanDelta)) /
+    Math.sqrt(differences.length);
+  const lower95 = meanDelta - margin;
+  const upper95 = meanDelta + margin;
+  const baseline = mean(before);
+
+  return {
+    samples: differences.length,
+    meanDelta,
+    meanDeltaPercent: baseline === 0 ? null : (meanDelta / Math.abs(baseline)) * 100,
+    lower95,
+    upper95,
+    // An interval spanning zero is inconclusive, not proof of equivalence.
+    direction: upper95 < 0 ? "lower" : lower95 > 0 ? "higher" : "inconclusive",
+  };
 }
 
 function medianKey(key: string): string {

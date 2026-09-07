@@ -1,9 +1,52 @@
 import { describe, expect, it } from "vite-plus/test";
-import { displayTextForKeptCount, prepareText, clampTextToFit } from "../src/text.ts";
+import {
+  displayTextForKeptCount,
+  prepareText,
+  prepareSharedText,
+  clampTextToFit,
+} from "../src/text.ts";
 
 describe("text helpers", () => {
   it("prepares ascii text as single-code-unit grapheme boundaries", () => {
     expect(prepareText("abc").boundaryOffsets).toEqual([0, 1, 2, 3]);
+  });
+
+  it("keeps deferred word boundaries and fallbacks identical across mixed Unicode sources", () => {
+    const parts = [
+      "word ",
+      "👩🏽‍💻",
+      "👨‍👩‍👧‍👦",
+      "🇨🇳",
+      "é",
+      "क्‍ष",
+      "中文",
+      "العربية",
+      "\r\n",
+      "\t",
+      "\u0000",
+      "\ud800",
+      "\udc00",
+      "️",
+      "‍",
+    ];
+    let seed = 329;
+    for (let sample = 0; sample < 128; sample += 1) {
+      let text = "";
+      for (let part = 0; part < 12; part += 1) {
+        seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+        text += parts[seed % parts.length];
+      }
+      const expected = prepareText(text, "word");
+      const actual = prepareSharedText(text, "word");
+      expect(actual.boundaryOffsets).toEqual(expected.boundaryOffsets);
+      expect(actual.fallbackBoundaryOffsets).toEqual(expected.fallbackBoundaryOffsets);
+      for (const ratio of [0, 0.5, 1]) {
+        const input = { ellipsis: "…", ratio, fits: (candidate: string) => candidate.length <= 9 };
+        expect(clampTextToFit({ ...input, prepared: actual })).toEqual(
+          clampTextToFit({ ...input, prepared: expected }),
+        );
+      }
+    }
   });
 
   it("keeps grapheme clusters intact for emoji", () => {
@@ -205,4 +248,29 @@ describe("text helpers", () => {
 
     expect(staleProbes[0]).toBe(coldProbes[0]);
   });
+});
+
+it("shares only identical source and boundary", () => {
+  const a = prepareSharedText("A family 👨‍👩‍👧‍👦 café é 中文", "word");
+  expect(prepareSharedText(a.text, "word")).toBe(a);
+  expect(a.boundaryOffsets).toEqual(prepareText(a.text, "word").boundaryOffsets);
+  expect(a.fallbackBoundaryOffsets).toEqual(prepareText(a.text, "word").fallbackBoundaryOffsets);
+  const b = prepareSharedText(a.text, "grapheme");
+  expect(b).not.toBe(a);
+  expect(b.boundaryOffsets).toEqual(prepareText(a.text, "grapheme").boundaryOffsets);
+});
+it("does not retain oversized inputs and evicts the preceding entry", () => {
+  const a = prepareSharedText("previous small entry", "word"),
+    text = "中".repeat(8193);
+  const big = prepareSharedText(text, "word");
+  expect(prepareSharedText(text, "word")).not.toBe(big);
+  expect(prepareSharedText(a.text, "word")).not.toBe(a);
+});
+it("includes the size boundary and separates successive sources", () => {
+  const text = "a".repeat(8192),
+    a = prepareSharedText(text);
+  expect(prepareSharedText(text)).toBe(a);
+  const b = prepareSharedText(text + "b");
+  expect(b).not.toBe(a);
+  expect(b.text).toBe(text + "b");
 });

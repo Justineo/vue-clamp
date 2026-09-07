@@ -8,7 +8,8 @@ import { clampPreparedLine, prepareLineClamp } from "../src/pretext/clamp.ts";
 import type { App } from "vue";
 import type { ClampBoundary } from "../src/types.ts";
 import type { PreparedText, TextClampResult } from "../src/text.ts";
-import type { PreparedLineClamp } from "../src/pretext/clamp.ts";
+
+type PreparedLineClamp = ReturnType<typeof prepareLineClamp>;
 
 type Scenario = {
   readonly boundary?: ClampBoundary;
@@ -46,6 +47,9 @@ type ScaleMetrics = {
   readonly callbackCount: number;
   readonly entryCount: number;
   readonly instanceCount: number;
+  readonly mountCallbackMs: number;
+  readonly mountMs: number;
+  readonly settledMountMs: number;
   readonly mutationCount: number;
   readonly resizeMs: number;
   readonly vnodeUpdates: number;
@@ -184,14 +188,6 @@ const customEllipsisScenarios: readonly Scenario[] = [
 ];
 
 const scenarios = [...defaultScenarios, ...customEllipsisScenarios];
-
-const edgeScenarios: readonly Scenario[] = [
-  {
-    font: "16px Georgia",
-    name: "long-token",
-    text: "observabilityPlatformBoundaryWithoutBreaks".repeat(7),
-  },
-];
 
 function mountHost(scenario: Scenario, width: number): Host {
   const container = document.createElement("div");
@@ -368,19 +364,30 @@ async function settle(): Promise<void> {
   await nextTick();
 }
 
-async function runScaleScenario(widths: readonly number[]): Promise<ScaleMetrics> {
+async function runScaleScenario(
+  widths: readonly number[],
+  textAt?: (index: number) => string,
+): Promise<ScaleMetrics> {
   let callbackCount = 0;
   let entryCount = 0;
   let instanceCount = 0;
   let mutationCount = 0;
   let vnodeUpdates = 0;
+  let mounting = true;
+  let mountCallbackMs = 0;
   globalThis.ResizeObserver = new Proxy(originalResizeObserver, {
     construct(Target, [callback]: ConstructorParameters<typeof ResizeObserver>) {
       instanceCount += 1;
       return new Target((entries, observer) => {
         callbackCount += 1;
         entryCount += entries.length;
-        callback(entries, observer);
+        if (mounting) {
+          const start = performance.now();
+          callback(entries, observer);
+          mountCallbackMs += performance.now() - start;
+        } else {
+          callback(entries, observer);
+        }
       });
     },
   });
@@ -401,7 +408,9 @@ async function runScaleScenario(widths: readonly number[]): Promise<ScaleMetrics
               vnodeUpdates += 1;
             },
             style: { font: "16px Arial", lineHeight: `${lineHeight}px`, width: "100%" },
-            text: `Row ${index + 1} keeps customer impact, mitigation, ownership, and follow-up context visible while responsive dashboards resize.`,
+            text:
+              textAt?.(index) ??
+              `Row ${index + 1} keeps customer impact, mitigation, ownership, and follow-up context visible while responsive dashboards resize.`,
           }),
         ),
       ),
@@ -409,9 +418,14 @@ async function runScaleScenario(widths: readonly number[]): Promise<ScaleMetrics
   const app: App = createApp(Host);
 
   try {
+    const mountStart = performance.now();
     app.mount(container);
+    await nextTick();
+    const mountMs = performance.now() - mountStart;
     await settle();
     await frame();
+    const settledMountMs = performance.now() - mountStart;
+    mounting = false;
     const host = container.firstElementChild;
     if (!(host instanceof HTMLElement)) throw new Error("Expected scale benchmark host.");
 
@@ -435,6 +449,9 @@ async function runScaleScenario(widths: readonly number[]): Promise<ScaleMetrics
       callbackCount,
       entryCount,
       instanceCount,
+      mountCallbackMs,
+      mountMs,
+      settledMountMs,
       mutationCount,
       resizeMs,
       vnodeUpdates,
@@ -600,37 +617,6 @@ describe("Pretext LineClamp benchmark", () => {
     console.error(`PRETEXT_SCALE_BENCH_RESULT ${JSON.stringify(results)}`);
   });
 
-  it("reports core throughput for breakable edge cases", () => {
-    const results = edgeScenarios.flatMap((scenario) => {
-      clearCache();
-      const prepareStart = performance.now();
-      const prepared = prepareLineClamp(scenario.text, scenario.font, {
-        ...(scenario.boundary === undefined ? {} : { boundary: scenario.boundary }),
-        ...(scenario.ellipsis === undefined ? {} : { ellipsis: scenario.ellipsis }),
-      });
-      const prepareMs = performance.now() - prepareStart;
-
-      return patterns.map((pattern) => {
-        const runs = Array.from({ length: repetitions }, () =>
-          runPretextCore(pattern.widths, prepared),
-        );
-
-        return {
-          checksum: runs[0]?.checksum,
-          coreMsPer100k: round(
-            (median(runs.map((run) => run.ms)) * 100_000) / (pattern.widths.length * coreCycles),
-          ),
-          name: scenario.name,
-          pattern: pattern.name,
-          prepareMs: round(prepareMs),
-        };
-      });
-    });
-
-    expect(results).toHaveLength(edgeScenarios.length * patterns.length);
-    console.error(`PRETEXT_CORE_EDGE_BENCH_RESULT ${JSON.stringify(results)}`);
-  });
-
   it("decomposes repeated preparation cost", () => {
     const texts = Array.from(
       { length: preparationCount },
@@ -677,6 +663,28 @@ describe("Pretext LineClamp benchmark", () => {
         ),
       })}`,
     );
+  });
+
+  it("reports cold mounting for repeated and unique text", async () => {
+    const source =
+      "Release dashboards preserve customer context 国际响应团队 across resize updates. ".repeat(8);
+    const results = [];
+    for (const unique of [false, true]) {
+      const runs = [];
+      for (let repetition = 0; repetition < repetitions; repetition += 1) {
+        runs.push(
+          await runScaleScenario([180], (index) => (unique ? `${source}${index}` : source)),
+        );
+      }
+      results.push({
+        unique,
+        instances: scaleInstances,
+        mountCallbackMs: round(median(runs.map((run) => run.mountCallbackMs))),
+        mountMs: round(median(runs.map((run) => run.mountMs))),
+        settledMountMs: round(median(runs.map((run) => run.settledMountMs))),
+      });
+    }
+    console.error(`PRETEXT_COLD_MOUNT_RESULT ${JSON.stringify(results)}`);
   });
 });
 

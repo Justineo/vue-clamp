@@ -1,6 +1,14 @@
 <script setup lang="ts">
 import { computed, h, mergeProps, nextTick, shallowRef, useAttrs, watch } from "vue";
-import { borderBoxWidth, cssLength, normalizeLineLimit } from "../layout.ts";
+import {
+  borderBoxWidth,
+  cssLength,
+  hasMeasuredPeers,
+  normalizeLineLimit,
+  observeBorderBoxSizes,
+  observeMeasuredBorderBoxSizes,
+} from "../layout.ts";
+import { hasExplicitTextWidth, measureLayout } from "../measure.ts";
 import { useMultilineClamp } from "../multiline.ts";
 import { renderMultilineAffixSlot } from "../multiline-render.ts";
 import { multilineNativeSlotStyle, multilineSlotStyle } from "../multiline-styles.ts";
@@ -11,7 +19,8 @@ import {
   nativeTextStyle,
   resolveNativeMode,
 } from "../native.ts";
-import { canSafelyCloneRichProbe, clampRich, patchRich, prepareRich } from "../rich.ts";
+import { canSafelyCloneRichProbe, clampRich, patchRich, prepareRichTextBatch } from "../rich.ts";
+import { prepareSharedRich } from "./preparation.ts";
 import {
   estimateColdSearchMaxProbeCount,
   richWarmExpansionLimit,
@@ -28,6 +37,7 @@ import type {
   PreparedRich,
   RichClampProbe,
   RichClampResult,
+  RichClampOptions,
   RichSearchIndex,
   RichState,
 } from "../rich.ts";
@@ -95,7 +105,7 @@ const isFallback = shallowRef(false);
 
 // The visible tree and hidden probe advance independently. measuredState is both
 // the latest warm hint and the hidden body's patch origin.
-const preparedHtml = computed(() => prepareRich(html, boundary));
+const preparedHtml = computed(() => prepareSharedRich(html, boundary));
 const hasActiveClamp = computed(
   () =>
     !expanded.value &&
@@ -131,6 +141,11 @@ const {
   requestRecompute,
 } = useMultilineClamp({
   active: hasActiveClamp,
+  observeSizes: (elements, listener) => {
+    if (getNativeMode(normalizeLineLimit(maxLines)) !== null)
+      return observeBorderBoxSizes(elements, listener);
+    return observeMeasuredBorderBoxSizes(elements, listener, ellipsis.length > 0);
+  },
   expanded,
   onClampedChange: (value) => {
     emit("clampchange", value);
@@ -225,7 +240,7 @@ const {
     const searchHint = canUseSearchHint(probe.width, sameAffix, lineLimit) ? measuredState : null;
     const preferHintedTextRun =
       searchHint?.kind === "clamped" && measuredWidth !== null && sameAffix;
-    const result = clampRich({
+    const input: RichClampOptions = {
       ellipsis,
       from: measuredState,
       hint: searchHint,
@@ -243,7 +258,39 @@ const {
         measuredState?.kind === "full",
         clampedMaxWidth,
       ),
-    });
+    };
+    const beforeElement = beforeRef.value;
+    const afterElement = afterRef.value;
+    const isCurrent = () =>
+      bodyRef.value === bodyElement &&
+      probeRef.value === probe.root &&
+      preparedHtml.value === prepared &&
+      hasActiveClamp.value &&
+      normalizeLineLimit(maxLines) === lineLimit &&
+      maxHeight === input.maxHeight &&
+      ellipsis === input.ellipsis &&
+      beforeRef.value === beforeElement &&
+      afterRef.value === afterElement;
+    let result: RichClampResult | null = null;
+    if (
+      hasMeasuredPeers() &&
+      ellipsis.length > 0 &&
+      skipFullFit &&
+      !input.verifyFullCandidate &&
+      preferHintedTextRun &&
+      visibleState === measuredState &&
+      rootRef.value &&
+      hasExplicitTextWidth(rootRef.value)
+    ) {
+      const measurement = prepareRichTextBatch(input);
+      if ("result" in measurement) result = measurement.result;
+      else {
+        const measured = await measureLayout(measurement.task, isCurrent, () => {});
+        if (!isCurrent()) return;
+        result = typeof measured === "function" ? measured() : measured;
+      }
+    }
+    result ??= clampRich(input);
     measuredState = result.state;
     probeSearchIndex = result.searchIndex ?? null;
     measuredAffixSignature = affixSignature;

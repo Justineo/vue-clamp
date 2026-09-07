@@ -10,15 +10,17 @@ import {
   installBenchmarkSpies,
   resetBenchmarkDom,
   restoreBenchmarkSpies,
+  summarizePairedSamples,
   summarizeRuns,
   type BenchmarkRun,
   type BenchmarkSummary,
   type StepDiagnostics,
 } from "./helpers.ts";
 
-import type { App, Component, VNodeChild, VNodeRef } from "vue";
+import { preparationScenarios, nativeFontScenario } from "./preparation-scenarios.ts";
 
-type ComponentName = "InlineClamp" | "LineClamp" | "RichLineClamp" | "WrapClamp";
+import type { Component, VNodeChild, VNodeRef } from "vue";
+import type { ComponentName, MountedScenario, PublicScenario } from "./scenario-types.ts";
 
 type VueClampModule = Partial<Record<ComponentName, Component>>;
 
@@ -33,29 +35,6 @@ type Counter = {
   increment: () => void;
   reset: () => void;
   value: () => number;
-};
-
-type MountedScenario = {
-  advanceContent?: () => void;
-  app: App;
-  collectExtraMetrics?: () => Record<string, number>;
-  container: HTMLElement;
-  resetExtraMetrics?: () => void;
-  root: HTMLElement;
-  setWidth: (value: number) => void;
-};
-
-type PublicScenario = {
-  beforeStep?: (mounted: MountedScenario, stepIndex: number) => Promise<void> | void;
-  component: ComponentName;
-  group: "inline" | "line" | "pretext" | "rich" | "wrap";
-  maxStableFrames?: number;
-  minVersion?: string;
-  mount: (component: Component, initialWidth: number) => Promise<MountedScenario>;
-  name: string;
-  unsupportedReason?: string;
-  widths: readonly number[];
-  widthBursts?: readonly (readonly number[])[];
 };
 
 type WidthProfile = {
@@ -694,6 +673,7 @@ type RichLineClampBatchOptions = {
   externalWidth?: boolean;
   fontSize?: string;
   html?: string;
+  identicalHtml?: boolean;
   maxHeight?: string;
   maxLines?: number;
 };
@@ -944,15 +924,11 @@ async function mountRichLineClampBatch(
           [
             options.css ? h("style", options.css) : null,
             ...instances.map((index) => {
+              const sourceHtml = `${options.html ?? richHtml}${
+                options.contentUpdates ? ` <span>Revision ${contentRevision.value % 2}</span>` : ""
+              }`;
               const props: Record<string, unknown> = {
-                html: richHtmlVariant(
-                  `${options.html ?? richHtml}${
-                    options.contentUpdates
-                      ? ` <span>Revision ${contentRevision.value % 2}</span>`
-                      : ""
-                  }`,
-                  index,
-                ),
+                html: options.identicalHtml ? sourceHtml : richHtmlVariant(sourceHtml, index),
                 key: index,
                 style: blockStyle(
                   options.externalWidth ? "100%" : width.value,
@@ -1424,6 +1400,32 @@ function pretextScenarios(): PublicScenario[] {
   ];
 }
 
+function nativeFontScenarios(): PublicScenario[] {
+  const fixtures: Pick<PublicScenario, "component" | "group" | "mount">[] = [
+    {
+      component: "LineClamp",
+      group: "line",
+      mount: lineClampBatch({ boundary: "word", maxLines: 3 }),
+    },
+    {
+      component: "InlineClamp",
+      group: "inline",
+      mount: inlineClampBatch({ boundary: "word", location: "middle", text: inlineSentence }),
+    },
+    {
+      component: "RichLineClamp",
+      group: "rich",
+      mount: richLineClampBatch({ boundary: "word", maxLines: 3 }),
+    },
+    {
+      component: "WrapClamp",
+      group: "wrap",
+      mount: (component, width) => mountWrapTableScenario(component, width, { rowCount: 16 }),
+    },
+  ];
+  return fixtures.map(nativeFontScenario);
+}
+
 function scenarios(): PublicScenario[] {
   const inlineMeasuredReason =
     "InlineClamp 1.0 used a native text-overflow implementation, so it is excluded from measured InlineClamp comparisons.";
@@ -1433,6 +1435,8 @@ function scenarios(): PublicScenario[] {
   // rather than the reason the row exists.
   return [
     ...pretextScenarios(),
+    ...preparationScenarios(),
+    ...nativeFontScenarios(),
     {
       component: "LineClamp",
       group: "line",
@@ -1872,6 +1876,22 @@ function scenarios(): PublicScenario[] {
       unsupportedReason: 'LineClamp boundary="word" was added in vue-clamp 1.3.0.',
       widths: [180, 180, 180, 180, 180, 180, 180],
     },
+    ...(
+      [
+        { name: "native", maxLines: 2 },
+        { name: "word-affix", boundary: "word", maxLines: 2, after: true },
+        { name: "word-height", boundary: "word", maxHeight: "40px" },
+      ] as const
+    ).map(
+      ({ name, ...options }): PublicScenario => ({
+        beforeStep: advanceContent,
+        component: "LineClamp",
+        group: "line",
+        mount: lineClampBatch({ ...options, contentUpdates: true, text: wordBoundaryText }),
+        name: `line-${name}-text-update-batch-same-width`,
+        widths: [180, 180, 180, 180, 180, 180, 180],
+      }),
+    ),
     {
       component: "InlineClamp",
       group: "inline",
@@ -1980,6 +2000,45 @@ function scenarios(): PublicScenario[] {
       unsupportedReason: 'InlineClamp boundary="word" was added in vue-clamp 1.3.0.',
       widths: [160, 160, 160, 160, 160, 160, 160],
     },
+    ...(["start", "middle", "end"] as const).map((location) => ({
+      beforeStep: advanceContent,
+      component: "InlineClamp" as const,
+      group: "inline" as const,
+      minVersion: "1.3.0",
+      mount: inlineClampBatch({
+        boundary: "word",
+        contentUpdates: true,
+        ellipsis: "...",
+        location,
+        split: (body) => ({ start: "/archive/", body, end: ".tar.gz" }),
+        text: location === "middle" ? inlineSentence.repeat(5) : fallbackWordBoundaryText,
+      }),
+      name: `inline-split-cold-${location}-batch-same-width`,
+      widths: [240, 240, 240, 240, 240, 240, 240],
+    })),
+    ...(
+      [
+        { name: "short", text: "abcdefghijklmnopqrstuvwxyz", start: "/archive/" },
+        { name: "skewed", text: "W".repeat(12) + "i".repeat(100), start: "/archive/" },
+        {
+          name: "affix-heavy",
+          text: fallbackWordBoundaryText,
+          start: "/archive/releases/production/",
+        },
+      ] as const
+    ).map((fixture) => ({
+      beforeStep: advanceContent,
+      component: "InlineClamp" as const,
+      group: "inline" as const,
+      minVersion: "1.3.0",
+      mount: inlineClampBatch({
+        contentUpdates: true,
+        split: (body) => ({ start: fixture.start, body, end: ".tar.gz" }),
+        text: fixture.text,
+      }),
+      name: `inline-split-cold-${fixture.name}-batch-same-width`,
+      widths: [180, 180, 180, 180, 180, 180, 180],
+    })),
     {
       component: "RichLineClamp",
       group: "rich",
@@ -2255,6 +2314,22 @@ function scenarios(): PublicScenario[] {
       unsupportedReason: 'RichLineClamp boundary="word" was added in vue-clamp 1.3.0.',
       widths: [180, 180, 180, 180, 180, 180, 180],
     },
+    ...[false, true].map(
+      (identicalHtml): PublicScenario => ({
+        beforeStep: advanceContent,
+        component: "RichLineClamp",
+        group: "rich",
+        mount: richLineClampBatch({
+          boundary: "word",
+          contentUpdates: true,
+          html: `<strong>${cjkWordBoundaryText}</strong><em>${wordBoundaryText}</em>`.repeat(3),
+          identicalHtml,
+          maxLines: 2,
+        }),
+        name: `rich-${identicalHtml ? "repeated" : "unique"}-html-update-batch-same-width`,
+        widths: [180, 180, 180, 180, 180, 180, 180],
+      }),
+    ),
     {
       beforeStep: toggleAffixWidth,
       component: "RichLineClamp",
@@ -2951,11 +3026,13 @@ async function runScenarioOnce(
     }
 
     const metrics = endTracking();
+    const extraMetrics = mounted.collectExtraMetrics?.();
+    mounted.validate?.();
     const steps = Math.max(1, measuredSteps.length);
 
     return {
       ...metrics,
-      ...mounted.collectExtraMetrics?.(),
+      ...extraMetrics,
       activeMs: diagnostics.activeMs,
       droppedFrames: diagnostics.droppedFrames,
       frameCount: diagnostics.frameCount,
@@ -2987,6 +3064,7 @@ async function runScenarioOnce(
     activityTracker.disconnect();
     endTracking();
     mounted.app.unmount();
+    mounted.dispose?.();
     mounted.container.remove();
   }
 }
@@ -3092,6 +3170,7 @@ function isCompactExtraMetric(summaryKey: string): boolean {
 
   return (
     metricKey === "componentInstances" ||
+    metricKey === "trustedFontEvents" ||
     metricKey === "cloneNodeMs" ||
     metricKey.startsWith("resizeObserver") ||
     metricKey.endsWith("Calls") ||
@@ -3597,6 +3676,31 @@ describe("vue-clamp package benchmark", () => {
       }
 
       const summaries = await runTargetBenchmarks(scenario, runnable);
+
+      for (const [beforeIndex, before] of summaries.entries()) {
+        for (let afterIndex = beforeIndex + 1; afterIndex < summaries.length; afterIndex += 1) {
+          const after = summaries[afterIndex]!;
+          console.error(
+            `BENCH_PAIRED_COMPARISON ${JSON.stringify({
+              scenario: scenario.name,
+              before: before.target.specifier,
+              after: after.target.specifier,
+              beforeIndex,
+              afterIndex,
+              sameEntry: before.target.entry === after.target.entry,
+              metrics: Object.fromEntries(
+                ["activeMs", "updateMs", "resizeObserverCallbackMs"].map((metric) => [
+                  metric,
+                  summarizePairedSamples(
+                    before.summary.runs.map((run) => run[metric]!),
+                    after.summary.runs.map((run) => run[metric]!),
+                  ),
+                ]),
+              ),
+            })}`,
+          );
+        }
+      }
 
       for (const { summary, target } of summaries) {
         const result: ScenarioResult = {

@@ -10,7 +10,6 @@ import type {
 import type { ClampBoundary } from "../types.ts";
 import type { PreparedText } from "../text.ts";
 
-const ellipsisWidths = new Map<string, number>();
 const needsWhitespaceNormalization = /[\t\n\r\f]| {2,}|^ | $/u;
 const start: LayoutCursor = { graphemeIndex: 0, segmentIndex: 0 };
 
@@ -19,7 +18,7 @@ type LineClampResult = {
   readonly text: string;
 };
 
-export type PreparedLineClamp = {
+type PreparedLineClamp = {
   readonly boundaries: PreparedText;
   readonly ellipsis: string;
   readonly ellipsisWidth: number;
@@ -29,7 +28,7 @@ export type PreparedLineClamp = {
   readonly source: string;
 };
 
-export type PrepareLineClampOptions = PrepareOptions & {
+type PrepareLineClampOptions = PrepareOptions & {
   readonly boundary?: ClampBoundary;
   readonly ellipsis?: string;
 };
@@ -41,13 +40,9 @@ function measureEllipsis(
 ): number {
   if (ellipsis.length === 0) return 0;
 
-  const key = `${ellipsis}\u0000${font}\u0000${options?.letterSpacing ?? 0}\u0000${options?.whiteSpace ?? ""}\u0000${options?.wordBreak ?? ""}`;
-  let width = ellipsisWidths.get(key);
-  if (width === undefined) {
-    width = measureNaturalWidth(prepareWithSegments(ellipsis, font, options));
-    ellipsisWidths.set(key, width);
-  }
-  return width;
+  // Pretext already caches font metrics, and PreparedLineClamp retains this
+  // width across resizes. A second global cache would outlive loaded fonts.
+  return measureNaturalWidth(prepareWithSegments(ellipsis, font, options));
 }
 
 export function prepareLineClamp(
@@ -92,10 +87,6 @@ export function prepareLineClamp(
   };
 }
 
-function cursorGrapheme(input: PreparedLineClamp, cursor: LayoutCursor): number {
-  return input.segmentGraphemeStarts[cursor.segmentIndex]! + cursor.graphemeIndex;
-}
-
 function browserLineEnd(line: LayoutLineRange, hasBefore: boolean): LayoutCursor {
   if (!hasBefore || line.end.graphemeIndex === 0) return line.end;
 
@@ -106,16 +97,6 @@ function browserLineEnd(line: LayoutLineRange, hasBefore: boolean): LayoutCursor
     graphemeIndex: 0,
     segmentIndex: line.end.segmentIndex,
   };
-}
-
-function displayEndClamp(
-  text: string,
-  offsets: readonly number[],
-  kept: number,
-  ellipsis: string,
-): string {
-  if (kept >= offsets.length - 1) return text;
-  return `${text.slice(0, offsets[kept]).trim()}${ellipsis}`;
 }
 
 function keptAtOffset(
@@ -167,6 +148,14 @@ export function clampPreparedLine(
         : { clamped: true, text: "" };
     }
 
+    // The line walker must advance even when one grapheme exceeds the width.
+    // Spare lines cannot make that grapheme fit, except when a leading affix
+    // leaves room to retry it on a fresh, full-width line.
+    if (range.width > lastLineWidth + 0.5) {
+      if (line === 0 && before > 0 && line < maxLines - 1) continue;
+      break;
+    }
+
     const end = browserLineEnd(range, line === 0 && before > 0);
     const consumed = end === range.end && range.end.segmentIndex >= input.prepared.segments.length;
     if (consumed) {
@@ -194,7 +183,7 @@ export function clampPreparedLine(
   }
 
   const { graphemeIndex, segmentIndex } = lastLine.end;
-  const grapheme = cursorGrapheme(input, lastLine.end);
+  const grapheme = input.segmentGraphemeStarts[segmentIndex]! + graphemeIndex;
   const { boundaries } = input;
   let offsets = boundaries.boundaryOffsets;
   let kept = input.segmentBoundaryRanks[segmentIndex]!;
@@ -217,6 +206,9 @@ export function clampPreparedLine(
 
   return {
     clamped: true,
-    text: displayEndClamp(boundaries.text, offsets, kept, input.ellipsis),
+    text:
+      kept >= offsets.length - 1
+        ? boundaries.text
+        : `${boundaries.text.slice(0, offsets[kept]).trim()}${input.ellipsis}`,
   };
 }

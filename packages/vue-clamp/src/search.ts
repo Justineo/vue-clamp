@@ -12,14 +12,12 @@ type TargetInput = {
   readonly target: number;
 };
 
-// The clamp predicates are monotonic: once an index stops fitting, larger
-// indexes cannot fit. The helper searches for the highest index that still fits.
-function binarySearchLastFit(
+// For monotonic predicates, rejecting an index also rejects every larger index.
+function* binarySearchLastFit(
   low: number,
   high: number,
-  fits: (index: number) => boolean,
   best = -1,
-): number {
+): Generator<number, number, boolean> {
   let currentLow = low;
   let currentHigh = high;
   let currentBest = best;
@@ -27,7 +25,7 @@ function binarySearchLastFit(
   while (currentLow <= currentHigh) {
     const index = Math.floor((currentLow + currentHigh) / 2);
 
-    if (fits(index)) {
+    if (yield index) {
       currentBest = index;
       currentLow = index + 1;
     } else {
@@ -65,19 +63,44 @@ export function findLastFittingIndex(
   hint?: number | null,
   expansionLimit = defaultWarmExpansionLimit,
 ): number {
+  const search = searchFittingIndex(count, hint, expansionLimit);
+  let step = search.next();
+  while (!step.done) {
+    step = search.next(fits(step.value));
+  }
+  return step.value;
+}
+
+// The same search can be driven synchronously or suspended between a candidate
+// write and its fit read, allowing independent components to share a layout pass.
+export function* searchFittingIndex(
+  count: number,
+  hint?: number | null,
+  expansionLimit = defaultWarmExpansionLimit,
+  monotonic = true,
+): Generator<number, number, boolean> {
   if (count <= 0) {
     return -1;
   }
 
   const maxIndex = count - 1;
 
+  if (!monotonic) {
+    // A rejected cut cannot bound later candidates when shaping can reduce
+    // their width. Descending evaluation proves maximality without a lookahead cap.
+    for (let index = maxIndex; index >= 0; index -= 1) {
+      if (yield index) return index;
+    }
+    return -1;
+  }
+
   if (hint == null || !Number.isFinite(hint)) {
-    return binarySearchLastFit(0, maxIndex, fits);
+    return yield* binarySearchLastFit(0, maxIndex);
   }
 
   const start = Math.max(0, Math.min(maxIndex, Math.floor(hint)));
 
-  if (fits(start)) {
+  if (yield start) {
     // Growing from a fitting hint favors the common case where a container gets
     // a little wider and only a few more candidates may now fit.
     let fit = start;
@@ -87,14 +110,14 @@ export function findLastFittingIndex(
     while (fit < maxIndex) {
       const probe = Math.min(maxIndex, fit + step);
 
-      if (!fits(probe)) {
-        return binarySearchLastFit(fit + 1, probe - 1, fits, fit);
+      if (!(yield probe)) {
+        return yield* binarySearchLastFit(fit + 1, probe - 1, fit);
       }
 
       fit = probe;
       expansions += 1;
       if (expansions >= expansionLimit) {
-        return binarySearchLastFit(fit + 1, maxIndex, fits, fit);
+        return yield* binarySearchLastFit(fit + 1, maxIndex, fit);
       }
 
       step *= 2;
@@ -112,14 +135,14 @@ export function findLastFittingIndex(
     // without restarting from the middle of the whole candidate set.
     const probe = Math.max(0, failed - step);
 
-    if (fits(probe)) {
-      return binarySearchLastFit(probe + 1, failed - 1, fits, probe);
+    if (yield probe) {
+      return yield* binarySearchLastFit(probe + 1, failed - 1, probe);
     }
 
     failed = probe;
     expansions += 1;
     if (expansions >= expansionLimit) {
-      return binarySearchLastFit(0, failed - 1, fits);
+      return yield* binarySearchLastFit(0, failed - 1);
     }
 
     step *= 2;

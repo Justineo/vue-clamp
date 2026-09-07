@@ -1,0 +1,61 @@
+--- a/packages/vue-clamp/src/inline/InlineClamp.vue
++++ b/packages/vue-clamp/src/inline/InlineClamp.vue
+@@ -28,7 +28,7 @@
+   matchingTextClampHint,
+   nextClampedMaxWidth,
+   normalizeLocationRatio,
+-  prepareText,
++  prepareSharedText,
+   setElementText,
+ } from "../text.ts";
+ import { inlineClampRootStyle } from "./styles.ts";
+@@ -62,7 +62,7 @@
+ const rootRef = useTemplateRef<HTMLElement>("root");
+ const bodyRef = useTemplateRef("body");
+ const parts = computed(() => split?.(text) ?? { body: text });
+-const preparedBody = computed(() => prepareText(parts.value.body, boundary));
++const preparedBody = computed(() => prepareSharedText(parts.value.body, boundary));
+ const usesNativeClamp = computed(
+   () =>
+     split === undefined &&
+--- a/packages/vue-clamp/src/line/LineClamp.vue
++++ b/packages/vue-clamp/src/line/LineClamp.vue
+@@ -36,7 +36,7 @@
+   clampTextToLayout,
+   searchTextLayout,
+   normalizeLocationRatio,
+-  prepareText,
++  prepareSharedText,
+   setElementText,
+ } from "../text.ts";
+ import { useLineClampPredictor } from "./predictor.ts";
+@@ -93,7 +93,7 @@
+ let predictionReady = false;
+ 
+ const lineLimit = computed(() => normalizeLineLimit(maxLines));
+-const preparedText = computed(() => prepareText(text, boundary));
++const preparedText = computed(() => prepareSharedText(text, boundary));
+ const hasActiveClamp = computed(
+   () =>
+     !expanded.value &&
+--- a/packages/vue-clamp/src/text.ts
++++ b/packages/vue-clamp/src/text.ts
+@@ -873,3 +873,18 @@
+ 
+   return withTextClampMetrics(result, textHint, prepared, rootWidth, context);
+ }
++
++let sharedTextPreparation: PreparedText | null = null;
++export function prepareSharedText(
++  text: string,
++  boundary: ClampBoundary = "grapheme",
++): PreparedText {
++  if (text.length > 8192) {
++    sharedTextPreparation = null;
++    return prepareText(text, boundary);
++  }
++  if (sharedTextPreparation?.text === text && sharedTextPreparation.boundary === boundary) {
++    return sharedTextPreparation;
++  }
++  return (sharedTextPreparation = prepareText(text, boundary));
++}

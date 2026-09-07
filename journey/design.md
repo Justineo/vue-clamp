@@ -48,46 +48,86 @@
   - `RichLineClamp` as the canonical multiline rich-html component name
   - `InlineClamp` as the canonical single-line affix-friendly component name
   - `WrapClamp` as the canonical wrapped-item component name
-- `vue-clamp/pretext` separately exports a `LineClamp` with exactly the standard props, slots,
-  controls, events, and defaults. Its thin provider decorates the standard component with a private
-  predictor strategy; native, predictive, and measured modes all run in the same `LineClamp` DOM and
-  lifecycle. Prediction covers non-native end truncation with `maxLines` and no `maxHeight`, including
-  observed `before` / `after` occupancy. Unsupported predictions continue directly into the
-  standard measured solver in that same runtime. This keeps the root dependency graph unchanged and
-  avoids both a second nested clamp runtime and a component-shaped internal composable API.
+- `vue-clamp/pretext` separately exports the same `LineClamp` contract. A thin provider adds a
+  private predictor to the standard DOM and lifecycle: native CSS remains first, non-native end
+  `maxLines` cases without `maxHeight` may predict, and every other case uses standard measurement.
+  The root dependency graph does not include Pretext.
 - Runtime native selection is based only on semantic eligibility. Multiline containment uses the
   fully specified legacy `display: -webkit-box` / `-webkit-box-orient: vertical` /
   `-webkit-line-clamp` combination, so no render-time `CSS.supports` branch is needed. This keeps SSR
   and the first client VNode deterministic; the unprefixed `line-clamp` declaration remains an
   additive future-facing declaration rather than a compatibility requirement.
-- The predictive branch caches the rendered font and the Pretext-supported `white-space`,
-  `word-break`, and numeric `letter-spacing` inputs. Other CSS is an explicit accuracy-for-throughput
-  tradeoff. Each active instance observes a zero-height width probe and mutates one stable visible
-  text node during the pre-paint `ResizeObserver` delivery, with no synchronous geometry search or
-  Vue patch. The same observer also caches affix border-box sizes, so width-only passes need no
-  synchronous affix reads and an affix-size change invalidates both standard measurement and
-  prediction through the same mechanism. It does not derive height from `line-height`, and a shared
-  observer remains rejected because it reduced callback objects without reducing measured active
-  work.
-- Sharing the standard `LineClamp` runtime is the maintainability choice. Predictive writes update
-  one stable text node, and the zero-border width probe keeps only numeric inline size on its hot
-  path. A dedicated component can have less orchestration overhead, but duplicating DOM, fallback,
-  accessibility, and lifecycle ownership is rejected. Performance evidence and the remaining cost
-  budget live in `journey/research/318-pretext-integration-research.md`.
-- Predictive custom ellipses are measured with the same prepared typography and cached with the
-  source state. Forced-line-break ellipses stay measured because the fast path treats the marker as
-  one final-line unit. Grapheme prediction is allowed when a custom ellipsis makes native clamping
-  semantically ineligible; it must preserve grapheme boundaries and containment, but may keep a
-  conservative shorter prefix than browser measurement.
-- No public affix-stability prop is needed. The existing wrappers already expose their actual
-  border-box sizes to the shared `ResizeObserver`; prediction consumes those observed values and
-  automatically reacts when they change. A size-stability promise would not make slot output safe to
-  cache because slots may still capture changing parent state. Observer-driven resizes already skip
-  slot execution while `clamped` / `expanded` stay stable; only Vue-driven parent updates retain the
-  normal slot contract. `before` reduces the first-line width and `after` reserves final-line width.
-  Leading-affix long tokens use browser-compatible emergency-wrap cursor handling. A line-box-aware
-  CSS clamp remains active as a paint-safety net for shaping features outside the predictor model; no
-  `Nlh` height approximation is used.
+- Prediction caches the rendered font and supported `white-space`, `word-break`, and
+  `letter-spacing` inputs. A zero-height probe and observed affix boxes supply resize geometry before
+  paint; one stable text node is updated without synchronous search or a Vue patch. A CSS line clamp
+  remains the line-box safety net, and prediction never substitutes an `Nlh` height approximation.
+  Unsupported CSS is an explicit accuracy-for-throughput trade-off.
+- Sharing the standard runtime is preferred over duplicating DOM, accessibility, fallback, and
+  lifecycle ownership. A shared observer alone did not reduce real work, and an affix-stability prop did not
+  make captured slot output safe to cache. Measured text batching now uses a shared observer only
+  to collect resumable searches into the same delivery, as recorded in research 325–327. Detailed evidence and rejected alternatives live in
+  `journey/research/318-pretext-integration-research.md`.
+- Custom ellipses share the prepared typography cache. Forced-line-break ellipses stay measured;
+  custom grapheme prediction remains contained but may keep a shorter prefix than browser search.
+- Font readiness and loading completion invalidate Pretext's shared font metrics as well as the
+  instance preparation. Ellipsis widths live in that preparation rather than a second global cache,
+  so fallback-font widths cannot survive a font load. A grapheme wider than the available line is
+  overflow even when the line budget has spare rows; only a leading affix can justify retrying it
+  on a fresh full-width line.
+- Pretext shares one bounded, width-independent preparation across adjacent identical inputs;
+  matching includes every modeled typography option, boundary, and marker. Font invalidation clears
+  this shared entry immediately and coalesces upstream metric-cache clearing before the next
+  preparation. Per-instance resize preparations remain independent. Cold split InlineClamp search
+  now uses one full-body width read to subtract fixed affix occupancy before seeding the measured
+  search. Retained evidence and size costs live in
+  `journey/research/320-cold-preparation-and-split-search.md`.
+- Semantic Line updates commit the final display state directly; they do not publish an intermediate
+  full-source state that schedules a redundant Vue render. Rich shares one bounded inert source
+  preparation for identical HTML and boundary inputs while keeping connected trees and all layout
+  state per instance. Wrap's before-affix stability proof reuses the size from the same atomic
+  sequence measurement and still verifies a fresh sequence after each count commit. Retained
+  evidence, workload limits, and the rejected Wrap item-component experiment are recorded in
+  `journey/research/321-active-update-costs.md`.
+- The actual published 1.6.0 comparison is recorded in
+  `journey/research/322-release-1.6-performance-comparison.md`. Default imports show targeted
+  source-update gains, not a demonstrated broad resize speedup. The follow-up audit in
+  `journey/research/323-line-rendering-regression-audit.md` found that the 3–18% resize regression
+  estimates were not established by paired timing intervals. It did identify redundant text-leaf
+  VNode work: Line now memoizes only that internal leaf using Vue's render cache and all of the
+  leaf's text, accessibility, native-mode, and pending-visibility inputs. Body layout, consumer
+  slots, and browser measurement remain live. Optional Pretext throughput and delivery cost must
+  still be reported separately from default upgrades.
+- First-principles investigation and information-acquisition experiments are recorded in
+  `journey/research/324-adaptive-search-and-information-cost.md`; the retained implementation and
+  production E2E evidence are in `journey/research/325-measured-text-layout-batching.md`. Plain text
+  searches can yield between candidate writes and fit reads so independent instances share layout
+  passes. Eligible widths are explicit inline lengths, or percentages of an immediate parent with
+  an explicit inline length. Empty markers remain serial because `:empty` / `:has()` can couple
+  sibling styles; intrinsic widths remain serial because candidate changes can redistribute space.
+  Line also batches cold/source-reset and slot-bearing searches. Slots stay live: only body text
+  changes between candidate probes, and slot-state changes settle through the existing Vue update
+  path after the search commits. Each job validates its original affix element identities. Batched
+  height checks refresh the root's viewport position each round because preceding siblings can move
+  it. A previously full-fit Line result and predictive searches retain their serial paths; a lone
+  measured clamp runs synchronously because there is no layout work to share. Research
+  `journey/research/326-slot-bearing-text-layout-batching.md` records this broader eligibility,
+  settlement costs, and production comparisons against the research 325 implementation.
+  Vue post-flush completion preserves display/accessibility settlement, and shared measured resize
+  delivery enables the same batching before the following paint. Research
+  `journey/research/327-mixed-component-layout-batching.md` extends this delivery to measured
+  Pretext fallbacks, Rich, and Wrap. Eligible warm Rich searches batch only positive cuts within
+  the same existing text leaf; inspection, full-tree candidates, leaf crossings, and structural
+  restoration remain serial, with continuation after the shared batch. Wrap shares resize delivery
+  so Vue count updates can settle together; its materialized-item candidate search remains serial
+  and does not count as a text-batching peer. Predictive and native paths retain independent
+  observers. Mixed-family batches demonstrably reduce layout flushes, but their total elapsed-time
+  advantage is not established. No stylesheet fingerprint or authoritative answer cache is added.
+- Measured Line and Inline search Arabic/Syriac candidate ranks in descending order. Joining forms
+  can make a longer candidate narrower, so a rejected successor is not a maximality proof for those
+  scripts. This fixes the demonstrated Arabic gap and deliberately pays additional reads for long
+  joining-script inputs. Other scripts retain the existing hint/binary policy; this is not a universal
+  monotonicity claim over arbitrary fonts and CSS. Inline semantic updates publish only the solved
+  visible state, avoiding a full-source intermediate render while a measurement batch is pending.
 - There is no default export.
 - Type declarations follow explicit ownership layers:
   - shared public primitives and private shared type building blocks live in
@@ -204,14 +244,9 @@
   A retained size audit rejected `vp pack --minify` because it made single-component consumer
   bundles keep every component. Subpaths for the existing browser-authoritative components remain
   unjustified because they saved only about 74-180 bytes gzip per direct import while increasing the
-  published package by about 7.9 kB raw. `vue-clamp/pretext` is a dependency and policy boundary, not
-  a component-size optimization: its drop-in fallback includes the browser-authoritative engine,
-  while the much larger predictive engine still never enters root consumers. The retained
-  runtime-helper cleanup reduced the current package by about 1.7 kB raw / 0.4 kB gzip without
-  changing root exports. The shared Pretext strategy hook costs about 0.61 kB gzip in a
-  standard-only consumer; that bounded cost is accepted to remove the alternate DOM,
-  observation, accessibility, and measured-fallback implementation. Importing both standard and
-  Pretext adds only 17 bytes gzip over Pretext alone after deduplication.
+  published package by about 7.9 kB raw. `vue-clamp/pretext` is instead a dependency and policy
+  boundary: Pretext stays out of root consumers, while the shared strategy hook adds about 0.61 kB
+  gzip to the standard component. Importing both entries adds only 17 bytes gzip over Pretext alone.
 - `ClampControls`, `ClampState`, `ClampSlotProps`, and `ClampExposed` are private building blocks in
   `types.ts`; they keep concrete public contracts aligned without creating a generic cross-component
   public abstraction and are not root package exports.
@@ -1133,8 +1168,11 @@
     - the current estimator is expressed as a small flow simulation, not only the fixed-width
       formula: known item widths use recorded live metrics, unknown hidden item widths use the
       observed average fallback, and the first predicted overflow item is included for DOM search
-    - cap the estimate by a per-line materialization budget so arbitrary item variation and very
-      large containers still fall back conservatively
+    - cap the initial estimate by a per-line materialization budget
+    - if the freshly committed frontier fits, extend it by 1, 2, 4, 8, ... additional items until
+      overflow or the full list is reached; restore direct display mutations before every Vue
+      yield and recheck the fresh sequence and before-affix box after each chunk
+    - guard failures and dynamic-after cases retain the existing live settlement path
     - verify the final committed result against live DOM
   - fixed materialization budgets were measured and rejected as too workload-specific:
     - 24 was good for the original 40px-item / 520px-container benchmark and large-N case
@@ -1346,9 +1384,10 @@
     geometry from before the inactive interval
   - a 400-instance expanded benchmark removes `12,800` bounding-rect reads, 400 observer instances,
     800 observer callbacks, and 400 font listeners across mount, updates, resize, and font delivery
-  - a shared module-level observer/font hub was rejected: it collapsed callback/listener counts but
-    left active elapsed work effectively flat while adding about `2.1 kB` raw / `401 B` gzip and
-    cross-instance subscription coupling
+  - the earlier standalone observer/font-hub experiment was rejected because callback-count
+    reductions left elapsed work flat. Research 329 later retained shared font delivery after the
+    resumable measured-search infrastructure made the same delivery share actual layout work;
+    inactive ownership and per-instance invalidation remain unchanged
 - `RichLineClamp` follows the same invalidation model, but tracks `html` source changes instead of
   text-location changes. Inline rich images must provide stable layout dimensions up front; image
   loading does not schedule an extra clamp pass.
@@ -1468,23 +1507,12 @@
     cross-process browser drift. Multi-target sampling stops only between complete target rounds,
     so every target has the same measured sample count for that scenario. Single-target runs keep
     the original schema v3 payload.
-  - `current/pretext` resolves the built `vue-clamp/pretext` entry as a distinct benchmark target.
-    The focused matrix supplies the exact predictive eligibility contract to both entrypoints and
-    includes a before-and-after affix workload; other API combinations are behavior-tested as native
-    or standard measured dispatch rather than counted as Pretext performance rows. Its reactive-width
-    rows intentionally include parent VNode and slot work, while its direct outer-DOM resize rows leave
-    the component VNode unchanged and isolate observer-driven runtime work. These drivers must remain
-    separate: combining them would misattribute application render cost to the clamp engine.
-  - The focused matrix also contains real CSS-transition rows. They write the outer width once and let
-    the browser interpolate it, so fixed animation wall/active time is excluded from speed totals.
-    ResizeObserver callback CPU, per-entry CPU, callback p95/max, frame p95, and dropped frames are the
-    primary transition signals. The current 16-instance, two-transition run reduces callback CPU by
-    88.6–91.7% with Pretext while both entries remain below the dropped-frame threshold.
-  - The direct Pretext affix rows are the slot invalidation contract. Width changes that keep
-    `clamped` stable make zero before/after slot calls; real clamped/full transitions render the slots
-    because their public payload changed. A fixed affix box is not sufficient evidence to cache an
-    arbitrary slot VNode, since the slot may capture reactive parent state. No public stability hint is
-    introduced for this case.
+  - `current/pretext` resolves the built subpath as a distinct target. Its focused shared-contract
+    matrix keeps reactive width changes, direct outer-DOM resizes, and real CSS transitions separate
+    so parent rendering is not attributed to the engine. Transition rows compare callback CPU and
+    frame health rather than fixed animation duration. Affix rows also verify that observer-only
+    resizes do not execute slots while their public payload is unchanged. Full evidence lives in
+    `journey/research/319-pretext-performance-matrix.md`.
   - duplicate target specifiers in a multi-target run are resolved once and then repeated in the
     browser target list. This keeps same-version noise checks such as `--targets current,current`
     from rebuilding or reinstalling the same package twice while preserving two report columns.
@@ -1624,6 +1652,20 @@
   - WrapClamp covers the existing table/churn/no-affix/large-N/heavy-slot/before/after/maxHeight
     matrix because those rows already represent realistic list/tag/table workloads and known
     extremes.
+  - The public root matrix now has 152 rows. Seventeen additions preserve the original 135 fixtures
+    while covering shared/distinct 6,000-unit source updates, 30,000-unit Rich input, full-fit long
+    sources and short-source controls, dense 1,000-marker Wrap growth, and trusted native font
+    loading for every component family. The added source rows validate final content after timing
+    and counter collection. Real-font rows require actual trusted events and clean up loaded faces;
+    existing synthetic font rows retain their meaning. The focused list is
+    `tools/benchmark/scenarios/preparation-and-growth.txt` and usage is documented in
+    `tools/benchmark/README.md`. Original and added rows are summarized separately so a pathological
+    stress case cannot dominate a claim about ordinary resize performance. Retained JS heap stays
+    a complementary `benchmark#updates --heap` measurement, not a matrix timing column.
+    The refresh and paired-repeat results are recorded in
+    `journey/research/330-performance-matrix-refresh.md`. Dense growth deliberately trades more
+    item-visibility mutations for far fewer slot calls and geometry reads; counts need to be
+    interpreted with total work rather than requiring every counter to decrease.
   - LineClamp, InlineClamp, and RichLineClamp package scenarios render realistic multi-instance
     batches by default rather than a single isolated component. The regular batch size is 16
     component instances sharing the same width churn, and the dense rich scenario renders 40
@@ -1826,9 +1868,11 @@
     geometry hints, `Range.deleteContents()` patch unification, visible-source full-fit preflights,
     fused preparation/safety walks, typed boundary arrays, and manual preparation memos. The common
     failure was either altered layout semantics, duplicated authoritative reads, or lower source
-    size paired with worse browser mutation work. The durable next-level rule is to partition modes
-    before constructing representations; a further large step requires an explicit native-only
-    entry or a new Rich DOM/accessibility representation contract rather than another local cache.
+    size paired with worse browser mutation work. The durable rule is to partition modes before
+    constructing representations. Those experiments do not prove that further substantial gains
+    require a native-only entry or a new DOM/accessibility contract: research 328 identifies
+    remaining dense Wrap growth, repeated plain-text preparation, and font-delivery opportunities
+    within existing behavior, alongside separate representation and contract-level directions.
   - convergence-phase code cleanup is still valuable only when it reduces drift risk around retained
     behavior, such as naming guard differences, making mutable-state snapshots explicit, or
     centralizing shared input construction. These cleanups carry no performance claim and should be
@@ -1857,11 +1901,52 @@
 
 ### Current reliability and performance queue
 
-- Do not ship cross-instance round batching under the current CSS contract. A 64-instance prototype
-  confirmed large layout-flush savings but failed browser correctness because candidates can share
-  selector, custom-property, ancestor-layout, and formatting-context dependencies. Containment or
-  shadow isolation would change public styling semantics. Reopen only with a semantics-preserving
-  isolation proof, not another scheduler tweak.
+- The broad post-batching investigation in research 328 is now implemented and extended in
+  `journey/research/329-preparation-and-growth-optimization.md`. Retained changes cover bounded shared
+  Line/Inline preparation, shared font notification/frame delivery, geometric continuation of
+  no-after Wrap materialization, compact Rich boundaries, deferred full-fit preparation, lazy
+  measured-word fallback, and linear processing of ordinarily ordered line-box lists.
+- Plain preparations retain at most one adjacent text/boundary input of 8,192 UTF-16 units; larger
+  inputs evict it. Source identity and a full-fit hint do not require segmentation. Full-fit results
+  still expose a lazily resolved internal rank for later shrink search. Existing full-fit-on-grow
+  eligibility is unchanged, and same-width rechecks still measure current DOM. Inline keeps only
+  clamped historical ranks because a full-fit entry cannot seed a historical cut.
+- Measured word preparation validates primary cuts with a forward grapheme iterator and retains
+  the complete fallback array only when consumed. Direct `Intl.Segments.containing()` queries were
+  rejected after WebKit disagreed with iteration at emoji surrogate boundaries. Rich's
+  searchable leaves still prepare both boundary lists, but store numeric offsets and a shared leaf
+  path. Concatenated sequences resolve points on demand and locate existing points by binary
+  search; word cuts are a subset of the grapheme fallback, so ranking needs no union/sort scan.
+- Rich always parses and checks current rendered support before accepting measured output. Its
+  searchable nodes and index data remain lazy until overflow or an explicit rank query. Typography
+  refreshes share that index-data identity rather than retaining a chain of previous search indexes.
+  Connected trees, inspection, fit decisions and probe cursors remain instance-owned.
+- Line-height calibration still consumes every positive-height rectangle. Ordered line lists skip
+  impossible matches using the largest representative top and reuse a matching last representative;
+  unordered/overlapping fragments retain the exact half-pixel comparison. This removes the observed
+  quadratic work in very narrow long sources without assuming globally ordered CSS layout.
+- Native font delivery has one listener per FontFaceSet. Multiline font jobs share a frame while
+  preserving inactive/unmount cancellation, reentrant subscription and callback-error isolation.
+  Font invalidation remains conservative; a full-fit Line result is cleared when fonts change,
+  because simultaneous width growth must not reuse a fit from the previous face. Fewer layout
+  flushes do not imply equal latency gains.
+- Paid-width interpolation, per-glyph Range hints, representative-first cohorts, live computed-style
+  object reuse and repeated-candidate verdict reuse did not establish broad wins in research 328.
+  Remaining worker, offscreen, bounded initial-render and native-only proposals require separate
+  contract decisions. The tested frontier is a practical stopping point, not a global optimum proof.
+- Performance experiments must distinguish cold/full-fit/overflow, resize/source/font/slot triggers,
+  singleton/identical/distinct cohorts, and final settlement. Include A/A controls and native layout
+  duration with layout count. Sharing must keep layout ownership per instance and explicitly bound
+  retained pure data. Offscreen, worker, bounded first-render and native-only approaches require
+  separate freshness, hydration, lifecycle or public-contract decisions where those semantics change.
+- Keep Rich structural candidates and Wrap materialized-item searches serial, and exclude empty
+  markers and intrinsic widths from candidate batching. Research 326 established slot-bearing Line
+  eligibility; research 327 established a narrow warm Rich same-text-leaf path and shared resize
+  delivery across component families. Rich pauses before a structural change and resumes its original
+  search only after the text batch completes. Wrap joins delivery without advertising candidate work.
+  The earlier 64-instance Rich prototype changed selector and shared-layout semantics; fewer layout
+  flushes alone remain insufficient evidence. Containment, shadow isolation, and generic CSS caching
+  remain rejected. These eligibility checks are not universal isolation under arbitrary CSS.
 - Do not add a second persistent Rich inspection tree merely to avoid restoring the measured probe.
   Its CSS context would not be equivalent for structural selectors, and another connected clone
   weakens the passive-content boundary. Reopen only with a sound context model and large measured
@@ -1901,22 +1986,10 @@
     and without browser hyphenation
   - the preview keeps the example focused on article copy itself and uses the expand toggle as the
     only chrome around the clamp
-- The website exposes `vue-clamp/pretext` as an opt-in `LineClamp` engine rather than a fifth public
-  component:
-  - the top-level surface guide, component tabs, and route hashes continue to represent only the four
-    public components. Selecting `LineClamp` reveals a local Standard/Pretext engine switch; changing
-    that switch does not change the active component or URL
-  - the Pretext engine view documents predictive eligibility, measured behavior, modeled typography,
-    and the explicit CSS accuracy tradeoff
-  - its main demo renders eight synchronized predictive-eligible `LineClamp` instances from the
-    Pretext entry; shared width and line controls exercise the actual word-boundary prediction path,
-    while the stress playground remains the place for Standard/Pretext comparison
-  - its usage snippet imports `LineClamp` from `vue-clamp/pretext`
-  - the predictor component is loaded only when the Pretext engine is selected, so the default
-    `LineClamp` view does not absorb the opt-in engine payload
-  - the stress playground compares standard and Pretext `LineClamp` with the same boundary, limit,
-    affix, text, count, and width inputs. Non-native end `maxLines` cases, including observed affix
-    occupancy, exercise prediction; native-eligible cases stay native and `maxHeight` stays measured
+- The website presents `vue-clamp/pretext` as an opt-in engine inside `LineClamp`, not a fifth
+  component or route. It lazy-loads the predictor, states its eligibility and CSS trade-off, and uses
+  an eight-instance word-boundary demo that actually enters prediction. The stress playground keeps
+  both entries on the same inputs and reports the active native, measured, or predictive partition.
 - The website component demos use one sticky shared-controls bar below the component tabs:
   - the component tabs have a fixed block size and shared controls use that same value as their
     sticky `top`, so the two sticky surfaces stack without a gap
@@ -1937,11 +2010,8 @@
     scales text length or wrapped item count, chooses one active `maxLines` or
     `maxHeight` limit mode at a time, shares one width slider across every item, and keeps the FPS
     meter scoped to that modal instead of the normal demo surface. Standard and Pretext `LineClamp`
-    share a nested engine switch and grapheme/word boundary control, and show which native, measured,
-    or predictive partition is active. The resize-stress action preserves the selected
-    component count, payload, limit, boundary, slot, and engine settings and continuously sweeps only
-    the shared width, so switching the two entries compares their sustained resize paths under the
-    user's chosen workload instead of isolated slider changes. It
+    share an engine and boundary control, report the active runtime partition, and can continuously
+    sweep only width while preserving the rest of the workload. It
     locks page scroll, keeps keyboard focus inside the modal, and stays in a centered section after
     the normal examples. It loads only when opened because it is diagnostic tooling rather than the
     primary demo path.

@@ -87,19 +87,15 @@ Useful props:
 
 ## Predictive plain text
 
-The root entry should remain the default. Choose `vue-clamp/pretext` only when all of these are true:
+Keep the root entry by default. Choose `vue-clamp/pretext` when:
 
-- Many mounted plain-text clamps change width repeatedly, such as dense dashboards, resizable panes,
-  or responsive result grids. A few clamps that render once usually cannot amortize preparation and
-  the additional predictor payload.
-- The clamp uses `max-lines` and end truncation without `max-height`, and native CSS cannot express
-  the requested word boundary, custom ellipsis, or multiline `after` slot.
-- Text typography is stable, a named font is loaded before mount, and the application accepts the
-  documented differences from the browser's full inline-layout model.
+- many mounted plain-text clamps resize repeatedly;
+- they use end truncation with `max-lines` and no `max-height`;
+- word boundaries, a custom ellipsis, or a multiline `after` slot prevents native CSS; and
+- typography is stable, a named font is loaded, and exact browser-only shaping is not required.
 
-The subpath is usually not useful for default grapheme clamps, because those already use native CSS,
-or for API combinations that fall back to standard measurement. In either case it produces the same
-result while adding approximately 20 kB gzip to a production consumer bundle.
+One-off clamps, native-eligible grapheme clamps, and measured fallbacks do not amortize the
+approximately 20 kB gzip predictor payload.
 
 ```vue
 <script setup lang="ts">
@@ -119,33 +115,23 @@ import { LineClamp } from "vue-clamp/pretext";
 </style>
 ```
 
-This entry has the same public API as the standard `LineClamp`. It chooses an engine from the
-requested API shape:
+The subpath has the same public API and selects the cheapest compatible engine:
 
 1. Native CSS for the standard default end/grapheme/`…` subset.
-2. Pretext for non-native end truncation with `max-lines` and no `max-height`. It accounts for the
-   observed border-box widths of `before` and `after`; slot-size changes are observed automatically.
-   Custom ellipses work with word or grapheme boundaries, while ellipses containing forced line
-   breaks remain browser-measured.
+2. Pretext for non-native end truncation with `max-lines` and no `max-height`, including observed
+   `before` and `after` widths. Custom word or grapheme ellipses are supported; forced line breaks
+   remain browser-measured.
 3. The standard browser-measured engine for every other combination.
 
-All three choices run through the same `LineClamp` DOM, observation, accessibility, controls, and
-event runtime. The subpath injects only a private prediction strategy; it does not nest a second
-clamp runtime or expose an engine prop.
+All modes share the standard DOM, accessibility, controls, events, and observation runtime. Before
+prediction, the component caches the rendered font plus Pretext-supported `white-space`,
+`word-break`, and numeric `letter-spacing`. Other CSS still renders but is outside the model, so
+features such as automatic hyphenation, contextual spacing, font features, or dynamic typography
+can produce a conservative shorter prefix. CSS line clamping and overflow containment prevent extra
+lines from painting. Pretext also documents `system-ui` as unsafe on macOS.
 
-Before its first prediction, the component reads the rendered element's canvas font shorthand and
-the Pretext-supported `white-space`, `word-break`, and numeric `letter-spacing` values. It caches that
-typography for the instance's resize lifetime. All other CSS still renders normally but is outside
-the predictive model, so dynamic typography changes and features such as automatic hyphenation,
-contextual spacing, or font feature settings can shift the chosen prefix. Native line-clamp and
-overflow containment still prevent extra lines from being painted. Prediction can conservatively
-keep a shorter prefix than browser measurement, especially for custom grapheme ellipses or long
-unbroken text.
-
-Use a loaded named font for the most predictable result; Pretext documents `system-ui` as unsafe on
-macOS. After preparation, the resize path performs no DOM geometry or computed-style reads. The
-root entry remains the better choice whenever full browser CSS fidelity is more important than
-repeated-resize throughput.
+After preparation, eligible resizes perform no DOM geometry or computed-style reads. Prefer the root
+entry whenever full browser CSS fidelity matters more than repeated-resize throughput.
 
 ## Trusted rich text
 

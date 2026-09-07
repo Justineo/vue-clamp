@@ -3,14 +3,6 @@ import { inject, provide } from "vue";
 import type { InjectionKey } from "vue";
 import type { ClampBoundary, ClampLength } from "../types.ts";
 
-type LineClampPredictorContext = {
-  readonly boundary: ClampBoundary;
-  readonly ellipsis: string;
-  readonly lineLimit: number | undefined;
-  readonly locationRatio: number;
-  readonly maxHeight: ClampLength | undefined;
-};
-
 export type LineClampPredictionInput = {
   readonly afterWidth: number;
   readonly beforeWidth: number;
@@ -28,7 +20,12 @@ export type LineClampPredictor = {
     readonly clamped: boolean;
     readonly text: string;
   } | null;
-  readonly supports: (context: LineClampPredictorContext) => boolean;
+  readonly supports: (context: {
+    readonly ellipsis: string;
+    readonly lineLimit: number | undefined;
+    readonly locationRatio: number;
+    readonly maxHeight: ClampLength | undefined;
+  }) => boolean;
 };
 
 const predictorKey: InjectionKey<LineClampPredictor | null> = Symbol("LineClampPredictor");

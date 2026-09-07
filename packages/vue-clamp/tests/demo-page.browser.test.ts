@@ -1337,7 +1337,7 @@ describe("Website demo page", () => {
     expect(
       document.querySelector('[data-stress-limit-mode="lines"]')?.getAttribute("aria-pressed"),
     ).toBe("true");
-    expect(document.querySelector("[data-stress-native-status]")).toBeNull();
+    expect(stressEngine()).toBeNull();
     expect(document.querySelector('[data-stress-surface="pretext"]')).toBeNull();
 
     expect(meter).toBeInstanceOf(HTMLElement);
@@ -1445,7 +1445,7 @@ describe("Website demo page", () => {
     maxLinesSlider?.dispatchEvent(new Event("input", { bubbles: true }));
     await settle(1);
 
-    expect(document.querySelector("[data-stress-native-status]")).toBeNull();
+    expect(stressEngine()).toBe("measured");
     const graphemeBoundaryButton = document.querySelector('[data-stress-boundary="grapheme"]');
     if (!(graphemeBoundaryButton instanceof HTMLButtonElement)) {
       throw new Error("Expected the grapheme stress boundary button.");
@@ -1453,9 +1453,9 @@ describe("Website demo page", () => {
     graphemeBoundaryButton.click();
     await settle(1);
 
-    const nativeStatus = document.querySelector("[data-stress-native-status]");
+    const nativeStatus = document.querySelector("[data-stress-engine-status]");
     expect(nativeStatus).toBeInstanceOf(HTMLElement);
-    expect(nativeStatus?.getAttribute("data-stress-native-mode")).toBe("single-line");
+    expect(stressEngine()).toBe("native");
     expect(nativeStatus?.textContent?.trim()).toBe("Native");
     expect(nativeStatus?.getAttribute("title")).toBe("Native CSS text-overflow");
 
@@ -1463,7 +1463,7 @@ describe("Website demo page", () => {
     maxLinesSlider?.dispatchEvent(new Event("input", { bubbles: true }));
     await settle(1);
 
-    expect(document.querySelector("[data-stress-native-status]")).toBeNull();
+    expect(stressEngine()).toBe("measured");
     expect(document.querySelector("[data-stress-width]")?.textContent).toBe("520px");
     expect(document.querySelector("[data-stress-max-lines]")?.textContent).toBe("5");
 
@@ -1476,7 +1476,7 @@ describe("Website demo page", () => {
 
     expect(heightModeButton.getAttribute("aria-pressed")).toBe("true");
     expect(document.querySelector("[data-stress-max-lines-slider]")).toBeNull();
-    expect(document.querySelector("[data-stress-native-status]")).toBeNull();
+    expect(stressEngine()).toBe("measured");
     const maxHeightSlider = document.querySelector("[data-stress-max-height-slider]");
     expect(maxHeightSlider).toBeInstanceOf(HTMLInputElement);
 

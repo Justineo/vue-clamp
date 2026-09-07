@@ -8,8 +8,8 @@ export function observeBorderBoxSizes(
   elements: readonly Element[],
   listener: BorderBoxResizeListener,
 ): () => void {
-  // Keep delivery independent per clamp. A shared hub reduces callback objects
-  // without reducing resize work and adds dispatch overhead on every frame.
+  // Paths without cooperative work can keep independent delivery and avoid
+  // shared-observer dispatch bookkeeping.
   const observer = new ResizeObserver(listener);
   for (const element of elements) {
     observer.observe(element, borderBoxObserverOptions);
@@ -17,6 +17,68 @@ export function observeBorderBoxSizes(
 
   return () => {
     observer.disconnect();
+  };
+}
+
+let measuredObserver: ResizeObserver | undefined;
+let measuredClamps = 0;
+let observedClamps = 0;
+
+export function hasMeasuredPeers(): boolean {
+  return measuredClamps > 1;
+}
+const measuredListeners = new Map<Element, Set<BorderBoxResizeListener>>();
+
+// Measured searches yield between writes and reads. Delivering their resize
+// requests in one callback lets them share that work before the next paint.
+// Vue-driven participants can share delivery without advertising candidate work.
+export function observeMeasuredBorderBoxSizes(
+  elements: readonly Element[],
+  listener: BorderBoxResizeListener,
+  batchCandidates = true,
+): () => void {
+  observedClamps += 1;
+  if (batchCandidates) measuredClamps += 1;
+  measuredObserver ??= new ResizeObserver((entries) => {
+    if (observedClamps === 1) {
+      measuredListeners.values().next().value?.values().next().value?.(entries);
+      return;
+    }
+    const deliveries = new Map<BorderBoxResizeListener, ResizeObserverEntry[]>();
+    for (const entry of entries) {
+      for (const callback of measuredListeners.get(entry.target) ?? []) {
+        const delivery = deliveries.get(callback);
+        if (delivery) delivery.push(entry);
+        else deliveries.set(callback, [entry]);
+      }
+    }
+    for (const [callback, delivery] of deliveries) callback(delivery);
+  });
+  for (const element of new Set(elements)) {
+    let listeners = measuredListeners.get(element);
+    if (!listeners) {
+      listeners = new Set();
+      measuredListeners.set(element, listeners);
+      measuredObserver.observe(element, borderBoxObserverOptions);
+    }
+    listeners.add(listener);
+  }
+  return () => {
+    observedClamps -= 1;
+    if (batchCandidates) measuredClamps -= 1;
+    for (const element of elements) {
+      const listeners = measuredListeners.get(element);
+      if (!listeners) continue;
+      listeners.delete(listener);
+      if (listeners.size === 0) {
+        measuredObserver?.unobserve(element);
+        measuredListeners.delete(element);
+      }
+    }
+    if (measuredListeners.size === 0) {
+      measuredObserver?.disconnect();
+      measuredObserver = undefined;
+    }
   };
 }
 
@@ -320,6 +382,9 @@ export function hasBorderBoxEntrySignatureChange(
   return false;
 }
 
+type FontLoadGroup = { callbacks: Set<() => void>; notify: () => void };
+const fontLoadGroups = new WeakMap<FontFaceSet, FontLoadGroup>();
+
 export function listenForFontLoads(onLoad: () => void): () => void {
   const fontFaceSet = document.fonts;
   if (!fontFaceSet) {
@@ -334,11 +399,37 @@ export function listenForFontLoads(onLoad: () => void): () => void {
   };
 
   void fontFaceSet.ready.then(() => notify());
-  fontFaceSet.addEventListener("loadingdone", notify);
+  let group = fontLoadGroups.get(fontFaceSet);
+  if (!group) {
+    const callbacks = new Set<() => void>();
+    group = {
+      callbacks,
+      notify: () => {
+        // New subscriptions receive their own ready notification, not the event
+        // already being delivered. Removed subscribers guard their own activity.
+        const subscribers = [...callbacks];
+        for (const callback of subscribers) {
+          try {
+            callback();
+          } catch (error) {
+            reportError(error);
+          }
+        }
+      },
+    };
+    fontLoadGroups.set(fontFaceSet, group);
+    fontFaceSet.addEventListener("loadingdone", group.notify);
+  }
+  group.callbacks.add(notify);
 
   return () => {
+    if (!active) return;
     active = false;
-    fontFaceSet.removeEventListener("loadingdone", notify);
+    group.callbacks.delete(notify);
+    if (group.callbacks.size === 0) {
+      fontFaceSet.removeEventListener("loadingdone", group.notify);
+      fontLoadGroups.delete(fontFaceSet);
+    }
   };
 }
 
@@ -351,7 +442,7 @@ export type VisibleBoundsCache = {
   bottom?: number;
   clientTop?: number;
   height?: number;
-  top?: number;
+  top?: number | undefined;
 };
 
 export type SimpleLineFit = {
@@ -379,43 +470,35 @@ function sameLineBox(line: LineBox, rect: DOMRect): boolean {
   return Math.abs(line.top - rect.top) <= 0.5 && Math.abs(line.bottom - rect.bottom) <= 0.5;
 }
 
-export function countLineBoxes(rects: DOMRectList): number {
+function collectLineBoxes(rects: DOMRectList): { lines: LineBox[]; maxHeight: number } {
   const lines: LineBox[] = [];
-
+  let maxHeight = 0;
+  let maxTop = -Infinity;
   for (let index = 0; index < rects.length; index += 1) {
     const rect = rects[index]!;
-    if (rect.height > 0 && !lines.some((line) => sameLineBox(line, rect))) {
-      lines.push({ bottom: rect.bottom, top: rect.top });
-    }
+    if (rect.height <= 0) continue;
+    maxHeight = Math.max(maxHeight, rect.height);
+    const previous = lines[lines.length - 1];
+    if (previous && sameLineBox(previous, rect)) continue;
+    // Ordinary inline fragments arrive in line order. A box below every stored
+    // representative cannot match one; unusual ordering keeps the exact scan.
+    if (rect.top <= maxTop + 0.5 && lines.some((line) => sameLineBox(line, rect))) continue;
+    lines.push({ bottom: rect.bottom, top: rect.top });
+    maxTop = Math.max(maxTop, rect.top);
   }
+  return { lines, maxHeight };
+}
 
-  return lines.length;
+export function countLineBoxes(rects: DOMRectList): number {
+  return collectLineBoxes(rects).lines.length;
 }
 
 function cacheSimpleLineBoxHeight(
   simpleLineFit: SimpleLineFit | undefined,
   rects: DOMRectList,
 ): void {
-  if (!simpleLineFit) {
-    return;
-  }
-
-  let maxLineBoxHeight = 0;
-  const lines: LineBox[] = [];
-  for (let index = 0; index < rects.length; index += 1) {
-    const rect = rects[index]!;
-    if (rect.height <= 0) {
-      continue;
-    }
-
-    maxLineBoxHeight = Math.max(maxLineBoxHeight, rect.height);
-    if (!lines.some((line) => sameLineBox(line, rect))) {
-      lines.push({
-        bottom: rect.bottom,
-        top: rect.top,
-      });
-    }
-  }
+  if (!simpleLineFit) return;
+  const { lines, maxHeight: maxLineBoxHeight } = collectLineBoxes(rects);
 
   let maxLineStep = 0;
   for (let index = 1; index < lines.length; index += 1) {

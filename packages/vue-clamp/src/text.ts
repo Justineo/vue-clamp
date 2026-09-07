@@ -2,7 +2,7 @@ import { fitsContent } from "./layout.ts";
 import {
   defaultWarmExpansionLimit,
   estimateColdSearchMaxProbeCount,
-  findLastFittingIndex,
+  searchFittingIndex,
   shouldVerifyFullCandidate,
   warmSearchLocalCoverage,
   warmTargetBeatsCold,
@@ -25,10 +25,19 @@ export interface PreparedText {
   readonly text: string;
   readonly boundary: ClampBoundary;
   readonly boundaryOffsets: readonly number[];
-  readonly fallbackBoundaryOffsets?: readonly number[];
+  readonly fallbackBoundaryOffsets?: readonly number[] | undefined;
+  readonly hasCursiveText?: boolean;
+}
+
+function hasCursiveText(text: string): boolean {
+  // Joining forms in Arabic and Syriac can make a longer candidate narrower.
+  // Cache this source property during preparation, independently of resize hints.
+  return /[\p{Script_Extensions=Arabic}\p{Script_Extensions=Syriac}]/u.test(text);
 }
 
 export interface TextClampHint {
+  // Full-fit results identify their source without forcing a boundary rank.
+  readonly fullPrepared?: PreparedText;
   readonly boundaryOffsets: readonly number[];
   readonly ellipsis?: string | undefined;
   readonly hasAffixes?: boolean | undefined;
@@ -194,6 +203,7 @@ export function prepareText(text: string, boundary: ClampBoundary = "grapheme"):
       text,
       boundary,
       boundaryOffsets: fallbackBoundaryOffsets,
+      hasCursiveText: !asciiSafe && hasCursiveText(text),
     };
   }
 
@@ -204,7 +214,111 @@ export function prepareText(text: string, boundary: ClampBoundary = "grapheme"):
     boundary,
     boundaryOffsets: wordBoundaryOffsets(text, fallbackBoundaryOffsets, asciiSafe),
     fallbackBoundaryOffsets,
+    hasCursiveText: !asciiSafe && hasCursiveText(text),
   };
+}
+
+function prepareWordText(text: string): PreparedText {
+  const asciiSafe = /^[\x20-\x7e\t\n]*$/u.test(text);
+  const graphemes = asciiSafe ? null : graphemeSegmenter.segment(text)[Symbol.iterator]();
+  let graphemeEnd = 0;
+  const boundaryOffsets = [0];
+  for (const part of wordSegmenter.segment(text)) {
+    const end = part.index + part.segment.length;
+    // Walk the same grapheme sequence as eager preparation without retaining its
+    // offsets. Some engines disagree between containing() and iteration at the
+    // leading surrogate of an emoji, so endpoint queries are not interchangeable.
+    while (graphemes && graphemeEnd < end) {
+      const next = graphemes.next();
+      if (next.done) break;
+      graphemeEnd += next.value.segment.length;
+    }
+    if (asciiSafe || graphemeEnd === end) {
+      boundaryOffsets.push(end);
+    }
+  }
+  if (boundaryOffsets.at(-1) !== text.length) boundaryOffsets.push(text.length);
+  let fallback: readonly number[] | undefined;
+  return {
+    text,
+    boundary: "word",
+    boundaryOffsets,
+    hasCursiveText: !asciiSafe && hasCursiveText(text),
+    get fallbackBoundaryOffsets() {
+      return (fallback ??= asciiBoundaryOffsets(text) ?? graphemeBoundaryOffsets(text));
+    },
+  };
+}
+
+// Prototype accessors keep deferred preparation from allocating new getter
+// closures for every short source and full-fit result.
+class DeferredText implements PreparedText {
+  #prepared: PreparedText | undefined;
+
+  constructor(
+    readonly text: string,
+    readonly boundary: ClampBoundary,
+  ) {}
+
+  private resolve(): PreparedText {
+    return (this.#prepared ??=
+      this.boundary === "word"
+        ? prepareWordText(this.text)
+        : prepareText(this.text, this.boundary));
+  }
+
+  get boundaryOffsets(): readonly number[] {
+    return this.resolve().boundaryOffsets;
+  }
+  get fallbackBoundaryOffsets(): readonly number[] | undefined {
+    return this.resolve().fallbackBoundaryOffsets;
+  }
+  get hasCursiveText(): boolean {
+    return this.resolve().hasCursiveText ?? false;
+  }
+}
+
+class FullTextResult {
+  constructor(
+    readonly fullPrepared: PreparedText,
+    readonly rootWidth: number,
+  ) {}
+  get text(): string {
+    return this.fullPrepared.text;
+  }
+  get boundaryOffsets(): readonly number[] {
+    return this.fullPrepared.boundaryOffsets;
+  }
+  get kept(): number {
+    return this.fullPrepared.boundaryOffsets.length - 1;
+  }
+}
+
+// Preserve the internal ranked result interface, resolving its rank only when
+// a later overflow search consumes it. Full-fit rechecks still read current DOM.
+export function fullTextClampResult(
+  prepared: PreparedText,
+  rootWidth: number,
+  context: TextClampContext,
+): TextClampResult {
+  return Object.assign(new FullTextResult(prepared, rootWidth), context);
+}
+
+// Keep only one bounded, layout-independent preparation. DOM and search hints
+// stay with each component; large sources evict the entry instead of being retained.
+let sharedTextPreparation: PreparedText | null = null;
+export function prepareSharedText(
+  text: string,
+  boundary: ClampBoundary = "grapheme",
+): PreparedText {
+  if (text.length > 8192) {
+    sharedTextPreparation = null;
+    return new DeferredText(text, boundary);
+  }
+  if (sharedTextPreparation?.text === text && sharedTextPreparation.boundary === boundary) {
+    return sharedTextPreparation;
+  }
+  return (sharedTextPreparation = new DeferredText(text, boundary));
 }
 
 export function displayTextForKeptCount(
@@ -287,6 +401,7 @@ function nextWordFallbackMaxWidth(
 ): Pick<TextClampHint, "wordFallbackMaxWidth"> {
   if (
     prepared.boundary !== "word" ||
+    result.boundaryOffsets === prepared.boundaryOffsets ||
     prepared.fallbackBoundaryOffsets === undefined ||
     result.boundaryOffsets !== prepared.fallbackBoundaryOffsets
   ) {
@@ -360,7 +475,12 @@ export function matchingTextClampHint(
   hint: TextClampHint | null,
   context: TextClampContext,
 ): TextClampHint | null {
-  return hint?.boundaryOffsets === prepared.boundaryOffsets && sameTextClampContext(hint, context)
+  if (!hint || !sameTextClampContext(hint, context)) return null;
+  return (
+    hint.fullPrepared
+      ? hint.fullPrepared === prepared
+      : hint.boundaryOffsets === prepared.boundaryOffsets
+  )
     ? hint
     : null;
 }
@@ -516,7 +636,11 @@ export function canSkipFullTextFit(
   rootWidth: number,
   context: TextClampContext,
 ): boolean {
-  if (matchingTextClampHint(prepared, hint, context) === null || hint?.rootWidth === undefined) {
+  if (
+    hint?.fullPrepared ||
+    matchingTextClampHint(prepared, hint, context) === null ||
+    hint?.rootWidth === undefined
+  ) {
     return false;
   }
 
@@ -552,8 +676,10 @@ function fallbackSearchPrepared(
 ): PreparedText {
   if (
     prepared.boundary !== "word" ||
+    !hint ||
+    hint.boundaryOffsets === prepared.boundaryOffsets ||
     !prepared.fallbackBoundaryOffsets ||
-    hint?.boundaryOffsets !== prepared.fallbackBoundaryOffsets ||
+    hint.boundaryOffsets !== prepared.fallbackBoundaryOffsets ||
     hint.rootWidth === undefined ||
     rootWidth === hint.rootWidth
   ) {
@@ -585,17 +711,25 @@ function canReuseFullFitOnGrow(
   );
 }
 
-export function clampTextToFit({
+export function clampTextToFit(input: TextClampFitInput): TextClampResult {
+  const search = searchTextCandidates(input);
+  let step = search.next();
+  while (!step.done) {
+    step = search.next(input.fits(step.value));
+  }
+  return step.value;
+}
+
+export function* searchTextCandidates({
   ellipsis,
   expansionLimit = defaultWarmExpansionLimit,
-  fits,
   hint,
   includeFullCandidate = false,
   prepared,
   ratio,
   spacing = "trim",
   verifyFullCandidate = true,
-}: TextClampFitInput): TextClampResult {
+}: Omit<TextClampFitInput, "fits">): Generator<string, TextClampResult, boolean> {
   const boundaryCount = prepared.boundaryOffsets.length - 1;
   const searchCount = Math.max(1, boundaryCount + (includeFullCandidate ? 1 : 0));
   const context: TextFitContext = {
@@ -606,28 +740,29 @@ export function clampTextToFit({
   const textHint = hint ?? null;
   let checkedFullCandidate = false;
 
-  function fitsKeptCount(kept: number): boolean {
+  function* fitsKeptCount(kept: number): Generator<string, boolean, boolean> {
     if (includeFullCandidate && kept >= boundaryCount) {
       checkedFullCandidate = true;
     }
 
-    return fits(displayTextForKeptCount(prepared, ratio, ellipsis, kept, spacing));
+    return yield displayTextForKeptCount(prepared, ratio, ellipsis, kept, spacing);
   }
 
   // The search helper works over indexes. For text, the index is the number of
   // boundary units kept, with at least the zero-kept ellipsis candidate present.
-  let best = Math.max(
-    0,
-    findLastFittingIndex(
-      searchCount,
-      fitsKeptCount,
-      textHint?.boundaryOffsets === prepared.boundaryOffsets &&
-        sameTextFitContext(textHint, context)
-        ? textHint.kept
-        : null,
-      expansionLimit,
-    ),
+  const search = searchFittingIndex(
+    searchCount,
+    textHint?.boundaryOffsets === prepared.boundaryOffsets && sameTextFitContext(textHint, context)
+      ? textHint.kept
+      : null,
+    expansionLimit,
+    !(prepared.hasCursiveText ?? hasCursiveText(prepared.text)) && !hasCursiveText(ellipsis),
   );
+  let step = search.next();
+  while (!step.done) {
+    step = search.next(yield* fitsKeptCount(step.value));
+  }
+  let best = Math.max(0, step.value);
 
   if (
     includeFullCandidate &&
@@ -638,7 +773,7 @@ export function clampTextToFit({
     // The full-text candidate omits the ellipsis, so it is not guaranteed to be
     // monotonic with the truncated candidates that precede it.
     checkedFullCandidate = true;
-    if (fitsKeptCount(boundaryCount)) {
+    if (yield* fitsKeptCount(boundaryCount)) {
       best = boundaryCount;
     }
   }
@@ -646,16 +781,16 @@ export function clampTextToFit({
   if (best === 0 && prepared.fallbackBoundaryOffsets) {
     // Whole-word truncation should never fail completely just because a single
     // word is wider than the container; retry at grapheme granularity.
-    return clampTextToFit({
+    return yield* searchTextCandidates({
       ellipsis,
       expansionLimit,
-      fits,
       hint: textHint,
       includeFullCandidate,
       prepared: {
         text: prepared.text,
         boundary: "grapheme",
         boundaryOffsets: prepared.fallbackBoundaryOffsets,
+        hasCursiveText: prepared.hasCursiveText ?? hasCursiveText(prepared.text),
       },
       ratio,
       spacing,
@@ -675,23 +810,35 @@ export function clampTextToFit({
   };
 }
 
-export function clampTextToLayout({
-  content,
-  ellipsis,
-  hasAffixes = false,
-  hint,
-  lineCapacity,
-  layoutKey,
-  lineLimit,
-  maxHeight,
-  prepared,
-  ratio,
-  root,
-  rootWidth,
-  reuseFullFitOnGrow = false,
-  simpleLineFit,
-  target,
-}: TextClampLayoutInput): TextClampResult | null {
+export function clampTextToLayout(input: TextClampLayoutInput): TextClampResult | null {
+  const search = searchTextLayout(input);
+  let step = search.next();
+  while (!step.done) {
+    step = search.next(step.value());
+  }
+  return step.value;
+}
+
+export function* searchTextLayout(
+  {
+    content,
+    ellipsis,
+    hasAffixes = false,
+    hint,
+    lineCapacity,
+    layoutKey,
+    lineLimit,
+    maxHeight,
+    prepared,
+    ratio,
+    root,
+    rootWidth,
+    reuseFullFitOnGrow = false,
+    simpleLineFit,
+    target,
+  }: TextClampLayoutInput,
+  reuseRootPosition = true,
+): Generator<() => boolean, TextClampResult | null, boolean> {
   if (rootWidth <= 0) {
     // Measuring against an unlaid-out root would only cache a bogus clamp.
     return null;
@@ -710,13 +857,25 @@ export function clampTextToLayout({
   };
   const currentHint = hint ?? null;
   const textHint = matchingTextClampHint(prepared, currentHint, context);
-  const boundaryCount = prepared.boundaryOffsets.length - 1;
 
-  if (reuseFullFitOnGrow && canReuseFullFitOnGrow(textHint, rootWidth, boundaryCount)) {
+  if (
+    reuseFullFitOnGrow &&
+    textHint?.fullPrepared &&
+    textHint.rootWidth !== undefined &&
+    rootWidth > textHint.rootWidth
+  ) {
+    return fullTextClampResult(prepared, rootWidth, context);
+  }
+  if (
+    !textHint?.fullPrepared &&
+    reuseFullFitOnGrow &&
+    textHint &&
+    canReuseFullFitOnGrow(textHint, rootWidth, prepared.boundaryOffsets.length - 1)
+  ) {
     return withTextClampMetrics(
       {
         boundaryOffsets: prepared.boundaryOffsets,
-        kept: boundaryCount,
+        kept: prepared.boundaryOffsets.length - 1,
         text,
       },
       textHint,
@@ -727,15 +886,11 @@ export function clampTextToLayout({
   }
 
   const skipFullFit = canSkipFullTextFit(prepared, textHint, rootWidth, context);
-  let searchHint = canUseTextLayoutHint(
-    textHint,
-    prepared.boundary,
-    rootWidth,
-    context,
-    skipFullFit,
-  )
-    ? textHint
-    : null;
+  let searchHint =
+    textHint?.fullPrepared ||
+    canUseTextLayoutHint(textHint, prepared.boundary, rootWidth, context, skipFullFit)
+      ? textHint
+      : null;
   const expansionLimit =
     prepared.boundary === "word" ? wordWarmExpansionLimit : defaultWarmExpansionLimit;
   const visibleBoundsCache: VisibleBoundsCache | undefined =
@@ -753,21 +908,24 @@ export function clampTextToLayout({
   if (!skipFullFit) {
     applyText(text);
     if (
-      fitsContent(
-        root,
-        content,
-        lineLimit,
-        maxHeight,
-        true,
-        visibleBoundsCache,
-        simpleLineFit,
-        (sample) => {
-          fullFitSample = sample;
-        },
-      )
+      yield () =>
+        fitsContent(
+          root,
+          content,
+          lineLimit,
+          maxHeight,
+          true,
+          visibleBoundsCache,
+          simpleLineFit,
+          (sample) => {
+            fullFitSample = sample;
+          },
+        )
     ) {
       // The full source is the cheapest and most correct answer when it fits.
       // Store it as a warm-start hint so later shrink passes begin from full text.
+      if (!textHint || textHint.fullPrepared)
+        return fullTextClampResult(prepared, rootWidth, context);
       return withTextClampMetrics(
         {
           boundaryOffsets: prepared.boundaryOffsets,
@@ -781,11 +939,18 @@ export function clampTextToLayout({
       );
     }
 
+    if (
+      textHint?.fullPrepared &&
+      !canUseTextLayoutHint(textHint, prepared.boundary, rootWidth, context, skipFullFit)
+    ) {
+      searchHint = null;
+    }
     const fullLineCount = fullFitSample?.rects?.length;
     const fullSize = fullLineCount ?? fullFitSample?.bounds?.height;
     const capacity = fullLineCount === undefined ? visibleBoundsCache?.height : lineCapacity;
+    const boundaryCount = prepared.boundaryOffsets.length - 1;
     const coldBoundaryOffsets =
-      prepared.fallbackBoundaryOffsets && boundaryCount <= 16
+      boundaryCount <= 16 && prepared.fallbackBoundaryOffsets
         ? prepared.fallbackBoundaryOffsets
         : prepared.boundaryOffsets;
     const coldBoundaryCount = coldBoundaryOffsets.length - 1;
@@ -812,20 +977,8 @@ export function clampTextToLayout({
     }
   }
 
-  const result = clampTextToFit({
+  const search = searchTextCandidates({
     ellipsis,
-    fits(candidate) {
-      applyText(candidate);
-      return fitsContent(
-        root,
-        content,
-        lineLimit,
-        maxHeight,
-        true,
-        visibleBoundsCache,
-        simpleLineFit,
-      );
-    },
     expansionLimit,
     hint: searchHint,
     includeFullCandidate: skipFullFit,
@@ -839,6 +992,17 @@ export function clampTextToLayout({
       searchHint?.clampedMaxWidth,
     ),
   });
+  let step = search.next();
+  while (!step.done) {
+    applyText(step.value);
+    // Other searches can change preceding sibling heights between rounds.
+    // Keep border/height reuse, but reacquire the viewport position for this read.
+    if (!reuseRootPosition && visibleBoundsCache) visibleBoundsCache.top = undefined;
+    const fits = yield () =>
+      fitsContent(root, content, lineLimit, maxHeight, true, visibleBoundsCache, simpleLineFit);
+    step = search.next(fits);
+  }
+  const result = step.value;
   applyText(result.text);
 
   return withTextClampMetrics(result, textHint, prepared, rootWidth, context);

@@ -1,3 +1,4 @@
+import { scheduleFontFrame } from "./font-frame.ts";
 import {
   nextTick,
   onBeforeUnmount,
@@ -40,6 +41,7 @@ export type MultilineShellOptions = {
   readonly expanded: Ref<boolean>;
   readonly onClampedChange: (value: boolean) => void;
   readonly onFontLoad?: () => void;
+  readonly observeSizes?: typeof observeBorderBoxSizes;
   readonly predictiveWidthRef?: Ref<HTMLElement | null>;
   readonly recompute: (expanded: Ref<boolean>, rootWidth?: number) => Promise<void>;
   readonly syncAffixSignaturesOnRootChange?: boolean;
@@ -87,6 +89,7 @@ export function useMultilineClamp(options: MultilineShellOptions): MultilineShel
     expanded,
     onClampedChange,
     onFontLoad,
+    observeSizes = observeBorderBoxSizes,
     predictiveWidthRef,
     recompute,
     syncAffixSignaturesOnRootChange = false,
@@ -109,7 +112,7 @@ export function useMultilineClamp(options: MultilineShellOptions): MultilineShel
   let pendingAffixSignaturesFresh = false;
   let recomputeEpoch = 0;
   let fontRecomputeEpoch = 0;
-  let fontRecomputeFrame: number | null = null;
+  let cancelPendingFontFrame: (() => void) | null = null;
 
   function readRootSnapshot(): BorderBoxSizeSnapshot {
     return readSize(state.rootRef.value);
@@ -249,17 +252,17 @@ export function useMultilineClamp(options: MultilineShellOptions): MultilineShel
   const setAfterElement = createMultilineAffixRefSetter(state.afterRef, requestRecompute);
 
   function cancelFontRecompute(): void {
-    if (fontRecomputeFrame !== null) {
-      cancelAnimationFrame(fontRecomputeFrame);
-      fontRecomputeFrame = null;
+    if (cancelPendingFontFrame !== null) {
+      cancelPendingFontFrame();
+      cancelPendingFontFrame = null;
     }
   }
 
   function requestFontRecompute(): void {
     onFontLoad?.();
     fontRecomputeEpoch = recomputeEpoch;
-    fontRecomputeFrame ??= requestAnimationFrame(() => {
-      fontRecomputeFrame = null;
+    cancelPendingFontFrame ??= scheduleFontFrame(() => {
+      cancelPendingFontFrame = null;
 
       // A same-frame resize/update pass already measured the current fonts.
       if (fontRecomputeEpoch === recomputeEpoch) {
@@ -292,7 +295,7 @@ export function useMultilineClamp(options: MultilineShellOptions): MultilineShel
     const observed = predictiveWidthRef?.value
       ? [predictiveWidthRef.value, state.beforeRef.value, state.afterRef.value]
       : [state.rootRef.value, state.contentRef.value, state.beforeRef.value, state.afterRef.value];
-    const stopObserving = observeBorderBoxSizes(
+    const stopObserving = observeSizes(
       observed.filter((element): element is HTMLElement => element instanceof HTMLElement),
       (entries) => {
         // ResizeObserver is the async catch-all for container and slot sizes.

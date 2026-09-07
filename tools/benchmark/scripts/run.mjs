@@ -22,7 +22,9 @@ export function run(command, args, options = {}) {
     }
 
     child.on("error", reject);
-    child.on("exit", (code, signal) => {
+    // Reports consume the log immediately after this promise resolves. Wait
+    // until stdout/stderr are drained, not just until the process exits.
+    child.on("close", (code, signal) => {
       if (code === 0) {
         resolve();
         return;
