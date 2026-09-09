@@ -126,8 +126,8 @@ The subpath has the same public API and selects the cheapest compatible engine:
 All modes share the standard DOM, accessibility, controls, events, and observation runtime. Before
 prediction, the component caches the rendered font plus Pretext-supported `white-space`,
 `word-break`, and numeric `letter-spacing`. Other CSS still renders but is outside the model, so
-features such as automatic hyphenation, contextual spacing, font features, or dynamic typography
-can produce a conservative shorter prefix. CSS line clamping and overflow containment prevent extra
+platform font metrics and features such as automatic hyphenation, contextual spacing, font features,
+or dynamic typography can produce a conservative shorter prefix. CSS line clamping and overflow containment prevent extra
 lines from painting. Pretext also documents `system-ui` as unsafe on macOS.
 
 After preparation, eligible resizes perform no DOM geometry or computed-style reads. Prefer the root

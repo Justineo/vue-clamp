@@ -495,10 +495,6 @@ describe("Pretext LineClamp", () => {
       },
       {
         font: "16px Georgia",
-        text: "observabilityPlatformBoundaryWithoutBreaks".repeat(7),
-      },
-      {
-        font: "16px Georgia",
         text: "Deploy now... “release-ready?” isn't the same as release ready; punctuation stays attached correctly.",
       },
       {
@@ -522,6 +518,27 @@ describe("Pretext LineClamp", () => {
         unmountClamp(browser);
         unmountClamp(predicted);
       }
+    }
+  });
+
+  it("keeps long-token prediction within one character of browser clamping across platform fonts", async () => {
+    const text = "observabilityPlatformBoundaryWithoutBreaks".repeat(7);
+    for (const width of [180, 190, 200, 220, 240, 260, 300, 400, 440, 460, 480, 500, 520]) {
+      const browser = mountBrowser(text, "16px Georgia", width);
+      const predicted = mountPretext(text, "16px Georgia", width);
+      await settle();
+
+      const expected = visibleText(browser);
+      const actual = visibleText(predicted);
+      // Georgia can resolve to a substitute on Linux. Canvas prediction and DOM
+      // line breaking can differ by one ASCII character over this long token.
+      expect(expected.endsWith("…"), `${width}px`).toBe(true);
+      expect(actual.endsWith("…"), `${width}px`).toBe(true);
+      expect([expected, expected.slice(0, -2) + "…"], `${width}px`).toContain(actual);
+      expect(text.startsWith(actual.slice(0, -1)), `${width}px`).toBe(true);
+      expect(naturalLineCount(rootFor(predicted)), `${width}px`).toBeLessThanOrEqual(3);
+      unmountClamp(browser);
+      unmountClamp(predicted);
     }
   });
 

@@ -62,6 +62,10 @@
   paint; one stable text node is updated without synchronous search or a Vue patch. A CSS line clamp
   remains the line-box safety net, and prediction never substitutes an `Nlh` height approximation.
   Unsupported CSS is an explicit accuracy-for-throughput trade-off.
+- Predictive browser tests retain exact-output comparisons for the multilingual prose corpus.
+  The long unbroken ASCII-token fixture separately allows at most one conservative character
+  across platform fonts and still checks source continuity and natural line containment; this
+  records observed Canvas/DOM metric differences, not a general accuracy guarantee.
 - Sharing the standard runtime is preferred over duplicating DOM, accessibility, fallback, and
   lifecycle ownership. A shared observer alone did not reduce real work, and an affix-stability prop did not
   make captured slot output safe to cache. Measured text batching now uses a shared observer only
