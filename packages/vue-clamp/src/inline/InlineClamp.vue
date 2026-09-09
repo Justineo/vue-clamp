@@ -13,26 +13,31 @@ import { trueOrUndefined } from "../attributes.ts";
 import {
   borderBoxSizeSnapshot,
   borderBoxSizeSignature,
-  createCoalescingRunner,
   emptyBorderBoxSignature,
   hasBorderBoxEntrySignatureChange,
   isContentIndependentWidth,
   listenForFontLoads,
-  observeBorderBoxSizes,
+  textLayoutMetricKey,
+  observeMeasuredBorderBoxSizes,
 } from "../layout.ts";
 import { nativeTextStyle, resolveNativeMode } from "../native.ts";
-import { shouldVerifyFullCandidate, warmSearchLocalCoverage } from "../search.ts";
+import { warmSearchLocalCoverage } from "../search.ts";
 import { visuallyHiddenTextStyle } from "../styles.ts";
 import {
   canSkipFullTextFit,
-  clampTextToFit,
+  shouldRecheckFullTextFit,
+  fallbackSearchPrepared,
+  displayTextForKeptCount,
+  searchTextCandidates,
   matchingTextClampHint,
+  fullTextClampResult,
   nextClampedMaxWidth,
   normalizeLocationRatio,
-  prepareText,
+  prepareSharedText,
   setElementText,
 } from "../text.ts";
 import { inlineClampRootStyle } from "./styles.ts";
+import { hasExplicitTextWidth, measureLayout } from "../measure.ts";
 
 import type { InlineClampProps } from "./types.ts";
 import type { TextClampContext, TextClampHint, TextClampResult } from "../text.ts";
@@ -62,7 +67,7 @@ const {
 const rootRef = useTemplateRef<HTMLElement>("root");
 const bodyRef = useTemplateRef("body");
 const parts = computed(() => split?.(text) ?? { body: text });
-const preparedBody = computed(() => prepareText(parts.value.body, boundary));
+const preparedBody = computed(() => prepareSharedText(parts.value.body, boundary));
 const usesNativeClamp = computed(
   () =>
     split === undefined &&
@@ -87,6 +92,7 @@ const isRewritten = computed(
 let stopFonts = () => {};
 let lastLayoutSignature: string | null = null;
 let lastTextClamp: TextClampResult | null = null;
+let lastTextMetricKey: string | null = null;
 // Repeated large jumps may start from an exact historical rank, but the rank is
 // only a search hint: the current browser layout still validates every result.
 // Keep no rendered strings or authoritative answers in this small history.
@@ -95,6 +101,9 @@ let lastParentSizeSignature = emptyBorderBoxSignature;
 let lastRootSizeSignature = emptyBorderBoxSignature;
 let pendingFreshLayoutSignature: string | undefined;
 let pendingFreshRootWidth: number | undefined;
+let disposed = false;
+let measurementPending = false;
+let measuredLayoutSignature: string | undefined;
 
 function layoutSnapshot(): LayoutSnapshot {
   // The parent controls available inline width while the root records the
@@ -123,7 +132,14 @@ function lastObservedSignature(element: Element): string | null {
   return null;
 }
 
-function clampBody(freshRootWidth?: number): string | null {
+function* clampBody(): Generator<() => number, string | null, number> {
+  const freshRootWidth = pendingFreshRootWidth;
+  measuredLayoutSignature = pendingFreshLayoutSignature;
+  pendingFreshRootWidth = undefined;
+  pendingFreshLayoutSignature = undefined;
+  if (disposed || !hasActiveClamp.value) {
+    return null;
+  }
   const rootElement = rootRef.value;
   const bodyElement = bodyRef.value;
   const body = parts.value.body;
@@ -160,10 +176,19 @@ function clampBody(freshRootWidth?: number): string | null {
     applyBodyText(body);
   }
 
-  const limit =
-    canMeasureCurrentWidth && freshRootWidth !== undefined
+  const limit = yield () => {
+    if (split === undefined) {
+      const key = textLayoutMetricKey(getComputedStyle(bodyElement));
+      if (lastTextMetricKey !== null && lastTextMetricKey !== key) {
+        lastTextClamp = null;
+        textSearchHints.clear();
+      }
+      lastTextMetricKey = key;
+    }
+    return canMeasureCurrentWidth && freshRootWidth !== undefined
       ? freshRootWidth
       : rootElement.getBoundingClientRect().width;
+  };
 
   if (limit <= 0) {
     // Do not replace visible text with a zero-width guess during mount or hidden
@@ -173,87 +198,163 @@ function clampBody(freshRootWidth?: number): string | null {
   }
 
   let measuredScrollWidth = 0;
-  const fitsCurrentBody = () => {
-    measuredScrollWidth = rootElement.scrollWidth;
+  function* fitsCurrentBody(): Generator<() => number, boolean, number> {
+    measuredScrollWidth = yield () => rootElement!.scrollWidth;
     return measuredScrollWidth <= limit + fitTolerance;
-  };
-  const boundaryCount = prepared.boundaryOffsets.length - 1;
+  }
   const historicalHint = textSearchHints.get(limit) ?? null;
   const currentHint = matchingTextClampHint(prepared, lastTextClamp, context);
+  const searchPrepared =
+    split === undefined ? fallbackSearchPrepared(prepared, currentHint) : prepared;
   let textHint =
-    historicalHint?.boundaryOffsets === prepared.boundaryOffsets &&
-    historicalHint.kept < boundaryCount &&
-    split === undefined &&
     currentHint !== null &&
-    Math.abs(historicalHint.kept - currentHint.kept) > warmSearchLocalCoverage()
+    historicalHint !== null &&
+    historicalHint.boundaryOffsets === searchPrepared.boundaryOffsets &&
+    historicalHint.kept < searchPrepared.boundaryOffsets.length - 1 &&
+    split === undefined &&
+    (historicalHint.boundaryOffsets !== currentHint.boundaryOffsets ||
+      Math.abs(historicalHint.kept - currentHint.kept) > warmSearchLocalCoverage())
       ? { ...historicalHint, ...context, rootWidth: limit }
       : currentHint;
-  const skipFullFit = canSkipFullTextFit(prepared, textHint, limit, context);
+  // Historical ranks choose a pivot; only the latest compatible layout carries
+  // the width observation used to decide whether full text must be measured.
+  const skipFullFit =
+    split === undefined && canSkipFullTextFit(prepared, currentHint, limit, context);
+  let searchAnchor: number | undefined;
+  let searchAnchorFits: boolean | undefined;
 
   if (!skipFullFit) {
+    if (
+      currentHint &&
+      !currentHint.fullPrepared &&
+      currentHint.boundaryOffsets === searchPrepared.boundaryOffsets &&
+      currentHint.kept < searchPrepared.boundaryOffsets.length - 1 &&
+      currentBody ===
+        displayTextForKeptCount(
+          searchPrepared,
+          locationRatio,
+          ellipsis,
+          currentHint.kept,
+          "preserve-outer",
+        ) &&
+      !prepared.hasCursiveText &&
+      !/[\p{Script_Extensions=Arabic}\p{Script_Extensions=Syriac}]/u.test(ellipsis)
+    ) {
+      searchAnchor = currentHint.kept;
+      searchAnchorFits = yield* fitsCurrentBody();
+    }
     applyBodyText(body);
 
-    if (fitsCurrentBody()) {
+    if (yield* fitsCurrentBody()) {
       // Store the full body as the next warm-start point so a following shrink
       // starts from the real upper bound.
-      lastTextClamp = {
-        boundaryOffsets: prepared.boundaryOffsets,
-        ...context,
-        kept: boundaryCount,
-        rootWidth: limit,
-        text: body,
-      };
+      lastTextClamp = fullTextClampResult(prepared, limit, context);
       rememberTextSearchHint(limit, lastTextClamp);
       return body;
     }
 
+    const boundaryCount = prepared.boundaryOffsets.length - 1;
     const coldBoundaryOffsets =
-      prepared.fallbackBoundaryOffsets && boundaryCount <= 16
+      boundaryCount <= 16 && prepared.fallbackBoundaryOffsets
         ? prepared.fallbackBoundaryOffsets
         : prepared.boundaryOffsets;
     const coldBoundaryCount = coldBoundaryOffsets.length - 1;
-    if (textHint === null && split === undefined && coldBoundaryCount > 16) {
+    if (
+      (textHint === null || textHint.boundaryOffsets !== prepared.boundaryOffsets) &&
+      coldBoundaryCount > 16
+    ) {
+      // A fallback rank is only a pivot. Prefer the current density already
+      // measured with the full body before consulting its historical cut.
       // A failed full-body read carries more information than a boolean: for a
-      // single line, the available/full width ratio is a useful first rank.
+      // split line, measure the full body once to exclude fixed affix occupancy.
       // It remains only a hint; the normal measured search proves the result.
+      const fullBodyWidth = split
+        ? yield () => bodyElement.getBoundingClientRect().width
+        : measuredScrollWidth;
+      const availableBodyWidth = limit - (measuredScrollWidth - fullBodyWidth);
+      const fitRatio = fullBodyWidth > 0 ? Math.max(0, availableBodyWidth / fullBodyWidth) : 0;
       textHint = {
         boundaryOffsets: coldBoundaryOffsets,
         ...context,
-        kept: Math.min(
-          coldBoundaryCount - 1,
-          Math.max(0, Math.floor((coldBoundaryCount * limit) / measuredScrollWidth)),
-        ),
+        kept: Math.min(coldBoundaryCount - 1, Math.floor(coldBoundaryCount * fitRatio)),
       };
     }
   }
 
-  const nextResult = clampTextToFit({
+  if (
+    textHint &&
+    !textHint.fullPrepared &&
+    textHint.rootWidth !== undefined &&
+    textHint.rootWidth > 0 &&
+    textHint.rootWidth !== limit
+  ) {
+    const previousKept = textHint.kept;
+    textHint = {
+      ...textHint,
+      kept: Math.max(
+        0,
+        Math.min(
+          textHint.boundaryOffsets.length - 2,
+          Math.ceil((textHint.kept * limit) / textHint.rootWidth),
+        ),
+      ),
+    };
+    if (
+      skipFullFit &&
+      textHint.boundaryOffsets === searchPrepared.boundaryOffsets &&
+      previousKept < searchPrepared.boundaryOffsets.length - 1 &&
+      previousKept !== textHint.kept &&
+      currentBody ===
+        displayTextForKeptCount(
+          searchPrepared,
+          locationRatio,
+          ellipsis,
+          previousKept,
+          "preserve-outer",
+        )
+    ) {
+      searchAnchor = previousKept;
+    }
+  }
+
+  const search = searchTextCandidates({
+    anchor: searchAnchor,
+    anchorFits: searchAnchorFits,
     ellipsis,
-    fits(candidate) {
-      applyBodyText(candidate);
-      return fitsCurrentBody();
-    },
     hint: textHint,
-    includeFullCandidate: skipFullFit,
-    prepared,
+    prepared: searchPrepared,
     ratio: locationRatio,
     // Split affixes already own the outer spacing; preserve spaces at the body
     // edges so custom split functions keep browser-like inline flow.
     spacing: "preserve-outer",
-    verifyFullCandidate: shouldVerifyFullCandidate(
-      skipFullFit,
-      limit,
-      textHint?.rootWidth,
-      (textHint?.kept ?? 0) >= boundaryCount,
-      textHint?.clampedMaxWidth,
-    ),
   });
+  let step = search.next();
+  while (!step.done) {
+    applyBodyText(step.value);
+    step = search.next(yield* fitsCurrentBody());
+  }
+  const nextResult = step.value;
   const nextBody = nextResult.text;
+  let metricHint = currentHint?.boundaryOffsets === nextResult.boundaryOffsets ? currentHint : null;
+  if (skipFullFit && shouldRecheckFullTextFit(currentHint, nextResult, limit)) {
+    applyBodyText(body);
+    if (yield* fitsCurrentBody()) {
+      lastTextClamp = fullTextClampResult(prepared, limit, context);
+      rememberTextSearchHint(limit, lastTextClamp);
+      return body;
+    }
+    metricHint = null;
+  }
   applyBodyText(nextBody);
   lastTextClamp = {
     ...nextResult,
     ...context,
-    ...nextClampedMaxWidth(textHint, nextResult.kept, limit, boundaryCount),
+    ...nextClampedMaxWidth(
+      metricHint,
+      nextResult.kept,
+      limit,
+      nextResult.boundaryOffsets.length - 1,
+    ),
     rootWidth: limit,
   };
   rememberTextSearchHint(limit, lastTextClamp);
@@ -262,6 +363,8 @@ function clampBody(freshRootWidth?: number): string | null {
 
 function rememberTextSearchHint(width: number, result: TextClampResult): void {
   textSearchHints.delete(width);
+  // Full results cannot seed a historical cut. Avoid forcing their lazy rank.
+  if (result.fullPrepared) return;
   textSearchHints.set(width, {
     boundaryOffsets: result.boundaryOffsets,
     kept: result.kept,
@@ -296,34 +399,39 @@ function requestRecompute(snapshot?: LayoutSnapshot): void {
     pendingFreshRootWidth = undefined;
   }
 
-  requestRecomputeRunner();
-}
-
-const requestRecomputeRunner = createCoalescingRunner(async () => {
-  const freshLayoutSignature = pendingFreshLayoutSignature;
-  const freshRootWidth = pendingFreshRootWidth;
-  pendingFreshLayoutSignature = undefined;
-  pendingFreshRootWidth = undefined;
-
-  if (!hasActiveClamp.value) {
-    lastTextClamp = null;
-    textSearchHints.clear();
-    lastLayoutSignature = null;
-    visibleBody.value = { text: parts.value.body };
+  if (measurementPending || disposed) {
     return;
   }
-
-  const nextBody = clampBody(freshRootWidth);
-
-  if (nextBody !== null && visibleBody.value.text !== nextBody) {
-    applyVisibleBody(nextBody);
-  }
-
-  lastLayoutSignature =
-    freshLayoutSignature !== undefined && rootRef.value && canTrustCurrentRootWidth(rootRef.value)
-      ? freshLayoutSignature
-      : layoutSnapshot().signature;
-});
+  measurementPending = true;
+  void measureLayout(
+    clampBody(),
+    () => !disposed,
+    (nextBody) => {
+      measurementPending = false;
+      if (!hasActiveClamp.value) {
+        lastTextClamp = null;
+        textSearchHints.clear();
+        lastLayoutSignature = null;
+        visibleBody.value = { text: parts.value.body };
+        return;
+      }
+      if (nextBody !== null && visibleBody.value.text !== nextBody) {
+        applyVisibleBody(nextBody);
+      }
+      lastLayoutSignature =
+        measuredLayoutSignature !== undefined &&
+        rootRef.value &&
+        canTrustCurrentRootWidth(rootRef.value)
+          ? measuredLayoutSignature
+          : layoutSnapshot().signature;
+    },
+    // An empty candidate can toggle :empty / :has() styles on other clamps.
+    ellipsis.length > 0 && rootRef.value !== null && hasExplicitTextWidth(rootRef.value),
+  ).catch((error: unknown) => {
+    measurementPending = false;
+    throw error;
+  });
+}
 
 watch(
   [parts, () => ellipsis, () => location, () => boundary],
@@ -332,8 +440,9 @@ watch(
     // refer to a different body string.
     lastTextClamp = null;
     textSearchHints.clear();
-    visibleBody.value = { text: parts.value.body };
-    if (!usesNativeClamp.value) {
+    if (usesNativeClamp.value) {
+      visibleBody.value = { text: parts.value.body };
+    } else {
       requestRecompute();
     }
   },
@@ -351,9 +460,13 @@ watchPostEffect((onCleanup) => {
     (element): element is HTMLElement => element instanceof HTMLElement,
   );
 
-  stopFonts = listenForFontLoads(() => requestRecompute());
+  stopFonts = listenForFontLoads(() => {
+    lastTextClamp = null;
+    textSearchHints.clear();
+    requestRecompute();
+  });
 
-  const stopObserving = observeBorderBoxSizes(observed, (entries) => {
+  const stopObserving = observeMeasuredBorderBoxSizes(observed, (entries) => {
     if (hasBorderBoxEntrySignatureChange(entries, lastObservedSignature)) {
       // Width-only changes are the hot path, so recompute only when the coarse
       // dimensions actually changed.
@@ -388,6 +501,7 @@ onUpdated(() => {
 });
 
 onBeforeUnmount(() => {
+  disposed = true;
   stopFonts();
 });
 </script>

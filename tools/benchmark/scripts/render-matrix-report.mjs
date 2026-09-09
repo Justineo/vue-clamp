@@ -8,11 +8,23 @@ const args = process.argv.slice(2);
 const normalizedArgs = args[0] === "--" ? args.slice(1) : args;
 
 function parseArgs(rawArgs) {
+  let reportBasename = "310-package-benchmark-matrix";
   const positional = [];
   const versions = [];
 
   for (let index = 0; index < rawArgs.length; index += 1) {
     const arg = rawArgs[index];
+
+    if (arg === "--basename") {
+      const value = rawArgs[index + 1];
+      if (!value || !/^[\w.-]+$/u.test(value)) {
+        throw new Error("--basename expects a file basename without path separators");
+      }
+
+      reportBasename = value;
+      index += 1;
+      continue;
+    }
 
     if (arg === "--versions" || arg === "--include-versions") {
       const value = rawArgs[index + 1];
@@ -33,15 +45,15 @@ function parseArgs(rawArgs) {
     positional.push(arg);
   }
 
-  return { positional, versions };
+  return { positional, reportBasename, versions };
 }
 
-const { positional, versions: requestedVersions } = parseArgs(normalizedArgs);
+const { positional, reportBasename, versions: requestedVersions } = parseArgs(normalizedArgs);
 const logDir = resolve(positional[0] ?? "/tmp/vue-clamp-matrix-sanity");
 const outputDir = resolve(workspaceRoot, positional[1] ?? "journey/research");
-const reportJsonPath = resolve(outputDir, "310-package-benchmark-matrix.local.json");
-const reportMdPath = resolve(outputDir, "310-package-benchmark-matrix.md");
-const reportSvgPath = resolve(outputDir, "310-package-benchmark-matrix.svg");
+const reportJsonPath = resolve(outputDir, `${reportBasename}.local.json`);
+const reportMdPath = resolve(outputDir, `${reportBasename}.md`);
+const reportSvgPath = resolve(outputDir, `${reportBasename}.svg`);
 const activeCvLowConfidenceThreshold = 10;
 const activeHotspotRmeThreshold = 5;
 const largeWidthDeltaThreshold = 32;
@@ -90,6 +102,10 @@ function formatMs(value, digits = 1) {
   return typeof value === "number" ? `${value.toFixed(digits)}ms` : "N/A";
 }
 
+function formatMicroseconds(value, digits = 1) {
+  return typeof value === "number" ? `${(value * 1000).toFixed(digits)}µs` : "N/A";
+}
+
 function formatPercent(value) {
   if (typeof value !== "number") {
     return "N/A";
@@ -128,6 +144,34 @@ function offsetReads(metrics) {
   return (height ?? 0) + (width ?? 0);
 }
 
+function slotCalls(metrics) {
+  if (!metrics) {
+    return null;
+  }
+
+  const values = [
+    metrics.medianBeforeSlotCalls,
+    metrics.medianAfterSlotCalls,
+    metrics.medianItemSlotCalls,
+  ];
+  return values.some((value) => typeof value === "number")
+    ? values.reduce((sum, value) => sum + (value ?? 0), 0)
+    : null;
+}
+
+function isCssTransitionScenario(scenario) {
+  return scenario?.scenario?.endsWith("-css-transition") ?? false;
+}
+
+function resizeCallbackPerEntry(metrics) {
+  const duration = metrics?.medianResizeObserverCallbackMs;
+  const entries = metrics?.medianResizeObserverEntries;
+
+  return typeof duration === "number" && typeof entries === "number" && entries > 0
+    ? duration / entries
+    : null;
+}
+
 function counterTrackingEnabled(report) {
   return report.environment?.counterTracking !== false;
 }
@@ -158,6 +202,14 @@ function formatPairOffsetDelta(pair, before, after) {
   }
 
   return formatPercent(percentDelta(offsetReads(before), offsetReads(after)));
+}
+
+function formatPairSlotDelta(pair, before, after) {
+  if (!pairCounterTrackingEnabled(pair)) {
+    return "N/A";
+  }
+
+  return formatPercent(percentDelta(slotCalls(before), slotCalls(after)));
 }
 
 function formatCounterValue(tracksCounters, value) {
@@ -558,6 +610,10 @@ function reportColumnBaseLabel(report, versionCounts) {
     return "current";
   }
 
+  if (specifier === "current/pretext") {
+    return "current/pretext";
+  }
+
   if (versionCounts.get(version) === 1 || specifier === `vue-clamp@${version}`) {
     return version;
   }
@@ -644,6 +700,13 @@ const reports = [
   left.target.version.localeCompare(right.target.version, undefined, { numeric: true }),
 );
 const reportColumns = labeledReportColumns(reports);
+const isEntrypointMatrix = reports.some((report) => report.target.specifier === "current/pretext");
+const reportText = (entrypoint, releases) => (isEntrypointMatrix ? entrypoint : releases);
+const reportTitle = reportText("LineClamp entrypoint benchmark matrix", "Package benchmark matrix");
+const reportDescription = reportText(
+  "This report compares the root and opt-in Pretext LineClamp entries on their shared public contract. Settled resize workloads use `active ms`; real CSS transitions use ResizeObserver callback CPU and frame health because their wall duration is fixed by CSS. Structural counters show the browser work behind each result.",
+  "This report compares the public component benchmark matrix across package versions and snapshots. The primary timing signal is `active ms`; `settled ms` preserves the end-to-end quiet-frame timing, counters explain whether a change came from layout reads, DOM cloning/replacement, or slot rendering, and sample CV / RME report active timing variance.",
+);
 const reportColumnByReport = new Map(reportColumns.map((column) => [column.report, column]));
 const scenarioIds = [
   ...new Set(reports.flatMap((report) => report.scenarios.map((scenario) => scenario.scenario))),
@@ -693,16 +756,19 @@ const matrix = scenarioIds.map((scenarioId) => {
     cells,
   };
 });
+const cssTransitionRows = matrix.filter(isCssTransitionScenario);
 
 function summarizeReport(column) {
   const { label, report } = column;
   const ok = report.scenarios.filter((scenario) => scenario.status === "ok");
+  const settledResize = ok.filter((scenario) => !isCssTransitionScenario(scenario));
   const tracksCounters = counterTrackingEnabled(report);
-  const total = (key) => ok.reduce((sum, scenario) => sum + (scenario.summary[key] ?? 0), 0);
-  const activeRmes = ok
+  const total = (key, scenarios = ok) =>
+    scenarios.reduce((sum, scenario) => sum + (scenario.summary[key] ?? 0), 0);
+  const activeRmes = settledResize
     .map((scenario) => scenario.summary.sampleRme95ActiveMs)
     .filter((value) => typeof value === "number");
-  const activeCvs = ok
+  const activeCvs = settledResize
     .map((scenario) => scenario.summary.sampleCvActiveMs)
     .filter((value) => typeof value === "number");
   const sampleCounts = ok
@@ -711,7 +777,7 @@ function summarizeReport(column) {
   const sampleWallTimes = ok
     .map((scenario) => scenario.summary.sampleWallMs)
     .filter((value) => typeof value === "number");
-  const totalSampleActiveTimes = ok
+  const totalSampleActiveTimes = settledResize
     .map((scenario) => scenario.summary.sampleTotalActiveMs)
     .filter((value) => typeof value === "number");
   const offsetReadTotals = ok
@@ -719,7 +785,7 @@ function summarizeReport(column) {
     .filter((value) => typeof value === "number");
 
   return {
-    activeMs: ok.length > 0 ? total("medianActiveMs") : null,
+    activeMs: settledResize.length > 0 ? total("medianActiveMs", settledResize) : null,
     counterTracking: counterTrackingLabel(report),
     maxActiveCv: activeCvs.length > 0 ? Math.max(...activeCvs) : null,
     maxActiveRme95: activeRmes.length > 0 ? Math.max(...activeRmes) : null,
@@ -728,19 +794,24 @@ function summarizeReport(column) {
     medianSampleCount: median(sampleCounts),
     medianSampleWallMs: median(sampleWallTimes),
     medianTotalSampleActiveMs: median(totalSampleActiveTimes),
-    itemSlotCalls: tracksCounters && ok.length > 0 ? total("medianItemSlotCalls") : null,
+    slotCalls:
+      tracksCounters && ok.length > 0
+        ? ok.reduce((sum, scenario) => sum + (slotCalls(scenario.summary) ?? 0), 0)
+        : null,
     longTaskCount: ok.length > 0 ? total("medianLongTaskCount") : null,
     mutationRecords: tracksCounters && ok.length > 0 ? total("medianMutationRecords") : null,
     offsetReads:
       tracksCounters && offsetReadTotals.length > 0
         ? offsetReadTotals.reduce((sum, value) => sum + value, 0)
         : null,
-    quietMs: ok.length > 0 ? total("medianQuietMs") : null,
+    quietMs: settledResize.length > 0 ? total("medianQuietMs", settledResize) : null,
     bboxReads: tracksCounters && ok.length > 0 ? total("medianBoundingRectReads") : null,
     clientRectEntries: tracksCounters && ok.length > 0 ? total("medianClientRectEntries") : null,
     clientRectReads: tracksCounters && ok.length > 0 ? total("medianClientRectReads") : null,
+    resizeObserverCallbacks:
+      tracksCounters && ok.length > 0 ? total("medianResizeObserverCallbacks") : null,
     scenarios: report.scenarios.length,
-    settledMs: ok.length > 0 ? total("medianSettledMs") : null,
+    settledMs: settledResize.length > 0 ? total("medianSettledMs", settledResize) : null,
     styleReads: tracksCounters && ok.length > 0 ? total("medianStyleReads") : null,
     supportedScenarios: ok.length,
     version: label,
@@ -773,14 +844,16 @@ function summarizePair(pair) {
     clientRectReadsBefore: 0,
     clientRectEntriesAfter: 0,
     clientRectEntriesBefore: 0,
-    itemSlotCallsAfter: 0,
-    itemSlotCallsBefore: 0,
+    slotCallsAfter: 0,
+    slotCallsBefore: 0,
     longTaskCountAfter: 0,
     longTaskCountBefore: 0,
     mutationRecordsAfter: 0,
     mutationRecordsBefore: 0,
     offsetReadsAfter: 0,
     offsetReadsBefore: 0,
+    resizeObserverCallbacksAfter: 0,
+    resizeObserverCallbacksBefore: 0,
     settledAfter: 0,
     settledBefore: 0,
     styleReadsAfter: 0,
@@ -790,6 +863,10 @@ function summarizePair(pair) {
   let lowConfidenceScenarios = 0;
 
   for (const row of matrix) {
+    if (isCssTransitionScenario(row)) {
+      continue;
+    }
+
     const before = cellMetrics(row, pair.from.key);
     const after = cellMetrics(row, pair.to.key);
 
@@ -814,8 +891,10 @@ function summarizePair(pair) {
     totals.clientRectEntriesAfter += after.medianClientRectEntries ?? 0;
     totals.offsetReadsBefore += offsetReads(before) ?? 0;
     totals.offsetReadsAfter += offsetReads(after) ?? 0;
-    totals.itemSlotCallsBefore += before.medianItemSlotCalls ?? 0;
-    totals.itemSlotCallsAfter += after.medianItemSlotCalls ?? 0;
+    totals.resizeObserverCallbacksBefore += before.medianResizeObserverCallbacks ?? 0;
+    totals.resizeObserverCallbacksAfter += after.medianResizeObserverCallbacks ?? 0;
+    totals.slotCallsBefore += slotCalls(before) ?? 0;
+    totals.slotCallsAfter += slotCalls(after) ?? 0;
     totals.longTaskCountBefore += before.medianLongTaskCount ?? 0;
     totals.longTaskCountAfter += after.medianLongTaskCount ?? 0;
     totals.mutationRecordsBefore += before.medianMutationRecords ?? 0;
@@ -839,8 +918,8 @@ function summarizePair(pair) {
       : null,
     comparableScenarios,
     from: pair.from.label,
-    itemSlotCallsDelta: tracksCounters
-      ? percentDelta(totals.itemSlotCallsBefore, totals.itemSlotCallsAfter)
+    slotCallsDelta: tracksCounters
+      ? percentDelta(totals.slotCallsBefore, totals.slotCallsAfter)
       : null,
     longTaskCountDelta: percentDelta(totals.longTaskCountBefore, totals.longTaskCountAfter),
     lowConfidenceScenarios,
@@ -849,6 +928,9 @@ function summarizePair(pair) {
       : null,
     offsetReadsDelta: tracksCounters
       ? percentDelta(totals.offsetReadsBefore, totals.offsetReadsAfter)
+      : null,
+    resizeObserverCallbacksDelta: tracksCounters
+      ? percentDelta(totals.resizeObserverCallbacksBefore, totals.resizeObserverCallbacksAfter)
       : null,
     settledDelta: percentDelta(totals.settledBefore, totals.settledAfter),
     styleReadsDelta: tracksCounters
@@ -860,6 +942,7 @@ function summarizePair(pair) {
 
 function topMoversForPair(pair, limit = 8) {
   return matrix
+    .filter((row) => !isCssTransitionScenario(row))
     .map((row) => {
       const before = cellMetrics(row, pair.from.key);
       const after = cellMetrics(row, pair.to.key);
@@ -990,6 +1073,10 @@ function topStructuralHotspotsByComponentForColumn(column, limit = 5) {
 }
 
 function activeHotspotForRow(row, column, tracksCounters) {
+  if (isCssTransitionScenario(row)) {
+    return null;
+  }
+
   const metrics = cellMetrics(row, column.key);
   const activeMs = metrics?.medianActiveMs;
   const activeRme = metrics?.sampleRme95ActiveMs;
@@ -1102,13 +1189,18 @@ const markdown = [];
 const counterTrackingOffColumns = reportColumns.filter(
   (column) => column.report.environment?.counterTracking === false,
 );
-markdown.push("# Package benchmark matrix");
+markdown.push(`# ${reportTitle}`);
 markdown.push("");
-markdown.push(
-  "This report compares the public component benchmark matrix across package versions. The primary timing signal is `active ms`; `settled ms` preserves the end-to-end quiet-frame timing, counters explain whether a change came from layout reads, DOM cloning/replacement, or slot rendering, and sample CV / RME report active timing variance.",
-);
+markdown.push(reportDescription);
 markdown.push("");
 markdown.push(`Generated from \`${logDir}\`.`);
+markdown.push("");
+markdown.push(
+  reportText(
+    "This slice measures mounted resize churn after both components have stabilized. Cold text/font preparation and consumer bundle size remain separate delivery signals in `318-pretext-integration-research.md`.",
+    "The opt-in root/Pretext comparison is maintained as a separate shared-contract slice in [`319-pretext-performance-matrix.md`](319-pretext-performance-matrix.md).",
+  ),
+);
 if (counterTrackingOffColumns.length > 0) {
   markdown.push("");
   markdown.push(
@@ -1128,13 +1220,13 @@ if (placeholderVersions.length > 0) {
   );
 }
 markdown.push("");
-markdown.push("## Version summary");
+markdown.push(reportText("## Target summary", "## Version summary"));
 markdown.push("");
 markdown.push(
-  "| Version | Counters | Scenarios | Samples | Sample wall ms | Sample active ms | Median active CV | Max active CV | Median active RME | Max active RME | Active ms | Settled ms | Quiet ms | BBox reads | Client rects | Client rect entries | Mutation records | Offset reads | Style reads | Item slot calls | Long tasks |",
+  `| ${reportText("Target", "Version")} | Counters | Scenarios | Samples | Sample wall ms | Sample active ms | Median active CV | Max active CV | Median active RME | Max active RME | Active ms | Settled ms | Quiet ms | BBox reads | Client rects | Client rect entries | Resize callbacks | Mutation records | Offset reads | Style reads | Slot calls | Long tasks |`,
 );
 markdown.push(
-  "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+  "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
 );
 
 for (const summary of versionSummaries) {
@@ -1157,14 +1249,101 @@ for (const summary of versionSummaries) {
     )} | ${formatNumber(summary.clientRectReads, 0)} | ${formatNumber(
       summary.clientRectEntries,
       0,
-    )} | ${formatNumber(summary.mutationRecords, 0)} | ${formatNumber(
+    )} | ${formatNumber(summary.resizeObserverCallbacks, 0)} | ${formatNumber(
+      summary.mutationRecords,
+      0,
+    )} | ${formatNumber(
       summary.offsetReads,
       0,
     )} | ${formatNumber(summary.styleReads, 0)} | ${formatNumber(
-      summary.itemSlotCalls,
+      summary.slotCalls,
       0,
     )} | ${formatNumber(summary.longTaskCount, 0)} |`,
   );
+}
+
+if (cssTransitionRows.length > 0) {
+  markdown.push("");
+  markdown.push("## CSS transition runtime");
+  markdown.push("");
+  markdown.push(
+    "Each row runs two real 240ms linear width transitions (460px -> 180px -> 460px) over 16 mounted clamps. CSS fixes wall duration, so callback CPU and frame health—not active or settled time—measure engine cost.",
+  );
+  markdown.push("");
+  markdown.push(
+    `| Scenario | ${reportText("Target", "Version")} | Callback CPU | CPU / observed entry | Callback p95 | Callback max | Resize callbacks | Observed entries | Frame p95 | Dropped frames | BBox reads | Mutation records | Slot calls |`,
+  );
+  markdown.push(
+    "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+  );
+
+  for (const row of cssTransitionRows) {
+    for (const column of reportColumns) {
+      const metrics = cellMetrics(row, column.key);
+      markdown.push(
+        `| ${row.scenario} | ${column.label} | ${formatMs(
+          metrics?.medianResizeObserverCallbackMs,
+          2,
+        )} | ${formatMicroseconds(resizeCallbackPerEntry(metrics))} | ${formatMs(
+          metrics?.medianResizeObserverCallbackP95Ms,
+          2,
+        )} | ${formatMs(metrics?.medianResizeObserverCallbackMaxMs, 2)} | ${formatNumber(
+          metrics?.medianResizeObserverCallbacks,
+          0,
+        )} | ${formatNumber(metrics?.medianResizeObserverEntries, 0)} | ${formatMs(
+          metrics?.medianMeanFrameIntervalP95Ms,
+          2,
+        )} | ${formatNumber(metrics?.medianDroppedFrames, 0)} | ${formatNumber(
+          metrics?.medianBoundingRectReads,
+          0,
+        )} | ${formatNumber(metrics?.medianMutationRecords, 0)} | ${formatNumber(
+          slotCalls(metrics),
+          0,
+        )} |`,
+      );
+    }
+  }
+
+  if (adjacentPairs.length > 0) {
+    markdown.push("");
+    markdown.push("### Transition engine delta");
+    markdown.push("");
+    markdown.push(
+      "| Scenario | From | To | Callback CPU delta | Callback CPU | CPU / entry | Frame p95 | Dropped frames | BBox delta | Mutation delta |",
+    );
+    markdown.push("| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |");
+
+    for (const row of cssTransitionRows) {
+      for (const pair of adjacentPairs) {
+        const before = cellMetrics(row, pair.from.key);
+        const after = cellMetrics(row, pair.to.key);
+        markdown.push(
+          `| ${row.scenario} | ${pair.from.label} | ${pair.to.label} | ${formatPercent(
+            percentDelta(
+              before?.medianResizeObserverCallbackMs,
+              after?.medianResizeObserverCallbackMs,
+            ),
+          )} | ${formatMs(before?.medianResizeObserverCallbackMs, 2)} -> ${formatMs(
+            after?.medianResizeObserverCallbackMs,
+            2,
+          )} | ${formatMicroseconds(resizeCallbackPerEntry(before))} -> ${formatMicroseconds(
+            resizeCallbackPerEntry(after),
+          )} | ${formatMs(before?.medianMeanFrameIntervalP95Ms, 2)} -> ${formatMs(
+            after?.medianMeanFrameIntervalP95Ms,
+            2,
+          )} | ${formatNumber(before?.medianDroppedFrames, 0)} -> ${formatNumber(
+            after?.medianDroppedFrames,
+            0,
+          )} | ${formatPairCounterDelta(
+            pair,
+            before,
+            after,
+            "medianBoundingRectReads",
+          )} | ${formatPairCounterDelta(pair, before, after, "medianMutationRecords")} |`,
+        );
+      }
+    }
+  }
 }
 
 if (widthProfileRows.length > 0) {
@@ -1205,12 +1384,20 @@ if (widthProfileRows.length > 0) {
 const activeHotspotGroups = activeHotspots.filter(({ hotspots }) => hotspots.length > 0);
 if (activeHotspotGroups.length > 0) {
   markdown.push("");
-  markdown.push("## Top low-noise active hotspots by version");
+  markdown.push(
+    reportText(
+      "## Top low-noise active hotspots by target",
+      "## Top low-noise active hotspots by version",
+    ),
+  );
   markdown.push("");
   markdown.push(
     `Rows are sorted by median active time and limited to active RME <= ${formatUnsignedPercent(
       activeHotspotRmeThreshold,
-    )}. Structural columns are \`N/A\` when counter tracking was disabled for that version.`,
+    )}. Structural columns are \`N/A\` when counter tracking was disabled for that ${reportText(
+      "target",
+      "version",
+    )}.`,
   );
 }
 
@@ -1290,7 +1477,9 @@ for (const { components, tracksCounters, version } of activeHotspotComponentGrou
 const structuralHotspotGroups = structuralHotspots.filter(({ hotspots }) => hotspots.length > 0);
 if (structuralHotspotGroups.length > 0) {
   markdown.push("");
-  markdown.push("## Top structural hotspots by version");
+  markdown.push(
+    reportText("## Top structural hotspots by target", "## Top structural hotspots by version"),
+  );
 }
 
 for (const { hotspots, version } of structuralHotspotGroups) {
@@ -1347,13 +1536,13 @@ for (const { components, version } of structuralHotspotComponentGroups) {
 
 if (adjacentSummaries.length > 0) {
   markdown.push("");
-  markdown.push("## Adjacent release summary");
+  markdown.push(reportText("## Entrypoint comparison summary", "## Adjacent target summary"));
   markdown.push("");
   markdown.push(
-    "| From | To | Comparable scenarios | Low-conf active rows | Active delta | Active ms | BBox delta | Client rect delta | Client rect entry delta | Mutation delta | Offset delta | Style delta | Slot delta | Settled delta | Long task delta |",
+    "| From | To | Comparable scenarios | Low-conf active rows | Active delta | Active ms | BBox delta | Client rect delta | Client rect entry delta | Resize callback delta | Mutation delta | Offset delta | Style delta | Slot delta | Settled delta | Long task delta |",
   );
   markdown.push(
-    "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+    "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
   );
 
   for (const summary of adjacentSummaries) {
@@ -1369,11 +1558,13 @@ if (adjacentSummaries.length > 0) {
       )} | ${formatPercent(summary.bboxReadsDelta)} | ${formatPercent(
         summary.clientRectReadsDelta,
       )} | ${formatPercent(summary.clientRectEntriesDelta)} | ${formatPercent(
+        summary.resizeObserverCallbacksDelta,
+      )} | ${formatPercent(
         summary.mutationRecordsDelta,
       )} | ${formatPercent(summary.offsetReadsDelta)} | ${formatPercent(
         summary.styleReadsDelta,
       )} | ${formatPercent(
-        summary.itemSlotCallsDelta,
+        summary.slotCallsDelta,
       )} | ${formatPercent(summary.settledDelta)} | ${formatPercent(summary.longTaskCountDelta)} |`,
     );
   }
@@ -1390,14 +1581,18 @@ markdown.push("| --- | --- | " + reportColumns.map(() => "---:").join(" | ") + "
 for (const row of matrix) {
   markdown.push(
     `| ${row.component} | ${row.scenario} | ${reportColumns
-      .map((column) => formatNumber(cellMetrics(row, column.key)?.medianActiveMs))
+      .map((column) =>
+        isCssTransitionScenario(row)
+          ? "N/A"
+          : formatNumber(cellMetrics(row, column.key)?.medianActiveMs),
+      )
       .join(" | ")} |`,
   );
 }
 
 if (adjacentPairs.length > 0) {
   markdown.push("");
-  markdown.push("## Adjacent active delta matrix");
+  markdown.push(reportText("## Entrypoint active delta matrix", "## Adjacent active delta matrix"));
   markdown.push("");
   markdown.push(
     "| Component | Scenario | " +
@@ -1410,6 +1605,10 @@ if (adjacentPairs.length > 0) {
     markdown.push(
       `| ${row.component} | ${row.scenario} | ${adjacentPairs
         .map((pair) => {
+          if (isCssTransitionScenario(row)) {
+            return "N/A";
+          }
+
           const before = cellMetrics(row, pair.from.key);
           const after = cellMetrics(row, pair.to.key);
           const timingSignal = before && after ? adjacentTimingSignal(before, after) : null;
@@ -1424,7 +1623,10 @@ if (adjacentPairs.length > 0) {
   markdown.push("## Correctness and comparability notes");
   markdown.push("");
   markdown.push(
-    "A faster older version is not automatically a performance win. When a release added missing reclamp coverage or fixed incorrect output, the extra work is correctness cost and the scenario should be interpreted with that caveat.",
+    reportText(
+      "The comparison covers word-boundary prediction with controlled CSS typography, maxLines, end truncation, the default ellipsis, and before-and-after affixes. English rows include reactive component-width updates, settled direct outer-DOM resizes, and real CSS width transitions. Transition rows keep the LineClamp VNode unchanged and are compared by callback CPU and frame health. Custom ellipses, native cases, and measured fallback remain outside this matrix.",
+      "A faster older version is not automatically a performance win. When a release added missing reclamp coverage or fixed incorrect output, the extra work is correctness cost and the scenario should be interpreted with that caveat.",
+    ),
   );
 
   for (const pair of adjacentPairs) {
@@ -1445,7 +1647,7 @@ if (adjacentPairs.length > 0) {
   }
 
   markdown.push("");
-  markdown.push("## Top movers by adjacent release");
+  markdown.push(reportText("## Top movers by entrypoint", "## Top movers by adjacent target"));
 
   for (const pair of adjacentPairs) {
     const movers = topMoversForPair(pair);
@@ -1486,11 +1688,10 @@ if (adjacentPairs.length > 0) {
           before,
           after,
           "medianMutationRecords",
-        )} | ${formatPairOffsetDelta(pair, before, after)} | ${formatPairCounterDelta(
+        )} | ${formatPairOffsetDelta(pair, before, after)} | ${formatPairSlotDelta(
           pair,
           before,
           after,
-          "medianItemSlotCalls",
         )} | ${formatPercent(percentDelta(before.medianSettledMs, after.medianSettledMs))} |`,
       );
     }
@@ -1505,7 +1706,12 @@ if (adjacentPairs.length > 0) {
 
   if (structuralMoverGroups.length > 0) {
     markdown.push("");
-    markdown.push("## Top structural movers by adjacent release");
+    markdown.push(
+      reportText(
+        "## Top structural movers by entrypoint",
+        "## Top structural movers by adjacent target",
+      ),
+    );
   }
 
   for (const { movers, pair } of structuralMoverGroups) {
@@ -1540,14 +1746,17 @@ markdown.push("");
 markdown.push("## Visualization");
 markdown.push("");
 markdown.push(
-  "The SVG contains two panels: absolute active time by version and adjacent active-time delta by release pair.",
+  reportText(
+    "The SVG contains two panels for settled resize workloads: absolute active time by entrypoint and the root-to-Pretext active-time delta. CSS transition rows are N/A because their fixed-duration comparison is reported separately above.",
+    "The SVG contains two panels: absolute active time by target and adjacent active-time delta by target pair.",
+  ),
 );
 markdown.push("");
 markdown.push(
   `\`~\` marks a low-confidence delta: at least one side has active-time CV above ${activeCvLowConfidenceThreshold}%, compared active-time mean MOE intervals overlap, or median and mean active-time deltas point in opposite directions. SVG cells keep the normal direction color and add a top-right triangle marker.`,
 );
 markdown.push("");
-markdown.push("![Package benchmark matrix](310-package-benchmark-matrix.svg)");
+markdown.push(`![${reportTitle}](${reportBasename}.svg)`);
 await writeFile(reportMdPath, `${formatMarkdownTables(markdown).join("\n")}\n`);
 
 const cellWidth = 92;
@@ -1569,9 +1778,14 @@ const svg = [];
 svg.push(
   `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="img" aria-labelledby="title desc">`,
 );
-svg.push('<title id="title">vue-clamp package benchmark matrix</title>');
+svg.push(`<title id="title">vue-clamp ${escapeXml(reportTitle.toLowerCase())}</title>`);
 svg.push(
-  '<desc id="desc">Full package benchmark matrix with active time by version and adjacent release deltas.</desc>',
+  `<desc id="desc">${escapeXml(
+    reportText(
+      "LineClamp root and Pretext entrypoint matrix with active time and target deltas.",
+      "Full package benchmark matrix with active time by target and adjacent target deltas.",
+    ),
+  )}</desc>`,
 );
 svg.push("<style>");
 svg.push(
@@ -1579,15 +1793,30 @@ svg.push(
 );
 svg.push("</style>");
 svg.push('<rect width="100%" height="100%" fill="#ffffff"/>');
-svg.push('<text class="title" x="32" y="34">Package benchmark matrix</text>');
+svg.push(`<text class="title" x="32" y="34">${escapeXml(reportTitle)}</text>`);
 svg.push(
-  '<text class="axis" x="32" y="56">All published versions are shown. N/A means the version or scenario has no Vue 3 public-matrix payload.</text>',
+  `<text class="axis" x="32" y="56">${escapeXml(
+    reportText(
+      "Only the shared root/Pretext public contract is shown. N/A means a target does not implement the scenario.",
+      "Selected versions and snapshots are shown. N/A means no comparable public-matrix payload was supplied.",
+    ),
+  )}</text>`,
 );
 svg.push(
-  '<text class="axis" x="32" y="74">Green is lower cost, red is higher cost. The first panel shows active ms; the second shows adjacent release deltas.</text>',
+  `<text class="axis" x="32" y="74">${escapeXml(
+    reportText(
+      "Green is lower cost, red is higher cost. The first panel shows active ms; the second shows root-to-Pretext deltas.",
+      "Green is lower cost, red is higher cost. The first panel shows active ms; the second shows adjacent target deltas.",
+    ),
+  )}</text>`,
 );
 svg.push(
-  '<text class="axis" x="32" y="92">Some adjacent deltas include correctness fixes that added missing reclamp work; see Markdown comparability notes.</text>',
+  `<text class="axis" x="32" y="92">${escapeXml(
+    reportText(
+      "Timing applies to synchronous component work under the CSS-controlled predictive contract; see Markdown comparability notes.",
+      "Some adjacent deltas include correctness fixes that added missing reclamp work; see Markdown comparability notes.",
+    ),
+  )}</text>`,
 );
 svg.push(
   `<text class="axis" x="32" y="110">~ and a top-right triangle mark low-confidence deltas; high CV, overlapping mean MOE, or median/mean direction mismatch is the trigger.</text>`,
@@ -1643,6 +1872,14 @@ function drawMatrixPanel({ cellForColumn, columns, description, title, top }) {
 
 drawMatrixPanel({
   cellForColumn(row, column) {
+    if (isCssTransitionScenario(row)) {
+      return {
+        fill: "#e5e7eb",
+        text: "N/A",
+        title: `${column.label} ${row.scenario}: see CSS transition runtime`,
+      };
+    }
+
     const metrics = cellMetrics(row, column.key);
     const value = metrics?.medianActiveMs;
     const baseline = row.cells.find((cell) => cell.metrics)?.metrics?.medianActiveMs;
@@ -1681,14 +1918,25 @@ drawMatrixPanel({
     label: column.label,
     report: column.report,
   })),
-  description:
-    "Cell text is median active ms; color is delta vs this scenario's first supported version.",
-  title: "Active time by version",
+  description: `Cell text is median active ms; color is delta vs this scenario's first supported ${reportText(
+    "target",
+    "version",
+  )}.`,
+  title: reportText("Active time by entrypoint", "Active time by target"),
   top: absolutePanelTop,
 });
 
 drawMatrixPanel({
   cellForColumn(row, column) {
+    if (isCssTransitionScenario(row)) {
+      return {
+        cornerMarker: null,
+        fill: "#e5e7eb",
+        text: "N/A",
+        title: `${column.pair.from.label} > ${column.pair.to.label} ${row.scenario}: see CSS transition runtime`,
+      };
+    }
+
     const before = cellMetrics(row, column.pair.from.key);
     const after = cellMetrics(row, column.pair.to.key);
     const { delta, lowConfidence, lowConfidenceReasons, workDelta } = adjacentTimingSignal(
@@ -1741,8 +1989,11 @@ drawMatrixPanel({
     label: pair.label,
     pair,
   })),
-  description: "Cell text is active-time delta between adjacent versions for the same scenario.",
-  title: "Adjacent release deltas",
+  description: reportText(
+    "Cell text is the root-to-Pretext active-time delta for the same scenario.",
+    "Cell text is active-time delta between adjacent versions for the same scenario.",
+  ),
+  title: reportText("Root-to-Pretext deltas", "Adjacent target deltas"),
   top: adjacentPanelTop,
 });
 

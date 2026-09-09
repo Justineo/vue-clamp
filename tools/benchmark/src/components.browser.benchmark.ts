@@ -10,15 +10,17 @@ import {
   installBenchmarkSpies,
   resetBenchmarkDom,
   restoreBenchmarkSpies,
+  summarizePairedSamples,
   summarizeRuns,
   type BenchmarkRun,
   type BenchmarkSummary,
   type StepDiagnostics,
 } from "./helpers.ts";
 
-import type { App, Component, Ref, VNodeChild } from "vue";
+import { preparationScenarios, nativeFontScenario } from "./preparation-scenarios.ts";
 
-type ComponentName = "InlineClamp" | "LineClamp" | "RichLineClamp" | "WrapClamp";
+import type { Component, VNodeChild, VNodeRef } from "vue";
+import type { ComponentName, MountedScenario, PublicScenario } from "./scenario-types.ts";
 
 type VueClampModule = Partial<Record<ComponentName, Component>>;
 
@@ -33,28 +35,6 @@ type Counter = {
   increment: () => void;
   reset: () => void;
   value: () => number;
-};
-
-type MountedScenario = {
-  advanceContent?: () => void;
-  app: App;
-  collectExtraMetrics?: () => Record<string, number>;
-  container: HTMLElement;
-  resetExtraMetrics?: () => void;
-  root: HTMLElement;
-  width: Ref<number>;
-};
-
-type PublicScenario = {
-  beforeStep?: (mounted: MountedScenario, stepIndex: number) => Promise<void> | void;
-  component: ComponentName;
-  group: "inline" | "line" | "rich" | "wrap";
-  minVersion?: string;
-  mount: (component: Component, initialWidth: number) => Promise<MountedScenario>;
-  name: string;
-  unsupportedReason?: string;
-  widths: readonly number[];
-  widthBursts?: readonly (readonly number[])[];
 };
 
 type WidthProfile = {
@@ -151,6 +131,8 @@ const wordBoundaryText =
   "International operations teams summarize customer-facing incidents, regional mitigations, and follow-up ownership without breaking words awkwardly.";
 const cjkWordBoundaryText =
   "国际响应团队需要在多区域故障期间保持客户沟通、缓解措施和后续责任清晰可见，同时避免在关键短语中间截断。";
+const thaiWordBoundaryText =
+  "ทีมตอบสนองเหตุการณ์ต้องรักษาบริบทของลูกค้าและข้อมูลการแก้ไขปัญหาให้มองเห็นได้อย่างชัดเจน";
 const emojiZwjText =
   "Incident roles 👩‍💻 🧑‍🚒 👨‍👩‍👧‍👦 stay grouped with status signals ✅ ❤️‍🔥 while dashboards resize.";
 const rtlBidiText =
@@ -225,6 +207,9 @@ const wrapWideContainerGrowWidths = [120, 760, 120, 760];
 const wrapTinyItemWideGrowWidths = [120, 960, 120, 960];
 const wrapMixedItemGrowWidths = [120, 680, 120, 680];
 const lineFeatureWidths = repeatedWidths([520, 260, 500, 280, 460, 240, 520], 3);
+const pretextContinuousWidths = [...widthSweep(460, 180, -8), ...widthSweep(188, 460, 8)];
+const pretextJitterWidths = jitterWidths(71, 330, 180, 460, 19, 0x42);
+const pretextJumpWidths = repeatedWidths([460, 180, 440, 200, 420, 160, 450], 4);
 const lineCtaNovelJitterWidths = novelJitterWidths(35, 330, 180, 460, 79, 0x244);
 const lineWordNovelJitterWidths = novelJitterWidths(35, 390, 220, 560, 79, 0x234);
 const lineCjkJitterWidths = [
@@ -468,8 +453,12 @@ function compareVersions(left: string, right: string): number {
 
 function unsupportedScenarioReason(
   scenario: PublicScenario,
-  target: Pick<BenchmarkTarget, "version">,
+  target: Pick<BenchmarkTarget, "specifier" | "version">,
 ): string | null {
+  if (target.specifier === "current/pretext" && scenario.group !== "pretext") {
+    return `${scenario.name} does not apply to the Pretext entry.`;
+  }
+
   if (scenario.minVersion && compareVersions(target.version, scenario.minVersion) < 0) {
     return (
       scenario.unsupportedReason ??
@@ -579,10 +568,15 @@ function novelJitterWidths(
   return widths;
 }
 
-function blockStyle(width: number | string, fontSize?: string, direction?: "ltr" | "rtl"): string {
+function blockStyle(
+  width: number | string,
+  fontSize?: string,
+  direction?: "ltr" | "rtl",
+  font = "16px Georgia,serif",
+): string {
   const fontStyle = fontSize
     ? [`font-family:Georgia,serif`, `font-size:${fontSize}`]
-    : ["font:16px Georgia,serif"];
+    : [`font:${font}`];
 
   return [
     "display:block",
@@ -646,13 +640,16 @@ type LineClampBatchOptions = {
   boundary?: "grapheme" | "word";
   contentUpdates?: boolean;
   direction?: "ltr" | "rtl";
+  directWidth?: boolean;
   ellipsis?: string;
   externalWidth?: boolean;
+  font?: string;
   fontSize?: string;
   location?: "start" | "middle" | "end" | number;
   maxHeight?: string;
   maxLines?: number;
   text?: string;
+  transitionMs?: number;
 };
 
 type InlineClampBatchOptions = {
@@ -676,6 +673,7 @@ type RichLineClampBatchOptions = {
   externalWidth?: boolean;
   fontSize?: string;
   html?: string;
+  identicalHtml?: boolean;
   maxHeight?: string;
   maxLines?: number;
 };
@@ -717,6 +715,11 @@ async function mountLineClampBatch(
   options: LineClampBatchOptions = {},
 ): Promise<MountedScenario> {
   const width = ref(initialWidth);
+  let widthElement: HTMLElement | null = null;
+  const containerWidth = options.directWidth || options.externalWidth;
+  const setWidthElement: VNodeRef = (element) => {
+    widthElement = element instanceof HTMLElement ? element : null;
+  };
   const contentRevision = ref(0);
   const beforeSlotCalls = createCounter();
   const afterSlotCalls = createCounter();
@@ -730,8 +733,11 @@ async function mountLineClampBatch(
         h(
           "div",
           {
-            style: options.externalWidth
-              ? `${batchHostStyle()};width:${width.value}px`
+            ...(options.directWidth ? { ref: setWidthElement } : {}),
+            style: containerWidth
+              ? `${batchHostStyle()};width:${options.directWidth ? initialWidth : width.value}px${
+                  options.transitionMs ? `;transition:width ${options.transitionMs}ms linear` : ""
+                }`
               : batchHostStyle(),
           },
           instances.map((index) => {
@@ -739,9 +745,10 @@ async function mountLineClampBatch(
               key: index,
               maxLines: options.maxLines,
               style: blockStyle(
-                options.externalWidth ? "100%" : width.value,
+                containerWidth ? "100%" : width.value,
                 options.fontSize,
                 options.direction,
+                options.font,
               ),
               text: options.contentUpdates
                 ? `${options.text ?? text}${contentRevision.value % 2}${index}`
@@ -821,7 +828,13 @@ async function mountLineClampBatch(
       beforeSlotCalls.reset();
     },
     root: trackElement(container),
-    width,
+    setWidth: (value) => {
+      if (options.directWidth) {
+        widthElement?.style.setProperty("width", `${value}px`);
+      } else {
+        width.value = value;
+      }
+    },
   };
 }
 
@@ -879,7 +892,9 @@ async function mountInlineClampBatch(
     collectExtraMetrics: () => ({ componentInstances: inlineBatchSize }),
     container,
     root: trackElement(container),
-    width,
+    setWidth: (value) => {
+      width.value = value;
+    },
   };
 }
 
@@ -909,15 +924,11 @@ async function mountRichLineClampBatch(
           [
             options.css ? h("style", options.css) : null,
             ...instances.map((index) => {
+              const sourceHtml = `${options.html ?? richHtml}${
+                options.contentUpdates ? ` <span>Revision ${contentRevision.value % 2}</span>` : ""
+              }`;
               const props: Record<string, unknown> = {
-                html: richHtmlVariant(
-                  `${options.html ?? richHtml}${
-                    options.contentUpdates
-                      ? ` <span>Revision ${contentRevision.value % 2}</span>`
-                      : ""
-                  }`,
-                  index,
-                ),
+                html: options.identicalHtml ? sourceHtml : richHtmlVariant(sourceHtml, index),
                 key: index,
                 style: blockStyle(
                   options.externalWidth ? "100%" : width.value,
@@ -993,7 +1004,9 @@ async function mountRichLineClampBatch(
       beforeSlotCalls.reset();
     },
     root: trackElement(container),
-    width,
+    setWidth: (value) => {
+      width.value = value;
+    },
   };
 }
 
@@ -1039,7 +1052,9 @@ async function mountDenseRichLineClamp(
     collectExtraMetrics: () => ({ componentInstances: denseRichHtmls.length }),
     container,
     root: trackElement(container),
-    width,
+    setWidth: (value) => {
+      width.value = value;
+    },
   };
 }
 
@@ -1190,7 +1205,9 @@ async function mountWrapTableScenario(
       itemSlotCalls.reset();
     },
     root: trackElement(container),
-    width,
+    setWidth: (value) => {
+      width.value = value;
+    },
   };
 }
 
@@ -1280,8 +1297,133 @@ async function mountWrapSingleLineScenario(
       itemSlotCalls.reset();
     },
     root: trackElement(container),
-    width,
+    setWidth: (value) => {
+      width.value = value;
+    },
   };
+}
+
+function pretextScenarios(): PublicScenario[] {
+  const fixtures: readonly {
+    readonly after?: boolean;
+    readonly before?: boolean;
+    readonly directWidth?: boolean;
+    readonly font: string;
+    readonly name: string;
+    readonly text: string;
+  }[] = [
+    {
+      font: "16px Georgia",
+      name: "english",
+      text: wordBoundaryText,
+    },
+    {
+      directWidth: true,
+      font: "16px Georgia",
+      name: "english-dom-resize",
+      text: wordBoundaryText,
+    },
+    {
+      font: "16px Arial",
+      name: "cjk",
+      text: cjkWordBoundaryText,
+    },
+    {
+      font: "16px Arial",
+      name: "thai",
+      text: thaiWordBoundaryText,
+    },
+    {
+      font: "16px Georgia",
+      name: "long-token",
+      text: fallbackWordBoundaryText,
+    },
+    {
+      after: true,
+      before: true,
+      font: "16px Georgia",
+      name: "english-affixed",
+      text: wordBoundaryText,
+    },
+    {
+      after: true,
+      before: true,
+      directWidth: true,
+      font: "16px Georgia",
+      name: "english-affixed-dom-resize",
+      text: wordBoundaryText,
+    },
+  ];
+  const patterns = [
+    { name: "continuous", widths: pretextContinuousWidths },
+    { name: "jitter", widths: pretextJitterWidths },
+    { name: "jumps", widths: pretextJumpWidths },
+  ] as const;
+
+  const resizeScenarios = fixtures.flatMap((fixture) =>
+    patterns.map((pattern) => ({
+      component: "LineClamp" as const,
+      group: "pretext" as const,
+      mount: lineClampBatch({
+        after: fixture.after ?? false,
+        before: fixture.before ?? false,
+        boundary: "word",
+        directWidth: fixture.directWidth ?? false,
+        font: fixture.font,
+        maxLines: 3,
+        text: fixture.text,
+      }),
+      name: `line-pretext-${fixture.name}-batch-${pattern.name}`,
+      widths: pattern.widths,
+    })),
+  );
+
+  return [
+    ...resizeScenarios,
+    ...([false, true] as const).map((affixed) => ({
+      component: "LineClamp" as const,
+      group: "pretext" as const,
+      maxStableFrames: 90,
+      mount: lineClampBatch({
+        after: affixed,
+        before: affixed,
+        boundary: "word",
+        directWidth: true,
+        font: "16px Georgia",
+        maxLines: 3,
+        text: wordBoundaryText,
+        transitionMs: 240,
+      }),
+      name: `line-pretext-english${affixed ? "-affixed" : ""}-batch-css-transition`,
+      widths: [460, 180, 460],
+    })),
+  ];
+}
+
+function nativeFontScenarios(): PublicScenario[] {
+  const fixtures: Pick<PublicScenario, "component" | "group" | "mount">[] = [
+    {
+      component: "LineClamp",
+      group: "line",
+      mount: lineClampBatch({ boundary: "word", maxLines: 3 }),
+    },
+    {
+      component: "InlineClamp",
+      group: "inline",
+      mount: inlineClampBatch({ boundary: "word", location: "middle", text: inlineSentence }),
+    },
+    {
+      component: "RichLineClamp",
+      group: "rich",
+      mount: richLineClampBatch({ boundary: "word", maxLines: 3 }),
+    },
+    {
+      component: "WrapClamp",
+      group: "wrap",
+      mount: (component, width) => mountWrapTableScenario(component, width, { rowCount: 16 }),
+    },
+  ];
+  return fixtures.map(nativeFontScenario);
 }
 
 function scenarios(): PublicScenario[] {
@@ -1292,6 +1434,9 @@ function scenarios(): PublicScenario[] {
   // native-eligible in newer implementations, but that is a diagnostic outcome
   // rather than the reason the row exists.
   return [
+    ...pretextScenarios(),
+    ...preparationScenarios(),
+    ...nativeFontScenarios(),
     {
       component: "LineClamp",
       group: "line",
@@ -1731,6 +1876,22 @@ function scenarios(): PublicScenario[] {
       unsupportedReason: 'LineClamp boundary="word" was added in vue-clamp 1.3.0.',
       widths: [180, 180, 180, 180, 180, 180, 180],
     },
+    ...(
+      [
+        { name: "native", maxLines: 2 },
+        { name: "word-affix", boundary: "word", maxLines: 2, after: true },
+        { name: "word-height", boundary: "word", maxHeight: "40px" },
+      ] as const
+    ).map(
+      ({ name, ...options }): PublicScenario => ({
+        beforeStep: advanceContent,
+        component: "LineClamp",
+        group: "line",
+        mount: lineClampBatch({ ...options, contentUpdates: true, text: wordBoundaryText }),
+        name: `line-${name}-text-update-batch-same-width`,
+        widths: [180, 180, 180, 180, 180, 180, 180],
+      }),
+    ),
     {
       component: "InlineClamp",
       group: "inline",
@@ -1839,6 +2000,45 @@ function scenarios(): PublicScenario[] {
       unsupportedReason: 'InlineClamp boundary="word" was added in vue-clamp 1.3.0.',
       widths: [160, 160, 160, 160, 160, 160, 160],
     },
+    ...(["start", "middle", "end"] as const).map((location) => ({
+      beforeStep: advanceContent,
+      component: "InlineClamp" as const,
+      group: "inline" as const,
+      minVersion: "1.3.0",
+      mount: inlineClampBatch({
+        boundary: "word",
+        contentUpdates: true,
+        ellipsis: "...",
+        location,
+        split: (body) => ({ start: "/archive/", body, end: ".tar.gz" }),
+        text: location === "middle" ? inlineSentence.repeat(5) : fallbackWordBoundaryText,
+      }),
+      name: `inline-split-cold-${location}-batch-same-width`,
+      widths: [240, 240, 240, 240, 240, 240, 240],
+    })),
+    ...(
+      [
+        { name: "short", text: "abcdefghijklmnopqrstuvwxyz", start: "/archive/" },
+        { name: "skewed", text: "W".repeat(12) + "i".repeat(100), start: "/archive/" },
+        {
+          name: "affix-heavy",
+          text: fallbackWordBoundaryText,
+          start: "/archive/releases/production/",
+        },
+      ] as const
+    ).map((fixture) => ({
+      beforeStep: advanceContent,
+      component: "InlineClamp" as const,
+      group: "inline" as const,
+      minVersion: "1.3.0",
+      mount: inlineClampBatch({
+        contentUpdates: true,
+        split: (body) => ({ start: fixture.start, body, end: ".tar.gz" }),
+        text: fixture.text,
+      }),
+      name: `inline-split-cold-${fixture.name}-batch-same-width`,
+      widths: [180, 180, 180, 180, 180, 180, 180],
+    })),
     {
       component: "RichLineClamp",
       group: "rich",
@@ -2114,6 +2314,22 @@ function scenarios(): PublicScenario[] {
       unsupportedReason: 'RichLineClamp boundary="word" was added in vue-clamp 1.3.0.',
       widths: [180, 180, 180, 180, 180, 180, 180],
     },
+    ...[false, true].map(
+      (identicalHtml): PublicScenario => ({
+        beforeStep: advanceContent,
+        component: "RichLineClamp",
+        group: "rich",
+        mount: richLineClampBatch({
+          boundary: "word",
+          contentUpdates: true,
+          html: `<strong>${cjkWordBoundaryText}</strong><em>${wordBoundaryText}</em>`.repeat(3),
+          identicalHtml,
+          maxLines: 2,
+        }),
+        name: `rich-${identicalHtml ? "repeated" : "unique"}-html-update-batch-same-width`,
+        widths: [180, 180, 180, 180, 180, 180, 180],
+      }),
+    ),
     {
       beforeStep: toggleAffixWidth,
       component: "RichLineClamp",
@@ -2685,7 +2901,10 @@ function scenarioMatchesFilter(scenario: PublicScenario, filter: string): boolea
 }
 
 function selectedScenarios(): PublicScenario[] {
-  const allScenarios = scenarios();
+  const hasPretextTarget = targets.some((target) => target.specifier === "current/pretext");
+  const allScenarios = scenarios().filter(
+    (scenario) => scenario.group !== "pretext" || hasPretextTarget,
+  );
   const filter = new Set(__VUE_CLAMP_BENCH_SCENARIOS__);
   if (filter.size === 0) {
     return allScenarios;
@@ -2760,11 +2979,11 @@ async function runScenarioOnce(
       await scenario.beforeStep?.(mounted, stepIndex);
 
       if (typeof step === "number") {
-        mounted.width.value = step;
+        mounted.setWidth(step);
         await flushVueUpdates();
       } else {
         for (const width of step) {
-          mounted.width.value = width;
+          mounted.setWidth(width);
           await flushVueUpdates();
         }
       }
@@ -2777,7 +2996,10 @@ async function runScenarioOnce(
       await flushVueUpdates();
       const updatedAt = performance.now();
       activityTracker.mark(updatedAt);
-      const stable = await activityTracker.waitForStable({ since: startedAt });
+      const stable = await activityTracker.waitForStable({
+        ...(scenario.maxStableFrames ? { maxFrames: scenario.maxStableFrames } : {}),
+        since: startedAt,
+      });
       const settledAt = performance.now();
       const performanceWindow = performanceTracker.measure(startedAt, settledAt);
       const stepSettledMs = settledAt - startedAt;
@@ -2804,11 +3026,13 @@ async function runScenarioOnce(
     }
 
     const metrics = endTracking();
+    const extraMetrics = mounted.collectExtraMetrics?.();
+    mounted.validate?.();
     const steps = Math.max(1, measuredSteps.length);
 
     return {
       ...metrics,
-      ...mounted.collectExtraMetrics?.(),
+      ...extraMetrics,
       activeMs: diagnostics.activeMs,
       droppedFrames: diagnostics.droppedFrames,
       frameCount: diagnostics.frameCount,
@@ -2840,6 +3064,7 @@ async function runScenarioOnce(
     activityTracker.disconnect();
     endTracking();
     mounted.app.unmount();
+    mounted.dispose?.();
     mounted.container.remove();
   }
 }
@@ -2945,7 +3170,9 @@ function isCompactExtraMetric(summaryKey: string): boolean {
 
   return (
     metricKey === "componentInstances" ||
+    metricKey === "trustedFontEvents" ||
     metricKey === "cloneNodeMs" ||
+    metricKey.startsWith("resizeObserver") ||
     metricKey.endsWith("Calls") ||
     metricKey.endsWith("Callbacks") ||
     metricKey.endsWith("Nodes") ||
@@ -3379,6 +3606,8 @@ function logScenarioResult(target: BenchmarkTarget, result: ScenarioResult): voi
       `scrollHeightReads=${formatMetric(summary.medianScrollHeightReads)}`,
       `scrollWidthReads=${formatMetric(summary.medianScrollWidthReads)}`,
       `styleReads=${formatMetric(summary.medianStyleReads)}`,
+      `resizeCallbackMs=${formatMetric(summary.medianResizeObserverCallbackMs, 2)}`,
+      `resizeCallbackP95Ms=${formatMetric(summary.medianResizeObserverCallbackP95Ms, 2)}`,
       ...(extra ? [`extra=${JSON.stringify(extra)}`] : []),
     ].join(" "),
   );
@@ -3447,6 +3676,31 @@ describe("vue-clamp package benchmark", () => {
       }
 
       const summaries = await runTargetBenchmarks(scenario, runnable);
+
+      for (const [beforeIndex, before] of summaries.entries()) {
+        for (let afterIndex = beforeIndex + 1; afterIndex < summaries.length; afterIndex += 1) {
+          const after = summaries[afterIndex]!;
+          console.error(
+            `BENCH_PAIRED_COMPARISON ${JSON.stringify({
+              scenario: scenario.name,
+              before: before.target.specifier,
+              after: after.target.specifier,
+              beforeIndex,
+              afterIndex,
+              sameEntry: before.target.entry === after.target.entry,
+              metrics: Object.fromEntries(
+                ["activeMs", "updateMs", "resizeObserverCallbackMs"].map((metric) => [
+                  metric,
+                  summarizePairedSamples(
+                    before.summary.runs.map((run) => run[metric]!),
+                    after.summary.runs.map((run) => run[metric]!),
+                  ),
+                ]),
+              ),
+            })}`,
+          );
+        }
+      }
 
       for (const { summary, target } of summaries) {
         const result: ScenarioResult = {

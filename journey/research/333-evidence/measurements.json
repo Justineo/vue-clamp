@@ -1,0 +1,440 @@
+{
+  "sourceAndRemeasurement": {
+    "browser": "149.0.7827.55",
+    "hashes": {
+      "before": "7b469ec41718f04db1c64021db1725fdfb5526a08adb5f8b51e171803890aa53",
+      "after": "824700d8726c8847ecbc3c6e579b027d8b7e21d42f287cc680ae4e0f39769a8c"
+    },
+    "heapMode": false,
+    "rounds": 8,
+    "steps": 12,
+    "fixtures": [
+      {
+        "scenario": "source-line-cjk-large-distinct",
+        "count": 20,
+        "metrics": {
+          "TaskDurationMs": {
+            "before": [913.903, 921.078, 905.165, 908.661, 914.583, 908.973, 911.445, 918.219],
+            "after": [836.265, 829.024, 834.16, 830.257, 839.506, 822.142, 837.286, 843.276],
+            "control": [914.76, 896.298, 908.977, 906.557, 914.688, 907.068, 924.134, 912.242]
+          },
+          "LayoutDurationMs": {
+            "before": [582.858, 579.345, 576.028, 576.52, 579.159, 574.572, 577.058, 580.361],
+            "after": [580.213, 576.355, 582.015, 575.388, 582.136, 571.725, 585.317, 587.067],
+            "control": [576.681, 570.685, 576.388, 576.467, 577.823, 573.57, 587.287, 576.9]
+          },
+          "LayoutCount": {
+            "before": [198, 198, 198, 198, 198, 198, 198, 198],
+            "after": [198, 198, 198, 198, 198, 198, 198, 198],
+            "control": [198, 198, 198, 198, 198, 198, 198, 198]
+          }
+        }
+      },
+      {
+        "scenario": "source-line-cjk-medium-pool4",
+        "count": 20,
+        "metrics": {
+          "TaskDurationMs": {
+            "before": [305.013, 296.713, 290.674, 288.662, 302.247, 301.63, 301.628, 299.348],
+            "after": [253.621, 250.232, 244.597, 244.36, 248.068, 250.342, 251.419, 251.406],
+            "control": [299.922, 299.49, 292.366, 288.882, 298.414, 300.699, 297.299, 301.945]
+          },
+          "LayoutDurationMs": {
+            "before": [195.836, 191.098, 187.469, 187.175, 195.265, 194.676, 193.898, 192.816],
+            "after": [193.482, 194.704, 189.611, 190.516, 191.856, 193.396, 194.356, 194.093],
+            "control": [193.898, 193.077, 189.218, 186.65, 192.2, 192.298, 192.683, 194.017]
+          },
+          "LayoutCount": {
+            "before": [176, 176, 176, 176, 176, 176, 176, 176],
+            "after": [176, 176, 176, 176, 176, 176, 176, 176],
+            "control": [176, 176, 176, 176, 176, 176, 176, 176]
+          }
+        }
+      },
+      {
+        "scenario": "source-inline-emoji-medium-pool4",
+        "count": 20,
+        "metrics": {
+          "TaskDurationMs": {
+            "before": [272.483, 272.029, 272.148, 273.471, 271.437, 264.077, 268.585, 276.237],
+            "after": [254.816, 257.24, 257.088, 259.369, 261.193, 251.891, 254.667, 255.709],
+            "control": [268.258, 273.724, 270.27, 274.254, 273.0, 268.194, 278.67, 275.863]
+          },
+          "LayoutDurationMs": {
+            "before": [214.801, 214.918, 214.408, 214.895, 212.927, 209.078, 211.926, 216.153],
+            "after": [213.195, 214.864, 216.721, 216.084, 217.247, 211.381, 213.859, 214.103],
+            "control": [212.018, 214.967, 212.458, 215.852, 213.636, 211.158, 219.445, 217.263]
+          },
+          "LayoutCount": {
+            "before": [144, 144, 144, 144, 144, 144, 144, 144],
+            "after": [144, 144, 144, 144, 144, 144, 144, 144],
+            "control": [144, 144, 144, 144, 144, 144, 144, 144]
+          }
+        }
+      },
+      {
+        "scenario": "source-inline-emoji-large-distinct",
+        "count": 20,
+        "metrics": {
+          "TaskDurationMs": {
+            "before": [860.599, 862.546, 858.647, 858.832, 851.948, 865.413, 861.091, 863.526],
+            "after": [856.779, 850.404, 861.297, 864.924, 863.9, 866.783, 862.748, 866.041],
+            "control": [859.499, 858.172, 853.163, 858.691, 851.14, 850.262, 859.269, 855.763]
+          },
+          "LayoutDurationMs": {
+            "before": [714.26, 714.637, 708.905, 709.76, 705.759, 714.313, 711.483, 713.575],
+            "after": [709.09, 704.917, 712.154, 715.764, 715.941, 716.401, 715.443, 716.772],
+            "control": [714.01, 712.709, 705.286, 710.302, 705.845, 704.282, 712.819, 708.909]
+          },
+          "LayoutCount": {
+            "before": [168, 168, 168, 168, 168, 168, 168, 168],
+            "after": [168, 168, 168, 168, 168, 168, 168, 168],
+            "control": [168, 168, 168, 168, 168, 168, 168, 168]
+          }
+        }
+      },
+      {
+        "scenario": "source-rich-cjk-large-distinct",
+        "count": 20,
+        "metrics": {
+          "TaskDurationMs": {
+            "before": [
+              1027.564, 1017.691, 1031.377, 1022.827, 1021.551, 1018.607, 1018.021, 1006.63
+            ],
+            "after": [941.073, 937.248, 929.018, 941.375, 940.599, 920.833, 949.042, 939.159],
+            "control": [
+              1032.511, 1024.32, 1013.008, 1016.894, 1028.422, 1022.723, 1036.762, 1028.194
+            ]
+          },
+          "LayoutDurationMs": {
+            "before": [684.815, 684.127, 689.431, 687.862, 687.276, 686.618, 686.514, 680.322],
+            "after": [685.886, 683.896, 677.713, 682.574, 684.28, 673.644, 688.962, 685.001],
+            "control": [689.03, 686.899, 676.118, 683.355, 688.014, 683.692, 691.241, 688.654]
+          },
+          "LayoutCount": {
+            "before": [2295, 2295, 2295, 2295, 2295, 2295, 2295, 2295],
+            "after": [2295, 2295, 2295, 2295, 2295, 2295, 2295, 2295],
+            "control": [2295, 2295, 2295, 2295, 2295, 2295, 2295, 2295]
+          }
+        }
+      },
+      {
+        "scenario": "font-rich-plain-metrics",
+        "count": 20,
+        "metrics": {
+          "TaskDurationMs": {
+            "before": [86.163, 83.261, 78.945, 89.421, 84.311, 80.197, 78.869, 85.041],
+            "after": [71.598, 81.046, 74.977, 60.117, 63.372, 80.298, 73.318, 71.907],
+            "control": [79.575, 86.365, 82.917, 77.454, 75.809, 82.895, 78.98, 75.404]
+          },
+          "LayoutDurationMs": {
+            "before": [47.934, 50.224, 46.366, 54.119, 50.117, 45.895, 45.24, 50.521],
+            "after": [36.247, 42.768, 38.575, 29.253, 30.743, 41.514, 37.581, 36.801],
+            "control": [46.399, 52.077, 48.186, 44.676, 45.202, 48.177, 45.98, 43.585]
+          },
+          "LayoutCount": {
+            "before": [1932, 1932, 1932, 1932, 1932, 1932, 1932, 1932],
+            "after": [108, 108, 108, 108, 108, 108, 108, 108],
+            "control": [1932, 1932, 1932, 1932, 1932, 1932, 1932, 1932]
+          }
+        }
+      },
+      {
+        "scenario": "resize-rich-plain",
+        "count": 20,
+        "metrics": {
+          "TaskDurationMs": {
+            "before": [53.233, 61.488, 57.431, 53.371, 57.394, 54.91, 51.561, 56.479],
+            "after": [52.669, 48.561, 49.323, 44.101, 52.575, 44.277, 46.079, 50.076],
+            "control": [57.25, 59.111, 57.702, 56.283, 60.393, 56.144, 61.183, 58.225]
+          },
+          "LayoutDurationMs": {
+            "before": [28.591, 32.515, 29.793, 29.475, 29.909, 28.666, 28.817, 29.5],
+            "after": [23.861, 21.839, 24.278, 21.197, 24.768, 21.536, 22.001, 21.836],
+            "control": [31.216, 30.825, 29.34, 28.879, 31.046, 29.569, 32.223, 29.955]
+          },
+          "LayoutCount": {
+            "before": [1232, 1232, 1232, 1232, 1232, 1232, 1232, 1232],
+            "after": [320, 320, 320, 320, 320, 320, 320, 320],
+            "control": [1232, 1232, 1232, 1232, 1232, 1232, 1232, 1232]
+          }
+        }
+      },
+      {
+        "scenario": "source-line-short",
+        "count": 20,
+        "metrics": {
+          "TaskDurationMs": {
+            "before": [49.804, 48.097, 46.011, 42.326, 48.004, 46.044, 46.633, 45.908],
+            "after": [44.888, 47.471, 48.134, 46.327, 46.713, 46.194, 44.683, 45.53],
+            "control": [48.582, 45.5, 46.247, 31.768, 48.36, 49.83, 51.453, 44.893]
+          },
+          "LayoutDurationMs": {
+            "before": [7.285, 6.89, 7.916, 6.944, 7.95, 8.057, 7.17, 8.002],
+            "after": [7.297, 8.331, 8.34, 6.707, 7.655, 8.009, 7.213, 7.628],
+            "control": [8.077, 7.757, 8.027, 4.955, 8.264, 7.618, 7.625, 7.42]
+          },
+          "LayoutCount": {
+            "before": [36, 36, 36, 36, 36, 36, 36, 36],
+            "after": [36, 36, 36, 36, 36, 36, 36, 36],
+            "control": [36, 36, 36, 36, 36, 36, 36, 36]
+          }
+        }
+      }
+    ]
+  },
+  "denseWrap": {
+    "browser": "149.0.7827.55",
+    "hashes": {
+      "before": "7b469ec41718f04db1c64021db1725fdfb5526a08adb5f8b51e171803890aa53",
+      "after": "824700d8726c8847ecbc3c6e579b027d8b7e21d42f287cc680ae4e0f39769a8c"
+    },
+    "heapMode": false,
+    "rounds": 8,
+    "steps": 12,
+    "fixtures": [
+      {
+        "scenario": "resize-wrap-tiny-height",
+        "count": 4,
+        "metrics": {
+          "TaskDurationMs": {
+            "before": [660.796, 642.374, 634.024, 627.836, 660.37, 666.531, 656.877, 657.722],
+            "after": [524.864, 523.22, 504.409, 510.362, 531.986, 523.957, 524.705, 522.755],
+            "control": [641.411, 652.368, 652.156, 649.512, 664.124, 661.433, 651.352, 660.677]
+          },
+          "LayoutDurationMs": {
+            "before": [121.814, 117.712, 115.712, 115.132, 120.989, 121.388, 119.045, 119.597],
+            "after": [82.536, 81.074, 79.795, 81.233, 84.767, 82.814, 82.046, 82.775],
+            "control": [117.372, 118.539, 117.61, 119.067, 121.944, 120.688, 117.983, 120.43]
+          },
+          "LayoutCount": {
+            "before": [1251, 1251, 1251, 1251, 1251, 1251, 1251, 1251],
+            "after": [527, 527, 527, 527, 527, 527, 527, 527],
+            "control": [1251, 1251, 1251, 1251, 1251, 1251, 1251, 1251]
+          }
+        }
+      }
+    ]
+  },
+  "bundleSizes": [
+    {
+      "target": "baseline",
+      "component": "LineClamp",
+      "raw": 38423,
+      "gzip": 11563
+    },
+    {
+      "target": "baseline",
+      "component": "InlineClamp",
+      "raw": 20900,
+      "gzip": 6742
+    },
+    {
+      "target": "baseline",
+      "component": "RichLineClamp",
+      "raw": 51460,
+      "gzip": 15180
+    },
+    {
+      "target": "baseline",
+      "component": "WrapClamp",
+      "raw": 19229,
+      "gzip": 5966
+    },
+    {
+      "target": "baseline",
+      "component": "all",
+      "raw": 93313,
+      "gzip": 26275
+    },
+    {
+      "target": "combined",
+      "component": "LineClamp",
+      "raw": 38858,
+      "gzip": 11768
+    },
+    {
+      "target": "combined",
+      "component": "InlineClamp",
+      "raw": 21333,
+      "gzip": 6926
+    },
+    {
+      "target": "combined",
+      "component": "RichLineClamp",
+      "raw": 51938,
+      "gzip": 15324
+    },
+    {
+      "target": "combined",
+      "component": "WrapClamp",
+      "raw": 19283,
+      "gzip": 5995
+    },
+    {
+      "target": "combined",
+      "component": "all",
+      "raw": 94177,
+      "gzip": 26618
+    }
+  ],
+  "firefox": {
+    "browser": "153.0",
+    "hashes": {
+      "before": "7b469ec41718f04db1c64021db1725fdfb5526a08adb5f8b51e171803890aa53",
+      "after": "824700d8726c8847ecbc3c6e579b027d8b7e21d42f287cc680ae4e0f39769a8c"
+    },
+    "heapMode": false,
+    "names": ["before", "after", "control"],
+    "scenarios": [
+      "source-line-cjk-large-distinct",
+      "source-line-cjk-medium-pool4",
+      "source-inline-emoji-large-distinct",
+      "source-rich-cjk-large-distinct",
+      "font-rich-plain-metrics",
+      "resize-rich-plain-affix",
+      "resize-wrap-tiny-height",
+      "source-rich-nested-atomic",
+      "source-line-full-large-distinct"
+    ],
+    "counts": [1, 4],
+    "rounds": 1,
+    "steps": 6,
+    "outputComparisons": "All warmup and measured updates matched baseline/control markup; timing is not used."
+  },
+  "webkit": {
+    "browser": "26.5",
+    "hashes": {
+      "before": "7b469ec41718f04db1c64021db1725fdfb5526a08adb5f8b51e171803890aa53",
+      "after": "824700d8726c8847ecbc3c6e579b027d8b7e21d42f287cc680ae4e0f39769a8c"
+    },
+    "heapMode": false,
+    "names": ["before", "after", "control"],
+    "scenarios": [
+      "source-line-cjk-large-distinct",
+      "source-line-cjk-medium-pool4",
+      "source-inline-emoji-large-distinct",
+      "source-rich-cjk-large-distinct",
+      "font-rich-plain-metrics",
+      "resize-rich-plain-affix",
+      "resize-wrap-tiny-height",
+      "source-rich-nested-atomic",
+      "source-line-full-large-distinct"
+    ],
+    "counts": [1, 4],
+    "rounds": 1,
+    "steps": 6,
+    "outputComparisons": "All warmup and measured updates matched baseline/control markup; timing is not used."
+  },
+  "nativeFont": {
+    "browser": "149.0.7827.55",
+    "rounds": 4,
+    "steps": 4,
+    "metrics": true,
+    "fixtures": [
+      {
+        "scenario": "fontnative-rich-plain",
+        "count": 20,
+        "metrics": {
+          "TaskDurationMs": {
+            "baseline": [32.65, 33.472, 34.067, 37.673],
+            "combined": [24.549, 23.834, 33.817, 24.877],
+            "control": [27.843, 32.382, 31.226, 37.47]
+          },
+          "LayoutDurationMs": {
+            "baseline": [16.568, 19.414, 22.144, 21.511],
+            "combined": [11.143, 12.191, 16.842, 12.84],
+            "control": [15.562, 17.993, 19.583, 22.061]
+          }
+        }
+      },
+      {
+        "scenario": "fontnative-rich-plain-affix",
+        "count": 20,
+        "metrics": {
+          "TaskDurationMs": {
+            "baseline": [31.211, 31.391, 29.413, 31.796],
+            "combined": [26.447, 30.452, 29.008, 28.101],
+            "control": [34.087, 31.014, 27.354, 30.012]
+          },
+          "LayoutDurationMs": {
+            "baseline": [17.643, 16.49, 16.671, 17.034],
+            "combined": [13.017, 13.779, 13.231, 14.587],
+            "control": [17.296, 15.926, 15.649, 17.38]
+          }
+        }
+      },
+      {
+        "scenario": "fontnative-rich",
+        "count": 20,
+        "metrics": {
+          "TaskDurationMs": {
+            "baseline": [38.202, 35.087, 38.926, 34.151],
+            "combined": [37.899, 35.689, 37.992, 34.13],
+            "control": [35.331, 35.764, 33.342, 37.753]
+          },
+          "LayoutDurationMs": {
+            "baseline": [21.946, 19.981, 22.217, 21.012],
+            "combined": [20.724, 21.74, 21.104, 20.557],
+            "control": [22.132, 19.934, 20.718, 20.865]
+          }
+        }
+      },
+      {
+        "scenario": "fontnative-line",
+        "count": 20,
+        "metrics": {
+          "TaskDurationMs": {
+            "baseline": [32.677, 29.037, 28.102, 35.832],
+            "combined": [29.887, 33.738, 31.105, 31.567],
+            "control": [34.144, 37.211, 39.112, 33.698]
+          },
+          "LayoutDurationMs": {
+            "baseline": [19.935, 17.377, 15.668, 19.49],
+            "combined": [15.352, 20.652, 17.877, 19.572],
+            "control": [20.823, 21.933, 22.862, 19.393]
+          }
+        }
+      },
+      {
+        "scenario": "fontnative-inline",
+        "count": 20,
+        "metrics": {
+          "TaskDurationMs": {
+            "baseline": [33.651, 32.836, 32.99, 31.166],
+            "combined": [32.319, 31.558, 31.439, 34.336],
+            "control": [32.64, 31.496, 35.773, 29.563]
+          },
+          "LayoutDurationMs": {
+            "baseline": [18.991, 18.72, 19.565, 17.21],
+            "combined": [18.73, 18.274, 18.048, 17.525],
+            "control": [18.623, 18.01, 19.39, 15.916]
+          }
+        }
+      }
+    ]
+  },
+  "unicode": [
+    {
+      "browser": "chromium",
+      "version": "149.0.7827.55",
+      "cases": 512,
+      "comparisons": 2048,
+      "admittedCharacters": 27684
+    },
+    {
+      "browser": "firefox",
+      "version": "153.0",
+      "cases": 512,
+      "comparisons": 2048,
+      "admittedCharacters": 27684
+    },
+    {
+      "browser": "webkit",
+      "version": "26.5",
+      "cases": 512,
+      "comparisons": 2048,
+      "admittedCharacters": 27684
+    }
+  ]
+}

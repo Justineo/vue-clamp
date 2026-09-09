@@ -560,6 +560,60 @@ describe("WrapClamp browser contract", () => {
     expect(root.querySelector('[data-part="item"][aria-hidden="true"]')).toBeNull();
   });
 
+  it.each([{ maxHeight: 48 }, { maxLines: 3 }])(
+    "continues dense growth without rerendering every intervening prefix: %j",
+    async (limits) => {
+      const items = Array.from({ length: 1000 }, (_, index) => String(index));
+      const itemSlot = ({ item, index }: WrapClampItemSlotProps<string>) =>
+        h(
+          "span",
+          { style: `display:block;width:${index % 2 ? 3 : 5}px;height:16px;font-size:0` },
+          item,
+        );
+      let itemCalls = 0;
+      const clamp = mountWrapClamp({
+        items,
+        width: 64,
+        props: limits,
+        item: (props) => {
+          itemCalls += 1;
+          return itemSlot(props);
+        },
+      });
+      const reference = mountWrapClamp({
+        items,
+        width: 64,
+        props: { expanded: true, ...limits },
+        item: itemSlot,
+      });
+      await settle(5);
+      itemCalls = 0;
+      for (const width of [1200, 64, 2000, 137, 1200]) {
+        clamp.width.value = width;
+        reference.width.value = width;
+        await settle(6);
+        const root = rootElement(clamp.container);
+        const referenceRoot = rootElement(reference.container);
+        const top = referenceRoot.getBoundingClientRect().top;
+        const rects = wrapItems(referenceRoot).map((item) => item.getBoundingClientRect());
+        const rowTops = [...new Set(rects.map((rect) => rect.top))];
+        const lastRowTop = rowTops[Math.min(2, rowTops.length - 1)]!;
+        const expected = rects.filter((rect) =>
+          limits.maxLines ? rect.top <= lastRowTop + 0.5 : rect.bottom <= top + 48.5,
+        ).length;
+        expect(wrapItems(root)).toHaveLength(expected);
+        expect(wrapSnapshot(root).items).toEqual(items.slice(0, expected));
+        expect(root.querySelector('[data-part="item"][aria-hidden="true"]')).toBeNull();
+        if (width === 1200 && expected > 400) {
+          // A linear grow rerenders hundreds of prefixes, even though the item
+          // geometry is fixed. Bound slot work, not machine-dependent elapsed time.
+          expect(itemCalls).toBeLessThan(20_000);
+        }
+        itemCalls = 0;
+      }
+    },
+  );
+
   it("continues settling after fallback-budget materialized grow starts without measured widths", async () => {
     const initialItems = Array.from({ length: 60 }, (_, index) => `Wide${index + 1}`);
     const nextItems = Array.from({ length: 60 }, (_, index) => `N${index + 1}`);
@@ -1008,6 +1062,82 @@ describe("WrapClamp browser contract", () => {
     );
     expectVisibleAtomicBoxesWithinRoot(root);
     expect(root.querySelector('[data-part="item"][aria-hidden="true"]')).toBeNull();
+  });
+
+  it.each(
+    [{ maxLines: 2 }, { maxHeight: 24 }].flatMap((props) => [
+      { props, itemWidth: 20, fullWidth: 60, initialCount: 8, expectedCount: 14 },
+      { props, itemWidth: 60, fullWidth: 20, initialCount: 2, expectedCount: 4 },
+    ]),
+  )(
+    "verifies growth when hidden shells change the measured frontier with %j",
+    async ({ props, itemWidth, fullWidth, initialCount, expectedCount }) => {
+      const style = document.createElement("style");
+      style.textContent = `
+        [data-wrap-frontier] [data-part="content"]:has(> [data-part="item"]:nth-child(24)):not(:has(> [data-part="item"][style*="none"]))
+          > [data-part="item"] { width: ${fullWidth}px !important; }
+      `;
+      document.head.append(style);
+
+      try {
+        const items = Array.from({ length: 24 }, (_, index) => `I${index}`);
+        const mountedClamp = mountWrapClamp({
+          items,
+          props: { ...props, "data-wrap-frontier": "" },
+          style: "font-size:0;line-height:0",
+          width: 90,
+          item: ({ item }) =>
+            h("span", { style: `display:inline-block;width:${itemWidth}px;height:12px` }, item),
+        });
+        await settle(5);
+        expect(wrapItems(rootElement(mountedClamp.container))).toHaveLength(initialCount);
+
+        // Clearing old item metrics exercises a materialized upper candidate
+        // whose first overflow differs from the final fitting prefix.
+        mountedClamp.items.value = [...items];
+        mountedClamp.width.value = 150;
+        await settle(8);
+
+        const root = rootElement(mountedClamp.container);
+        expect(wrapItems(root)).toHaveLength(expectedCount);
+        expect(root.querySelector('[data-part="item"][aria-hidden="true"]')).toBeNull();
+      } finally {
+        style.remove();
+      }
+    },
+  );
+
+  it("keeps the maximal height-limited prefix when a tall materialized suffix shifts earlier items", async () => {
+    const style = document.createElement("style");
+    style.textContent = '[data-wrap-tall-frontier] [data-part="content"] { align-items: center; }';
+    document.head.append(style);
+
+    try {
+      const mountedClamp = mountWrapClamp({
+        items: Array.from({ length: 24 }, (_, index) => `I${index}`),
+        props: { maxHeight: 24, "data-wrap-tall-frontier": "" },
+        style: "font-size:0;line-height:0",
+        width: 60,
+        item: ({ item, index }) =>
+          h(
+            "span",
+            { style: `display:inline-block;width:30px;height:${index % 3 === 2 ? 80 : 12}px` },
+            item,
+          ),
+      });
+      await settle(5);
+      expect(wrapItems(rootElement(mountedClamp.container))).toHaveLength(2);
+
+      mountedClamp.width.value = 150;
+      await settle(8);
+
+      const root = rootElement(mountedClamp.container);
+      expect(wrapItems(root)).toHaveLength(2);
+      expectVisibleAtomicBoxesWithinRoot(root);
+      expect(root.querySelector('[data-part="item"][aria-hidden="true"]')).toBeNull();
+    } finally {
+      style.remove();
+    }
   });
 
   it("clamps wrapped items when content has CSS gap", async () => {

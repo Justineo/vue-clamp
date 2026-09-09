@@ -30,6 +30,11 @@ export function simulateStaticFlow({
   itemWidth,
   lineLimit,
 }: StaticFlowEstimateOptions): StaticFlowEstimate {
+  // A fixed suffix wider than the line leaves no fitting modeled prefix.
+  if (afterWidth > containerWidth + layoutTolerance) {
+    return { fitCount: 0, status: "overflow" };
+  }
+
   let currentLineWidth = Math.max(0, beforeWidth);
   let lineCount = 1;
   let fitCount = 0;
@@ -56,28 +61,25 @@ export function simulateStaticFlow({
     }
 
     currentLineWidth += width;
+    // Reserve the observed fixed suffix on the final permitted line. Its
+    // first rejection is also the maximal prefix of this positive-width model.
+    if (
+      afterWidth > 0 &&
+      lineCount === lineLimit &&
+      currentLineWidth + afterWidth > containerWidth + layoutTolerance
+    ) {
+      return { fitCount, status: "overflow" };
+    }
     fitCount = index + 1;
   }
 
-  if (afterWidth > 0) {
-    if (currentLineWidth > 0 && currentLineWidth + afterWidth > containerWidth + layoutTolerance) {
-      lineCount += 1;
-      currentLineWidth = 0;
-
-      if (lineCount > lineLimit) {
-        return {
-          fitCount,
-          status: "overflow",
-        };
-      }
-    }
-
-    if (currentLineWidth + afterWidth > containerWidth + layoutTolerance) {
-      return {
-        fitCount,
-        status: "overflow",
-      };
-    }
+  if (
+    afterWidth > 0 &&
+    currentLineWidth > 0 &&
+    currentLineWidth + afterWidth > containerWidth + layoutTolerance &&
+    lineCount + 1 > lineLimit
+  ) {
+    return { fitCount, status: "overflow" };
   }
 
   return {
@@ -131,6 +133,7 @@ export function measureSequence(
     // Missing content is a lifecycle state, not evidence that items are hidden.
     return {
       allFit: true,
+      beforeSize: null,
       visibleItems: 0,
     };
   }
@@ -150,6 +153,7 @@ export function measureSequence(
   let lineTop = 0;
   let lineBottom = 0;
   let visibleItems = 0;
+  let beforeSize: Size | null = null;
 
   for (const child of contentElement.children) {
     if (!(child instanceof HTMLElement)) {
@@ -165,6 +169,10 @@ export function measureSequence(
     const rect = child.getBoundingClientRect();
     if (!isPositiveFiniteSize(rect.width) || !isPositiveFiniteSize(rect.height)) {
       continue;
+    }
+    if (part === "before") {
+      // The same read also supplies affix-stability checks after a count change.
+      beforeSize = { height: rect.height, width: rect.width };
     }
 
     if (lineCount === 0) {
@@ -190,6 +198,7 @@ export function measureSequence(
       // the full item count.
       return {
         allFit: false,
+        beforeSize,
         visibleItems,
       };
     }
@@ -201,6 +210,7 @@ export function measureSequence(
       // maxHeight can reject a sequence even when the line count is acceptable.
       return {
         allFit: false,
+        beforeSize,
         visibleItems,
       };
     }
@@ -213,6 +223,7 @@ export function measureSequence(
 
   return {
     allFit: true,
+    beforeSize,
     visibleItems,
   };
 }

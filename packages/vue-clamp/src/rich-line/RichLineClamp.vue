@@ -1,6 +1,14 @@
 <script setup lang="ts">
 import { computed, h, mergeProps, nextTick, shallowRef, useAttrs, watch } from "vue";
-import { borderBoxWidth, cssLength, normalizeLineLimit } from "../layout.ts";
+import {
+  borderBoxWidth,
+  cssLength,
+  hasMeasuredPeers,
+  normalizeLineLimit,
+  observeBorderBoxSizes,
+  observeMeasuredBorderBoxSizes,
+} from "../layout.ts";
+import { hasExplicitTextWidth, measureLayout } from "../measure.ts";
 import { useMultilineClamp } from "../multiline.ts";
 import { renderMultilineAffixSlot } from "../multiline-render.ts";
 import { multilineNativeSlotStyle, multilineSlotStyle } from "../multiline-styles.ts";
@@ -11,14 +19,9 @@ import {
   nativeTextStyle,
   resolveNativeMode,
 } from "../native.ts";
-import { canSafelyCloneRichProbe, clampRich, patchRich, prepareRich } from "../rich.ts";
-import {
-  estimateColdSearchMaxProbeCount,
-  richWarmExpansionLimit,
-  shouldVerifyFullCandidate,
-  warmSearchLocalCoverage,
-  warmTargetBeatsCold,
-} from "../search.ts";
+import { canSafelyCloneRichProbe, clampRich, patchRich, prepareRichTextBatch } from "../rich.ts";
+import { prepareSharedRich } from "./preparation.ts";
+import { richWarmExpansionLimit, shouldVerifyFullCandidate } from "../search.ts";
 import { richProbeStyle } from "./styles.ts";
 
 import type { VNodeChild } from "vue";
@@ -28,6 +31,7 @@ import type {
   PreparedRich,
   RichClampProbe,
   RichClampResult,
+  RichClampOptions,
   RichSearchIndex,
   RichState,
 } from "../rich.ts";
@@ -95,7 +99,7 @@ const isFallback = shallowRef(false);
 
 // The visible tree and hidden probe advance independently. measuredState is both
 // the latest warm hint and the hidden body's patch origin.
-const preparedHtml = computed(() => prepareRich(html, boundary));
+const preparedHtml = computed(() => prepareSharedRich(html, boundary));
 const hasActiveClamp = computed(
   () =>
     !expanded.value &&
@@ -124,13 +128,18 @@ const {
   expand,
   collapse,
   toggle,
-  observedSizeSignature,
+  observedSizeSnapshot,
   affixSlotProps,
   setBeforeElement,
   setAfterElement,
   requestRecompute,
 } = useMultilineClamp({
   active: hasActiveClamp,
+  observeSizes: (elements, listener) => {
+    if (getNativeMode(normalizeLineLimit(maxLines)) !== null)
+      return observeBorderBoxSizes(elements, listener);
+    return observeMeasuredBorderBoxSizes(elements, listener, ellipsis.length > 0);
+  },
   expanded,
   onClampedChange: (value) => {
     emit("clampchange", value);
@@ -222,10 +231,10 @@ const {
     const { affixSignature, probe } = preparedProbe;
     const sameAffix = affixSignature === measuredAffixSignature;
     const skipFullFit = canSkipFullFit(probe.width, sameAffix);
-    const searchHint = canUseSearchHint(probe.width, sameAffix, lineLimit) ? measuredState : null;
+    const searchHint = searchHintForWidth(probe.width, sameAffix);
     const preferHintedTextRun =
       searchHint?.kind === "clamped" && measuredWidth !== null && sameAffix;
-    const result = clampRich({
+    const input: RichClampOptions = {
       ellipsis,
       from: measuredState,
       hint: searchHint,
@@ -243,22 +252,62 @@ const {
         measuredState?.kind === "full",
         clampedMaxWidth,
       ),
-    });
-    measuredState = result.state;
-    probeSearchIndex = result.searchIndex ?? null;
-    measuredAffixSignature = affixSignature;
-    measuredWidth = probe.width;
-    updateRankHint(result, probe.width, sameAffix);
-    updateClampedMaxWidth(result, probe.width, sameAffix);
-    if (!result.state) {
-      // A zero-width probe should not replace visible content with a guessed rich
-      // fragment.
-      await resetClamp();
-      return;
-    }
+    };
+    const beforeElement = beforeRef.value;
+    const afterElement = afterRef.value;
+    const isCurrent = () =>
+      bodyRef.value === bodyElement &&
+      probeRef.value === probe.root &&
+      preparedHtml.value === prepared &&
+      hasActiveClamp.value &&
+      normalizeLineLimit(maxLines) === lineLimit &&
+      maxHeight === input.maxHeight &&
+      ellipsis === input.ellipsis &&
+      beforeRef.value === beforeElement &&
+      afterRef.value === afterElement;
+    // Return the existing settlement promise directly: another async boundary
+    // would let nextTick observe stale slot status after the text is committed.
+    function commit(result: RichClampResult): Promise<void> {
+      measuredState = result.state;
+      probeSearchIndex = result.searchIndex ?? null;
+      measuredAffixSignature = affixSignature;
+      measuredWidth = probe.width;
+      updateRankHint(result, probe.width, sameAffix);
+      updateClampedMaxWidth(result, probe.width, sameAffix);
+      if (!result.state) {
+        // A zero-width probe should not replace visible content with a guessed rich
+        // fragment.
+        return resetClamp();
+      }
 
-    patchVisible(prepared, result.state);
-    await applyStatus(result.state.kind === "clamped", result.fallback);
+      patchVisible(prepared, result.state);
+      return applyStatus(result.state.kind === "clamped", result.fallback);
+    }
+    let settlement: Promise<void> | undefined;
+    let result: RichClampResult | null = null;
+    if (
+      hasMeasuredPeers() &&
+      ellipsis.length > 0 &&
+      visibleState === measuredState &&
+      rootRef.value &&
+      hasExplicitTextWidth(rootRef.value)
+    ) {
+      const measurement = prepareRichTextBatch(input);
+      if ("result" in measurement) result = measurement.result;
+      else {
+        const measured = await measureLayout(measurement.task, isCurrent, (next) => {
+          if (typeof next !== "function") settlement = commit(next);
+        });
+        if (!isCurrent()) return;
+        if (settlement) {
+          await settlement;
+          return;
+        }
+        result = typeof measured === "function" ? measured() : measured;
+      }
+    }
+    result ??= clampRich(input);
+    await commit(result);
   },
 });
 
@@ -304,12 +353,12 @@ function syncProbeContent(
   const beforeClone = syncProbeAffixClone(
     elements.affixes.before,
     beforeElement,
-    observedSizeSignature(beforeElement),
+    observedSizeSnapshot(beforeElement).signature,
   );
   const afterClone = syncProbeAffixClone(
     elements.affixes.after,
     afterElement,
-    observedSizeSignature(afterElement),
+    observedSizeSnapshot(afterElement).signature,
   );
 
   if (!beforeClone && !afterClone) {
@@ -413,18 +462,14 @@ function getNativeMode(lineLimit: number | undefined): NativeClampMode | null {
   });
 }
 
-function canUseSearchHint(
-  width: number,
-  sameAffix: boolean,
-  lineLimit: number | undefined,
-): boolean {
+function searchHintForWidth(width: number, sameAffix: boolean): RichState | null {
   if (!measuredState || !sameAffix) {
-    return false;
+    return null;
   }
 
   const stateWidth = measuredWidth;
   if (stateWidth === null || width === stateWidth) {
-    return true;
+    return measuredState;
   }
 
   const hint = rankHint;
@@ -432,20 +477,15 @@ function canUseSearchHint(
     const count = hint.rankCount;
     const start = Math.max(0, Math.min(count - 1, hint.rank));
     const target = estimatedTargetRank(hint, width);
-    const rankMove = Math.abs(target - start);
-
-    return warmTargetBeatsCold({
-      allowPatchTieBreak:
-        rankMove <= warmSearchLocalCoverage(richWarmExpansionLimit) || lineLimit !== 1,
-      coldCost: estimateColdSearchMaxProbeCount(count),
-      count,
-      expansionLimit: richWarmExpansionLimit,
-      hint: start,
-      target,
-    });
+    // These ranks count primary word cuts and atomic endpoints. The separate
+    // grapheme-fallback rank helper uses different units and cannot map them.
+    const points = probeSearchIndex?.data.rankPoints;
+    return points?.length === count && target !== start
+      ? { kind: "clamped", point: points.at(target) }
+      : measuredState;
   }
 
-  return Math.abs(width - stateWidth) <= warmBootstrapWidthDelta;
+  return Math.abs(width - stateWidth) <= warmBootstrapWidthDelta ? measuredState : null;
 }
 
 function estimatedTargetRank(hint: RankHint, width: number): number {

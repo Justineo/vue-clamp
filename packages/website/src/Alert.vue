@@ -1,15 +1,23 @@
 <script setup lang="ts">
-import { CircleAlert } from "@lucide/vue";
+import { CircleAlert, Info } from "@lucide/vue";
 
-defineProps<{
+const { tone = "warn" } = defineProps<{
   name: string;
   title: string;
+  tone?: "info" | "warn";
 }>();
 </script>
 
 <template>
-  <section class="alert" :data-alert="name" role="note">
-    <CircleAlert class="alert-icon" :size="18" aria-hidden="true" />
+  <section
+    class="alert"
+    :class="`alert-${tone}`"
+    :data-alert="name"
+    :data-alert-tone="tone"
+    role="note"
+  >
+    <Info v-if="tone === 'info'" class="alert-icon" :size="18" aria-hidden="true" />
+    <CircleAlert v-else class="alert-icon" :size="18" aria-hidden="true" />
     <p class="alert-title">{{ title }}</p>
     <div class="alert-copy">
       <slot />
@@ -19,15 +27,31 @@ defineProps<{
 
 <style scoped>
 .alert {
+  --alert-bg: #fff8ed;
+  --alert-border: #eadcc7;
+  --alert-copy: color-mix(in srgb, #6f4711 48%, var(--c-text));
+  --alert-icon: #8a5a13;
+  --alert-marker: #9f6a1c;
+  --alert-title: #6f4711;
+
   margin: 14px 0 0;
   display: grid;
   grid-template-columns: 18px minmax(0, 1fr);
   column-gap: 10px;
   row-gap: 6px;
   padding: 12px 14px;
-  background: #fff8ed;
-  border: 1px solid #eadcc7;
+  background: var(--alert-bg);
+  border: 1px solid var(--alert-border);
   border-radius: var(--radius);
+}
+
+.alert-info {
+  --alert-bg: color-mix(in srgb, var(--c-accent-soft) 64%, var(--c-bg));
+  --alert-border: color-mix(in srgb, var(--c-accent) 24%, var(--c-border));
+  --alert-copy: color-mix(in srgb, var(--c-accent-text) 34%, var(--c-text));
+  --alert-icon: var(--c-accent);
+  --alert-marker: var(--c-accent);
+  --alert-title: var(--c-accent-text);
 }
 
 .alert-icon {
@@ -35,16 +59,16 @@ defineProps<{
   align-self: center;
   width: 18px;
   height: 18px;
-  color: #8a5a13;
+  color: var(--alert-icon);
   stroke-width: 2.4;
 }
 
-.alert-icon :deep(circle) {
+.alert-warn .alert-icon :deep(circle) {
   fill: currentColor;
 }
 
-.alert-icon :deep(line) {
-  stroke: #fff8ed;
+.alert-warn .alert-icon :deep(line) {
+  stroke: var(--alert-bg);
 }
 
 .alert-title {
@@ -53,7 +77,7 @@ defineProps<{
   font-size: 0.8rem;
   font-weight: 600;
   line-height: 1.4;
-  color: #6f4711;
+  color: var(--alert-title);
 }
 
 .alert-copy {
@@ -62,7 +86,7 @@ defineProps<{
   max-width: 58rem;
   font-size: 0.82rem;
   line-height: 1.6;
-  color: color-mix(in srgb, #6f4711 48%, var(--c-text));
+  color: var(--alert-copy);
 }
 
 .alert-copy :deep(p) {
@@ -81,7 +105,7 @@ defineProps<{
 }
 
 .alert-copy :deep(li::marker) {
-  color: #9f6a1c;
+  color: var(--alert-marker);
 }
 
 .alert-copy :deep(code) {

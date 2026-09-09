@@ -1,0 +1,141 @@
+--- a/packages/vue-clamp/src/rich.ts
++++ b/packages/vue-clamp/src/rich.ts
+@@ -1557,38 +1557,25 @@
+   return finishRichSearch(searchRich(input));
+ }
+ 
+-// Probe preparation and structural candidates stay synchronous. A warm one-text
+-// source may also test its full candidate in the batch; markup-bearing sources
+-// may batch only stable cuts in the original text leaf.
++// Probe preparation and structural candidates stay synchronous. Only a positive
++// cut in the original text leaf may join another component's measurement rounds.
+ export function prepareRichTextBatch(
+   input: RichClampOptions,
+ ):
+   | { result: RichClampResult }
+   | { task: Generator<() => boolean, RichClampResult | (() => RichClampResult), boolean> } {
+   const from = input.from;
+-  if (from?.kind !== "clamped") return { result: clampRich(input) };
+-
+-  const textOnly =
+-    input.prepared.root.childNodes.length === 1 &&
+-    input.prepared.root.firstChild?.nodeType === Node.TEXT_NODE;
+-  if (
+-    !textOnly &&
+-    (!input.skipFullFit ||
+-      input.verifyFullCandidate ||
+-      !input.preferHintedTextRun ||
+-      textPrefixForPoint(input.prepared.root, from.point) === null)
+-  ) {
++  if (from?.kind !== "clamped" || textPrefixForPoint(input.prepared.root, from.point) === null) {
+     return { result: clampRich(input) };
+   }
+-  const originPath = from.point.path;
++  const origin = from;
+   const search = searchRich(input, false);
+   let step = search.next();
+   function stable(measurement: RichMeasurement): boolean {
+     return (
+-      textOnly ||
+-      (measurement.stable &&
+-        measurement.state.kind === "clamped" &&
+-        samePath(measurement.state.point.path, originPath))
++      measurement.stable &&
++      measurement.state.kind === "clamped" &&
++      samePath(measurement.state.point.path, origin.point.path)
+     );
+   }
+   while (!step.done && !stable(step.value)) {
+@@ -1699,9 +1686,8 @@
+       state: FULL_STATE,
+       stable: false,
+       write: applyFullCandidate,
+-      read: () => {
+-        if (!reuseRootPosition && visibleBoundsCache) visibleBoundsCache.top = undefined;
+-        return fitsContent(
++      read: () =>
++        fitsContent(
+           root,
+           content,
+           lineLimit,
+@@ -1710,8 +1696,7 @@
+           visibleBoundsCache,
+           simpleLineFit,
+           captureFullFit,
+-        );
+-      },
++        ),
+     };
+ 
+     currentFit = {
+--- a/packages/vue-clamp/src/rich-line/RichLineClamp.vue
++++ b/packages/vue-clamp/src/rich-line/RichLineClamp.vue
+@@ -271,29 +271,13 @@
+       ellipsis === input.ellipsis &&
+       beforeRef.value === beforeElement &&
+       afterRef.value === afterElement;
+-    // Return the existing settlement promise directly: another async boundary
+-    // would let nextTick observe stale slot status after the text is committed.
+-    function commit(result: RichClampResult): Promise<void> {
+-      measuredState = result.state;
+-      probeSearchIndex = result.searchIndex ?? null;
+-      measuredAffixSignature = affixSignature;
+-      measuredWidth = probe.width;
+-      updateRankHint(result, probe.width, sameAffix);
+-      updateClampedMaxWidth(result, probe.width, sameAffix);
+-      if (!result.state) {
+-        // A zero-width probe should not replace visible content with a guessed rich
+-        // fragment.
+-        return resetClamp();
+-      }
+-
+-      patchVisible(prepared, result.state);
+-      return applyStatus(result.state.kind === "clamped", result.fallback);
+-    }
+-    let settlement: Promise<void> | undefined;
+     let result: RichClampResult | null = null;
+     if (
+       hasMeasuredPeers() &&
+       ellipsis.length > 0 &&
++      skipFullFit &&
++      !input.verifyFullCandidate &&
++      preferHintedTextRun &&
+       visibleState === measuredState &&
+       rootRef.value &&
+       hasExplicitTextWidth(rootRef.value)
+@@ -301,19 +285,27 @@
+       const measurement = prepareRichTextBatch(input);
+       if ("result" in measurement) result = measurement.result;
+       else {
+-        const measured = await measureLayout(measurement.task, isCurrent, (next) => {
+-          if (typeof next !== "function") settlement = commit(next);
+-        });
++        const measured = await measureLayout(measurement.task, isCurrent, () => {});
+         if (!isCurrent()) return;
+-        if (settlement) {
+-          await settlement;
+-          return;
+-        }
+         result = typeof measured === "function" ? measured() : measured;
+       }
+     }
+     result ??= clampRich(input);
+-    await commit(result);
++    measuredState = result.state;
++    probeSearchIndex = result.searchIndex ?? null;
++    measuredAffixSignature = affixSignature;
++    measuredWidth = probe.width;
++    updateRankHint(result, probe.width, sameAffix);
++    updateClampedMaxWidth(result, probe.width, sameAffix);
++    if (!result.state) {
++      // A zero-width probe should not replace visible content with a guessed rich
++      // fragment.
++      await resetClamp();
++      return;
++    }
++
++    patchVisible(prepared, result.state);
++    await applyStatus(result.state.kind === "clamped", result.fallback);
+   },
+ });
+ 

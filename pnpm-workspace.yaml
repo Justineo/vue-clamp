@@ -8,6 +8,7 @@ allowBuilds:
   workerd: true
 
 catalog:
+  "@chenglou/pretext": 0.0.8
   "@lucide/vue": ^1.12.0
   "@types/node": ^25.6.0
   "@types/stats.js": ^0.17.4

@@ -1,0 +1,55 @@
+--- a/tools/benchmark/scripts/measure-update-costs.mjs
++++ b/tools/benchmark/scripts/measure-update-costs.mjs
+@@ -37,7 +37,7 @@
+ if (![rounds, steps, ...counts].every((number) => Number.isInteger(number) && number > 0))
+   throw new Error("Counts, rounds, and steps must be positive integers.");
+ const allowedTokens = new Set(
+-  "source resize noop font item metrics line inline rich wrap plain distinct large huge short full cjk emoji grapheme longword needle nested atomic affix height tiny".split(
++  "nfd nfc greek cyrillic hangul japanese arabic astral combining pool2 pool4 pool8 medium source resize noop font item metrics line inline rich wrap plain distinct large huge short full cjk emoji grapheme longword needle nested atomic affix height tiny".split(
+     " ",
+   ),
+ );
+@@ -91,6 +91,15 @@
+   await task();
+ };
+ const copies = {
++  nfd: "Voilà déjà Noël, café français élève bientôt. ",
++  nfc: "Voilà déjà Noël, café français élève bientôt. ",
++  greek: "Καλημέρα κόσμε Αθήνα Θεσσαλονίκη. ",
++  cyrillic: "Быстрая проверка границ текста и интерфейса. ",
++  hangul: "한글 문장 경계를 정확하게 유지하는 구성 요소입니다. ",
++  japanese: "これは文字の境界を正しく扱うためのテストです。カタカナ ",
++  arabic: "مرحبا بالعالم تجربة حدود النص ",
++  astral: "😀😃😄😁𠀀𠀁𠀂𝔄𝔅𝔇 ",
++  combining: "é ä क्‍ष 👩🏽‍💻 🇨🇳 ",
+   cjk: "这是一个需要在不同宽度下保持正确文字边界的组件。中英文混排 dashboard 让我们验证真实浏览器的排版行为。",
+   latin:
+     "Operational dashboards keep ownership and incident context visible while surrounding panels change width. ",
+@@ -119,15 +128,11 @@
+     entry[
+       { line: "LineClamp", inline: "InlineClamp", rich: "RichLineClamp", wrap: "WrapClamp" }[kind]
+     ];
+-  const sourceKind = scenario.includes("cjk")
+-    ? "cjk"
+-    : scenario.includes("emoji")
+-      ? "emoji"
+-      : "latin";
++  const sourceKind = Object.keys(copies).find(key => scenario.split("-").includes(key)) ?? "latin";
+   const copy = copies[sourceKind],
+-    length = scenario.includes("huge") ? 30000 : scenario.includes("large") ? 6000 : 600;
++    length = scenario.includes("huge") ? 30000 : scenario.includes("large") ? 6000 : scenario.includes("medium") ? 1500 : 600;
+   const source = scenario.includes("short")
+-    ? "Short title"
++    ? (sourceKind === "nfc" ? "Café déjà prêt" : "Short title")
+     : scenario.includes("longword")
+       ? "👩🏽‍💻".repeat(Math.ceil(length / 7))
+       : copy.repeat(Math.ceil(length / copy.length)).slice(0, length);
+@@ -146,7 +151,7 @@
+         Array.from({ length: count }, (_, i) => {
+           const text =
+             (scenario.startsWith("source") ? revision.value + ": " : "") +
+-            (scenario.includes("distinct") ? i + ": " : "") +
++            (scenario.includes("pool") ? (i % Number(scenario.match(/pool(\d+)/)[1])) + ": " : scenario.includes("distinct") ? i + ": " : "") +
+             source;
+           const style = {
+             display: "block",

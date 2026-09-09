@@ -1,0 +1,34 @@
+--- a/tools/benchmark/scripts/measure-update-costs.mjs
++++ b/tools/benchmark/scripts/measure-update-costs.mjs
+@@ -343,6 +343,14 @@
+     "ScriptDuration",
+     "TaskDuration",
+   ];
++  async function snapshot(name) {
++    const chunks = [];
++    const collect = ({ chunk }) => chunks.push(chunk);
++    cdp.on("HeapProfiler.addHeapSnapshotChunk", collect);
++    await cdp.send("HeapProfiler.takeHeapSnapshot", { reportProgress: false });
++    cdp.off("HeapProfiler.addHeapSnapshotChunk", collect);
++    await writeFile(join(directory, name + ".heapsnapshot"), chunks.join(""));
++  }
+   const rows = [];
+   for (const count of counts)
+     for (const scenario of scenarios) {
+@@ -352,13 +360,16 @@
+           const target = (order + Math.max(0, round)) % names.length;
+           await page.evaluate(() => window.clear());
+           const emptyHeap = heapMode ? await usedHeap() : undefined;
++          if (heapMode && round === 0) await snapshot(count + "-" + names[target] + "-empty");
+           await page.evaluate(
+             ([target, scenario, count]) => window.prepare(target, scenario, count),
+             [target, scenario, count],
+           );
+           let result;
+           if (heapMode) {
++            await page.evaluate((steps) => window.run(steps), steps);
+             const used = await usedHeap();
++            if (round === 0) await snapshot(count + "-" + names[target] + "-mounted");
+             result = {
+               emptyHeap,
+               usedHeap: used,

@@ -1,0 +1,21 @@
+--- a/packages/vue-clamp/src/measure.ts
++++ b/packages/vue-clamp/src/measure.ts
+@@ -5,11 +5,16 @@
+ // those searches serial; percentages need an explicit immediate parent width.
+ export function hasExplicitTextWidth(element: HTMLElement): boolean {
+   const width = element.style.width.trim();
+-  return (
++  if (
+     isContentIndependentWidth(width) ||
+     (/^(?:\d+|\d*\.\d+)%$/u.test(width) &&
+       isContentIndependentWidth(element.parentElement?.style.width.trim() ?? ""))
+-  );
++  ) return true;
++  const typed = (element as HTMLElement & {
++    computedStyleMap?: () => { get: (property: string) => { unit?: string; value?: number } | undefined };
++  }).computedStyleMap?.().get("width");
++  return typed?.unit === "px" && Number.isFinite(typed.value) && (typed.value ?? 0) > 0;
++
+ }
+ 
+ type MeasurementTask<T, V> = Generator<() => V, T, V>;

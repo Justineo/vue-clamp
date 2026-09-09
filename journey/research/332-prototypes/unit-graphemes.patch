@@ -1,0 +1,49 @@
+--- a/packages/vue-clamp/src/text.ts
++++ b/packages/vue-clamp/src/text.ts
+@@ -134,13 +134,17 @@
+   readonly target: HTMLElement;
+ };
+ 
+-function asciiBoundaryOffsets(text: string): number[] | null {
++function unitBoundaryOffsets(text: string): number[] | null {
+   const offsets = Array<number>(text.length + 1);
+   offsets[0] = 0;
+ 
+   for (let index = 0; index < text.length; index += 1) {
+     const code = text.charCodeAt(index);
+-    if ((code < 0x20 || code > 0x7e) && code !== 0x09 && code !== 0x0a) {
++    if (
++      !((code >= 0x20 && code <= 0x7e) || code === 0x09 || code === 0x0a ||
++        (code >= 0x3400 && code <= 0x4dbf) || (code >= 0x4e00 && code <= 0x9fff) ||
++        code === 0x3001 || code === 0x3002 || code === 0xff0c)
++    ) {
+       return null;
+     }
+ 
+@@ -194,7 +198,7 @@
+ export function prepareText(text: string, boundary: ClampBoundary = "grapheme"): PreparedText {
+   // ASCII has one UTF-16 code unit per grapheme in the accepted range, so the
+   // common path builds its boundaries while checking safety in a single pass.
+-  const asciiOffsets = asciiBoundaryOffsets(text);
++  const asciiOffsets = unitBoundaryOffsets(text);
+   const asciiSafe = asciiOffsets !== null;
+   const fallbackBoundaryOffsets = asciiOffsets ?? graphemeBoundaryOffsets(text);
+ 
+@@ -219,7 +223,7 @@
+ }
+ 
+ function prepareWordText(text: string): PreparedText {
+-  const asciiSafe = /^[\x20-\x7e\t\n]*$/u.test(text);
++  const asciiSafe = /^[\x20-\x7e\t\n\u3400-\u4dbf\u4e00-\u9fff\u3001\u3002\uff0c]*$/u.test(text);
+   const graphemes = asciiSafe ? null : graphemeSegmenter.segment(text)[Symbol.iterator]();
+   let graphemeEnd = 0;
+   const boundaryOffsets = [0];
+@@ -245,7 +249,7 @@
+     boundaryOffsets,
+     hasCursiveText: !asciiSafe && hasCursiveText(text),
+     get fallbackBoundaryOffsets() {
+-      return (fallback ??= asciiBoundaryOffsets(text) ?? graphemeBoundaryOffsets(text));
++      return (fallback ??= unitBoundaryOffsets(text) ?? graphemeBoundaryOffsets(text));
+     },
+   };
+ }

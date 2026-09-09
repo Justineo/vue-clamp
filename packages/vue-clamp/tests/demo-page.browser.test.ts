@@ -643,6 +643,30 @@ async function selectSurface(container: HTMLElement, surface: DemoSurface): Prom
   await settle(4);
 }
 
+async function selectLineEngine(
+  container: HTMLElement,
+  engine: "standard" | "pretext",
+): Promise<void> {
+  const button = container.querySelector(`[data-line-engine="${engine}"]`);
+  if (!(button instanceof HTMLButtonElement)) {
+    throw new Error(`Expected the ${engine} LineClamp engine button.`);
+  }
+
+  button.click();
+  await settle(4);
+}
+
+function stressEngine(): string | null {
+  return (
+    document.querySelector("[data-stress-engine-status]")?.getAttribute("data-stress-engine") ??
+    null
+  );
+}
+
+function stressEngineLabel(): string | undefined {
+  return document.querySelector("[data-stress-engine-status]")?.textContent?.trim();
+}
+
 afterEach(() => {
   for (const mountedPage of mounted) {
     mountedPage.app.unmount();
@@ -1226,6 +1250,13 @@ describe("Website demo page", () => {
     }
 
     await selectSurface(mountedPage.container, "line");
+    await selectLineEngine(mountedPage.container, "pretext");
+    const pretextControls = sharedControls(mountedPage.container, "line");
+    expect(pretextControls.textContent).toContain("Width");
+    expect(pretextControls.textContent).toContain("Max lines");
+    expect(getComputedStyle(pretextControls).position).toBe("sticky");
+
+    await selectLineEngine(mountedPage.container, "standard");
     const lineToggle = sharedControlsToggle(mountedPage.container, "line");
     lineToggle.click();
     await settle(1);
@@ -1306,7 +1337,8 @@ describe("Website demo page", () => {
     expect(
       document.querySelector('[data-stress-limit-mode="lines"]')?.getAttribute("aria-pressed"),
     ).toBe("true");
-    expect(document.querySelector("[data-stress-native-status]")).toBeNull();
+    expect(stressEngine()).toBeNull();
+    expect(document.querySelector('[data-stress-surface="pretext"]')).toBeNull();
 
     expect(meter).toBeInstanceOf(HTMLElement);
 
@@ -1368,6 +1400,24 @@ describe("Website demo page", () => {
     await settle(1);
     expect(document.querySelector("[data-stress-payload]")?.textContent).toBe("40 items");
 
+    const richSurfaceButton = document.querySelector('[data-stress-surface="rich"]');
+    if (!(richSurfaceButton instanceof HTMLButtonElement)) {
+      throw new Error("Expected the RichLineClamp stress surface button.");
+    }
+    richSurfaceButton.click();
+    (maxLinesSlider as HTMLInputElement).value = "1";
+    maxLinesSlider?.dispatchEvent(new Event("input", { bubbles: true }));
+    await settle(2);
+
+    const richStressItem = document.querySelector("[data-stress-item]");
+    const richStressClamp = richStressItem?.querySelector(".stress-clamp");
+    expect(richStressItem).toBeInstanceOf(HTMLElement);
+    expect(richStressClamp).toBeInstanceOf(HTMLElement);
+    expect((richStressItem as HTMLElement).getBoundingClientRect().width).toBeCloseTo(360, 0);
+    expect((richStressClamp as HTMLElement).getBoundingClientRect().width).toBeLessThanOrEqual(
+      (richStressItem as HTMLElement).clientWidth,
+    );
+
     const lineSurfaceButton = document.querySelector('[data-stress-surface="line"]');
     if (!(lineSurfaceButton instanceof HTMLButtonElement)) {
       throw new Error("Expected the LineClamp stress surface button.");
@@ -1381,6 +1431,13 @@ describe("Website demo page", () => {
         .querySelector("[data-stress-surface-item]")
         ?.getAttribute("data-stress-surface-item"),
     ).toBe("line");
+    expect(
+      document.querySelector('[data-stress-boundary="word"]')?.getAttribute("aria-pressed"),
+    ).toBe("true");
+    expect(stressEngineLabel()).toBe("Measured");
+    expect(
+      document.querySelector('[data-stress-line-engine="standard"]')?.getAttribute("aria-pressed"),
+    ).toBe("true");
 
     (widthSlider as HTMLInputElement).value = "520";
     widthSlider?.dispatchEvent(new Event("input", { bubbles: true }));
@@ -1388,9 +1445,17 @@ describe("Website demo page", () => {
     maxLinesSlider?.dispatchEvent(new Event("input", { bubbles: true }));
     await settle(1);
 
-    const nativeStatus = document.querySelector("[data-stress-native-status]");
+    expect(stressEngine()).toBe("measured");
+    const graphemeBoundaryButton = document.querySelector('[data-stress-boundary="grapheme"]');
+    if (!(graphemeBoundaryButton instanceof HTMLButtonElement)) {
+      throw new Error("Expected the grapheme stress boundary button.");
+    }
+    graphemeBoundaryButton.click();
+    await settle(1);
+
+    const nativeStatus = document.querySelector("[data-stress-engine-status]");
     expect(nativeStatus).toBeInstanceOf(HTMLElement);
-    expect(nativeStatus?.getAttribute("data-stress-native-mode")).toBe("single-line");
+    expect(stressEngine()).toBe("native");
     expect(nativeStatus?.textContent?.trim()).toBe("Native");
     expect(nativeStatus?.getAttribute("title")).toBe("Native CSS text-overflow");
 
@@ -1398,7 +1463,7 @@ describe("Website demo page", () => {
     maxLinesSlider?.dispatchEvent(new Event("input", { bubbles: true }));
     await settle(1);
 
-    expect(document.querySelector("[data-stress-native-status]")).toBeNull();
+    expect(stressEngine()).toBe("measured");
     expect(document.querySelector("[data-stress-width]")?.textContent).toBe("520px");
     expect(document.querySelector("[data-stress-max-lines]")?.textContent).toBe("5");
 
@@ -1411,7 +1476,7 @@ describe("Website demo page", () => {
 
     expect(heightModeButton.getAttribute("aria-pressed")).toBe("true");
     expect(document.querySelector("[data-stress-max-lines-slider]")).toBeNull();
-    expect(document.querySelector("[data-stress-native-status]")).toBeNull();
+    expect(stressEngine()).toBe("measured");
     const maxHeightSlider = document.querySelector("[data-stress-max-height-slider]");
     expect(maxHeightSlider).toBeInstanceOf(HTMLInputElement);
 
@@ -1424,6 +1489,79 @@ describe("Website demo page", () => {
     expect(document.querySelector("[data-stress-item]")?.getAttribute("data-stress-item")).toBe(
       "height",
     );
+
+    const linesModeButton = document.querySelector('[data-stress-limit-mode="lines"]');
+    const wordBoundaryButton = document.querySelector('[data-stress-boundary="word"]');
+    const standardEngineButton = document.querySelector('[data-stress-line-engine="standard"]');
+    const pretextEngineButton = document.querySelector('[data-stress-line-engine="pretext"]');
+    if (
+      !(linesModeButton instanceof HTMLButtonElement) ||
+      !(wordBoundaryButton instanceof HTMLButtonElement) ||
+      !(standardEngineButton instanceof HTMLButtonElement) ||
+      !(pretextEngineButton instanceof HTMLButtonElement)
+    ) {
+      throw new Error("Expected the LineClamp and Pretext comparison controls.");
+    }
+
+    linesModeButton.click();
+    wordBoundaryButton.click();
+    (afterToggle as HTMLInputElement).click();
+    pretextEngineButton.click();
+    await settle(3);
+
+    expect(lineSurfaceButton.getAttribute("aria-pressed")).toBe("true");
+    expect(pretextEngineButton.getAttribute("aria-pressed")).toBe("true");
+    expect(document.querySelector("[data-stress-width]")?.textContent).toBe("520px");
+    expect(document.querySelector("[data-stress-max-lines]")?.textContent).toBe("5");
+    expect((afterToggle as HTMLInputElement).checked).toBe(false);
+    expect(stressEngineLabel()).toBe("Pretext");
+    expect(stressEngine()).toBe("pretext");
+
+    (afterToggle as HTMLInputElement).click();
+    await settle(2);
+    expect(stressEngineLabel()).toBe("Pretext");
+
+    (afterToggle as HTMLInputElement).click();
+    heightModeButton.click();
+    await settle(2);
+    expect(stressEngine()).toBe("measured");
+
+    linesModeButton.click();
+    graphemeBoundaryButton.click();
+    await settle(2);
+    expect(stressEngine()).toBe("native");
+
+    heightModeButton.click();
+    (afterToggle as HTMLInputElement).click();
+    await settle(2);
+    expect(stressEngine()).toBe("measured");
+
+    const resizeStressToggle = document.querySelector("[data-stress-resize-toggle]");
+    if (!(resizeStressToggle instanceof HTMLButtonElement)) {
+      throw new Error("Expected the continuous resize stress control.");
+    }
+    resizeStressToggle.click();
+    await settle(3);
+
+    expect(resizeStressToggle.getAttribute("aria-pressed")).toBe("true");
+    expect(document.querySelector("[data-stress-width]")?.textContent).not.toBe("520px");
+    expect(document.querySelector("[data-stress-count]")?.textContent).toBe("20");
+    expect(document.querySelector("[data-stress-payload]")?.textContent).toBe("5x text");
+    expect(heightModeButton.getAttribute("aria-pressed")).toBe("true");
+    expect(graphemeBoundaryButton.getAttribute("aria-pressed")).toBe("true");
+    expect((afterToggle as HTMLInputElement).checked).toBe(true);
+    expect(document.querySelector("[data-stress-max-height]")?.textContent).toBe("140px");
+    expect(stressEngine()).toBe("measured");
+    expect(document.querySelectorAll("[data-stress-item]")).toHaveLength(20);
+
+    standardEngineButton.click();
+    await settle(2);
+    expect(stressEngine()).toBe("measured");
+    expect(resizeStressToggle.getAttribute("aria-pressed")).toBe("true");
+
+    resizeStressToggle.click();
+    await settle(1);
+    expect(resizeStressToggle.getAttribute("aria-pressed")).toBe("false");
 
     const closeButton = document.querySelector("[data-stress-close]");
     if (!(closeButton instanceof HTMLButtonElement)) {
@@ -1550,6 +1688,7 @@ describe("Website demo page", () => {
     expect(surfaceGuideItem(mountedPage.container, "rich").textContent).toContain(
       "Trusted inline HTML clamp",
     );
+    expect(mountedPage.container.querySelector('[data-surface-guide-item="pretext"]')).toBeNull();
     expect(surfaceGuideItem(mountedPage.container, "wrap").textContent).toContain(
       "Wrapped item clamp",
     );
@@ -1588,6 +1727,43 @@ describe("Website demo page", () => {
     await settle(2);
 
     expect(surfaceTab(mountedPage.container, "line").getAttribute("aria-pressed")).toBe("true");
+    expect(mountedPage.container.querySelector('[data-surface-tab="pretext"]')).toBeNull();
+  });
+
+  it("renders a synchronized Pretext workload with predictive-eligible inputs", async () => {
+    const { default: App } = await import("../../website/src/App.vue");
+    const mountedPage = mountPage(App);
+
+    await settle(4);
+    await selectSurface(mountedPage.container, "line");
+    await selectLineEngine(mountedPage.container, "pretext");
+
+    expect(window.location.hash).toBe("#line-clamp");
+    expect(surfaceTab(mountedPage.container, "line").getAttribute("aria-pressed")).toBe("true");
+    const workload = mountedPage.container.querySelector("[data-pretext-workload]");
+    const width = mountedPage.container.querySelector("[data-pretext-width-slider]");
+    const lines = mountedPage.container.querySelector("[data-pretext-lines-slider]");
+
+    expect(workload).toBeInstanceOf(HTMLElement);
+    expect(width).toBeInstanceOf(HTMLInputElement);
+    expect(lines).toBeInstanceOf(HTMLInputElement);
+
+    await setRangeValue(width as HTMLInputElement, 320);
+    await setRangeValue(lines as HTMLInputElement, 2);
+
+    const items = workload?.querySelectorAll("[data-pretext-item]") ?? [];
+    expect(items).toHaveLength(8);
+
+    for (const item of items) {
+      const body = item.querySelector('[data-part="body"]');
+      const content = item.querySelector('[data-part="content"]');
+      expect(body).toBeInstanceOf(HTMLElement);
+      expect(content).toBeInstanceOf(HTMLElement);
+      expect(getComputedStyle(content as HTMLElement).getPropertyValue("-webkit-line-clamp")).toBe(
+        "2",
+      );
+      expect(item.querySelector('[aria-hidden="true"]')).toBeInstanceOf(HTMLElement);
+    }
   });
 
   it("initializes overlay scrollbars for shared horizontal containers", async () => {
@@ -1624,6 +1800,28 @@ describe("Website demo page", () => {
     expect(lineSummary.textContent).toContain("plain text");
     expect(referenceShell(mountedPage.container).querySelector('[data-alert="line"]')).toBeNull();
 
+    await selectLineEngine(mountedPage.container, "pretext");
+
+    expect(referenceShell(mountedPage.container).querySelector('[data-api-summary="line"]')).toBe(
+      lineSummary,
+    );
+    expect(
+      referenceShell(mountedPage.container).querySelector('[data-api-summary="pretext"]'),
+    ).toBeNull();
+    const pretextNotice = referenceShell(mountedPage.container).querySelector(
+      '[data-alert="pretext"]',
+    );
+    if (!(pretextNotice instanceof HTMLElement)) {
+      throw new Error("Expected the Pretext typography alert.");
+    }
+    expect(pretextNotice.getAttribute("data-alert-tone")).toBe("info");
+    expect(pretextNotice.textContent).toContain("When Pretext pays off");
+    expect(pretextNotice.textContent).toContain("resize repeatedly");
+    expect(pretextNotice.textContent).toContain("word boundaries");
+    expect(pretextNotice.textContent).toContain("custom ellipsis");
+    expect(pretextNotice.textContent).toContain("multiline after slot");
+    expect(pretextNotice.textContent).toContain("named font is loaded");
+
     await selectSurface(mountedPage.container, "rich");
 
     const richSummary = referenceShell(mountedPage.container).querySelector(
@@ -1639,6 +1837,7 @@ describe("Website demo page", () => {
     if (!(richNotice instanceof HTMLElement)) {
       throw new Error("Expected the RichLineClamp alert.");
     }
+    expect(richNotice.getAttribute("data-alert-tone")).toBe("warn");
     expect(richNotice.querySelector(".alert-icon")).toBeInstanceOf(SVGSVGElement);
     expect(richNotice.textContent).toContain("HTML input contract");
     expect(richNotice.textContent).toContain("Sanitize untrusted input");
@@ -1757,14 +1956,23 @@ describe("Website demo page", () => {
     expect(clipboardWrites[2]).toContain('import { LineClamp } from "vue-clamp"');
     expect(clipboardWrites[2]).toContain(':text="text"');
 
+    await selectLineEngine(mountedPage.container, "pretext");
+
+    const pretextExampleButton = copyButton(mountedPage.container, "pretext-example");
+    pretextExampleButton.click();
+    await settle(2);
+
+    expect(clipboardWrites[3]).toContain('import { LineClamp } from "vue-clamp/pretext"');
+    expect(clipboardWrites[3]).toContain('boundary="word"');
+
     await selectSurface(mountedPage.container, "rich");
 
     const richExampleButton = copyButton(mountedPage.container, "rich-example");
     richExampleButton.click();
     await settle(2);
 
-    expect(clipboardWrites[3]).toContain('import { RichLineClamp } from "vue-clamp"');
-    expect(clipboardWrites[3]).toContain(':html="html"');
+    expect(clipboardWrites[4]).toContain('import { RichLineClamp } from "vue-clamp"');
+    expect(clipboardWrites[4]).toContain(':html="html"');
     expect(richExampleButton.getAttribute("data-copy-state")).toBe("copied");
 
     await selectSurface(mountedPage.container, "inline");
@@ -1773,8 +1981,8 @@ describe("Website demo page", () => {
     inlineExampleButton.click();
     await settle(2);
 
-    expect(clipboardWrites[4]).toContain('import { InlineClamp } from "vue-clamp"');
-    expect(clipboardWrites[4]).toContain("splitImageFile");
+    expect(clipboardWrites[5]).toContain('import { InlineClamp } from "vue-clamp"');
+    expect(clipboardWrites[5]).toContain("splitImageFile");
     expect(inlineExampleButton.getAttribute("data-copy-state")).toBe("copied");
 
     await selectSurface(mountedPage.container, "wrap");
@@ -1783,8 +1991,8 @@ describe("Website demo page", () => {
     wrapExampleButton.click();
     await settle(2);
 
-    expect(clipboardWrites[5]).toContain('import { WrapClamp } from "vue-clamp"');
-    expect(clipboardWrites[5]).toContain("hiddenItems");
+    expect(clipboardWrites[6]).toContain('import { WrapClamp } from "vue-clamp"');
+    expect(clipboardWrites[6]).toContain("hiddenItems");
     expect(wrapExampleButton.getAttribute("data-copy-state")).toBe("copied");
   });
 });

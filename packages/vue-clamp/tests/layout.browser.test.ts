@@ -149,6 +149,15 @@ describe("layout helpers", () => {
     expectSubpixelWidth(snapshot.width, box);
   });
 
+  it("can retain logical entry widths for predictive layout", async () => {
+    const box = mountTransformedSubpixelBox();
+    const entry = await nextResizeEntry(box);
+    const snapshot = observedBorderBoxSizeSnapshot(entry, emptyBorderBoxSignature, false);
+
+    expect(snapshot?.width).toBeCloseTo(120.25, 2);
+    expect(snapshot?.width).not.toBeCloseTo(box.getBoundingClientRect().width, 2);
+  });
+
   it("uses entry snapshots for ordinary ResizeObserver entries", async () => {
     const box = mountBox("width:120px;height:40px");
     const entry = await nextResizeEntry(box);

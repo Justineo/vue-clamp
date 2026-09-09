@@ -2,33 +2,9 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   countLineBoxes,
   createCoalescingRunner,
-  hasInlineFontMetrics,
-  hasInlineLineMetrics,
-  hasUnresolvedInlineTextWidthStyle,
   hasUnresolvedStyleReference,
   isContentIndependentWidth,
 } from "../src/layout.ts";
-
-function fontMetricsStyle(fontFamily = "", fontSize = ""): CSSStyleDeclaration {
-  return {
-    fontFamily,
-    fontSize,
-  } as CSSStyleDeclaration;
-}
-
-function lineMetricsStyle(lineHeight = ""): CSSStyleDeclaration {
-  return {
-    lineHeight,
-  } as CSSStyleDeclaration;
-}
-
-function inlineStyle(values: Record<string, string>): CSSStyleDeclaration {
-  return {
-    getPropertyValue(property: string) {
-      return values[property] ?? "";
-    },
-  } as CSSStyleDeclaration;
-}
 
 async function flushMicrotasks(): Promise<void> {
   for (let index = 0; index < 3; index += 1) {
@@ -46,6 +22,44 @@ describe("layout style helpers", () => {
     ] as unknown as DOMRectList;
 
     expect(countLineBoxes(rects)).toBe(2);
+  });
+
+  it("preserves tolerant line grouping for overlapping and unordered fragments", () => {
+    let seed = 329;
+    for (let sample = 0; sample < 64; sample += 1) {
+      const rects = Array.from({ length: 160 }, (_, index) => {
+        seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+        const top = (seed % 400) / 10 - 20;
+        const height = index % 17 === 0 ? 0 : 18 + (seed % 3);
+        return { top, bottom: top + height, height };
+      });
+      const representatives: typeof rects = [];
+      for (const rect of rects) {
+        if (
+          rect.height > 0 &&
+          !representatives.some(
+            (line) =>
+              Math.abs(line.top - rect.top) <= 0.5 && Math.abs(line.bottom - rect.bottom) <= 0.5,
+          )
+        )
+          representatives.push(rect);
+      }
+      expect(countLineBoxes(rects as unknown as DOMRectList)).toBe(representatives.length);
+    }
+  });
+
+  it("processes long ordered line lists without comparing every earlier line", () => {
+    let reads = 0;
+    const rects = Array.from({ length: 4000 }, (_, index) => ({
+      get top() {
+        reads += 1;
+        return Math.floor(index / 2) * 20;
+      },
+      bottom: (Math.floor(index / 2) + 1) * 20,
+      height: 20,
+    }));
+    expect(countLineBoxes(rects as unknown as DOMRectList)).toBe(2000);
+    expect(reads).toBeLessThan(20000);
   });
 
   it("detects unresolved width references", () => {
@@ -68,54 +82,6 @@ describe("layout style helpers", () => {
     expect(isContentIndependentWidth("100%")).toBe(false);
     expect(isContentIndependentWidth("calc(100% - 8px)")).toBe(false);
     expect(isContentIndependentWidth("var(--clamp-width)")).toBe(false);
-  });
-
-  it("identifies directly declared pixel font metrics", () => {
-    expect(hasInlineFontMetrics(fontMetricsStyle("Georgia, serif", "16px"))).toBe(true);
-    expect(hasInlineFontMetrics(fontMetricsStyle("Georgia, serif"))).toBe(false);
-    expect(hasInlineFontMetrics(fontMetricsStyle("", "16px"))).toBe(false);
-    expect(hasInlineFontMetrics(fontMetricsStyle("Georgia, serif", "1em"))).toBe(false);
-    expect(hasInlineFontMetrics(fontMetricsStyle("Georgia, serif", "var(--font-size)"))).toBe(
-      false,
-    );
-    expect(hasInlineFontMetrics(fontMetricsStyle("var(--font-family)", "16px"))).toBe(false);
-    expect(hasInlineFontMetrics(fontMetricsStyle())).toBe(false);
-  });
-
-  it("identifies directly declared line metrics", () => {
-    expect(hasInlineLineMetrics(lineMetricsStyle("20px"))).toBe(true);
-    expect(hasInlineLineMetrics(lineMetricsStyle("1.4"))).toBe(true);
-    expect(hasInlineLineMetrics(lineMetricsStyle("normal"))).toBe(true);
-    expect(hasInlineLineMetrics(lineMetricsStyle("1em"))).toBe(false);
-    expect(hasInlineLineMetrics(lineMetricsStyle("1rem"))).toBe(false);
-    expect(hasInlineLineMetrics(lineMetricsStyle("var(--line-height)"))).toBe(false);
-    expect(hasInlineLineMetrics(lineMetricsStyle())).toBe(false);
-  });
-
-  it("checks unresolved inline text width styles without rejecting unrelated styles", () => {
-    expect(
-      hasUnresolvedInlineTextWidthStyle(
-        inlineStyle({
-          color: "var(--theme-color)",
-          "max-width": "100%",
-          width: "180px",
-        }),
-      ),
-    ).toBe(false);
-    expect(
-      hasUnresolvedInlineTextWidthStyle(
-        inlineStyle({
-          "font-size": "var(--font-size)",
-        }),
-      ),
-    ).toBe(true);
-    expect(
-      hasUnresolvedInlineTextWidthStyle(
-        inlineStyle({
-          "letter-spacing": "var(--letter-spacing)",
-        }),
-      ),
-    ).toBe(true);
   });
 });
 

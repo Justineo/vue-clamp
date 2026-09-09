@@ -21,6 +21,8 @@ import inlineCodeExample from "./snippets/InlineClampExample.vue?raw";
 import inlineCodeExampleHtml from "./snippets/InlineClampExample.vue?highlight=vue";
 import lineCodeExample from "./snippets/LineClampExample.vue?raw";
 import lineCodeExampleHtml from "./snippets/LineClampExample.vue?highlight=vue";
+import pretextCodeExample from "./snippets/PretextLineClampExample.vue?raw";
+import pretextCodeExampleHtml from "./snippets/PretextLineClampExample.vue?highlight=vue";
 import richCodeExample from "./snippets/RichLineClampExample.vue?raw";
 import richCodeExampleHtml from "./snippets/RichLineClampExample.vue?highlight=vue";
 import wrapCodeExample from "./snippets/WrapClampExample.vue?raw";
@@ -145,6 +147,7 @@ const clamped3 = ref(false);
 
 // Demo 4: ellipsis + location
 const lines4 = ref(5);
+const pretextLines = ref(3);
 const ellipsis4 = ref("\u2026");
 const locationRatio4 = ref(1);
 const lineWidth = ref(480);
@@ -206,6 +209,7 @@ function selectRichHtmlPreset(value: string): void {
 }
 
 type SurfaceKey = "line" | "rich" | "inline" | "wrap";
+type LineEngine = "standard" | "pretext";
 type WrapDemoItem = {
   id: string;
   label: string;
@@ -276,11 +280,15 @@ function setSurfaceRouteHash(surface: SurfaceKey): void {
 }
 
 const activeSurface = ref<SurfaceKey>(currentSurfaceFromLocation() ?? "line");
+const lineEngine = ref<LineEngine>("standard");
 const referenceTabsAnchorRef = ref<HTMLElement | null>(null);
 const demoControlsExpanded = ref(false);
 const stressPlaygroundOpen = ref(false);
 const stressPlaygroundOpenButtonRef = ref<HTMLButtonElement | null>(null);
 const CodeBlock = defineAsyncComponent(() => import("./CodeBlock.vue"));
+const PretextLineClamp = defineAsyncComponent(() =>
+  import("vue-clamp/pretext").then(({ LineClamp }) => LineClamp),
+);
 const StressPlayground = defineAsyncComponent(() => import("./StressPlayground.vue"));
 const surfaceGuideItems = [
   {
@@ -312,6 +320,19 @@ const surfaceGuideItems = [
     id: surfaceHashes.wrap,
     label: "WrapClamp",
     value: "wrap",
+  },
+] as const;
+
+const lineEngineOptions = [
+  {
+    buttonAttrs: { "data-line-engine": "standard" },
+    label: "Standard",
+    value: "standard",
+  },
+  {
+    buttonAttrs: { "data-line-engine": "pretext" },
+    label: "Pretext",
+    value: "pretext",
   },
 ] as const;
 
@@ -396,6 +417,12 @@ function scrollReferenceTabsToTop(): void {
 
 function isSurfaceKey(value: string): value is SurfaceKey {
   return value === "line" || value === "rich" || value === "inline" || value === "wrap";
+}
+
+function updateLineEngine(value: string): void {
+  if (value !== "standard" && value !== "pretext") return;
+  lineEngine.value = value;
+  demoControlsExpanded.value = false;
 }
 
 function syncActiveSurfaceFromRoute(): boolean {
@@ -647,6 +674,10 @@ function boolFlag(enabled: boolean, label: string): string | null {
 const demoControlsSummary = computed(() => {
   switch (activeSurface.value) {
     case "line":
+      if (lineEngine.value === "pretext") {
+        return [`${pretextLines.value} lines`, `${lineWidth.value}px`].join(" · ");
+      }
+
       return [
         boundaryLabel(lineBoundary.value),
         `${lineWidth.value}px`,
@@ -1022,6 +1053,7 @@ function highlightedHtmlProps(html: string | undefined): { html?: string } {
 const highlightedCode = {
   inline: inlineCodeExampleHtml,
   line: lineCodeExampleHtml,
+  pretext: pretextCodeExampleHtml,
   rich: richCodeExampleHtml,
   wrap: wrapCodeExampleHtml,
 } as const;
@@ -1275,12 +1307,44 @@ const highlightedCode = {
                 <code>+N</code>, <code>More</code>, or <code>Less</code> UI.
               </p>
             </template>
+
+            <div v-if="activeSurface === 'line'" class="line-engine-picker">
+              <span class="line-engine-label">LineClamp engine</span>
+              <PillControls
+                compact
+                mono
+                aria-label="LineClamp engine"
+                :model-value="lineEngine"
+                :options="lineEngineOptions"
+                @update:modelValue="updateLineEngine"
+              />
+            </div>
+            <Alert
+              v-if="activeSurface === 'line' && lineEngine === 'pretext'"
+              class="pretext-engine-guidance"
+              name="pretext"
+              title="When Pretext pays off"
+              tone="info"
+            >
+              <ul>
+                <li>Many mounted plain-text clamps resize repeatedly.</li>
+                <li>
+                  Use <code>max-lines</code> and end truncation without <code>max-height</code> when
+                  word boundaries, a custom ellipsis, or a multiline <code>after</code> slot
+                  prevents native CSS.
+                </li>
+                <li>
+                  Typography stays stable, a named font is loaded, and exact browser-only text
+                  shaping is not required.
+                </li>
+              </ul>
+            </Alert>
           </section>
 
           <section class="reference-section" data-reference-panel="demo">
             <h3 class="subsection-title">Examples</h3>
 
-            <template v-if="activeSurface === 'line'">
+            <template v-if="activeSurface === 'line' && lineEngine === 'standard'">
               <div class="demo-surface">
                 <div class="demo-source-controls">
                   <div class="demo-controls">
@@ -1568,6 +1632,117 @@ const highlightedCode = {
                 </div>
               </div>
             </template>
+
+            <div v-else-if="activeSurface === 'line'" class="demo-surface">
+              <div class="demo-source-controls">
+                <div class="demo-controls">
+                  <div class="control stacked-control line-text-settings shared-control-wide">
+                    <span class="control-stack">
+                      <PillControls
+                        class="control-pills"
+                        aria-label="Pretext text presets"
+                        button-class="control-pill"
+                        :model-value="selectedLineTextPreset"
+                        :options="lineTextPresetOptions"
+                        @update:modelValue="updateLineTextPreset"
+                      />
+                      <textarea
+                        v-model="lineTextInput"
+                        class="control-textarea"
+                        rows="5"
+                        aria-label="Pretext LineClamp demo text"
+                        placeholder="Paste or type text for the synchronized Pretext workload."
+                      ></textarea>
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <div
+                class="demo-shared-controls"
+                :class="{ 'is-expanded': demoControlsExpanded }"
+                data-shared-controls="line"
+              >
+                <button
+                  class="demo-controls-toggle"
+                  data-demo-controls-toggle
+                  type="button"
+                  :aria-expanded="demoControlsExpanded"
+                  :aria-label="
+                    demoControlsExpanded ? 'Collapse demo controls' : 'Expand demo controls'
+                  "
+                  @click="demoControlsExpanded = !demoControlsExpanded"
+                >
+                  <span class="demo-controls-toggle-glyph" aria-hidden="true">
+                    <SlidersHorizontal :size="16" :stroke-width="2" />
+                  </span>
+                  <span class="demo-controls-toggle-copy">
+                    <span class="demo-controls-toggle-title">Demo controls</span>
+                    <span class="demo-controls-toggle-summary">{{ demoControlsSummary }}</span>
+                  </span>
+                  <ChevronDown
+                    class="demo-controls-toggle-icon"
+                    :size="17"
+                    :stroke-width="2"
+                    aria-hidden="true"
+                  />
+                </button>
+                <div class="demo-controls-panel">
+                  <div class="demo-controls-panel-inner">
+                    <div class="demo-controls">
+                      <label class="control">
+                        <span class="control-label">Width</span>
+                        <span class="control-row">
+                          <input
+                            v-model.number="lineWidth"
+                            data-pretext-width-slider
+                            class="control-range"
+                            type="range"
+                            min="240"
+                            max="600"
+                          />
+                          <span class="control-value">{{ lineWidth }}px</span>
+                        </span>
+                      </label>
+                      <label class="control">
+                        <span class="control-label">Max lines</span>
+                        <span class="control-row">
+                          <input
+                            v-model.number="pretextLines"
+                            data-pretext-lines-slider
+                            class="control-range"
+                            type="range"
+                            min="1"
+                            max="8"
+                            step="1"
+                          />
+                          <span class="control-value">{{ pretextLines }}</span>
+                        </span>
+                      </label>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="demo-example-list">
+                <div class="demo-block" data-pretext-workload>
+                  <div class="demo-label">8 Pretext instances / word boundary / shared width</div>
+                  <div v-overlay-scrollbars.x class="demo-preview">
+                    <div class="pretext-workload width-guide" :style="{ width: `${lineWidth}px` }">
+                      <PretextLineClamp
+                        v-for="index in 8"
+                        :key="index"
+                        class="demo-clamp demo-output pretext-workload-item"
+                        data-pretext-item
+                        :text="`${index}. ${lineTextInput}`"
+                        :max-lines="pretextLines"
+                        boundary="word"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
 
             <div v-else-if="activeSurface === 'rich'" class="demo-surface" data-demo="rich">
               <div class="demo-source-controls">
@@ -2134,6 +2309,7 @@ const highlightedCode = {
             </div>
             <StressPlayground
               v-if="stressPlaygroundOpen"
+              :initial-line-engine="lineEngine"
               :initial-surface="activeSurface"
               :return-focus-to="stressPlaygroundOpenButtonRef"
               @close="stressPlaygroundOpen = false"
@@ -2143,11 +2319,18 @@ const highlightedCode = {
           <section class="reference-section" data-reference-panel="example">
             <h3 class="subsection-title">Usage</h3>
             <CodeBlock
-              v-if="activeSurface === 'line'"
+              v-if="activeSurface === 'line' && lineEngine === 'standard'"
               :code="lineCodeExample"
               label="<LineClamp> example"
               block-id="line-example"
               :html="highlightedCode.line"
+            />
+            <CodeBlock
+              v-else-if="activeSurface === 'line'"
+              :code="pretextCodeExample"
+              label="<Pretext LineClamp> example"
+              block-id="pretext-example"
+              :html="highlightedCode.pretext"
             />
             <CodeBlock
               v-else-if="activeSurface === 'rich'"
@@ -3505,6 +3688,28 @@ pre code {
   margin-top: 0;
 }
 
+.line-engine-picker {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin: 0 0 16px;
+  padding: 0 0 14px;
+  border-bottom: 1px solid color-mix(in srgb, var(--c-border) 72%, transparent);
+}
+
+.line-engine-label {
+  font-size: 0.73rem;
+  font-weight: 600;
+  line-height: 1.2;
+  color: var(--c-text-3);
+  text-transform: uppercase;
+}
+
+.pretext-engine-guidance {
+  margin: 0 0 16px;
+}
+
 /* Demo blocks */
 
 .stress-playground-section {
@@ -4230,6 +4435,17 @@ pre code {
     padding-left: 14px;
     border-top: none;
   }
+}
+
+.pretext-workload {
+  display: grid;
+  max-width: 100%;
+  gap: 8px;
+}
+
+.pretext-workload-item {
+  align-items: flex-start;
+  width: 100%;
 }
 
 /* Toggle button inside demos */

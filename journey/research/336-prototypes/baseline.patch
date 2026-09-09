@@ -1,0 +1,518 @@
+diff --git a/packages/vue-clamp/src/rich-line/RichLineClamp.vue b/packages/vue-clamp/src/rich-line/RichLineClamp.vue
+index ea6be45..1b1cbd0 100644
+--- a/packages/vue-clamp/src/rich-line/RichLineClamp.vue
++++ b/packages/vue-clamp/src/rich-line/RichLineClamp.vue
+@@ -271,13 +271,29 @@ const {
+       ellipsis === input.ellipsis &&
+       beforeRef.value === beforeElement &&
+       afterRef.value === afterElement;
++    // Return the existing settlement promise directly: another async boundary
++    // would let nextTick observe stale slot status after the text is committed.
++    function commit(result: RichClampResult): Promise<void> {
++      measuredState = result.state;
++      probeSearchIndex = result.searchIndex ?? null;
++      measuredAffixSignature = affixSignature;
++      measuredWidth = probe.width;
++      updateRankHint(result, probe.width, sameAffix);
++      updateClampedMaxWidth(result, probe.width, sameAffix);
++      if (!result.state) {
++        // A zero-width probe should not replace visible content with a guessed rich
++        // fragment.
++        return resetClamp();
++      }
++
++      patchVisible(prepared, result.state);
++      return applyStatus(result.state.kind === "clamped", result.fallback);
++    }
++    let settlement: Promise<void> | undefined;
+     let result: RichClampResult | null = null;
+     if (
+       hasMeasuredPeers() &&
+       ellipsis.length > 0 &&
+-      skipFullFit &&
+-      !input.verifyFullCandidate &&
+-      preferHintedTextRun &&
+       visibleState === measuredState &&
+       rootRef.value &&
+       hasExplicitTextWidth(rootRef.value)
+@@ -285,27 +301,19 @@ const {
+       const measurement = prepareRichTextBatch(input);
+       if ("result" in measurement) result = measurement.result;
+       else {
+-        const measured = await measureLayout(measurement.task, isCurrent, () => {});
++        const measured = await measureLayout(measurement.task, isCurrent, (next) => {
++          if (typeof next !== "function") settlement = commit(next);
++        });
+         if (!isCurrent()) return;
++        if (settlement) {
++          await settlement;
++          return;
++        }
+         result = typeof measured === "function" ? measured() : measured;
+       }
+     }
+     result ??= clampRich(input);
+-    measuredState = result.state;
+-    probeSearchIndex = result.searchIndex ?? null;
+-    measuredAffixSignature = affixSignature;
+-    measuredWidth = probe.width;
+-    updateRankHint(result, probe.width, sameAffix);
+-    updateClampedMaxWidth(result, probe.width, sameAffix);
+-    if (!result.state) {
+-      // A zero-width probe should not replace visible content with a guessed rich
+-      // fragment.
+-      await resetClamp();
+-      return;
+-    }
+-
+-    patchVisible(prepared, result.state);
+-    await applyStatus(result.state.kind === "clamped", result.fallback);
++    await commit(result);
+   },
+ });
+ 
+diff --git a/packages/vue-clamp/src/rich.ts b/packages/vue-clamp/src/rich.ts
+index 4953971..f13bc7d 100644
+--- a/packages/vue-clamp/src/rich.ts
++++ b/packages/vue-clamp/src/rich.ts
+@@ -1557,25 +1557,38 @@ export function clampRich(input: RichClampOptions): RichClampResult {
+   return finishRichSearch(searchRich(input));
+ }
+ 
+-// Probe preparation and structural candidates stay synchronous. Only a positive
+-// cut in the original text leaf may join another component's measurement rounds.
++// Probe preparation and structural candidates stay synchronous. A warm one-text
++// source may also test its full candidate in the batch; markup-bearing sources
++// may batch only stable cuts in the original text leaf.
+ export function prepareRichTextBatch(
+   input: RichClampOptions,
+ ):
+   | { result: RichClampResult }
+   | { task: Generator<() => boolean, RichClampResult | (() => RichClampResult), boolean> } {
+   const from = input.from;
+-  if (from?.kind !== "clamped" || textPrefixForPoint(input.prepared.root, from.point) === null) {
++  if (from?.kind !== "clamped") return { result: clampRich(input) };
++
++  const textOnly =
++    input.prepared.root.childNodes.length === 1 &&
++    input.prepared.root.firstChild?.nodeType === Node.TEXT_NODE;
++  if (
++    !textOnly &&
++    (!input.skipFullFit ||
++      input.verifyFullCandidate ||
++      !input.preferHintedTextRun ||
++      textPrefixForPoint(input.prepared.root, from.point) === null)
++  ) {
+     return { result: clampRich(input) };
+   }
+-  const origin = from;
++  const originPath = from.point.path;
+   const search = searchRich(input, false);
+   let step = search.next();
+   function stable(measurement: RichMeasurement): boolean {
+     return (
+-      measurement.stable &&
+-      measurement.state.kind === "clamped" &&
+-      samePath(measurement.state.point.path, origin.point.path)
++      textOnly ||
++      (measurement.stable &&
++        measurement.state.kind === "clamped" &&
++        samePath(measurement.state.point.path, originPath))
+     );
+   }
+   while (!step.done && !stable(step.value)) {
+@@ -1686,8 +1699,9 @@ function* searchRich(
+       state: FULL_STATE,
+       stable: false,
+       write: applyFullCandidate,
+-      read: () =>
+-        fitsContent(
++      read: () => {
++        if (!reuseRootPosition && visibleBoundsCache) visibleBoundsCache.top = undefined;
++        return fitsContent(
+           root,
+           content,
+           lineLimit,
+@@ -1696,7 +1710,8 @@ function* searchRich(
+           visibleBoundsCache,
+           simpleLineFit,
+           captureFullFit,
+-        ),
++        );
++      },
+     };
+ 
+     currentFit = {
+diff --git a/packages/vue-clamp/src/text.ts b/packages/vue-clamp/src/text.ts
+index c2520a8..ea2312f 100644
+--- a/packages/vue-clamp/src/text.ts
++++ b/packages/vue-clamp/src/text.ts
+@@ -304,21 +304,36 @@ export function fullTextClampResult(
+   return Object.assign(new FullTextResult(prepared, rootWidth), context);
+ }
+ 
+-// Keep only one bounded, layout-independent preparation. DOM and search hints
+-// stay with each component; large sources evict the entry instead of being retained.
+-let sharedTextPreparation: PreparedText | null = null;
++// Share at most four pure preparations with an 8,192-unit combined source budget.
++// DOM and search hints stay with each component; oversized sources clear the pool.
++const sharedTextPreparations: PreparedText[] = [];
++let sharedTextLength = 0;
+ export function prepareSharedText(
+   text: string,
+   boundary: ClampBoundary = "grapheme",
+ ): PreparedText {
+   if (text.length > 8192) {
+-    sharedTextPreparation = null;
++    sharedTextPreparations.length = 0;
++    sharedTextLength = 0;
+     return new DeferredText(text, boundary);
+   }
+-  if (sharedTextPreparation?.text === text && sharedTextPreparation.boundary === boundary) {
+-    return sharedTextPreparation;
++  const index = sharedTextPreparations.findIndex(
++    (prepared) => prepared.text === text && prepared.boundary === boundary,
++  );
++  if (index !== -1) {
++    const prepared = sharedTextPreparations[index]!;
++    if (index > 0) {
++      sharedTextPreparations.splice(index, 1);
++      sharedTextPreparations.unshift(prepared);
++    }
++    return prepared;
+   }
+-  return (sharedTextPreparation = new DeferredText(text, boundary));
++  const prepared = new DeferredText(text, boundary);
++  while (sharedTextPreparations.length >= 4 || sharedTextLength + text.length > 8192)
++    sharedTextLength -= sharedTextPreparations.pop()!.text.length;
++  sharedTextPreparations.unshift(prepared);
++  sharedTextLength += text.length;
++  return prepared;
+ }
+ 
+ export function displayTextForKeptCount(
+diff --git a/packages/vue-clamp/src/wrap/WrapClamp.vue b/packages/vue-clamp/src/wrap/WrapClamp.vue
+index 9410c4b..ad8fe57 100644
+--- a/packages/vue-clamp/src/wrap/WrapClamp.vue
++++ b/packages/vue-clamp/src/wrap/WrapClamp.vue
+@@ -389,16 +389,18 @@ async function applyStaticFlowMaterializedGrow(
+     }
+ 
+     let shownCount = currentVisibleCount;
+-    const bestFitCount = findLargestFittingCount(
+-      currentVisibleCount,
+-      searchItemCount,
+-      (candidate) => {
+-        shownCount = showItemCandidate(itemElements, shownCount, candidate);
+-
+-        const measurement = measureSequence(rootElement, contentElement, limits);
+-        return measurement.allFit && measurement.visibleItems === candidate;
+-      },
+-    );
++    const fits = (candidate: number) => {
++      shownCount = showItemCandidate(itemElements, shownCount, candidate);
++      const measurement = measureSequence(rootElement, contentElement, limits);
++      return measurement.allFit && measurement.visibleItems === candidate;
++    };
++    // Later geometric chunks often fit in full. Keep the initial frontier order,
++    // then avoid midpoint probes when the measured upper endpoint already fits.
++    const checkUpper = additionalItems > 1;
++    const upperFits = checkUpper && fits(searchItemCount);
++    const bestFitCount = upperFits
++      ? searchItemCount
++      : findLargestFittingCount(currentVisibleCount, searchItemCount - (checkUpper ? 1 : 0), fits);
+ 
+     showItemCandidate(itemElements, shownCount, currentVisibleCount);
+     await applyVisibleCount(bestFitCount);
+diff --git a/packages/vue-clamp/tests/preparation.browser.test.ts b/packages/vue-clamp/tests/preparation.browser.test.ts
+index 9e54ffa..4f6ccc8 100644
+--- a/packages/vue-clamp/tests/preparation.browser.test.ts
++++ b/packages/vue-clamp/tests/preparation.browser.test.ts
+@@ -71,6 +71,95 @@ describe("deferred search preparation", () => {
+     }
+   });
+ 
++  it.each([{ maxLines: 2 }, { maxHeight: 48 }])(
++    "preserves serial Rich slot and text settlement while updating measured peers: %j",
++    async (limits) => {
++      const source = ref(
++        "A long source with enough words to overflow the available space. ".repeat(12),
++      );
++      const width = ref(220);
++      const container = document.createElement("div");
++      document.body.append(container);
++      const app = createApp({
++        setup: () => () =>
++          h(
++            "div",
++            { style: { width: `${width.value}px` } },
++            Array.from({ length: 5 }, (_, index) =>
++              h(
++                RichLineClamp,
++                {
++                  key: index,
++                  html: source.value,
++                  boundary: "word",
++                  ...limits,
++                  // The last sibling has the same physical width but no declared width,
++                  // so it remains a serial reference for the four eligible peers.
++                  style: {
++                    display: "block",
++                    font: "16px/24px Arial",
++                    ...(index < 4 ? { width: `${width.value}px` } : {}),
++                  },
++                },
++                {
++                  after: ({ clamped }: { clamped: boolean }) =>
++                    h(
++                      "span",
++                      {
++                        "data-clamped": String(clamped),
++                        style: "display:inline-block;width:40px",
++                      },
++                      "More",
++                    ),
++                },
++              ),
++            ),
++          ),
++      });
++      const snapshots = () =>
++        [...container.querySelectorAll('[data-part="root"]')].map((root) => ({
++          text: root.querySelector('[data-part="body"]')!.textContent,
++          clamped: root.querySelector("[data-clamped]")!.getAttribute("data-clamped"),
++        }));
++      const expectSame = () => {
++        const states = snapshots();
++        expect(states).toHaveLength(5);
++        for (const state of states.slice(0, 4)) expect(state).toEqual(states[4]);
++      };
++      try {
++        app.mount(container);
++        await settle();
++        for (const text of [
++          "Ready",
++          "A changed long source. ".repeat(50),
++          "Another long source. ".repeat(60),
++          "Done",
++        ]) {
++          source.value = text;
++          await nextTick();
++          expectSame();
++          await settle();
++          for (const state of snapshots()) {
++            const clamped = text.length > 100;
++            expect(state.clamped).toBe(String(clamped));
++            if (clamped) expect(state.text).toContain("…");
++            else expect(state.text).toBe(text);
++          }
++        }
++        source.value = "Warm remeasurement of a plain text source. ".repeat(6);
++        await settle();
++        for (const nextWidth of [150, 3000, 180, 260]) {
++          width.value = nextWidth;
++          await settle();
++          expectSame();
++        }
++      } finally {
++        app.unmount();
++        container.remove();
++      }
++    },
++  );
++
+   for (const [name, component] of Object.entries({ LineClamp, InlineClamp, RichLineClamp })) {
+     it(`${name} segments a full-fit source only when a later shrink needs a cut`, async () => {
+       const width = ref(1000);
+diff --git a/packages/vue-clamp/tests/text.test.ts b/packages/vue-clamp/tests/text.test.ts
+index 348196b..adedcc0 100644
+--- a/packages/vue-clamp/tests/text.test.ts
++++ b/packages/vue-clamp/tests/text.test.ts
+@@ -7,10 +7,48 @@ import {
+ } from "../src/text.ts";
+ 
+ describe("text helpers", () => {
+-  it("prepares ascii text as single-code-unit grapheme boundaries", () => {
++  it("prepares ASCII grapheme boundaries", () => {
+     expect(prepareText("abc").boundaryOffsets).toEqual([0, 1, 2, 3]);
+   });
+ 
++  it("matches native boundaries across writing systems and composed sequences", () => {
++    const graphemes = new Intl.Segmenter(undefined, { granularity: "grapheme" });
++    const words = new Intl.Segmenter(undefined, { granularity: "word" });
++    const alphabet = "A\t\n、。，㐀䶿一鿿";
++    for (const text of [
++      "ASCII text\twith a line\nbreak",
++      "A\r\nB",
++      "a\u0301b",
++      alphabet,
++      "Voilà Καλημέρα Быстрая 한글 かな مرحبا ܐܒܓ",
++      alphabet + "中\uFE0F文",
++      alphabet + "中\u{E0100}文",
++      alphabet + "a\u0301",
++      alphabet + "\r\n",
++      alphabet + "👩🏽‍💻🇨🇳\u{20000}",
++      alphabet + "\u0600中",
++      alphabet + "\uD800",
++    ]) {
++      const fallback = [
++        0,
++        ...Array.from(graphemes.segment(text), (part) => part.index + part.segment.length),
++      ];
++      const wordOffsets = [
++        0,
++        ...Array.from(words.segment(text), (part) => part.index + part.segment.length).filter(
++          (offset) => fallback.includes(offset),
++        ),
++      ];
++      for (const boundary of ["word", "grapheme"] as const) {
++        for (const prepare of [prepareText, prepareSharedText]) {
++          const prepared = prepare(text, boundary);
++          expect(prepared.boundaryOffsets).toEqual(boundary === "word" ? wordOffsets : fallback);
++          if (boundary === "word") expect(prepared.fallbackBoundaryOffsets).toEqual(fallback);
++        }
++      }
++    }
++  });
++
+   it("keeps deferred word boundaries and fallbacks identical across mixed Unicode sources", () => {
+     const parts = [
+       "word ",
+@@ -274,3 +312,27 @@ it("includes the size boundary and separates successive sources", () => {
+   expect(b).not.toBe(a);
+   expect(b.text).toBe(text + "b");
+ });
++
++it("reuses four interleaved sources and evicts the least recently used preparation", () => {
++  prepareSharedText("x".repeat(8193));
++  const entries = ["a", "b", "c", "d"].map((text) => prepareSharedText(text, "word"));
++  for (const entry of entries) expect(prepareSharedText(entry.text, "word")).toBe(entry);
++  expect(prepareSharedText("a", "word")).toBe(entries[0]);
++  prepareSharedText("e", "word");
++  expect(prepareSharedText("a", "word")).toBe(entries[0]);
++  expect(prepareSharedText("c", "word")).toBe(entries[2]);
++  expect(prepareSharedText("d", "word")).toBe(entries[3]);
++  expect(prepareSharedText("b", "word")).not.toBe(entries[1]);
++});
++
++it("bounds the combined source budget across preparation entries", () => {
++  prepareSharedText("x".repeat(8193));
++  const a = prepareSharedText("a".repeat(4096));
++  const b = prepareSharedText("b".repeat(4096));
++  expect(prepareSharedText(a.text)).toBe(a);
++  expect(prepareSharedText(b.text)).toBe(b);
++  const small = prepareSharedText("c");
++  expect(prepareSharedText(b.text)).toBe(b);
++  expect(prepareSharedText(small.text)).toBe(small);
++  expect(prepareSharedText(a.text)).not.toBe(a);
++});
+diff --git a/packages/vue-clamp/tests/wrap.browser.test.ts b/packages/vue-clamp/tests/wrap.browser.test.ts
+index a72dbda..bf8efdf 100644
+--- a/packages/vue-clamp/tests/wrap.browser.test.ts
++++ b/packages/vue-clamp/tests/wrap.browser.test.ts
+@@ -560,53 +560,59 @@ describe("WrapClamp browser contract", () => {
+     expect(root.querySelector('[data-part="item"][aria-hidden="true"]')).toBeNull();
+   });
+ 
+-  it("continues dense height-constrained growth without rerendering every intervening prefix", async () => {
+-    const items = Array.from({ length: 1000 }, (_, index) => String(index));
+-    const itemSlot = ({ item, index }: WrapClampItemSlotProps<string>) =>
+-      h(
+-        "span",
+-        { style: `display:block;width:${index % 2 ? 3 : 5}px;height:16px;font-size:0` },
+-        item,
+-      );
+-    let itemCalls = 0;
+-    const clamp = mountWrapClamp({
+-      items,
+-      width: 64,
+-      props: { maxHeight: 48 },
+-      item: (props) => {
+-        itemCalls += 1;
+-        return itemSlot(props);
+-      },
+-    });
+-    const reference = mountWrapClamp({
+-      items,
+-      width: 64,
+-      props: { expanded: true, maxHeight: 48 },
+-      item: itemSlot,
+-    });
+-    await settle(5);
+-    itemCalls = 0;
+-    for (const width of [1200, 64, 2000, 300, 1200]) {
+-      clamp.width.value = width;
+-      reference.width.value = width;
+-      await settle(6);
+-      const root = rootElement(clamp.container);
+-      const referenceRoot = rootElement(reference.container);
+-      const top = referenceRoot.getBoundingClientRect().top;
+-      const expected = wrapItems(referenceRoot).filter(
+-        (item) => item.getBoundingClientRect().bottom <= top + 48.5,
+-      ).length;
+-      expect(wrapItems(root)).toHaveLength(expected);
+-      expect(wrapSnapshot(root).items).toEqual(items.slice(0, expected));
+-      expect(root.querySelector('[data-part="item"][aria-hidden="true"]')).toBeNull();
+-      if (width === 1200 && expected > 400) {
+-        // A linear grow rerenders hundreds of prefixes, even though the item
+-        // geometry is fixed. Bound slot work, not machine-dependent elapsed time.
+-        expect(itemCalls).toBeLessThan(20_000);
+-      }
++  it.each([{ maxHeight: 48 }, { maxLines: 3 }])(
++    "continues dense growth without rerendering every intervening prefix: %j",
++    async (limits) => {
++      const items = Array.from({ length: 1000 }, (_, index) => String(index));
++      const itemSlot = ({ item, index }: WrapClampItemSlotProps<string>) =>
++        h(
++          "span",
++          { style: `display:block;width:${index % 2 ? 3 : 5}px;height:16px;font-size:0` },
++          item,
++        );
++      let itemCalls = 0;
++      const clamp = mountWrapClamp({
++        items,
++        width: 64,
++        props: limits,
++        item: (props) => {
++          itemCalls += 1;
++          return itemSlot(props);
++        },
++      });
++      const reference = mountWrapClamp({
++        items,
++        width: 64,
++        props: { expanded: true, ...limits },
++        item: itemSlot,
++      });
++      await settle(5);
+       itemCalls = 0;
+-    }
+-  });
++      for (const width of [1200, 64, 2000, 137, 1200]) {
++        clamp.width.value = width;
++        reference.width.value = width;
++        await settle(6);
++        const root = rootElement(clamp.container);
++        const referenceRoot = rootElement(reference.container);
++        const top = referenceRoot.getBoundingClientRect().top;
++        const rects = wrapItems(referenceRoot).map((item) => item.getBoundingClientRect());
++        const rowTops = [...new Set(rects.map((rect) => rect.top))];
++        const lastRowTop = rowTops[Math.min(2, rowTops.length - 1)]!;
++        const expected = rects.filter((rect) =>
++          limits.maxLines ? rect.top <= lastRowTop + 0.5 : rect.bottom <= top + 48.5,
++        ).length;
++        expect(wrapItems(root)).toHaveLength(expected);
++        expect(wrapSnapshot(root).items).toEqual(items.slice(0, expected));
++        expect(root.querySelector('[data-part="item"][aria-hidden="true"]')).toBeNull();
++        if (width === 1200 && expected > 400) {
++          // A linear grow rerenders hundreds of prefixes, even though the item
++          // geometry is fixed. Bound slot work, not machine-dependent elapsed time.
++          expect(itemCalls).toBeLessThan(20_000);
++        }
++        itemCalls = 0;
++      }
++    },
++  );
+ 
+   it("continues settling after fallback-budget materialized grow starts without measured widths", async () => {
+     const initialItems = Array.from({ length: 60 }, (_, index) => `Wide${index + 1}`);

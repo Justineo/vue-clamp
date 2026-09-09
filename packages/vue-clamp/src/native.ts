@@ -13,8 +13,6 @@ export type NativeModeInput = {
   readonly maxHeight: ClampLength | undefined;
 };
 
-let supportsMultilineClamp: boolean | null = null;
-
 export const nativeBodyStyle: CSSProperties = {
   display: "block",
   flex: "1 1 auto",
@@ -59,19 +57,6 @@ function getNativeMultiLineContentStyle(lineLimit: number): CSSProperties {
   return style;
 }
 
-function hasMultilineClamp(): boolean {
-  if (supportsMultilineClamp !== null) {
-    return supportsMultilineClamp;
-  }
-
-  supportsMultilineClamp =
-    typeof CSS !== "undefined" &&
-    typeof CSS.supports === "function" &&
-    (CSS.supports("-webkit-line-clamp", "2") || CSS.supports("line-clamp", "2"));
-
-  return supportsMultilineClamp;
-}
-
 export function resolveNativeMode({
   boundary,
   ellipsis,
@@ -99,7 +84,7 @@ export function resolveNativeMode({
 
   // Multiline line-clamp cannot reserve suffix slot space. The single-line
   // text-overflow path can because slots are fixed flex siblings.
-  if (lineLimit !== undefined && lineLimit > 1 && !hasAfterSlot && hasMultilineClamp()) {
+  if (lineLimit !== undefined && lineLimit > 1 && !hasAfterSlot) {
     return "multi-line";
   }
 

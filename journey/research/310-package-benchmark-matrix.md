@@ -1,8 +1,15 @@
 # Package benchmark matrix
 
+This is the historical 56-row comparison from May 2026. The September 2026
+[152-row refresh](330-performance-matrix-refresh.md) compares 1.6.0, the pre-329 snapshot, and the
+current implementation; its coverage and conclusions supersede this report's `current` column.
+
 This report compares the public component benchmark matrix across package versions. The primary timing signal is `active ms`; `settled ms` preserves the end-to-end quiet-frame timing, counters explain whether a change came from layout reads, DOM cloning/replacement, or slot rendering, and sample CV / RME report active timing variance.
 
 Generated from `/tmp/vue-clamp-matrix-140-current-20260529-144101`.
+
+The opt-in root/Pretext comparison is maintained as a separate shared-contract slice in
+[`319-pretext-performance-matrix.md`](319-pretext-performance-matrix.md).
 
 ## Version summary
 

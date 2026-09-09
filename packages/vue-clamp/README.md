@@ -3,8 +3,9 @@
 [![GitHub stars](https://img.shields.io/github/stars/Justineo/vue-clamp?style=flat&logo=github)](https://github.com/Justineo/vue-clamp)
 [![npmx version](https://img.shields.io/npm/v/vue-clamp?style=flat&label=npmx&logo=data:image/svg%2Bxml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJub25lIj48cmVjdCB4PSIyLjUiIHk9IjIuNSIgd2lkdGg9IjE5IiBoZWlnaHQ9IjE5IiByeD0iMy44IiBmaWxsPSIjRkZGRkZGIi8+PHJlY3QgeD0iNi4zIiB5PSIxMy41NSIgd2lkdGg9IjMuNyIgaGVpZ2h0PSIzLjciIHJ4PSIwLjkiIGZpbGw9IiNBOUE5QTkiLz48cGF0aCBkPSJNMTUuODUgNi40NUgxOC44NUwxMi41IDE5LjJIOS41TDE1Ljg1IDYuNDVaIiBmaWxsPSIjNTU1NTU1Ii8+PC9zdmc+&logoWidth=16)](https://npmx.dev/package/vue-clamp)
 
-Clamping primitives for Vue 3. `vue-clamp` measures real browser layout so text, inline content,
-and wrapped items fit the space they are actually rendered into.
+Clamping primitives for Vue 3. The default components measure real browser layout so text, inline
+content, and wrapped items fit the space they are actually rendered into. A separate predictive
+text entry is available for controlled, high-frequency resize workloads.
 
 - Live docs and demos: [vue-clamp.void.app](https://vue-clamp.void.app/)
 - Migration guide: [MIGRATION.md](https://github.com/Justineo/vue-clamp/blob/main/MIGRATION.md)
@@ -32,6 +33,12 @@ The package has named exports only:
 
 ```ts
 import { InlineClamp, LineClamp, RichLineClamp, WrapClamp } from "vue-clamp";
+```
+
+The predictive component is an explicit subpath import:
+
+```ts
+import { LineClamp } from "vue-clamp/pretext";
 ```
 
 ## Quick start
@@ -77,6 +84,54 @@ Useful props:
 
 `before` and `after` slots render inline with the text and receive
 `{ expand, collapse, toggle, clamped, expanded }`.
+
+## Predictive plain text
+
+Keep the root entry by default. Choose `vue-clamp/pretext` when:
+
+- many mounted plain-text clamps resize repeatedly;
+- they use end truncation with `max-lines` and no `max-height`;
+- word boundaries, a custom ellipsis, or a multiline `after` slot prevents native CSS; and
+- typography is stable, a named font is loaded, and exact browser-only shaping is not required.
+
+One-off clamps, native-eligible grapheme clamps, and measured fallbacks do not amortize the
+approximately 20 kB gzip predictor payload.
+
+```vue
+<script setup lang="ts">
+import { LineClamp } from "vue-clamp/pretext";
+</script>
+
+<template>
+  <LineClamp class="title" :text="title" :max-lines="2" boundary="word" />
+</template>
+
+<style>
+.title {
+  font:
+    16px Inter,
+    sans-serif;
+}
+</style>
+```
+
+The subpath has the same public API and selects the cheapest compatible engine:
+
+1. Native CSS for the standard default end/grapheme/`…` subset.
+2. Pretext for non-native end truncation with `max-lines` and no `max-height`, including observed
+   `before` and `after` widths. Custom word or grapheme ellipses are supported; forced line breaks
+   remain browser-measured.
+3. The standard browser-measured engine for every other combination.
+
+All modes share the standard DOM, accessibility, controls, events, and observation runtime. Before
+prediction, the component caches the rendered font plus Pretext-supported `white-space`,
+`word-break`, and numeric `letter-spacing`. Other CSS still renders but is outside the model, so
+platform font metrics and features such as automatic hyphenation, contextual spacing, font features,
+or dynamic typography can produce a conservative shorter prefix. CSS line clamping and overflow containment prevent extra
+lines from painting. Pretext also documents `system-ui` as unsafe on macOS.
+
+After preparation, eligible resizes perform no DOM geometry or computed-style reads. Prefer the root
+entry whenever full browser CSS fidelity matters more than repeated-resize throughput.
 
 ## Trusted rich text
 
@@ -202,7 +257,7 @@ The required `item` slot receives `{ item, index }`. The `before` and `after` sl
 
 ## Events and instance methods
 
-`<LineClamp>`, `<RichLineClamp>`, and `<WrapClamp>` emit:
+Both `<LineClamp>` variants, `<RichLineClamp>`, and `<WrapClamp>` emit:
 
 - `clampchange`: `(clamped: boolean)`, emitted when truncation turns on or off.
 - `update:expanded`: `(expanded: boolean)`, emitted for `v-model:expanded`.
@@ -223,9 +278,13 @@ Stable styling hooks use `data-part` attributes:
 
 Do not rely on internal DOM nesting as a styling contract.
 
+The Pretext entry uses the same parts on native, predictive, and browser-measured paths.
+
 ## Notes
 
 - `1.x` is the Vue 3 line. See the
   [migration guide](https://github.com/Justineo/vue-clamp/blob/main/MIGRATION.md) when upgrading
   from `0.x`.
 - `ResizeObserver` is part of the browser baseline.
+- Multiline native clamping uses the specified legacy `-webkit-line-clamp` combination. The
+  unprefixed `line-clamp` property is not required.

@@ -1,5 +1,5 @@
 import { countLineBoxes, fitsContent, simpleLineFitFromStyle } from "./layout.ts";
-import { findLastFittingIndex, richWarmExpansionLimit } from "./search.ts";
+import { searchFittingIndex, richWarmExpansionLimit } from "./search.ts";
 import { prepareText } from "./text.ts";
 
 import type { ContentFitSample, SimpleLineFit, VisibleBoundsCache } from "./layout.ts";
@@ -14,11 +14,45 @@ export type RichBoundaryPoint = {
 
 type BoundaryPoint = RichBoundaryPoint;
 
+// Boundaries stay as numeric offsets per text leaf. Only measured candidates
+// become structural points; concatenating leaves never copies every character.
+type BoundaryPoints = {
+  readonly length: number;
+  at(index: number): BoundaryPoint;
+};
+
+function concatenatePoints(sequences: readonly BoundaryPoints[]): BoundaryPoints {
+  if (sequences.length === 1) return sequences[0]!;
+  const ends: number[] = [];
+  let length = 0;
+  for (const sequence of sequences) {
+    length += sequence.length;
+    ends.push(length);
+  }
+  return {
+    length,
+    at(index) {
+      let low = 0;
+      let high = ends.length - 1;
+      while (low < high) {
+        const middle = (low + high) >>> 1;
+        if (index < ends[middle]!) high = middle;
+        else low = middle + 1;
+      }
+      return sequences[low]!.at(index - (ends[low - 1] ?? 0));
+    },
+  };
+}
+
+function singlePoint(point: BoundaryPoint): BoundaryPoints {
+  return { length: 1, at: () => point };
+}
+
 export type PreparedRichTextNode = {
   readonly kind: "text";
   readonly endPoint: RichBoundaryPoint;
-  readonly textCuts: readonly RichBoundaryPoint[];
-  readonly fallbackTextCuts?: readonly RichBoundaryPoint[];
+  readonly textCuts: BoundaryPoints;
+  readonly fallbackTextCuts?: BoundaryPoints;
 };
 
 export type PreparedRichElementNode = {
@@ -34,8 +68,8 @@ export type PreparedRichNode = PreparedRichTextNode | PreparedRichElementNode;
 type TextLogicalRun = {
   kind: "text";
   endPoint: BoundaryPoint;
-  textCuts: readonly BoundaryPoint[];
-  fallbackTextCuts?: readonly BoundaryPoint[];
+  textCuts: BoundaryPoints;
+  fallbackTextCuts?: BoundaryPoints;
 };
 
 type AtomicLogicalRun = {
@@ -63,8 +97,10 @@ export type RichSearchIndex = {
   readonly body: HTMLElement;
   readonly hasElements: boolean;
   readonly prepared: PreparedRich;
-  readonly rankPoints: readonly BoundaryPoint[] | null;
-  readonly runs: readonly LogicalRun[];
+  readonly data: {
+    readonly rankPoints: BoundaryPoints | null;
+    readonly runs: readonly LogicalRun[];
+  };
   readonly simpleLineFit?: SimpleLineFit;
   readonly simpleLineStyleKey?: string;
 };
@@ -350,17 +386,11 @@ function endPointForChild(path: readonly number[]): BoundaryPoint {
 function boundaryPointsForOffsets(
   offsets: readonly number[],
   path: readonly number[],
-): BoundaryPoint[] {
-  const points: BoundaryPoint[] = [];
-
-  for (let index = 1; index < offsets.length; index += 1) {
-    points.push({
-      path,
-      offset: offsets[index]!,
-    });
-  }
-
-  return points;
+): BoundaryPoints {
+  return {
+    length: offsets.length - 1,
+    at: (index) => ({ path, offset: offsets[index + 1]! }),
+  };
 }
 
 function buildPreparedRichNodes(
@@ -436,21 +466,11 @@ function buildLogicalRuns(
     }
 
     const { endPoint } = currentTextNodes[currentTextNodes.length - 1]!;
-    const textCuts: BoundaryPoint[] = [];
-    const fallbackTextCuts: BoundaryPoint[] = [];
-
-    for (const textNode of currentTextNodes) {
-      for (const cut of textNode.textCuts) {
-        textCuts.push(cut);
-      }
-
-      const fallbackCuts = textNode.fallbackTextCuts;
-      if (fallbackCuts) {
-        for (const cut of fallbackCuts) {
-          fallbackTextCuts.push(cut);
-        }
-      }
-    }
+    const textCuts = concatenatePoints(currentTextNodes.map((node) => node.textCuts));
+    const fallbackSequences = currentTextNodes.flatMap((node) =>
+      node.fallbackTextCuts ? [node.fallbackTextCuts] : [],
+    );
+    const fallbackTextCuts = concatenatePoints(fallbackSequences);
 
     // Adjacent searchable text across inline wrappers is one monotonic run. The
     // search first chooses a run, then refines only inside the next text run.
@@ -783,6 +803,34 @@ function textPrefixForPoint(root: HTMLElement, point: BoundaryPoint): string | n
   return text.length > 0 ? text : null;
 }
 
+function sameTextCut(
+  prepared: PreparedRich,
+  target: HTMLElement,
+  from: RichState | null,
+  to: RichState,
+  ellipsis: string,
+): { node: Text; text: string } | null {
+  if (
+    from?.kind !== "clamped" ||
+    to.kind !== "clamped" ||
+    !samePath(from.point.path, to.point.path)
+  ) {
+    return null;
+  }
+
+  const text = textPrefixForPoint(prepared.root, to.point);
+  if (text === null) {
+    return null;
+  }
+
+  const liveNode = resolvePath(target, to.point.path);
+  if (!(liveNode instanceof Text) || (ellipsis !== "" && liveNode === target.lastChild)) {
+    return null;
+  }
+
+  return { node: liveNode, text };
+}
+
 function patchSameTextCut(
   prepared: PreparedRich,
   target: HTMLElement,
@@ -790,28 +838,9 @@ function patchSameTextCut(
   to: RichState,
   ellipsis: string,
 ): boolean {
-  if (
-    from?.kind !== "clamped" ||
-    to.kind !== "clamped" ||
-    !samePath(from.point.path, to.point.path)
-  ) {
-    return false;
-  }
-
-  const text = textPrefixForPoint(prepared.root, to.point);
-  if (text === null) {
-    return false;
-  }
-
-  const liveNode = resolvePath(target, to.point.path);
-  if (!(liveNode instanceof Text) || (ellipsis !== "" && liveNode === target.lastChild)) {
-    return false;
-  }
-
-  if (liveNode.data !== text) {
-    liveNode.data = text;
-  }
-
+  const cut = sameTextCut(prepared, target, from, to, ellipsis);
+  if (!cut) return false;
+  if (cut.node.data !== cut.text) cut.node.data = cut.text;
   return true;
 }
 
@@ -1091,19 +1120,25 @@ function patchForwardTextPrefix(
   return true;
 }
 
-function patchFullToClamped(
+function patchToEarlierPrefix(
   prepared: PreparedRich,
   target: HTMLElement,
   from: RichState | null,
   to: RichState,
   ellipsis: string,
 ): boolean {
-  if (from?.kind !== "full" || to.kind !== "clamped") {
+  if (!from || to.kind !== "clamped") {
     return false;
   }
 
   const { root } = prepared;
   const liveNode = resolvePath(target, to.point.path);
+  if (
+    from.kind === "clamped" &&
+    (!(liveNode instanceof Text) || compareBoundaryPoint(to.point, from.point) >= 0)
+  )
+    return false;
+  const existingEllipsis = from.kind === "clamped" ? rootEllipsisNode(target, ellipsis) : null;
 
   if (liveNode instanceof Text) {
     const text = textPrefixForPoint(root, to.point);
@@ -1119,16 +1154,18 @@ function patchFullToClamped(
       return false;
     }
 
-    liveNode.data = text;
-    if (!removeAfterBoundary(target, boundary)) {
+    if (liveNode.data !== text) liveNode.data = text;
+    if (!removeAfterBoundary(target, boundary, existingEllipsis)) {
       return false;
     }
-  } else if (!removeAfterBoundary(target, to.point)) {
+  } else if (!removeAfterBoundary(target, to.point, existingEllipsis)) {
     return false;
   }
 
-  trimTrailingWhitespace(target);
-  appendEllipsis(target, ellipsis);
+  if (!existingEllipsis) {
+    trimTrailingWhitespace(target);
+    appendEllipsis(target, ellipsis);
+  }
 
   return true;
 }
@@ -1215,7 +1252,7 @@ export function patchRich(
     return to;
   }
 
-  if (patchFullToClamped(prepared, target, from, to, ellipsis)) {
+  if (patchToEarlierPrefix(prepared, target, from, to, ellipsis)) {
     return to;
   }
 
@@ -1263,70 +1300,47 @@ export function prepareRich(
   const parser = new DOMParser();
   const documentNode = parser.parseFromString(html, "text/html");
 
+  // Full-fit and unsupported sources need the parsed tree, but no searchable cuts.
+  let nodes: readonly PreparedRichNode[] | undefined;
   return {
     boundary,
     hasImages: documentNode.body.querySelector("img") !== null,
     root: documentNode.body,
-    nodes: buildPreparedRichNodes(documentNode.body, ROOT_PATH, boundary),
+    get nodes() {
+      return (nodes ??= buildPreparedRichNodes(documentNode.body, ROOT_PATH, boundary));
+    },
   };
 }
 
-function boundaryPointIndex(points: readonly BoundaryPoint[], point: BoundaryPoint): number | null {
-  for (let index = 0; index < points.length; index += 1) {
-    if (sameBoundaryPoint(points[index]!, point)) {
-      return index;
-    }
+function boundaryPointIndex(points: BoundaryPoints, point: BoundaryPoint): number | null {
+  let low = 0;
+  let high = points.length - 1;
+  while (low <= high) {
+    const middle = (low + high) >>> 1;
+    const order = compareBoundaryPoint(points.at(middle), point);
+    if (order === 0) return middle;
+    if (order < 0) low = middle + 1;
+    else high = middle - 1;
   }
-
   return null;
 }
 
-function addRankPoint(points: BoundaryPoint[], point: BoundaryPoint): void {
-  if (boundaryPointIndex(points, point) === null) {
-    points.push(point);
-  }
+function rankPointsForRuns(runs: readonly LogicalRun[], includeFallback = false): BoundaryPoints {
+  // Word cuts are a subset of each leaf's grapheme fallback, and runs already
+  // follow document order. Their union needs neither sorting nor deduplication.
+  return concatenatePoints([
+    singlePoint(ROOT_START_POINT),
+    ...runs.map((run) =>
+      run.kind === "atomic"
+        ? singlePoint(run.endPoint)
+        : includeFallback && run.fallbackTextCuts
+          ? run.fallbackTextCuts
+          : run.textCuts,
+    ),
+  ]);
 }
 
-function textRankPoints(run: TextLogicalRun, includeFallback: boolean): BoundaryPoint[] {
-  if (!includeFallback || !run.fallbackTextCuts) {
-    return run.textCuts.slice();
-  }
-
-  const points = [...run.textCuts, ...run.fallbackTextCuts].sort(compareBoundaryPoint);
-  const unique: BoundaryPoint[] = [];
-
-  for (const point of points) {
-    addRankPoint(unique, point);
-  }
-
-  return unique;
-}
-
-function rankPointsForRuns(runs: readonly LogicalRun[], includeFallback = false): BoundaryPoint[] {
-  const points = [ROOT_START_POINT];
-
-  for (const run of runs) {
-    if (run.kind === "atomic") {
-      points.push(run.endPoint);
-      continue;
-    }
-
-    if (!includeFallback) {
-      for (const point of run.textCuts) {
-        points.push(point);
-      }
-      continue;
-    }
-
-    for (const point of textRankPoints(run, true)) {
-      addRankPoint(points, point);
-    }
-  }
-
-  return points;
-}
-
-function rankForState(state: RichState, points: readonly BoundaryPoint[]): number | undefined {
+function rankForState(state: RichState, points: BoundaryPoints): number | undefined {
   if (state.kind === "full") {
     return points.length;
   }
@@ -1338,7 +1352,7 @@ export function rankRichState(
   searchIndex: RichSearchIndex,
   state: RichState,
 ): RichStateRank | null {
-  const points = rankPointsForRuns(searchIndex.runs, true);
+  const points = rankPointsForRuns(searchIndex.data.runs, true);
   const rank = rankForState(state, points);
 
   return rank === undefined
@@ -1346,7 +1360,7 @@ export function rankRichState(
     : {
         rank,
         rankCount: points.length,
-        textRankSafe: textRankSafeForState(state, searchIndex.runs, searchIndex.prepared.root),
+        textRankSafe: textRankSafeForState(state, searchIndex.data.runs, searchIndex.prepared.root),
       };
 }
 
@@ -1355,7 +1369,7 @@ export function richStateForRank(searchIndex: RichSearchIndex, rank: number): Ri
     return null;
   }
 
-  const points = rankPointsForRuns(searchIndex.runs, true);
+  const points = rankPointsForRuns(searchIndex.data.runs, true);
   const index = Math.floor(rank);
   if (index < 0 || index > points.length) {
     return null;
@@ -1366,7 +1380,7 @@ export function richStateForRank(searchIndex: RichSearchIndex, rank: number): Ri
       ? FULL_STATE
       : {
           kind: "clamped",
-          point: points[index]!,
+          point: points.at(index),
         };
 
   return state;
@@ -1386,24 +1400,6 @@ function canUseBodyOnlyLineFit(
   );
 }
 
-function textOnlySimpleLineFit(
-  inspection: RichLayoutInspection,
-  runs: readonly LogicalRun[],
-): TextOnlySimpleLineFit | null {
-  if (
-    inspection.simpleLineFit === undefined ||
-    inspection.simpleLineStyleKey === undefined ||
-    !runs.every((run) => run.kind === "text")
-  ) {
-    return null;
-  }
-
-  return {
-    fit: inspection.simpleLineFit,
-    styleKey: inspection.simpleLineStyleKey,
-  };
-}
-
 function createSearchIndex(
   prepared: PreparedRich,
   body: HTMLElement,
@@ -1413,19 +1409,28 @@ function createSearchIndex(
     return null;
   }
 
-  const runs = buildLogicalRuns(prepared.nodes, inspection.atomicPaths);
-  const simpleLine = textOnlySimpleLineFit(inspection, runs);
+  // Inspection is current and mandatory; searchable metadata is needed only
+  // after overflow. Keep it separate so refreshing typography never forces it.
+  let runs: readonly LogicalRun[] | undefined;
+  let rankPoints: BoundaryPoints | undefined;
+  const getRuns = () => (runs ??= buildLogicalRuns(prepared.nodes, inspection.atomicPaths));
 
   return {
     body,
     hasElements: inspection.hasElements,
     prepared,
-    rankPoints: prepared.boundary === "word" ? rankPointsForRuns(runs) : null,
-    runs,
-    ...(simpleLine
+    data: {
+      get rankPoints() {
+        return prepared.boundary === "word" ? (rankPoints ??= rankPointsForRuns(getRuns())) : null;
+      },
+      get runs() {
+        return getRuns();
+      },
+    },
+    ...(inspection.simpleLineFit !== undefined && inspection.simpleLineStyleKey !== undefined
       ? {
-          simpleLineFit: simpleLine.fit,
-          simpleLineStyleKey: simpleLine.styleKey,
+          simpleLineFit: inspection.simpleLineFit,
+          simpleLineStyleKey: inspection.simpleLineStyleKey,
         }
       : {}),
   };
@@ -1441,13 +1446,8 @@ function searchIndexWithSimpleLineFit(
     simpleLineStyleKey: _simpleLineStyleKey,
     ...rest
   } = searchIndex;
-
   return simpleLineFit !== undefined && simpleLineStyleKey !== undefined
-    ? {
-        ...rest,
-        simpleLineFit,
-        simpleLineStyleKey,
-      }
+    ? { ...rest, simpleLineFit, simpleLineStyleKey }
     : rest;
 }
 
@@ -1530,19 +1530,117 @@ function textRankSafeForState(
   );
 }
 
-export function clampRich({
-  ellipsis,
-  from,
-  hint,
-  lineLimit,
-  maxHeight,
-  prepared,
-  preferHintedTextRun,
-  probe,
-  searchIndex,
-  skipFullFit = false,
-  verifyFullCandidate = true,
-}: RichClampOptions): RichClampResult {
+type RichMeasurement = {
+  readonly state: RichState;
+  readonly stable: boolean;
+  write: () => void;
+  read: () => boolean;
+};
+
+type RichSearch = Generator<RichMeasurement, RichClampResult, boolean>;
+type RichFit = Generator<RichMeasurement, boolean, boolean>;
+
+function* searchRichCandidates(
+  count: number,
+  fits: (index: number) => RichFit,
+  hint: number | null = null,
+  expansionLimit = richWarmExpansionLimit,
+): Generator<RichMeasurement, number, boolean> {
+  const search = searchFittingIndex(count, hint, expansionLimit);
+  let step = search.next();
+  while (!step.done) step = search.next(yield* fits(step.value));
+  return step.value;
+}
+
+function finishRichSearch(search: RichSearch, first = search.next()): RichClampResult {
+  let step = first;
+  while (!step.done) {
+    step.value.write();
+    step = search.next(step.value.read());
+  }
+  return step.value;
+}
+
+export function clampRich(input: RichClampOptions): RichClampResult {
+  return finishRichSearch(searchRich(input));
+}
+
+// Probe preparation and structural candidates stay synchronous. A warm one-text
+// source may also test its full candidate in the batch; markup-bearing sources
+// may batch only stable cuts in the original text leaf.
+export function prepareRichTextBatch(
+  input: RichClampOptions,
+):
+  | { result: RichClampResult }
+  | { task: Generator<() => boolean, RichClampResult | (() => RichClampResult), boolean> } {
+  const from = input.from;
+  if (from?.kind !== "clamped") return { result: clampRich(input) };
+
+  const textOnly =
+    input.prepared.root.childNodes.length === 1 &&
+    input.prepared.root.firstChild?.nodeType === Node.TEXT_NODE;
+  if (
+    !textOnly &&
+    (!input.skipFullFit ||
+      input.verifyFullCandidate ||
+      !input.preferHintedTextRun ||
+      textPrefixForPoint(input.prepared.root, from.point) === null)
+  ) {
+    return { result: clampRich(input) };
+  }
+  const originPath = from.point.path;
+  const search = searchRich(input, false);
+  let step = search.next();
+  function stable(measurement: RichMeasurement): boolean {
+    return (
+      textOnly ||
+      (measurement.stable &&
+        measurement.state.kind === "clamped" &&
+        samePath(measurement.state.point.path, originPath))
+    );
+  }
+  while (!step.done && !stable(step.value)) {
+    step.value.write();
+    step = search.next(step.value.read());
+  }
+  if (step.done) return { result: step.value };
+
+  function* measurements(): Generator<
+    () => boolean,
+    RichClampResult | (() => RichClampResult),
+    boolean
+  > {
+    while (!step.done) {
+      if (!stable(step.value)) {
+        // Resume structural work only after every batched candidate has finished.
+        // Keeping the continuation preserves the original probe order and avoids
+        // paying again for full-tree preparation when a cut leaves this text leaf.
+        return () => finishRichSearch(search, step);
+      }
+      step.value.write();
+      step = search.next(yield step.value.read);
+    }
+    return step.value;
+  }
+  return { task: measurements() };
+}
+
+function* searchRich(
+  {
+    ellipsis,
+    from,
+    hint,
+    lineLimit,
+    maxHeight,
+    prepared,
+    preferHintedTextRun,
+    probe,
+    searchIndex,
+    skipFullFit = false,
+    verifyFullCandidate = true,
+  }: RichClampOptions,
+  reuseRootPosition = true,
+): RichSearch {
   const { body, content, root, width } = probe;
 
   if (width <= 0) {
@@ -1597,25 +1695,32 @@ export function clampRich({
 
   let checkedFullCandidate = false;
 
-  function fitsFullCandidate(): boolean {
+  function* fitsFullCandidate(): RichFit {
     if (currentFit && sameState(state, FULL_STATE) && sameState(currentFit.state, FULL_STATE)) {
       checkedFullCandidate = true;
       return currentFit.fits;
     }
 
-    applyFullCandidate();
     checkedFullCandidate = true;
 
-    const fits = fitsContent(
-      root,
-      content,
-      lineLimit,
-      maxHeight,
-      true,
-      visibleBoundsCache,
-      simpleLineFit,
-      captureFullFit,
-    );
+    const fits = yield {
+      state: FULL_STATE,
+      stable: false,
+      write: applyFullCandidate,
+      read: () => {
+        if (!reuseRootPosition && visibleBoundsCache) visibleBoundsCache.top = undefined;
+        return fitsContent(
+          root,
+          content,
+          lineLimit,
+          maxHeight,
+          true,
+          visibleBoundsCache,
+          simpleLineFit,
+          captureFullFit,
+        );
+      },
+    };
 
     currentFit = {
       fits,
@@ -1688,13 +1793,12 @@ export function clampRich({
     simpleLineFit = nextSimpleLine?.fit;
   }
 
-  const { rankPoints, runs } = nextSearchIndex;
-
-  if (!shouldSkipFullFit && fitsFullCandidate()) {
+  if (!shouldSkipFullFit && (yield* fitsFullCandidate())) {
     // The full rich tree fits and its layout is safe for the rich search model.
     return unrankedProbeResult(state);
   }
 
+  const { rankPoints, runs } = nextSearchIndex.data;
   const fullLineCount = fullFitSample?.rects && countLineBoxes(fullFitSample.rects);
   if (
     probeHint === null &&
@@ -1709,18 +1813,36 @@ export function clampRich({
     if (coldRankPoints.length > 16) {
       probeHint = {
         kind: "clamped",
-        point:
-          coldRankPoints[
-            Math.min(
-              coldRankPoints.length - 1,
-              Math.max(0, Math.floor((coldRankPoints.length * lineLimit) / fullLineCount)),
-            )
-          ]!,
+        point: coldRankPoints.at(
+          Math.min(
+            coldRankPoints.length - 1,
+            Math.max(0, Math.floor((coldRankPoints.length * lineLimit) / fullLineCount)),
+          ),
+        ),
       };
     }
   }
 
-  function fitsCandidate(endPoint: BoundaryPoint): boolean {
+  function measurementForCandidate(candidate: RichState, read: () => boolean): RichMeasurement {
+    const cut = sameTextCut(prepared, body, state, candidate, ellipsis);
+    return {
+      state: candidate,
+      stable: cut !== null,
+      write() {
+        if (cut) {
+          if (cut.node.data !== cut.text) cut.node.data = cut.text;
+          state = candidate;
+        } else if (candidate.kind === "clamped") {
+          applyCandidate(candidate.point);
+        }
+      },
+      read() {
+        if (!reuseRootPosition && visibleBoundsCache) visibleBoundsCache.top = undefined;
+        return read();
+      },
+    };
+  }
+  function* fitsCandidate(endPoint: BoundaryPoint): RichFit {
     const candidate: RichState = {
       kind: "clamped",
       point: endPoint,
@@ -1729,15 +1851,8 @@ export function clampRich({
       return currentFit.fits;
     }
 
-    applyCandidate(endPoint);
-    const fits = fitsContent(
-      root,
-      content,
-      lineLimit,
-      maxHeight,
-      true,
-      visibleBoundsCache,
-      simpleLineFit,
+    const fits = yield measurementForCandidate(candidate, () =>
+      fitsContent(root, content, lineLimit, maxHeight, true, visibleBoundsCache, simpleLineFit),
     );
 
     currentFit = {
@@ -1780,14 +1895,15 @@ export function clampRich({
     };
   }
 
-  function clampedResult(point: BoundaryPoint): RichClampResult {
+  function* clampedResult(point: BoundaryPoint): RichSearch {
     if (shouldSkipFullFit && verifyFullCandidate && !checkedFullCandidate) {
-      if (fitsFullCandidate()) {
+      if (yield* fitsFullCandidate()) {
         return currentResult();
       }
     }
 
-    applyCandidate(point);
+    const candidate: RichState = { kind: "clamped", point };
+    if (!sameState(state, candidate)) yield measurementForCandidate(candidate, () => true);
     return currentResult();
   }
 
@@ -1803,34 +1919,34 @@ export function clampRich({
       if (hintedRun.kind === "text") {
         const fineHint = boundaryPointIndex(hintedRun.textCuts, probeHint.point);
         const runEndIndex = hintedRun.textCuts.length - 1;
-        const fineIndex = findLastFittingIndex(
+        const fineIndex = yield* searchRichCandidates(
           hintedRun.textCuts.length,
-          (index) => fitsCandidate(hintedRun.textCuts[index]!),
+          (index) => fitsCandidate(hintedRun.textCuts.at(index)),
           fineHint,
           richWarmExpansionLimit,
         );
 
         if (fineIndex >= 0 && fineIndex < runEndIndex) {
-          return clampedResult(hintedRun.textCuts[fineIndex]!);
+          return yield* clampedResult(hintedRun.textCuts.at(fineIndex));
         }
 
         if (fineIndex === runEndIndex) {
-          const runEndPoint = hintedRun.textCuts[runEndIndex]!;
+          const runEndPoint = hintedRun.textCuts.at(runEndIndex);
           const nextRun = runs[hintedRunIndex + 1];
 
           if (!nextRun) {
-            if (fitsFullCandidate()) {
+            if (yield* fitsFullCandidate()) {
               return currentResult();
             }
 
-            return clampedResult(runEndPoint);
+            return yield* clampedResult(runEndPoint);
           }
 
           // Adjacent searchable text is merged into this run, so the next unit is
           // normally atomic. If it fails, this run end is the best legal boundary.
           if (nextRun.kind === "atomic") {
-            if (!fitsCandidate(nextRun.endPoint)) {
-              return clampedResult(runEndPoint);
+            if (!(yield* fitsCandidate(nextRun.endPoint))) {
+              return yield* clampedResult(runEndPoint);
             }
 
             coarseHint = hintedRunIndex + 1;
@@ -1840,23 +1956,23 @@ export function clampRich({
         const fallbackTextCuts = hintedRun.fallbackTextCuts;
         if (fineIndex < 0 && fallbackTextCuts) {
           const fallbackHint = boundaryPointIndex(fallbackTextCuts, probeHint.point);
-          const fallbackIndex = findLastFittingIndex(
+          const fallbackIndex = yield* searchRichCandidates(
             fallbackTextCuts.length,
-            (index) => fitsCandidate(fallbackTextCuts[index]!),
+            (index) => fitsCandidate(fallbackTextCuts.at(index)),
             fallbackHint,
             richWarmExpansionLimit,
           );
 
           if (fallbackIndex >= 0 && fallbackIndex < fallbackTextCuts.length - 1) {
-            return clampedResult(fallbackTextCuts[fallbackIndex]!);
+            return yield* clampedResult(fallbackTextCuts.at(fallbackIndex));
           }
         }
 
         if (fineIndex < 0) {
           const coarsePoint =
             hintedRunIndex > 0 ? runs[hintedRunIndex - 1]!.endPoint : ROOT_START_POINT;
-          if (fitsCandidate(coarsePoint)) {
-            return clampedResult(coarsePoint);
+          if (yield* fitsCandidate(coarsePoint)) {
+            return yield* clampedResult(coarsePoint);
           }
         }
       }
@@ -1866,7 +1982,7 @@ export function clampRich({
   const coarseSearchCount = runs.length + (shouldSkipFullFit ? 1 : 0);
   // Coarse search skips over complete logical runs first so refinement only has
   // to slice the one text run that crosses the fit boundary.
-  const coarseIndex = findLastFittingIndex(
+  const coarseIndex = yield* searchRichCandidates(
     coarseSearchCount,
     (index) => {
       if (index === runs.length) {
@@ -1888,19 +2004,19 @@ export function clampRich({
   if (!nextRun || nextRun.kind === "atomic") {
     // If the next unit is atomic, there is no legal smaller slice after the
     // coarse point.
-    return clampedResult(coarsePoint);
+    return yield* clampedResult(coarsePoint);
   }
 
   const fineHint =
     probeHint?.kind === "clamped" ? boundaryPointIndex(nextRun.textCuts, probeHint.point) : null;
   // Fine search is limited to text cuts inside the first overflowing text run.
-  const fineIndex = findLastFittingIndex(
+  const fineIndex = yield* searchRichCandidates(
     nextRun.textCuts.length,
-    (index) => fitsCandidate(nextRun.textCuts[index]!),
+    (index) => fitsCandidate(nextRun.textCuts.at(index)),
     fineHint,
     richWarmExpansionLimit,
   );
-  let finePoint = fineIndex >= 0 ? nextRun.textCuts[fineIndex]! : coarsePoint;
+  let finePoint = fineIndex >= 0 ? nextRun.textCuts.at(fineIndex) : coarsePoint;
 
   const fallbackTextCuts = nextRun.fallbackTextCuts;
   if (fineIndex < 0 && fallbackTextCuts) {
@@ -1908,14 +2024,14 @@ export function clampRich({
     // in the overflowing run can fit.
     const fallbackHint =
       probeHint?.kind === "clamped" ? boundaryPointIndex(fallbackTextCuts, probeHint.point) : null;
-    const fallbackIndex = findLastFittingIndex(
+    const fallbackIndex = yield* searchRichCandidates(
       fallbackTextCuts.length,
-      (index) => fitsCandidate(fallbackTextCuts[index]!),
+      (index) => fitsCandidate(fallbackTextCuts.at(index)),
       fallbackHint,
       richWarmExpansionLimit,
     );
-    finePoint = fallbackIndex >= 0 ? fallbackTextCuts[fallbackIndex]! : coarsePoint;
+    finePoint = fallbackIndex >= 0 ? fallbackTextCuts.at(fallbackIndex) : coarsePoint;
   }
 
-  return clampedResult(finePoint);
+  return yield* clampedResult(finePoint);
 }

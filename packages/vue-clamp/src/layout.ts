@@ -8,8 +8,8 @@ export function observeBorderBoxSizes(
   elements: readonly Element[],
   listener: BorderBoxResizeListener,
 ): () => void {
-  // Keep delivery independent per clamp. A shared hub reduced callback objects
-  // but not measured active work, while coupling otherwise unrelated instances.
+  // Paths without cooperative work can keep independent delivery and avoid
+  // shared-observer dispatch bookkeeping.
   const observer = new ResizeObserver(listener);
   for (const element of elements) {
     observer.observe(element, borderBoxObserverOptions);
@@ -17,6 +17,68 @@ export function observeBorderBoxSizes(
 
   return () => {
     observer.disconnect();
+  };
+}
+
+let measuredObserver: ResizeObserver | undefined;
+let measuredClamps = 0;
+let observedClamps = 0;
+
+export function hasMeasuredPeers(): boolean {
+  return measuredClamps > 1;
+}
+const measuredListeners = new Map<Element, Set<BorderBoxResizeListener>>();
+
+// Measured searches yield between writes and reads. Delivering their resize
+// requests in one callback lets them share that work before the next paint.
+// Vue-driven participants can share delivery without advertising candidate work.
+export function observeMeasuredBorderBoxSizes(
+  elements: readonly Element[],
+  listener: BorderBoxResizeListener,
+  batchCandidates = true,
+): () => void {
+  observedClamps += 1;
+  if (batchCandidates) measuredClamps += 1;
+  measuredObserver ??= new ResizeObserver((entries) => {
+    if (observedClamps === 1) {
+      measuredListeners.values().next().value?.values().next().value?.(entries);
+      return;
+    }
+    const deliveries = new Map<BorderBoxResizeListener, ResizeObserverEntry[]>();
+    for (const entry of entries) {
+      for (const callback of measuredListeners.get(entry.target) ?? []) {
+        const delivery = deliveries.get(callback);
+        if (delivery) delivery.push(entry);
+        else deliveries.set(callback, [entry]);
+      }
+    }
+    for (const [callback, delivery] of deliveries) callback(delivery);
+  });
+  for (const element of new Set(elements)) {
+    let listeners = measuredListeners.get(element);
+    if (!listeners) {
+      listeners = new Set();
+      measuredListeners.set(element, listeners);
+      measuredObserver.observe(element, borderBoxObserverOptions);
+    }
+    listeners.add(listener);
+  }
+  return () => {
+    observedClamps -= 1;
+    if (batchCandidates) measuredClamps -= 1;
+    for (const element of elements) {
+      const listeners = measuredListeners.get(element);
+      if (!listeners) continue;
+      listeners.delete(listener);
+      if (listeners.size === 0) {
+        measuredObserver?.unobserve(element);
+        measuredListeners.delete(element);
+      }
+    }
+    if (measuredListeners.size === 0) {
+      measuredObserver?.disconnect();
+      measuredObserver = undefined;
+    }
   };
 }
 
@@ -67,26 +129,16 @@ export function cssLength(value: ClampLength | undefined): string | undefined {
 
 const contentIndependentWidth = /^(?:-?(?:\d|\.\d)|calc\(|clamp\(|max\(|min\()/u;
 const unresolvedStyleReference = /(?:%|var\()/iu;
-const lineHeight = /^(?:normal|-?(?:\d+|\d*\.\d+)(?:px)?)$/iu;
-const pxLength = /^-?(?:\d+|\d*\.\d+)px$/iu;
-export const inlineTextWidthProperties = [
-  "font",
-  "font-family",
-  "font-feature-settings",
-  "font-kerning",
-  "font-optical-sizing",
-  "font-size",
-  "font-size-adjust",
-  "font-stretch",
-  "font-style",
-  "font-synthesis",
-  "font-variant",
-  "font-variation-settings",
-  "font-weight",
-  "letter-spacing",
-  "text-transform",
-  "word-spacing",
-] as const;
+// Tracks computed typography and line breaking, not complete stylesheet identity.
+export function textLayoutMetricKey(style: CSSStyleDeclaration): string {
+  const font = style.font ?? "";
+  // A serializable font shorthand represents the six base longhands exactly.
+  // Empty/unsupported serialization and opaque system-font keywords fall back.
+  const base = font.includes(" ")
+    ? `font\n${font}`
+    : `longhands\n${font}\n${style.fontFamily ?? ""}\n${style.fontSize ?? ""}\n${style.fontStretch ?? ""}\n${style.fontStyle ?? ""}\n${style.fontWeight ?? ""}\n${style.lineHeight ?? ""}`;
+  return `${base}\n${style.fontFeatureSettings ?? ""}\n${style.fontKerning ?? ""}\n${style.fontOpticalSizing ?? ""}\n${style.fontSizeAdjust ?? ""}\n${style.fontSynthesis ?? ""}\n${style.fontVariant ?? ""}\n${style.fontVariationSettings ?? ""}\n${style.letterSpacing ?? ""}\n${style.textTransform ?? ""}\n${style.wordSpacing ?? ""}\n${style.fontLanguageOverride ?? ""}\n${style.textIndent ?? ""}\n${style.tabSize ?? ""}\n${style.whiteSpace ?? ""}\n${style.lineBreak ?? ""}\n${style.textWrapStyle ?? ""}\n${style.textAutospace ?? ""}\n${style.wordBreak ?? ""}\n${style.overflowWrap ?? ""}\n${style.hyphens ?? ""}\n${style.direction ?? ""}\n${style.unicodeBidi ?? ""}\n${style.writingMode ?? ""}\n${style.textOrientation ?? ""}\n${style.verticalAlign ?? ""}`;
+}
 
 export function hasUnresolvedStyleReference(value: string): boolean {
   return unresolvedStyleReference.test(value);
@@ -94,28 +146,6 @@ export function hasUnresolvedStyleReference(value: string): boolean {
 
 export function isContentIndependentWidth(value: string): boolean {
   return value !== "" && !hasUnresolvedStyleReference(value) && contentIndependentWidth.test(value);
-}
-
-function hasResolvedInlineStyleValue(value: string | undefined): boolean {
-  return value !== undefined && value !== "" && !hasUnresolvedStyleReference(value);
-}
-
-export function hasInlineFontMetrics(style: CSSStyleDeclaration): boolean {
-  return (
-    hasResolvedInlineStyleValue(style.fontFamily) && pxLength.test((style.fontSize ?? "").trim())
-  );
-}
-
-export function hasInlineLineMetrics(style: CSSStyleDeclaration): boolean {
-  const value = style.lineHeight?.trim();
-
-  return hasResolvedInlineStyleValue(value) && lineHeight.test(value);
-}
-
-export function hasUnresolvedInlineTextWidthStyle(style: CSSStyleDeclaration): boolean {
-  return inlineTextWidthProperties.some((property) =>
-    hasUnresolvedStyleReference(style.getPropertyValue(property)),
-  );
 }
 
 function pixelLength(value: string | undefined): number | undefined {
@@ -128,6 +158,7 @@ export function estimateLineCapacity(
   element: HTMLElement,
   maxHeight: ClampLength | undefined,
   lineLimit: number | undefined,
+  measuredLineHeight?: string,
 ): number | undefined {
   if (lineLimit !== undefined) {
     return lineLimit;
@@ -138,7 +169,7 @@ export function estimateLineCapacity(
     return undefined;
   }
 
-  const lineHeight = Number.parseFloat(getComputedStyle(element).lineHeight);
+  const lineHeight = Number.parseFloat(measuredLineHeight ?? getComputedStyle(element).lineHeight);
   if (!Number.isFinite(lineHeight) || lineHeight <= 0) {
     return undefined;
   }
@@ -231,12 +262,13 @@ function needsVisualBorderBoxFallback(element: Element): boolean {
     return true;
   }
 
-  const { writingMode } = getComputedStyle(element);
+  const style = getComputedStyle(element);
+  const { writingMode } = style;
   let needed = writingMode.startsWith("vertical") || writingMode.startsWith("sideways");
   let current: Element | null = element;
 
   while (!needed && current) {
-    const { perspective, transform } = getComputedStyle(current);
+    const { perspective, transform } = current === element ? style : getComputedStyle(current);
     needed = transform !== "none" || perspective !== "none";
     current = current.parentElement;
   }
@@ -267,13 +299,16 @@ function entrySizeSnapshot(entry: ResizeObserverEntry): BorderBoxSizeSnapshot | 
 export function observedBorderBoxSizeSnapshot(
   entry: ResizeObserverEntry,
   previousSignature: string,
+  useVisualFallback = true,
 ): BorderBoxSizeSnapshot | null {
   const snapshot = entrySizeSnapshot(entry);
   if (!snapshot || snapshot.signature === previousSignature) {
     return snapshot;
   }
 
-  return entry.target instanceof HTMLElement && needsVisualBorderBoxFallback(entry.target)
+  return useVisualFallback &&
+    entry.target instanceof HTMLElement &&
+    needsVisualBorderBoxFallback(entry.target)
     ? borderBoxSizeSnapshot(entry.target)
     : snapshot;
 }
@@ -317,7 +352,28 @@ export function hasBorderBoxEntrySignatureChange(
   return false;
 }
 
-export function listenForFontLoads(onLoad: () => void): () => void {
+type FontReadiness = {
+  promise: Promise<FontFaceSet>;
+  callbacks: Set<() => void> | null;
+};
+type FontLoadGroup = {
+  callbacks: Set<() => void>;
+  notify: () => void;
+  readiness?: FontReadiness;
+};
+const fontLoadGroups = new WeakMap<FontFaceSet, FontLoadGroup>();
+
+function notifyFontListeners(callbacks: Iterable<() => void>): void {
+  for (const callback of callbacks) {
+    try {
+      callback();
+    } catch (error) {
+      reportError(error);
+    }
+  }
+}
+
+export function listenForFontLoads(onLoad: () => void, notifySettledReady = false): () => void {
   const fontFaceSet = document.fonts;
   if (!fontFaceSet) {
     return () => {};
@@ -330,12 +386,59 @@ export function listenForFontLoads(onLoad: () => void): () => void {
     }
   };
 
-  void fontFaceSet.ready.then(() => notify());
-  fontFaceSet.addEventListener("loadingdone", notify);
+  let group = fontLoadGroups.get(fontFaceSet);
+  if (!group) {
+    const callbacks = new Set<() => void>();
+    group = {
+      callbacks,
+      notify: () => {
+        // New subscriptions wait for a later event or pending readiness, not
+        // the event being delivered. Removed subscribers guard their activity.
+        notifyFontListeners([...callbacks]);
+      },
+    };
+    fontLoadGroups.set(fontFaceSet, group);
+    fontFaceSet.addEventListener("loadingdone", group.notify);
+  }
+  group.callbacks.add(notify);
+
+  const promise = fontFaceSet.ready;
+  let readyCallbacks: Set<() => void> | null = null;
+  if (notifySettledReady) {
+    // Predictors can retain shared font metrics while no instance is active.
+    // Reactivation must invalidate those metrics even for a fulfilled promise.
+    void promise.then(notify);
+  } else {
+    if (group.readiness?.promise !== promise) {
+      const readiness: FontReadiness = { promise, callbacks: new Set() };
+      group.readiness = readiness;
+      let wasPending = false;
+      void promise.then(() => {
+        const callbacks = readiness.callbacks;
+        readiness.callbacks = null;
+        if (wasPending && callbacks) notifyFontListeners(callbacks);
+        callbacks?.clear();
+      });
+      // A fulfilled promise reacts before this sentinel. Only a pending ready
+      // promise reports new font/layout work; an old fulfilled one would repeat
+      // the initial clamp. Share this distinction across the subscription group.
+      queueMicrotask(() => {
+        wasPending = true;
+      });
+    }
+    readyCallbacks = group.readiness.callbacks;
+    readyCallbacks?.add(notify);
+  }
 
   return () => {
+    if (!active) return;
     active = false;
-    fontFaceSet.removeEventListener("loadingdone", notify);
+    readyCallbacks?.delete(notify);
+    group.callbacks.delete(notify);
+    if (group.callbacks.size === 0) {
+      fontFaceSet.removeEventListener("loadingdone", group.notify);
+      fontLoadGroups.delete(fontFaceSet);
+    }
   };
 }
 
@@ -348,7 +451,7 @@ export type VisibleBoundsCache = {
   bottom?: number;
   clientTop?: number;
   height?: number;
-  top?: number;
+  top?: number | undefined;
 };
 
 export type SimpleLineFit = {
@@ -376,43 +479,35 @@ function sameLineBox(line: LineBox, rect: DOMRect): boolean {
   return Math.abs(line.top - rect.top) <= 0.5 && Math.abs(line.bottom - rect.bottom) <= 0.5;
 }
 
-export function countLineBoxes(rects: DOMRectList): number {
+function collectLineBoxes(rects: DOMRectList): { lines: LineBox[]; maxHeight: number } {
   const lines: LineBox[] = [];
-
+  let maxHeight = 0;
+  let maxTop = -Infinity;
   for (let index = 0; index < rects.length; index += 1) {
     const rect = rects[index]!;
-    if (rect.height > 0 && !lines.some((line) => sameLineBox(line, rect))) {
-      lines.push({ bottom: rect.bottom, top: rect.top });
-    }
+    if (rect.height <= 0) continue;
+    maxHeight = Math.max(maxHeight, rect.height);
+    const previous = lines[lines.length - 1];
+    if (previous && sameLineBox(previous, rect)) continue;
+    // Ordinary inline fragments arrive in line order. A box below every stored
+    // representative cannot match one; unusual ordering keeps the exact scan.
+    if (rect.top <= maxTop + 0.5 && lines.some((line) => sameLineBox(line, rect))) continue;
+    lines.push({ bottom: rect.bottom, top: rect.top });
+    maxTop = Math.max(maxTop, rect.top);
   }
+  return { lines, maxHeight };
+}
 
-  return lines.length;
+export function countLineBoxes(rects: DOMRectList): number {
+  return collectLineBoxes(rects).lines.length;
 }
 
 function cacheSimpleLineBoxHeight(
   simpleLineFit: SimpleLineFit | undefined,
   rects: DOMRectList,
 ): void {
-  if (!simpleLineFit) {
-    return;
-  }
-
-  let maxLineBoxHeight = 0;
-  const lines: LineBox[] = [];
-  for (let index = 0; index < rects.length; index += 1) {
-    const rect = rects[index]!;
-    if (rect.height <= 0) {
-      continue;
-    }
-
-    maxLineBoxHeight = Math.max(maxLineBoxHeight, rect.height);
-    if (!lines.some((line) => sameLineBox(line, rect))) {
-      lines.push({
-        bottom: rect.bottom,
-        top: rect.top,
-      });
-    }
-  }
+  if (!simpleLineFit) return;
+  const { lines, maxHeight: maxLineBoxHeight } = collectLineBoxes(rects);
 
   let maxLineStep = 0;
   for (let index = 1; index < lines.length; index += 1) {
