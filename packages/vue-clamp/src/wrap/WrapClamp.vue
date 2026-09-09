@@ -263,31 +263,6 @@ function estimateMaterializedGrowCount(
   return Math.min(totalItems, Math.max(currentVisibleCount + 1, cappedTargetCount));
 }
 
-function estimateDynamicAfterGrowHintCount(
-  containerWidth: number,
-  lineLimit: number,
-  totalItems: number,
-  averageItemWidth: number,
-  beforeWidth: number,
-  afterWidth: number,
-  hint: number,
-): number {
-  return findLargestFittingCount(
-    0,
-    totalItems,
-    (candidate) =>
-      simulateStaticFlow({
-        afterWidth,
-        beforeWidth,
-        containerWidth,
-        itemCount: candidate,
-        itemWidth: (index) => itemWidthAt(measuredItemWidths, index, averageItemWidth),
-        lineLimit,
-      }).status === "fit",
-    hint,
-  );
-}
-
 async function applyStaticFlowCountHint(
   containerWidth: number,
   limits: ClampLimits,
@@ -389,18 +364,36 @@ async function applyStaticFlowMaterializedGrow(
     }
 
     let shownCount = currentVisibleCount;
-    const fits = (candidate: number) => {
+    const measureCandidate = (candidate: number) => {
       shownCount = showItemCandidate(itemElements, shownCount, candidate);
-      const measurement = measureSequence(rootElement, contentElement, limits);
+      return measureSequence(rootElement, contentElement, limits);
+    };
+    const fits = (candidate: number) => {
+      const measurement = measureCandidate(candidate);
       return measurement.allFit && measurement.visibleItems === candidate;
     };
-    // Later geometric chunks often fit in full. Keep the initial frontier order,
-    // then avoid midpoint probes when the measured upper endpoint already fits.
-    const checkUpper = additionalItems > 1;
-    const upperFits = checkUpper && fits(searchItemCount);
-    const bestFitCount = upperFits
-      ? searchItemCount
-      : findLargestFittingCount(currentVisibleCount, searchItemCount - (checkUpper ? 1 : 0), fits);
+    let bestFitCount: number;
+    if (searchItemCount - currentVisibleCount <= 2) {
+      // With at most one interior cut, keep the existing midpoint-first order.
+      // A rejected successor can settle a near-complete width hint in one read.
+      bestFitCount = findLargestFittingCount(currentVisibleCount, searchItemCount, fits);
+    } else {
+      const upper = measureCandidate(searchItemCount);
+      bestFitCount = searchItemCount;
+      if (!upper.allFit || upper.visibleItems !== searchItemCount) {
+        // The first overflow proposes a frontier. Verify its successor before
+        // treating it as an upper bound; final committed DOM still verifies fit.
+        const frontier = Math.max(
+          currentVisibleCount,
+          Math.min(searchItemCount - 1, upper.visibleItems),
+        );
+        const successor = frontier + 1;
+        bestFitCount =
+          successor === searchItemCount || !fits(successor)
+            ? frontier
+            : findLargestFittingCount(successor, searchItemCount - 1, fits);
+      }
+    }
 
     showItemCandidate(itemElements, shownCount, currentVisibleCount);
     await applyVisibleCount(bestFitCount);
@@ -443,15 +436,14 @@ async function applyDynamicAfterGrowHint(
 
   const beforeSize = measureElementSize(beforeRef.value);
   const afterSize = measureElementSize(afterRef.value);
-  const estimatedVisibleCount = estimateDynamicAfterGrowHintCount(
-    rootWidth,
-    limits.lineLimit,
-    items.length,
-    averageWidth,
-    beforeSize?.width ?? 0,
-    afterSize?.width ?? 0,
-    visibleCount.value,
-  );
+  const estimatedVisibleCount = simulateStaticFlow({
+    afterWidth: afterSize?.width ?? 0,
+    beforeWidth: beforeSize?.width ?? 0,
+    containerWidth: rootWidth,
+    itemCount: items.length,
+    itemWidth: (index) => itemWidthAt(measuredItemWidths, index, averageWidth),
+    lineLimit: limits.lineLimit,
+  }).fitCount;
 
   if (estimatedVisibleCount <= visibleCount.value + 1 || estimatedVisibleCount > items.length) {
     return;

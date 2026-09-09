@@ -41,6 +41,7 @@ export type MultilineShellOptions = {
   readonly expanded: Ref<boolean>;
   readonly onClampedChange: (value: boolean) => void;
   readonly onFontLoad?: () => void;
+  readonly notifySettledReady?: boolean;
   readonly observeSizes?: typeof observeBorderBoxSizes;
   readonly predictiveWidthRef?: Ref<HTMLElement | null>;
   readonly recompute: (expanded: Ref<boolean>, rootWidth?: number) => Promise<void>;
@@ -89,6 +90,7 @@ export function useMultilineClamp(options: MultilineShellOptions): MultilineShel
     expanded,
     onClampedChange,
     onFontLoad,
+    notifySettledReady = false,
     observeSizes = observeBorderBoxSizes,
     predictiveWidthRef,
     recompute,
@@ -311,7 +313,7 @@ export function useMultilineClamp(options: MultilineShellOptions): MultilineShel
 
   watchPostEffect((onCleanup) => {
     if (active.value) {
-      onCleanup(listenForFontLoads(requestFontRecompute));
+      onCleanup(listenForFontLoads(requestFontRecompute, notifySettledReady));
     }
   });
 

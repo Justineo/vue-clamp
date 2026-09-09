@@ -10,6 +10,7 @@ import {
   cleanupMounted,
   frame,
   mountClamp,
+  naturalLineCount,
   rootElement,
   sampleVisibleLineCounts,
   settle as settleBrowser,
@@ -253,14 +254,14 @@ describe("Pretext LineClamp", () => {
         predicted.width.value = width;
         await settle();
 
-        const body = bodyFor(predicted);
         const output = visibleText(predicted);
         const prefix = output.endsWith("...") ? output.slice(0, -3) : output;
 
         expect(prefixes.has(prefix), `${scenario.font} at ${width}px`).toBe(true);
-        expect(body.scrollHeight, `${scenario.font} at ${width}px`).toBeLessThanOrEqual(
-          body.clientHeight + 0.5,
-        );
+        expect(
+          naturalLineCount(rootFor(predicted)),
+          `${scenario.font} at ${width}px`,
+        ).toBeLessThanOrEqual(3);
       }
 
       unmountClamp(predicted);
@@ -291,12 +292,6 @@ describe("Pretext LineClamp", () => {
         style: "letter-spacing:1.5px",
         text: "Release dashboards preserve customer context while responsive cards resize.",
         width: 210,
-      },
-      {
-        font: "16px Arial",
-        style: "word-break:keep-all",
-        text: "国际响应团队需要保留 customer impact 和 mitigation context，同时避免错误断行。",
-        width: 180,
       },
       {
         font: "16px Georgia",
@@ -330,6 +325,30 @@ describe("Pretext LineClamp", () => {
     }
   });
 
+  it("models keep-all with a contained prefix at word boundaries", async () => {
+    const text = "国际响应团队需要保留 customer impact 和 mitigation context，同时避免错误断行。";
+    const prefixes = new Set(
+      Array.from(new Intl.Segmenter(undefined, { granularity: "word" }).segment(text), (part) =>
+        text.slice(0, part.index + part.segment.length).trimEnd(),
+      ),
+    );
+    let typographyChangedOutput = false;
+    for (const width of [160, 180, 200]) {
+      const normal = mountPretext(text, "16px Arial", width, {}, "word-break:normal");
+      const keepAll = mountPretext(text, "16px Arial", width, {}, "word-break:keep-all");
+      await settle();
+      const output = visibleText(keepAll);
+      const prefix = output.endsWith("…") ? output.slice(0, -1) : output;
+      expect(getComputedStyle(textElement(rootFor(keepAll))).wordBreak).toBe("keep-all");
+      expect(prefixes.has(prefix), `${width}px`).toBe(true);
+      expect(naturalLineCount(rootFor(keepAll)), `${width}px`).toBeLessThanOrEqual(3);
+      typographyChangedOutput ||= visibleText(normal) !== output;
+      unmountClamp(normal);
+      unmountClamp(keepAll);
+    }
+    expect(typographyChangedOutput).toBe(true);
+  });
+
   it("refreshes cached font and marker widths after a font loads", async () => {
     const family = "PretextLateFont";
     const text = "iiiiiiii iiiiiiii iiiiiiii iiiiiiii ".repeat(10);
@@ -340,12 +359,13 @@ describe("Pretext LineClamp", () => {
     const before = visibleText(predicted);
     const face = new FontFace(
       family,
-      'local("Arial"), local("Liberation Sans"), local("DejaVu Sans")',
+      `url(${new URL("./fixtures/narrow.ttf", import.meta.url).href})`,
     );
 
     try {
-      await face.load();
       document.fonts.add(face);
+      await document.fonts.load(font, "iiiiiiii");
+      await document.fonts.ready;
       document.fonts.dispatchEvent(new Event("loadingdone"));
       await settle();
       const browser = mountLineClamp(StandardLineClamp, text, font, 180, { ellipsis: "iiii" });
@@ -357,6 +377,59 @@ describe("Pretext LineClamp", () => {
       expect(visibleText(browser)).not.toBe(before);
       expect(visibleText(predicted)).toBe(visibleText(browser));
       expect(visibleText(second)).toBe(visibleText(secondBrowser));
+    } finally {
+      document.fonts.delete(face);
+    }
+  });
+
+  it("refreshes shared font metrics after every predictor was unmounted", async () => {
+    const family = "PretextUnmountedFont";
+    const text = "iiiiiiii iiiiiiii iiiiiiii iiiiiiii ".repeat(10);
+    const font = `24px ${family}, monospace`;
+    const predicted = mountPretext(text, font, 180, { ellipsis: "iiii" });
+    await settle();
+    const previous = visibleText(predicted);
+    unmountClamp(predicted);
+    const face = new FontFace(
+      family,
+      `url(${new URL("./fixtures/narrow.ttf", import.meta.url).href})`,
+    );
+    try {
+      document.fonts.add(face);
+      await document.fonts.load(font, "iiiiiiii");
+      await document.fonts.ready;
+      const remounted = mountPretext(text, font, 180, { ellipsis: "iiii" });
+      const browser = mountLineClamp(StandardLineClamp, text, font, 180, { ellipsis: "iiii" });
+      await settle();
+      expect(visibleText(browser)).not.toBe(previous);
+      expect(visibleText(remounted)).toBe(visibleText(browser));
+    } finally {
+      document.fonts.delete(face);
+    }
+  });
+
+  it("refreshes retained font metrics when a predictor becomes active again", async () => {
+    const family = "PretextInactiveFont";
+    const text = "iiiiiiii iiiiiiii iiiiiiii iiiiiiii ".repeat(10);
+    const font = `24px ${family}, monospace`;
+    const predicted = mountPretext(text, font, 180, { ellipsis: "iiii" });
+    await settle();
+    const previous = visibleText(predicted);
+    predicted.exposed.value!.expand();
+    await settle();
+    const face = new FontFace(
+      family,
+      `url(${new URL("./fixtures/narrow.ttf", import.meta.url).href})`,
+    );
+    try {
+      document.fonts.add(face);
+      await document.fonts.load(font, "iiiiiiii");
+      await document.fonts.ready;
+      predicted.exposed.value!.collapse();
+      const browser = mountLineClamp(StandardLineClamp, text, font, 180, { ellipsis: "iiii" });
+      await settle();
+      expect(visibleText(browser)).not.toBe(previous);
+      expect(visibleText(predicted)).toBe(visibleText(browser));
     } finally {
       document.fonts.delete(face);
     }

@@ -1,10 +1,56 @@
 import { describe, expect, it } from "vite-plus/test";
 import {
+  canSkipFullTextFit,
   displayTextForKeptCount,
   prepareText,
   prepareSharedText,
   clampTextToFit,
 } from "../src/text.ts";
+
+import type { TextClampContext } from "../src/text.ts";
+
+describe("full-text overflow observations", () => {
+  const prepared = prepareText("a ".repeat(7) + "a", "word");
+  const context: TextClampContext = {
+    ellipsis: ".",
+    hasAffixes: false,
+    lineCapacity: 2,
+    lineLimit: 2,
+    maxHeight: undefined,
+    ratio: 1,
+    spacing: "trim",
+  };
+  const hint = {
+    ...context,
+    boundaryOffsets: prepared.boundaryOffsets,
+    kept: 6,
+    rootWidth: 100,
+    clampedMaxWidth: 200,
+  };
+
+  it("uses compatible observed overflow only when the width changes", () => {
+    expect(canSkipFullTextFit(prepared, hint, 80, context)).toBe(true);
+    expect(canSkipFullTextFit(prepared, hint, 180, context)).toBe(true);
+    expect(canSkipFullTextFit(prepared, hint, 200, context)).toBe(true);
+    expect(canSkipFullTextFit(prepared, hint, 100, context)).toBe(false);
+    expect(canSkipFullTextFit(prepared, hint, 201, context)).toBe(false);
+  });
+
+  it("rejects changed source, layout or a previously full result", () => {
+    expect(canSkipFullTextFit(prepareText("another source", "word"), hint, 80, context)).toBe(
+      false,
+    );
+    expect(canSkipFullTextFit(prepared, hint, 80, { ...context, lineLimit: 1 })).toBe(false);
+    expect(
+      canSkipFullTextFit(
+        prepared,
+        { ...hint, kept: prepared.boundaryOffsets.length - 1 },
+        80,
+        context,
+      ),
+    ).toBe(false);
+  });
+});
 
 describe("text helpers", () => {
   it("prepares ASCII grapheme boundaries", () => {

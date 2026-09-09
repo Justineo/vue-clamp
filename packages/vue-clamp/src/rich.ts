@@ -1120,19 +1120,25 @@ function patchForwardTextPrefix(
   return true;
 }
 
-function patchFullToClamped(
+function patchToEarlierPrefix(
   prepared: PreparedRich,
   target: HTMLElement,
   from: RichState | null,
   to: RichState,
   ellipsis: string,
 ): boolean {
-  if (from?.kind !== "full" || to.kind !== "clamped") {
+  if (!from || to.kind !== "clamped") {
     return false;
   }
 
   const { root } = prepared;
   const liveNode = resolvePath(target, to.point.path);
+  if (
+    from.kind === "clamped" &&
+    (!(liveNode instanceof Text) || compareBoundaryPoint(to.point, from.point) >= 0)
+  )
+    return false;
+  const existingEllipsis = from.kind === "clamped" ? rootEllipsisNode(target, ellipsis) : null;
 
   if (liveNode instanceof Text) {
     const text = textPrefixForPoint(root, to.point);
@@ -1148,16 +1154,18 @@ function patchFullToClamped(
       return false;
     }
 
-    liveNode.data = text;
-    if (!removeAfterBoundary(target, boundary)) {
+    if (liveNode.data !== text) liveNode.data = text;
+    if (!removeAfterBoundary(target, boundary, existingEllipsis)) {
       return false;
     }
-  } else if (!removeAfterBoundary(target, to.point)) {
+  } else if (!removeAfterBoundary(target, to.point, existingEllipsis)) {
     return false;
   }
 
-  trimTrailingWhitespace(target);
-  appendEllipsis(target, ellipsis);
+  if (!existingEllipsis) {
+    trimTrailingWhitespace(target);
+    appendEllipsis(target, ellipsis);
+  }
 
   return true;
 }
@@ -1244,7 +1252,7 @@ export function patchRich(
     return to;
   }
 
-  if (patchFullToClamped(prepared, target, from, to, ellipsis)) {
+  if (patchToEarlierPrefix(prepared, target, from, to, ellipsis)) {
     return to;
   }
 

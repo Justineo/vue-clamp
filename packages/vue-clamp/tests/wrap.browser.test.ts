@@ -1064,6 +1064,82 @@ describe("WrapClamp browser contract", () => {
     expect(root.querySelector('[data-part="item"][aria-hidden="true"]')).toBeNull();
   });
 
+  it.each(
+    [{ maxLines: 2 }, { maxHeight: 24 }].flatMap((props) => [
+      { props, itemWidth: 20, fullWidth: 60, initialCount: 8, expectedCount: 14 },
+      { props, itemWidth: 60, fullWidth: 20, initialCount: 2, expectedCount: 4 },
+    ]),
+  )(
+    "verifies growth when hidden shells change the measured frontier with %j",
+    async ({ props, itemWidth, fullWidth, initialCount, expectedCount }) => {
+      const style = document.createElement("style");
+      style.textContent = `
+        [data-wrap-frontier] [data-part="content"]:has(> [data-part="item"]:nth-child(24)):not(:has(> [data-part="item"][style*="none"]))
+          > [data-part="item"] { width: ${fullWidth}px !important; }
+      `;
+      document.head.append(style);
+
+      try {
+        const items = Array.from({ length: 24 }, (_, index) => `I${index}`);
+        const mountedClamp = mountWrapClamp({
+          items,
+          props: { ...props, "data-wrap-frontier": "" },
+          style: "font-size:0;line-height:0",
+          width: 90,
+          item: ({ item }) =>
+            h("span", { style: `display:inline-block;width:${itemWidth}px;height:12px` }, item),
+        });
+        await settle(5);
+        expect(wrapItems(rootElement(mountedClamp.container))).toHaveLength(initialCount);
+
+        // Clearing old item metrics exercises a materialized upper candidate
+        // whose first overflow differs from the final fitting prefix.
+        mountedClamp.items.value = [...items];
+        mountedClamp.width.value = 150;
+        await settle(8);
+
+        const root = rootElement(mountedClamp.container);
+        expect(wrapItems(root)).toHaveLength(expectedCount);
+        expect(root.querySelector('[data-part="item"][aria-hidden="true"]')).toBeNull();
+      } finally {
+        style.remove();
+      }
+    },
+  );
+
+  it("keeps the maximal height-limited prefix when a tall materialized suffix shifts earlier items", async () => {
+    const style = document.createElement("style");
+    style.textContent = '[data-wrap-tall-frontier] [data-part="content"] { align-items: center; }';
+    document.head.append(style);
+
+    try {
+      const mountedClamp = mountWrapClamp({
+        items: Array.from({ length: 24 }, (_, index) => `I${index}`),
+        props: { maxHeight: 24, "data-wrap-tall-frontier": "" },
+        style: "font-size:0;line-height:0",
+        width: 60,
+        item: ({ item, index }) =>
+          h(
+            "span",
+            { style: `display:inline-block;width:30px;height:${index % 3 === 2 ? 80 : 12}px` },
+            item,
+          ),
+      });
+      await settle(5);
+      expect(wrapItems(rootElement(mountedClamp.container))).toHaveLength(2);
+
+      mountedClamp.width.value = 150;
+      await settle(8);
+
+      const root = rootElement(mountedClamp.container);
+      expect(wrapItems(root)).toHaveLength(2);
+      expectVisibleAtomicBoxesWithinRoot(root);
+      expect(root.querySelector('[data-part="item"][aria-hidden="true"]')).toBeNull();
+    } finally {
+      style.remove();
+    }
+  });
+
   it("clamps wrapped items when content has CSS gap", async () => {
     const style = document.createElement("style");
     style.textContent = `

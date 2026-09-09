@@ -2,8 +2,9 @@ import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import { Comment, createApp, defineComponent, h, nextTick, ref } from "vue";
 import { InlineClamp, LineClamp, RichLineClamp } from "../src/index.ts";
 import { clampRich, patchRich, prepareRich, rankRichState, richStateForRank } from "../src/rich.ts";
-import { estimateColdSearchMaxProbeCount, richWarmExpansionLimit } from "../src/search.ts";
+import { richWarmExpansionLimit } from "../src/search.ts";
 import {
+  estimateColdSearchMaxProbeCount,
   estimateTargetRankInterval,
   estimateTargetRankLocalInterval,
   estimateWarmSearchWidthRoom,

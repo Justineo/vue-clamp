@@ -1,0 +1,1 @@
+`narrow.ttf` is a repository-owned test font containing only a space and a rectangular `i`. Both glyphs advance 250 units on a 1000-unit em; it deliberately differs from the monospace fallback so font-load invalidation is observable without system fonts. It uses the repository MIT license.

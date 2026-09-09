@@ -30,6 +30,11 @@ export function simulateStaticFlow({
   itemWidth,
   lineLimit,
 }: StaticFlowEstimateOptions): StaticFlowEstimate {
+  // A fixed suffix wider than the line leaves no fitting modeled prefix.
+  if (afterWidth > containerWidth + layoutTolerance) {
+    return { fitCount: 0, status: "overflow" };
+  }
+
   let currentLineWidth = Math.max(0, beforeWidth);
   let lineCount = 1;
   let fitCount = 0;
@@ -56,28 +61,25 @@ export function simulateStaticFlow({
     }
 
     currentLineWidth += width;
+    // Reserve the observed fixed suffix on the final permitted line. Its
+    // first rejection is also the maximal prefix of this positive-width model.
+    if (
+      afterWidth > 0 &&
+      lineCount === lineLimit &&
+      currentLineWidth + afterWidth > containerWidth + layoutTolerance
+    ) {
+      return { fitCount, status: "overflow" };
+    }
     fitCount = index + 1;
   }
 
-  if (afterWidth > 0) {
-    if (currentLineWidth > 0 && currentLineWidth + afterWidth > containerWidth + layoutTolerance) {
-      lineCount += 1;
-      currentLineWidth = 0;
-
-      if (lineCount > lineLimit) {
-        return {
-          fitCount,
-          status: "overflow",
-        };
-      }
-    }
-
-    if (currentLineWidth + afterWidth > containerWidth + layoutTolerance) {
-      return {
-        fitCount,
-        status: "overflow",
-      };
-    }
+  if (
+    afterWidth > 0 &&
+    currentLineWidth > 0 &&
+    currentLineWidth + afterWidth > containerWidth + layoutTolerance &&
+    lineCount + 1 > lineLimit
+  ) {
+    return { fitCount, status: "overflow" };
   }
 
   return {

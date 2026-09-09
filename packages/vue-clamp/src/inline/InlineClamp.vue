@@ -17,13 +17,17 @@ import {
   hasBorderBoxEntrySignatureChange,
   isContentIndependentWidth,
   listenForFontLoads,
+  textLayoutMetricKey,
   observeMeasuredBorderBoxSizes,
 } from "../layout.ts";
 import { nativeTextStyle, resolveNativeMode } from "../native.ts";
-import { shouldVerifyFullCandidate, warmSearchLocalCoverage } from "../search.ts";
+import { warmSearchLocalCoverage } from "../search.ts";
 import { visuallyHiddenTextStyle } from "../styles.ts";
 import {
   canSkipFullTextFit,
+  shouldRecheckFullTextFit,
+  fallbackSearchPrepared,
+  displayTextForKeptCount,
   searchTextCandidates,
   matchingTextClampHint,
   fullTextClampResult,
@@ -88,6 +92,7 @@ const isRewritten = computed(
 let stopFonts = () => {};
 let lastLayoutSignature: string | null = null;
 let lastTextClamp: TextClampResult | null = null;
+let lastTextMetricKey: string | null = null;
 // Repeated large jumps may start from an exact historical rank, but the rank is
 // only a search hint: the current browser layout still validates every result.
 // Keep no rendered strings or authoritative answers in this small history.
@@ -171,10 +176,19 @@ function* clampBody(): Generator<() => number, string | null, number> {
     applyBodyText(body);
   }
 
-  const limit =
-    canMeasureCurrentWidth && freshRootWidth !== undefined
+  const limit = yield () => {
+    if (split === undefined) {
+      const key = textLayoutMetricKey(getComputedStyle(bodyElement));
+      if (lastTextMetricKey !== null && lastTextMetricKey !== key) {
+        lastTextClamp = null;
+        textSearchHints.clear();
+      }
+      lastTextMetricKey = key;
+    }
+    return canMeasureCurrentWidth && freshRootWidth !== undefined
       ? freshRootWidth
-      : yield () => rootElement.getBoundingClientRect().width;
+      : rootElement.getBoundingClientRect().width;
+  };
 
   if (limit <= 0) {
     // Do not replace visible text with a zero-width guess during mount or hidden
@@ -190,18 +204,45 @@ function* clampBody(): Generator<() => number, string | null, number> {
   }
   const historicalHint = textSearchHints.get(limit) ?? null;
   const currentHint = matchingTextClampHint(prepared, lastTextClamp, context);
+  const searchPrepared =
+    split === undefined ? fallbackSearchPrepared(prepared, currentHint) : prepared;
   let textHint =
     currentHint !== null &&
     historicalHint !== null &&
-    historicalHint.boundaryOffsets === prepared.boundaryOffsets &&
-    historicalHint.kept < prepared.boundaryOffsets.length - 1 &&
+    historicalHint.boundaryOffsets === searchPrepared.boundaryOffsets &&
+    historicalHint.kept < searchPrepared.boundaryOffsets.length - 1 &&
     split === undefined &&
-    Math.abs(historicalHint.kept - currentHint.kept) > warmSearchLocalCoverage()
+    (historicalHint.boundaryOffsets !== currentHint.boundaryOffsets ||
+      Math.abs(historicalHint.kept - currentHint.kept) > warmSearchLocalCoverage())
       ? { ...historicalHint, ...context, rootWidth: limit }
       : currentHint;
-  const skipFullFit = canSkipFullTextFit(prepared, textHint, limit, context);
+  // Historical ranks choose a pivot; only the latest compatible layout carries
+  // the width observation used to decide whether full text must be measured.
+  const skipFullFit =
+    split === undefined && canSkipFullTextFit(prepared, currentHint, limit, context);
+  let searchAnchor: number | undefined;
+  let searchAnchorFits: boolean | undefined;
 
   if (!skipFullFit) {
+    if (
+      currentHint &&
+      !currentHint.fullPrepared &&
+      currentHint.boundaryOffsets === searchPrepared.boundaryOffsets &&
+      currentHint.kept < searchPrepared.boundaryOffsets.length - 1 &&
+      currentBody ===
+        displayTextForKeptCount(
+          searchPrepared,
+          locationRatio,
+          ellipsis,
+          currentHint.kept,
+          "preserve-outer",
+        ) &&
+      !prepared.hasCursiveText &&
+      !/[\p{Script_Extensions=Arabic}\p{Script_Extensions=Syriac}]/u.test(ellipsis)
+    ) {
+      searchAnchor = currentHint.kept;
+      searchAnchorFits = yield* fitsCurrentBody();
+    }
     applyBodyText(body);
 
     if (yield* fitsCurrentBody()) {
@@ -218,7 +259,12 @@ function* clampBody(): Generator<() => number, string | null, number> {
         ? prepared.fallbackBoundaryOffsets
         : prepared.boundaryOffsets;
     const coldBoundaryCount = coldBoundaryOffsets.length - 1;
-    if (textHint === null && coldBoundaryCount > 16) {
+    if (
+      (textHint === null || textHint.boundaryOffsets !== prepared.boundaryOffsets) &&
+      coldBoundaryCount > 16
+    ) {
+      // A fallback rank is only a pivot. Prefer the current density already
+      // measured with the full body before consulting its historical cut.
       // A failed full-body read carries more information than a boolean: for a
       // split line, measure the full body once to exclude fixed affix occupancy.
       // It remains only a hint; the normal measured search proves the result.
@@ -235,22 +281,52 @@ function* clampBody(): Generator<() => number, string | null, number> {
     }
   }
 
+  if (
+    textHint &&
+    !textHint.fullPrepared &&
+    textHint.rootWidth !== undefined &&
+    textHint.rootWidth > 0 &&
+    textHint.rootWidth !== limit
+  ) {
+    const previousKept = textHint.kept;
+    textHint = {
+      ...textHint,
+      kept: Math.max(
+        0,
+        Math.min(
+          textHint.boundaryOffsets.length - 2,
+          Math.ceil((textHint.kept * limit) / textHint.rootWidth),
+        ),
+      ),
+    };
+    if (
+      skipFullFit &&
+      textHint.boundaryOffsets === searchPrepared.boundaryOffsets &&
+      previousKept < searchPrepared.boundaryOffsets.length - 1 &&
+      previousKept !== textHint.kept &&
+      currentBody ===
+        displayTextForKeptCount(
+          searchPrepared,
+          locationRatio,
+          ellipsis,
+          previousKept,
+          "preserve-outer",
+        )
+    ) {
+      searchAnchor = previousKept;
+    }
+  }
+
   const search = searchTextCandidates({
+    anchor: searchAnchor,
+    anchorFits: searchAnchorFits,
     ellipsis,
     hint: textHint,
-    includeFullCandidate: skipFullFit,
-    prepared,
+    prepared: searchPrepared,
     ratio: locationRatio,
     // Split affixes already own the outer spacing; preserve spaces at the body
     // edges so custom split functions keep browser-like inline flow.
     spacing: "preserve-outer",
-    verifyFullCandidate: shouldVerifyFullCandidate(
-      skipFullFit,
-      limit,
-      textHint?.rootWidth,
-      (textHint?.kept ?? 0) >= prepared.boundaryOffsets.length - 1,
-      textHint?.clampedMaxWidth,
-    ),
   });
   let step = search.next();
   while (!step.done) {
@@ -259,11 +335,26 @@ function* clampBody(): Generator<() => number, string | null, number> {
   }
   const nextResult = step.value;
   const nextBody = nextResult.text;
+  let metricHint = currentHint?.boundaryOffsets === nextResult.boundaryOffsets ? currentHint : null;
+  if (skipFullFit && shouldRecheckFullTextFit(currentHint, nextResult, limit)) {
+    applyBodyText(body);
+    if (yield* fitsCurrentBody()) {
+      lastTextClamp = fullTextClampResult(prepared, limit, context);
+      rememberTextSearchHint(limit, lastTextClamp);
+      return body;
+    }
+    metricHint = null;
+  }
   applyBodyText(nextBody);
   lastTextClamp = {
     ...nextResult,
     ...context,
-    ...nextClampedMaxWidth(textHint, nextResult.kept, limit, prepared.boundaryOffsets.length - 1),
+    ...nextClampedMaxWidth(
+      metricHint,
+      nextResult.kept,
+      limit,
+      nextResult.boundaryOffsets.length - 1,
+    ),
     rootWidth: limit,
   };
   rememberTextSearchHint(limit, lastTextClamp);
@@ -369,7 +460,11 @@ watchPostEffect((onCleanup) => {
     (element): element is HTMLElement => element instanceof HTMLElement,
   );
 
-  stopFonts = listenForFontLoads(() => requestRecompute());
+  stopFonts = listenForFontLoads(() => {
+    lastTextClamp = null;
+    textSearchHints.clear();
+    requestRecompute();
+  });
 
   const stopObserving = observeMeasuredBorderBoxSizes(observed, (entries) => {
     if (hasBorderBoxEntrySignatureChange(entries, lastObservedSignature)) {

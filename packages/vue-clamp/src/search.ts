@@ -3,15 +3,6 @@
 export const defaultWarmExpansionLimit = 2;
 export const richWarmExpansionLimit = defaultWarmExpansionLimit + 1;
 
-type TargetInput = {
-  readonly allowPatchTieBreak?: boolean;
-  readonly coldCost: number;
-  readonly count: number;
-  readonly expansionLimit?: number;
-  readonly hint: number;
-  readonly target: number;
-};
-
 // For monotonic predicates, rejecting an index also rejects every larger index.
 function* binarySearchLastFit(
   low: number,
@@ -153,59 +144,6 @@ export function* searchFittingIndex(
 
 export function warmSearchLocalCoverage(expansionLimit = defaultWarmExpansionLimit): number {
   return 2 ** expansionLimit - 1;
-}
-
-export function estimateColdSearchMaxProbeCount(count: number): number {
-  return count <= 0 ? 0 : Math.ceil(Math.log2(count + 1));
-}
-
-function normalizedTarget(maxIndex: number, target: number): number {
-  if (!Number.isFinite(target)) {
-    return target === Number.POSITIVE_INFINITY ? maxIndex : -1;
-  }
-
-  return Math.max(-1, Math.min(maxIndex, Math.floor(target)));
-}
-
-function warmProbeCount(
-  count: number,
-  hint: number,
-  target: number,
-  expansionLimit = defaultWarmExpansionLimit,
-): number {
-  if (count <= 0) {
-    return 0;
-  }
-
-  if (!Number.isFinite(hint)) {
-    return Number.POSITIVE_INFINITY;
-  }
-
-  const targetIndex = normalizedTarget(count - 1, target);
-  let probes = 0;
-  findLastFittingIndex(
-    count,
-    (index) => {
-      probes += 1;
-      return index <= targetIndex;
-    },
-    hint,
-    expansionLimit,
-  );
-  return probes;
-}
-
-export function warmTargetBeatsCold({
-  allowPatchTieBreak = false,
-  coldCost,
-  count,
-  expansionLimit = defaultWarmExpansionLimit,
-  hint,
-  target,
-}: TargetInput): boolean {
-  const warmCost = warmProbeCount(count, hint, target, expansionLimit);
-
-  return warmCost < coldCost || (allowPatchTieBreak && warmCost === coldCost);
 }
 
 export function shouldVerifyFullCandidate(

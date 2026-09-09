@@ -21,13 +21,7 @@ import {
 } from "../native.ts";
 import { canSafelyCloneRichProbe, clampRich, patchRich, prepareRichTextBatch } from "../rich.ts";
 import { prepareSharedRich } from "./preparation.ts";
-import {
-  estimateColdSearchMaxProbeCount,
-  richWarmExpansionLimit,
-  shouldVerifyFullCandidate,
-  warmSearchLocalCoverage,
-  warmTargetBeatsCold,
-} from "../search.ts";
+import { richWarmExpansionLimit, shouldVerifyFullCandidate } from "../search.ts";
 import { richProbeStyle } from "./styles.ts";
 
 import type { VNodeChild } from "vue";
@@ -237,7 +231,7 @@ const {
     const { affixSignature, probe } = preparedProbe;
     const sameAffix = affixSignature === measuredAffixSignature;
     const skipFullFit = canSkipFullFit(probe.width, sameAffix);
-    const searchHint = canUseSearchHint(probe.width, sameAffix, lineLimit) ? measuredState : null;
+    const searchHint = searchHintForWidth(probe.width, sameAffix);
     const preferHintedTextRun =
       searchHint?.kind === "clamped" && measuredWidth !== null && sameAffix;
     const input: RichClampOptions = {
@@ -468,18 +462,14 @@ function getNativeMode(lineLimit: number | undefined): NativeClampMode | null {
   });
 }
 
-function canUseSearchHint(
-  width: number,
-  sameAffix: boolean,
-  lineLimit: number | undefined,
-): boolean {
+function searchHintForWidth(width: number, sameAffix: boolean): RichState | null {
   if (!measuredState || !sameAffix) {
-    return false;
+    return null;
   }
 
   const stateWidth = measuredWidth;
   if (stateWidth === null || width === stateWidth) {
-    return true;
+    return measuredState;
   }
 
   const hint = rankHint;
@@ -487,20 +477,15 @@ function canUseSearchHint(
     const count = hint.rankCount;
     const start = Math.max(0, Math.min(count - 1, hint.rank));
     const target = estimatedTargetRank(hint, width);
-    const rankMove = Math.abs(target - start);
-
-    return warmTargetBeatsCold({
-      allowPatchTieBreak:
-        rankMove <= warmSearchLocalCoverage(richWarmExpansionLimit) || lineLimit !== 1,
-      coldCost: estimateColdSearchMaxProbeCount(count),
-      count,
-      expansionLimit: richWarmExpansionLimit,
-      hint: start,
-      target,
-    });
+    // These ranks count primary word cuts and atomic endpoints. The separate
+    // grapheme-fallback rank helper uses different units and cannot map them.
+    const points = probeSearchIndex?.data.rankPoints;
+    return points?.length === count && target !== start
+      ? { kind: "clamped", point: points.at(target) }
+      : measuredState;
   }
 
-  return Math.abs(width - stateWidth) <= warmBootstrapWidthDelta;
+  return Math.abs(width - stateWidth) <= warmBootstrapWidthDelta ? measuredState : null;
 }
 
 function estimatedTargetRank(hint: RankHint, width: number): number {

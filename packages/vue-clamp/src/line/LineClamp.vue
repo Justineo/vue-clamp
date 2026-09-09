@@ -6,14 +6,12 @@ import {
   cssLength,
   estimateLineCapacity,
   hasBorderBoxSize,
-  hasInlineFontMetrics,
-  hasInlineLineMetrics,
   hasMeasuredPeers,
-  hasUnresolvedInlineTextWidthStyle,
   normalizeLineLimit,
   observeBorderBoxSizes,
   observeMeasuredBorderBoxSizes,
   simpleLineFitFromStyle,
+  textLayoutMetricKey,
 } from "../layout.ts";
 import { useMultilineClamp } from "../multiline.ts";
 import { hasExplicitTextWidth, measureLayout } from "../measure.ts";
@@ -51,11 +49,6 @@ import type { TextClampResult } from "../text.ts";
 type LineFitResult = {
   readonly fit: SimpleLineFit | undefined;
   readonly metricsChanged: boolean;
-};
-
-type LineFitInput = {
-  readonly fit: SimpleLineFit | undefined;
-  readonly key: string;
 };
 
 defineOptions({
@@ -126,11 +119,19 @@ const {
     return (serial ? observeBorderBoxSizes : observeMeasuredBorderBoxSizes)(elements, listener);
   },
   expanded,
+  notifySettledReady: predictor !== null,
   onFontLoad: () => {
     lineFitCache = null;
-    // Loading a face can change glyph widths without changing computed font CSS.
-    // A simultaneous grow must measure again instead of reusing the old full fit.
-    if (lastTextClamp?.text === text) lastTextClamp = null;
+    // Keep only the current marked text's semantic rank for a fresh DOM anchor.
+    // Font changes invalidate every width observation and full-fit conclusion.
+    if (lastTextClamp && !lastTextClamp.fullPrepared) {
+      const semanticHint = { ...lastTextClamp };
+      delete semanticHint.rootWidth;
+      delete semanticHint.clampedMaxWidth;
+      lastTextClamp = semanticHint;
+    } else {
+      lastTextClamp = null;
+    }
     predictor?.invalidate();
   },
   onClampedChange: (value) => {
@@ -213,8 +214,15 @@ const {
     const hasAffixes =
       hasBorderBoxSize(beforeSize.signature) || hasBorderBoxSize(afterSize.signature);
     const prepared = preparedText.value;
-    const lineCapacity = estimateLineCapacity(rootElement, maxHeight, currentLineLimit);
-    const lineFitResult = lineFit(currentLineLimit, rootElement, textElement, layoutKey);
+    const textStyle = getComputedStyle(textElement);
+    const lineCapacity = estimateLineCapacity(
+      rootElement,
+      maxHeight,
+      currentLineLimit,
+      textStyle.lineHeight,
+    );
+    const lineFitResult = lineFit(currentLineLimit, textStyle, layoutKey);
+    if (lineFitResult.metricsChanged) lastTextClamp = null;
     const input = {
       content: contentElement,
       ellipsis,
@@ -365,53 +373,14 @@ function getNativeMode(
 
 function lineFit(
   currentLineLimit: number | undefined,
-  rootElement: HTMLElement,
-  textElement: HTMLElement,
+  style: CSSStyleDeclaration,
   layoutKey: string,
 ): LineFitResult {
-  if (currentLineLimit === undefined || maxHeight !== undefined) {
-    return {
-      fit: undefined,
-      metricsChanged: false,
-    };
-  }
-
-  const inlineFit = inlineRootLineFit(rootElement, layoutKey);
-  if (inlineFit) {
-    return applyLineFit(inlineFit);
-  }
-
-  const style = getComputedStyle(textElement);
-  return applyLineFit({
-    fit: simpleLineFitFromStyle(style),
-    key: lineFitCacheKey(style, layoutKey),
-  });
-}
-
-function inlineRootLineFit(rootElement: HTMLElement, layoutKey: string): LineFitInput | null {
-  const style = rootElement.style;
-
-  if (
-    (rootElement.getAttribute("class") ?? "").trim() !== "" ||
-    !hasInlineFontMetrics(style) ||
-    !hasInlineLineMetrics(style) ||
-    hasUnresolvedInlineTextWidthStyle(style)
-  ) {
-    return null;
-  }
-
-  const fit = simpleLineFitFromStyle(style);
-  if (!fit) {
-    return null;
-  }
-
-  return {
-    fit,
-    key: lineFitCacheKey(style, layoutKey),
-  };
-}
-
-function applyLineFit({ fit: simpleLineFit, key }: LineFitInput): LineFitResult {
+  const simpleLineFit =
+    currentLineLimit !== undefined && maxHeight === undefined
+      ? simpleLineFitFromStyle(style)
+      : undefined;
+  const key = `${layoutKey}\n${textLayoutMetricKey(style)}`;
   const metricsChanged = lineFitKey !== null && lineFitKey !== key;
   lineFitKey = key;
 
@@ -432,10 +401,6 @@ function applyLineFit({ fit: simpleLineFit, key }: LineFitInput): LineFitResult 
     fit,
     metricsChanged,
   };
-}
-
-function lineFitCacheKey(style: CSSStyleDeclaration, layoutKey: string): string {
-  return `${layoutKey}\n${style.fontFamily}\n${style.fontFeatureSettings}\n${style.fontKerning}\n${style.fontSize}\n${style.fontStretch}\n${style.fontStyle}\n${style.fontVariant}\n${style.fontWeight}\n${style.letterSpacing}\n${style.lineHeight}\n${style.textTransform}\n${style.verticalAlign}\n${style.wordSpacing}`;
 }
 
 function resetLineFitState(): void {

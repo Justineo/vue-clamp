@@ -129,26 +129,16 @@ export function cssLength(value: ClampLength | undefined): string | undefined {
 
 const contentIndependentWidth = /^(?:-?(?:\d|\.\d)|calc\(|clamp\(|max\(|min\()/u;
 const unresolvedStyleReference = /(?:%|var\()/iu;
-const lineHeight = /^(?:normal|-?(?:\d+|\d*\.\d+)(?:px)?)$/iu;
-const pxLength = /^-?(?:\d+|\d*\.\d+)px$/iu;
-export const inlineTextWidthProperties = [
-  "font",
-  "font-family",
-  "font-feature-settings",
-  "font-kerning",
-  "font-optical-sizing",
-  "font-size",
-  "font-size-adjust",
-  "font-stretch",
-  "font-style",
-  "font-synthesis",
-  "font-variant",
-  "font-variation-settings",
-  "font-weight",
-  "letter-spacing",
-  "text-transform",
-  "word-spacing",
-] as const;
+// Tracks computed typography and line breaking, not complete stylesheet identity.
+export function textLayoutMetricKey(style: CSSStyleDeclaration): string {
+  const font = style.font ?? "";
+  // A serializable font shorthand represents the six base longhands exactly.
+  // Empty/unsupported serialization and opaque system-font keywords fall back.
+  const base = font.includes(" ")
+    ? `font\n${font}`
+    : `longhands\n${font}\n${style.fontFamily ?? ""}\n${style.fontSize ?? ""}\n${style.fontStretch ?? ""}\n${style.fontStyle ?? ""}\n${style.fontWeight ?? ""}\n${style.lineHeight ?? ""}`;
+  return `${base}\n${style.fontFeatureSettings ?? ""}\n${style.fontKerning ?? ""}\n${style.fontOpticalSizing ?? ""}\n${style.fontSizeAdjust ?? ""}\n${style.fontSynthesis ?? ""}\n${style.fontVariant ?? ""}\n${style.fontVariationSettings ?? ""}\n${style.letterSpacing ?? ""}\n${style.textTransform ?? ""}\n${style.wordSpacing ?? ""}\n${style.fontLanguageOverride ?? ""}\n${style.textIndent ?? ""}\n${style.tabSize ?? ""}\n${style.whiteSpace ?? ""}\n${style.lineBreak ?? ""}\n${style.textWrapStyle ?? ""}\n${style.textAutospace ?? ""}\n${style.wordBreak ?? ""}\n${style.overflowWrap ?? ""}\n${style.hyphens ?? ""}\n${style.direction ?? ""}\n${style.unicodeBidi ?? ""}\n${style.writingMode ?? ""}\n${style.textOrientation ?? ""}\n${style.verticalAlign ?? ""}`;
+}
 
 export function hasUnresolvedStyleReference(value: string): boolean {
   return unresolvedStyleReference.test(value);
@@ -156,28 +146,6 @@ export function hasUnresolvedStyleReference(value: string): boolean {
 
 export function isContentIndependentWidth(value: string): boolean {
   return value !== "" && !hasUnresolvedStyleReference(value) && contentIndependentWidth.test(value);
-}
-
-function hasResolvedInlineStyleValue(value: string | undefined): boolean {
-  return value !== undefined && value !== "" && !hasUnresolvedStyleReference(value);
-}
-
-export function hasInlineFontMetrics(style: CSSStyleDeclaration): boolean {
-  return (
-    hasResolvedInlineStyleValue(style.fontFamily) && pxLength.test((style.fontSize ?? "").trim())
-  );
-}
-
-export function hasInlineLineMetrics(style: CSSStyleDeclaration): boolean {
-  const value = style.lineHeight?.trim();
-
-  return hasResolvedInlineStyleValue(value) && lineHeight.test(value);
-}
-
-export function hasUnresolvedInlineTextWidthStyle(style: CSSStyleDeclaration): boolean {
-  return inlineTextWidthProperties.some((property) =>
-    hasUnresolvedStyleReference(style.getPropertyValue(property)),
-  );
 }
 
 function pixelLength(value: string | undefined): number | undefined {
@@ -190,6 +158,7 @@ export function estimateLineCapacity(
   element: HTMLElement,
   maxHeight: ClampLength | undefined,
   lineLimit: number | undefined,
+  measuredLineHeight?: string,
 ): number | undefined {
   if (lineLimit !== undefined) {
     return lineLimit;
@@ -200,7 +169,7 @@ export function estimateLineCapacity(
     return undefined;
   }
 
-  const lineHeight = Number.parseFloat(getComputedStyle(element).lineHeight);
+  const lineHeight = Number.parseFloat(measuredLineHeight ?? getComputedStyle(element).lineHeight);
   if (!Number.isFinite(lineHeight) || lineHeight <= 0) {
     return undefined;
   }
@@ -293,12 +262,13 @@ function needsVisualBorderBoxFallback(element: Element): boolean {
     return true;
   }
 
-  const { writingMode } = getComputedStyle(element);
+  const style = getComputedStyle(element);
+  const { writingMode } = style;
   let needed = writingMode.startsWith("vertical") || writingMode.startsWith("sideways");
   let current: Element | null = element;
 
   while (!needed && current) {
-    const { perspective, transform } = getComputedStyle(current);
+    const { perspective, transform } = current === element ? style : getComputedStyle(current);
     needed = transform !== "none" || perspective !== "none";
     current = current.parentElement;
   }
@@ -382,10 +352,28 @@ export function hasBorderBoxEntrySignatureChange(
   return false;
 }
 
-type FontLoadGroup = { callbacks: Set<() => void>; notify: () => void };
+type FontReadiness = {
+  promise: Promise<FontFaceSet>;
+  callbacks: Set<() => void> | null;
+};
+type FontLoadGroup = {
+  callbacks: Set<() => void>;
+  notify: () => void;
+  readiness?: FontReadiness;
+};
 const fontLoadGroups = new WeakMap<FontFaceSet, FontLoadGroup>();
 
-export function listenForFontLoads(onLoad: () => void): () => void {
+function notifyFontListeners(callbacks: Iterable<() => void>): void {
+  for (const callback of callbacks) {
+    try {
+      callback();
+    } catch (error) {
+      reportError(error);
+    }
+  }
+}
+
+export function listenForFontLoads(onLoad: () => void, notifySettledReady = false): () => void {
   const fontFaceSet = document.fonts;
   if (!fontFaceSet) {
     return () => {};
@@ -398,23 +386,15 @@ export function listenForFontLoads(onLoad: () => void): () => void {
     }
   };
 
-  void fontFaceSet.ready.then(() => notify());
   let group = fontLoadGroups.get(fontFaceSet);
   if (!group) {
     const callbacks = new Set<() => void>();
     group = {
       callbacks,
       notify: () => {
-        // New subscriptions receive their own ready notification, not the event
-        // already being delivered. Removed subscribers guard their own activity.
-        const subscribers = [...callbacks];
-        for (const callback of subscribers) {
-          try {
-            callback();
-          } catch (error) {
-            reportError(error);
-          }
-        }
+        // New subscriptions wait for a later event or pending readiness, not
+        // the event being delivered. Removed subscribers guard their activity.
+        notifyFontListeners([...callbacks]);
       },
     };
     fontLoadGroups.set(fontFaceSet, group);
@@ -422,9 +402,38 @@ export function listenForFontLoads(onLoad: () => void): () => void {
   }
   group.callbacks.add(notify);
 
+  const promise = fontFaceSet.ready;
+  let readyCallbacks: Set<() => void> | null = null;
+  if (notifySettledReady) {
+    // Predictors can retain shared font metrics while no instance is active.
+    // Reactivation must invalidate those metrics even for a fulfilled promise.
+    void promise.then(notify);
+  } else {
+    if (group.readiness?.promise !== promise) {
+      const readiness: FontReadiness = { promise, callbacks: new Set() };
+      group.readiness = readiness;
+      let wasPending = false;
+      void promise.then(() => {
+        const callbacks = readiness.callbacks;
+        readiness.callbacks = null;
+        if (wasPending && callbacks) notifyFontListeners(callbacks);
+        callbacks?.clear();
+      });
+      // A fulfilled promise reacts before this sentinel. Only a pending ready
+      // promise reports new font/layout work; an old fulfilled one would repeat
+      // the initial clamp. Share this distinction across the subscription group.
+      queueMicrotask(() => {
+        wasPending = true;
+      });
+    }
+    readyCallbacks = group.readiness.callbacks;
+    readyCallbacks?.add(notify);
+  }
+
   return () => {
     if (!active) return;
     active = false;
+    readyCallbacks?.delete(notify);
     group.callbacks.delete(notify);
     if (group.callbacks.size === 0) {
       fontFaceSet.removeEventListener("loadingdone", group.notify);

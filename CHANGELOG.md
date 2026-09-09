@@ -4,37 +4,12 @@ All notable changes to this project will be documented in this file.
 
 ## [1.7.0]
 
-Minor release adding an opt-in predictive engine for resize-heavy multiline text. Root imports keep
-their existing browser-authoritative behavior and do not include the Pretext engine.
+No API changes are required for existing imports.
 
-### Added
-
-- Added `vue-clamp/pretext`, a drop-in `<LineClamp>` for resize-heavy non-native `maxLines` cases.
-  Eligible resizes avoid browser geometry reads and account for `before` and `after` slot sizes;
-  native and unsupported cases retain the standard behavior. In the 16-instance CSS transition
-  benchmark, ResizeObserver callback CPU was 89–92% lower than with browser measurement.
-
-### Improved
-
-- Reduced `<LineClamp>` update overhead when resizing keeps the displayed text unchanged.
-- Improved resize responsiveness for multiple measured `<LineClamp>` and `<InlineClamp>` components
-  with explicit widths, including `<LineClamp>` with `before` and `after` slots.
-- Reduced initial rendering and text replacement overhead for multiple measured `<LineClamp>` components.
-- Improved resize throughput for multiple `<WrapClamp>` components, eligible `<RichLineClamp>` text
-  updates, and measured fallbacks in `vue-clamp/pretext`.
-- Reduced `<InlineClamp>` overhead when replacing text or split content.
-- Reduced memory use for long measured text and rich HTML, and unnecessary work when full content fits.
-- Reduced update overhead for small groups of repeated text.
-- Reduced text preparation overhead for Latin text with precomposed accented characters.
-- Improved resize and font-change responsiveness for `<RichLineClamp>` with plain-text HTML.
-- Improved expansion of dense `<WrapClamp>` lists without an `after` slot.
-- Reduced processing overhead after fonts load when many clamps are active.
-
-### Fixed
-
-- `<LineClamp>` remeasures previously fitting text when a font change and container growth occur together.
-- Measured `<LineClamp>` and `<InlineClamp>` retain fitting Arabic and Syriac text more reliably when
-  joining forms change its width. Long strings in these scripts may take longer to truncate.
+- Added `vue-clamp/pretext`, an optional predictive `<LineClamp>` for frequent resizing.
+- Improved measured clamping performance, especially for groups of components and long content.
+- Fixed text recovery after font or layout changes and improved Arabic and Syriac truncation.
+  Long strings in these scripts may take longer to truncate.
 
 ## [1.6.0]
 

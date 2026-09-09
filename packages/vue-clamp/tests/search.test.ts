@@ -1,13 +1,13 @@
 import { describe, expect, it } from "vite-plus/test";
 import {
   defaultWarmExpansionLimit,
-  estimateColdSearchMaxProbeCount,
   findLargestFittingCount,
   findLastFittingIndex,
   richWarmExpansionLimit,
   warmSearchLocalCoverage,
 } from "../src/search.ts";
 import {
+  estimateColdSearchMaxProbeCount,
   estimateColdSearchProbeCount,
   estimateTargetRankInterval,
   estimateTargetRankLocalInterval,
