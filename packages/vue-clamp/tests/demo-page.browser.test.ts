@@ -667,6 +667,12 @@ function stressEngineLabel(): string | undefined {
   return document.querySelector("[data-stress-engine-status]")?.textContent?.trim();
 }
 
+function stressTexts(): (string | null)[] {
+  return [...document.querySelectorAll<HTMLElement>(".stress-clamp")].map(
+    (root) => textElement(root).textContent,
+  );
+}
+
 afterEach(() => {
   for (const mountedPage of mounted) {
     mountedPage.app.unmount();
@@ -1353,12 +1359,14 @@ describe("Website demo page", () => {
       "true",
     );
     expect(document.querySelector("[data-stress-after-slot]")).toBeInstanceOf(HTMLElement);
-    expect(
-      [...document.querySelectorAll("[data-stress-after-slot]")].some((slot) => {
-        const match = /^\+(\d+)$/u.exec(slot.textContent?.trim() ?? "");
-        return match ? Number(match[1]) > 0 : false;
-      }),
-    ).toBe(true);
+    await vi.waitFor(() => {
+      expect(
+        [...document.querySelectorAll("[data-stress-after-slot]")].some((slot) => {
+          const match = /^\+(\d+)$/u.exec(slot.textContent?.trim() ?? "");
+          return match ? Number(match[1]) > 0 : false;
+        }),
+      ).toBe(true);
+    });
 
     (widthSlider as HTMLInputElement).value = "720";
     widthSlider?.dispatchEvent(new Event("input", { bubbles: true }));
@@ -1520,6 +1528,19 @@ describe("Website demo page", () => {
     (afterToggle as HTMLInputElement).click();
     await settle(2);
     expect(stressEngineLabel()).toBe("Pretext");
+
+    graphemeBoundaryButton.click();
+    await settle(3);
+    expect(stressEngine()).toBe("measured");
+    expect(stressEngineLabel()).toBe("Measured");
+    const graphemeOutputs = stressTexts();
+    standardEngineButton.click();
+    await settle(3);
+    expect(stressTexts()).toEqual(graphemeOutputs);
+    pretextEngineButton.click();
+    wordBoundaryButton.click();
+    await settle(2);
+    expect(stressEngine()).toBe("pretext");
 
     (afterToggle as HTMLInputElement).click();
     heightModeButton.click();

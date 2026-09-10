@@ -90,8 +90,7 @@ Useful props:
 Keep the root entry by default. Choose `vue-clamp/pretext` when:
 
 - many mounted plain-text clamps resize repeatedly;
-- they use end truncation with `max-lines` and no `max-height`;
-- word boundaries, a custom ellipsis, or a multiline `after` slot prevents native CSS; and
+- they use `boundary="word"`, end truncation, and `max-lines` without `max-height`; and
 - typography is stable, a named font is loaded, and exact browser-only shaping is not required.
 
 One-off clamps, native-eligible grapheme clamps, and measured fallbacks do not amortize the
@@ -118,10 +117,11 @@ import { LineClamp } from "vue-clamp/pretext";
 The subpath has the same public API and selects the cheapest compatible engine:
 
 1. Native CSS for the standard default end/grapheme/`…` subset.
-2. Pretext for non-native end truncation with `max-lines` and no `max-height`, including observed
-   `before` and `after` widths. Custom word or grapheme ellipses are supported; forced line breaks
-   remain browser-measured.
-3. The standard browser-measured engine for every other combination.
+2. Pretext for word-boundary end truncation with `max-lines` and no `max-height`, including observed
+   `before` and `after` widths and custom ellipses without forced line breaks.
+3. The standard browser-measured engine for every other combination. This includes non-native
+   grapheme clamping with a multiline `after` slot or a custom ellipsis, preserving the root entry's
+   character-level cut points.
 
 All modes share the standard DOM, accessibility, controls, events, and observation runtime. Before
 prediction, the component caches the rendered font plus Pretext-supported `white-space`,

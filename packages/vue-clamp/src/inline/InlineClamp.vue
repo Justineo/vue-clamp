@@ -25,6 +25,7 @@ import { warmSearchLocalCoverage } from "../search.ts";
 import { visuallyHiddenTextStyle } from "../styles.ts";
 import {
   canSkipFullTextFit,
+  estimateTextRankFromFull,
   shouldRecheckFullTextFit,
   fallbackSearchPrepared,
   displayTextForKeptCount,
@@ -276,7 +277,12 @@ function* clampBody(): Generator<() => number, string | null, number> {
       textHint = {
         boundaryOffsets: coldBoundaryOffsets,
         ...context,
-        kept: Math.min(coldBoundaryCount - 1, Math.floor(coldBoundaryCount * fitRatio)),
+        kept: estimateTextRankFromFull({
+          prepared,
+          offsets: coldBoundaryOffsets,
+          ratio: locationRatio,
+          fitRatio,
+        }),
       };
     }
   }

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   canSkipFullTextFit,
   displayTextForKeptCount,
+  estimateTextRankFromFull,
   prepareText,
   prepareSharedText,
   clampTextToFit,
@@ -53,6 +54,35 @@ describe("full-text overflow observations", () => {
 });
 
 describe("text helpers", () => {
+  it("maps full-width density through uneven primary word lengths", () => {
+    const prepared = prepareSharedText("abcdefghijk a b c d e", "word");
+    const estimate = (ratio: number) =>
+      estimateTextRankFromFull({
+        prepared,
+        offsets: prepared.boundaryOffsets,
+        ratio,
+        fitRatio: 0.5,
+      });
+
+    // The long first word consumes more than half the source. The suffix can
+    // keep several short words within that same budget.
+    expect(estimate(1)).toBe(0);
+    expect(displayTextForKeptCount(prepared, 0, "…", estimate(0))).toBe("…a b c d e");
+    expect(displayTextForKeptCount(prepared, 0.5, "…", estimate(0.5))).toBe("…e");
+  });
+
+  it("keeps fallback density in its own grapheme rank space", () => {
+    const prepared = prepareText("abcdefghij", "word");
+    expect(
+      estimateTextRankFromFull({
+        prepared,
+        offsets: prepared.fallbackBoundaryOffsets!,
+        ratio: 1,
+        fitRatio: 0.3,
+      }),
+    ).toBe(3);
+  });
+
   it("prepares ASCII grapheme boundaries", () => {
     expect(prepareText("abc").boundaryOffsets).toEqual([0, 1, 2, 3]);
   });

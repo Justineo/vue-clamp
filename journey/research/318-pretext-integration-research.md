@@ -1,6 +1,12 @@
 # Pretext LineClamp
 
-## Decision
+This report preserves the original integration and its measurements. Current runtime eligibility
+is narrower: only word-boundary cases predict. Non-native grapheme cases use standard measurement
+to preserve character-level cut points, including custom ellipses and multiline `after` slots.
+See [the current design](../design.md) for the dispatch contract; the grapheme prediction results
+below are historical evidence.
+
+## Original decision
 
 `vue-clamp` provides a separate predictive entry with the standard `LineClamp` API:
 

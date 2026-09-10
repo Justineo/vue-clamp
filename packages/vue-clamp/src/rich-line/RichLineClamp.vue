@@ -66,8 +66,8 @@ type RankHint = {
   width: number;
 };
 
-// Bootstrap locality before a measured word-rank slope exists. This is a
-// conservative fallback, not a proof that the pixel window is globally optimal.
+// Bootstrap locality for full-source fit order and rankless hints. This is an
+// empirical fallback, not a proof that the pixel window is globally optimal.
 const warmBootstrapWidthDelta = 32;
 const nativeRichBodyStyle = {
   ...nativeBodyStyle,
@@ -473,12 +473,14 @@ function searchHintForWidth(width: number, sameAffix: boolean): RichState | null
   }
 
   const hint = rankHint;
-  if (boundary === "word" && hint?.hasObservedRankSlope && hint.textRankSafe) {
+  if (hint?.textRankSafe) {
     const count = hint.rankCount;
     const start = Math.max(0, Math.min(count - 1, hint.rank));
     const target = estimatedTargetRank(hint, width);
-    // These ranks count primary word cuts and atomic endpoints. The separate
-    // grapheme-fallback rank helper uses different units and cannot map them.
+    // Retained density can seed the first resize before an observed slope is
+    // available. Neither estimate changes the separate full-source fit gate.
+    // These ranks count primary text cuts and atomic endpoints. Word-mode
+    // grapheme fallback has different units and cannot map through this array.
     const points = probeSearchIndex?.data.rankPoints;
     return points?.length === count && target !== start
       ? { kind: "clamped", point: points.at(target) }

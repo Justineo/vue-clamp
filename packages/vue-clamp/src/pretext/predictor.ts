@@ -2,7 +2,7 @@ import { clearCache } from "@chenglou/pretext";
 import { clampPreparedLine, prepareLineClamp } from "./clamp.ts";
 
 import type { PrepareOptions } from "@chenglou/pretext";
-import type { LineClampPredictionInput, LineClampPredictor } from "../line/predictor.ts";
+import type { LineClampPredictor } from "../line/predictor.ts";
 
 type Typography = {
   readonly font: string;
@@ -10,7 +10,6 @@ type Typography = {
 };
 
 type PreparedCache = {
-  readonly boundary: LineClampPredictionInput["boundary"];
   readonly ellipsis: string;
   readonly prepared: ReturnType<typeof prepareLineClamp>;
   readonly text: string;
@@ -75,7 +74,6 @@ export function createPretextLineClampPredictor(): LineClampPredictor {
       if (
         preparedCache === null ||
         preparedCache.text !== input.text ||
-        preparedCache.boundary !== input.boundary ||
         preparedCache.ellipsis !== input.ellipsis
       ) {
         if (fontMetricsDirty) {
@@ -86,7 +84,6 @@ export function createPretextLineClampPredictor(): LineClampPredictor {
         if (
           shared &&
           shared.text === input.text &&
-          shared.boundary === input.boundary &&
           shared.ellipsis === input.ellipsis &&
           shared.typography.font === typography.font &&
           shared.typography.options.letterSpacing === typography.options.letterSpacing &&
@@ -96,11 +93,10 @@ export function createPretextLineClampPredictor(): LineClampPredictor {
           preparedCache = shared;
         } else {
           preparedCache = {
-            boundary: input.boundary,
             ellipsis: input.ellipsis,
             prepared: prepareLineClamp(input.text, typography.font, {
               ...typography.options,
-              boundary: input.boundary,
+              boundary: "word",
               ellipsis: input.ellipsis,
             }),
             text: input.text,
@@ -122,8 +118,11 @@ export function createPretextLineClampPredictor(): LineClampPredictor {
         input.afterWidth,
       );
     },
-    supports({ ellipsis, lineLimit, locationRatio, maxHeight }) {
+    supports({ boundary, ellipsis, lineLimit, locationRatio, maxHeight }) {
+      // The line walker stops at normal wrap points; it does not fill the
+      // last line with a partial word. Grapheme clamping stays browser-measured.
       return (
+        boundary === "word" &&
         maxHeight === undefined &&
         lineLimit !== undefined &&
         locationRatio === 1 &&

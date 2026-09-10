@@ -132,7 +132,7 @@ function isUnitSafe(code: number): boolean {
 
 function* iterateGraphemeBoundaryOffsets(text: string): Generator<number> {
   let start = 0;
-  for (let index = 0; index < text.length; ) {
+  for (let index = 0; index < text.length;) {
     if (!isUnitSafe(text.charCodeAt(index))) {
       index += 1;
       continue;
@@ -428,6 +428,43 @@ export function normalizeLocationRatio(location: LineClampLocation): number {
   return Math.max(0, Math.min(1, location));
 }
 
+export function estimateTextRankFromFull({
+  prepared,
+  offsets,
+  ratio,
+  fitRatio,
+}: {
+  prepared: PreparedText;
+  offsets: readonly number[];
+  ratio: number;
+  fitRatio: number;
+}): number {
+  const count = offsets.length - 1;
+  const max = Math.max(0, count - 1);
+  if (
+    prepared.boundary !== "word" ||
+    offsets !== prepared.boundaryOffsets ||
+    !Number.isFinite(ratio)
+  )
+    return Math.max(0, Math.min(max, Math.floor(count * fitRatio)));
+
+  // Word ranks have unequal lengths. Convert the paid full-width ratio into a
+  // source-length budget before choosing a legal prefix/suffix cut. This is a
+  // one-line hint, not a glyph-width model or a multiline packing estimate.
+  const expected = prepared.text.length * fitRatio;
+  let low = 0;
+  let high = max;
+  while (low < high) {
+    const middle = Math.ceil((low + high) / 2);
+    const prefix = Math.floor(middle * ratio);
+    const suffix = middle - prefix;
+    const length = offsets[prefix]! + prepared.text.length - offsets[count - suffix]!;
+    if (length <= expected) low = middle;
+    else high = middle - 1;
+  }
+  return low;
+}
+
 export function nextClampedMaxWidth(
   hint: TextClampHint | null,
   kept: number,
@@ -626,13 +663,29 @@ export function* searchTextCandidates({
   };
   const textHint = hint ?? null;
   let checkedFullCandidate = false;
+  // Adjacent word cuts can produce identical text after trimming. Keep both
+  // verdicts for this solve so revisiting one after another candidate is free.
+  let fittingText: string | undefined;
+  let failingText: string | undefined;
 
   function* fitsKeptCount(kept: number): Generator<string, boolean, boolean> {
     if (includeFullCandidate && kept >= boundaryCount) {
       checkedFullCandidate = true;
     }
 
-    return yield displayTextForKeptCount(prepared, ratio, ellipsis, kept, spacing);
+    const candidate = displayTextForKeptCount(prepared, ratio, ellipsis, kept, spacing);
+    if (kept < boundaryCount) {
+      if (candidate === fittingText) return true;
+      if (candidate === failingText) return false;
+    }
+    const fits = yield candidate;
+    // Keep bare full-source verification independent of marked-rank reuse,
+    // including coincidentally identical strings.
+    if (kept < boundaryCount) {
+      if (fits) fittingText = candidate;
+      else failingText = candidate;
+    }
+    return fits;
   }
 
   // The search helper works over indexes. For text, the index is the number of

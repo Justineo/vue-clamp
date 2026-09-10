@@ -192,7 +192,6 @@ const {
       const prediction = predictor.predict({
         afterWidth: afterSize.width,
         beforeWidth: beforeSize.width,
-        boundary,
         ellipsis,
         lineLimit: currentLineLimit,
         rootWidth,
@@ -299,6 +298,7 @@ function usesPredictor(
   const locationRatio = normalizeLocationRatio(location);
   if (
     !predictor.supports({
+      boundary,
       ellipsis,
       lineLimit: currentLineLimit,
       locationRatio,

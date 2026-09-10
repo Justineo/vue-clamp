@@ -1329,9 +1329,12 @@ const highlightedCode = {
               <ul>
                 <li>Many mounted plain-text clamps resize repeatedly.</li>
                 <li>
-                  Use <code>max-lines</code> and end truncation without <code>max-height</code> when
-                  word boundaries, a custom ellipsis, or a multiline <code>after</code> slot
-                  prevents native CSS.
+                  Use word boundaries with <code>max-lines</code> and end truncation without
+                  <code>max-height</code>. A custom ellipsis or a multiline <code>after</code> slot
+                  is also supported.
+                </li>
+                <li>
+                  Grapheme clamping uses native CSS when possible and browser measurement otherwise.
                 </li>
                 <li>
                   Typography stays stable, a named font is loaded, and exact browser-only text

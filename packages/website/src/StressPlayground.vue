@@ -159,12 +159,7 @@ const engineStatus = computed<StressEngineStatus | null>(() => {
     return null;
   }
 
-  if (
-    lineEngine.value === "pretext" &&
-    limitKind.value === "lines" &&
-    (boundary.value === "word" ||
-      (boundary.value === "grapheme" && maxLines.value > 1 && showAfterSlot.value))
-  ) {
+  if (lineEngine.value === "pretext" && limitKind.value === "lines" && boundary.value === "word") {
     return {
       engine: "pretext",
       label: "Pretext",

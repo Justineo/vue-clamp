@@ -155,7 +155,7 @@ export function measureSequence(
   let visibleItems = 0;
   let beforeSize: Size | null = null;
 
-  for (const child of contentElement.children) {
+  for (let child = contentElement.firstElementChild; child; child = child.nextElementSibling) {
     if (!(child instanceof HTMLElement)) {
       continue;
     }
@@ -234,7 +234,7 @@ export function findItemElements(contentElement: HTMLElement | null): HTMLElemen
   }
 
   const elements: HTMLElement[] = [];
-  for (const child of contentElement.children) {
+  for (let child = contentElement.firstElementChild; child; child = child.nextElementSibling) {
     if (child instanceof HTMLElement && child.dataset.part === "item") {
       elements.push(child);
     }
@@ -267,7 +267,7 @@ export function measureVisibleAtomicHeight(contentElement: HTMLElement | null): 
   }
 
   let height = 0;
-  for (const child of contentElement.children) {
+  for (let child = contentElement.firstElementChild; child; child = child.nextElementSibling) {
     if (!(child instanceof HTMLElement)) {
       continue;
     }

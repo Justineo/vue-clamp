@@ -19,6 +19,7 @@ import {
 } from "./browser.ts";
 
 import type { MountedClamp } from "./browser.ts";
+import type { ClampBoundary } from "../src/index.ts";
 import type { Component } from "vue";
 
 async function settle(): Promise<void> {
@@ -114,7 +115,6 @@ describe("Pretext LineClamp", () => {
     const input = {
       afterWidth: 0,
       beforeWidth: 0,
-      boundary: "word" as const,
       ellipsis: "…",
       lineLimit: 3,
       rootWidth: 180,
@@ -137,7 +137,6 @@ describe("Pretext LineClamp", () => {
         { style: "font:16px Arial;white-space:pre-wrap" },
         { style: "font:16px Arial;word-break:keep-all" },
         { style: "font:16px Arial", ellipsis: "..." },
-        { style: "font:16px Arial", boundary: "grapheme" as const },
         { style: "font:16px Arial", text: text + " Updated" },
       ]) {
         // Restore a common preparation so each variant independently changes
@@ -221,7 +220,7 @@ describe("Pretext LineClamp", () => {
     expect(visibleText(measured)).toBe(visibleText(measuredBrowser));
   });
 
-  it("keeps custom-ellipsis grapheme predictions within the requested lines", async () => {
+  it("uses browser-measured grapheme clamping with custom ellipses", async () => {
     const scenarios = [
       {
         font: "16px Georgia",
@@ -245,27 +244,104 @@ describe("Pretext LineClamp", () => {
         sourcePrefix += part.segment;
         prefixes.add(sourcePrefix.trim());
       }
-      const predicted = mountPretext(scenario.text, scenario.font, 180, {
+      const measured = mountPretext(scenario.text, scenario.font, 180, {
+        boundary: "grapheme",
+        ellipsis: "...",
+      });
+      const browser = mountLineClamp(StandardLineClamp, scenario.text, scenario.font, 180, {
         boundary: "grapheme",
         ellipsis: "...",
       });
 
       for (const width of [180, 220, 260, 300]) {
-        predicted.width.value = width;
+        measured.width.value = width;
+        browser.width.value = width;
         await settle();
 
-        const output = visibleText(predicted);
+        const output = visibleText(measured);
         const prefix = output.endsWith("...") ? output.slice(0, -3) : output;
 
+        expect(output, `${scenario.font} at ${width}px`).toBe(visibleText(browser));
+        expect(
+          (rootFor(measured).querySelector('[data-part="content"]') as HTMLElement).style
+            .webkitLineClamp,
+        ).toBe("");
         expect(prefixes.has(prefix), `${scenario.font} at ${width}px`).toBe(true);
         expect(
-          naturalLineCount(rootFor(predicted)),
+          naturalLineCount(rootFor(measured)),
           `${scenario.font} at ${width}px`,
         ).toBeLessThanOrEqual(3);
       }
 
-      unmountClamp(predicted);
+      unmountClamp(measured);
+      unmountClamp(browser);
     }
+  });
+
+  it("preserves measured grapheme cut points as width and after-slot occupancy change", async () => {
+    const text =
+      "Vue Clamp keeps dense application text readable while preserving the full source text for assistive technology. " +
+      "Resize the shared width to force every instance through the same layout change.";
+    const afterWidth = ref(48);
+    const after = () =>
+      h("span", { style: `display:inline-block;height:18px;width:${afterWidth.value}px` });
+    function mountAffixed(component: Component, boundary: ClampBoundary): MountedClamp {
+      return mountClamp({
+        after,
+        component,
+        font: "16px Arial",
+        lineHeight: "22px",
+        props: { boundary, maxLines: 3 },
+        text,
+        width: 180,
+      });
+    }
+    const measured = mountAffixed(LineClamp, "grapheme");
+    const browser = mountAffixed(StandardLineClamp, "grapheme");
+    const word = mountAffixed(StandardLineClamp, "word");
+    let keptPartialWord = false;
+
+    for (const [width, affixWidth] of [
+      [180, 48],
+      [260, 48],
+      [260, 96],
+      [360, 96],
+      [1000, 48],
+      [180, 48],
+    ] as const) {
+      afterWidth.value = affixWidth;
+      for (const clamp of [measured, browser, word]) clamp.width.value = width;
+      await settle();
+
+      expect(visibleText(measured), `${width}px with ${affixWidth}px after`).toBe(
+        visibleText(browser),
+      );
+      expect(measured.exposed.value?.clamped).toBe(browser.exposed.value?.clamped);
+      expect(naturalLineCount(rootFor(measured))).toBeLessThanOrEqual(3);
+      expect(
+        (rootFor(measured).querySelector('[data-part="content"]') as HTMLElement).style
+          .webkitLineClamp,
+      ).toBe("");
+      keptPartialWord ||= visibleText(measured) !== visibleText(word);
+    }
+
+    expect(keptPartialWord).toBe(true);
+  });
+
+  it("keeps native single-line grapheme clamping with an after slot", async () => {
+    const text = "Release dashboards keep customer impact visible while cards resize.";
+    const clamp = mountClamp({
+      after: fixedAffix(48),
+      component: LineClamp,
+      props: { boundary: "grapheme", maxLines: 1 },
+      text,
+      width: 180,
+    });
+    await settle();
+
+    expect(bodyFor(clamp).textContent).toBe(text);
+    expect(textElement(rootFor(clamp)).style.textOverflow).toBe("ellipsis");
+    expect(afterElement(rootFor(clamp))?.getBoundingClientRect().width).toBeCloseTo(48, 3);
   });
 
   it("reads the rendered font for prediction", async () => {
@@ -454,6 +530,11 @@ describe("Pretext LineClamp", () => {
       for (const props of [
         { boundary: "word", maxLines: 3 },
         { boundary: "grapheme", maxLines: 3 },
+        { boundary: "word", maxLines: 3 },
+        { boundary: "grapheme", maxLines: 3, ellipsis: "..." },
+        { boundary: "word", maxLines: 3, ellipsis: "..." },
+        { boundary: "grapheme", maxLines: 1, ellipsis: "..." },
+        { boundary: "grapheme", maxLines: 1 },
         { boundary: "word", maxLines: 3 },
         { boundary: "word", maxHeight: 44 },
         { boundary: "word", maxLines: 3 },

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   countLineBoxes,
   createCoalescingRunner,
+  fitsContent,
   hasUnresolvedStyleReference,
   isContentIndependentWidth,
 } from "../src/layout.ts";
@@ -45,6 +46,21 @@ describe("layout style helpers", () => {
           representatives.push(rect);
       }
       expect(countLineBoxes(rects as unknown as DOMRectList)).toBe(representatives.length);
+      const root = {
+        clientTop: 0,
+        clientHeight: 35,
+        getBoundingClientRect: () => ({ top: -20 }),
+      } as unknown as HTMLElement;
+      const content = {
+        getClientRects: () => rects,
+      } as unknown as HTMLElement;
+      for (const limit of [1, 12, 80, 200]) {
+        expect(fitsContent(root, content, limit, undefined)).toBe(representatives.length <= limit);
+        expect(fitsContent(root, content, limit, 35)).toBe(
+          representatives.length <= limit &&
+            rects.every((rect) => rect.height <= 0 || (rect.top >= -20.5 && rect.bottom <= 15.5)),
+        );
+      }
     }
   });
 
@@ -59,6 +75,11 @@ describe("layout style helpers", () => {
       height: 20,
     }));
     expect(countLineBoxes(rects as unknown as DOMRectList)).toBe(2000);
+    expect(reads).toBeLessThan(20000);
+
+    reads = 0;
+    const content = { getClientRects: () => rects } as unknown as HTMLElement;
+    expect(fitsContent({} as HTMLElement, content, 2000, undefined)).toBe(true);
     expect(reads).toBeLessThan(20000);
   });
 

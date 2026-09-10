@@ -866,10 +866,10 @@ describe("text layout helpers", () => {
     expect(sample.clientRectReads).toBe(0);
   });
 
-  it("matches the warm probe model against browser line-fit probes", async () => {
+  it("matches the warm rank model when marked text candidates are distinct", async () => {
     await document.fonts?.ready;
 
-    const prepared = prepareText(longWordText(), "word");
+    const prepared = prepareText("abcdefghijklmnopqrst".repeat(30));
     const host = mountLayoutHost(240);
     const boundaryCount = prepared.boundaryOffsets.length - 1;
     const ellipsis = "…";

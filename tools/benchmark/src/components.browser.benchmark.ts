@@ -1882,16 +1882,14 @@ function scenarios(): PublicScenario[] {
         { name: "word-affix", boundary: "word", maxLines: 2, after: true },
         { name: "word-height", boundary: "word", maxHeight: "40px" },
       ] as const
-    ).map(
-      ({ name, ...options }): PublicScenario => ({
-        beforeStep: advanceContent,
-        component: "LineClamp",
-        group: "line",
-        mount: lineClampBatch({ ...options, contentUpdates: true, text: wordBoundaryText }),
-        name: `line-${name}-text-update-batch-same-width`,
-        widths: [180, 180, 180, 180, 180, 180, 180],
-      }),
-    ),
+    ).map(({ name, ...options }): PublicScenario => ({
+      beforeStep: advanceContent,
+      component: "LineClamp",
+      group: "line",
+      mount: lineClampBatch({ ...options, contentUpdates: true, text: wordBoundaryText }),
+      name: `line-${name}-text-update-batch-same-width`,
+      widths: [180, 180, 180, 180, 180, 180, 180],
+    })),
     {
       component: "InlineClamp",
       group: "inline",
@@ -2314,22 +2312,20 @@ function scenarios(): PublicScenario[] {
       unsupportedReason: 'RichLineClamp boundary="word" was added in vue-clamp 1.3.0.',
       widths: [180, 180, 180, 180, 180, 180, 180],
     },
-    ...[false, true].map(
-      (identicalHtml): PublicScenario => ({
-        beforeStep: advanceContent,
-        component: "RichLineClamp",
-        group: "rich",
-        mount: richLineClampBatch({
-          boundary: "word",
-          contentUpdates: true,
-          html: `<strong>${cjkWordBoundaryText}</strong><em>${wordBoundaryText}</em>`.repeat(3),
-          identicalHtml,
-          maxLines: 2,
-        }),
-        name: `rich-${identicalHtml ? "repeated" : "unique"}-html-update-batch-same-width`,
-        widths: [180, 180, 180, 180, 180, 180, 180],
+    ...[false, true].map((identicalHtml): PublicScenario => ({
+      beforeStep: advanceContent,
+      component: "RichLineClamp",
+      group: "rich",
+      mount: richLineClampBatch({
+        boundary: "word",
+        contentUpdates: true,
+        html: `<strong>${cjkWordBoundaryText}</strong><em>${wordBoundaryText}</em>`.repeat(3),
+        identicalHtml,
+        maxLines: 2,
       }),
-    ),
+      name: `rich-${identicalHtml ? "repeated" : "unique"}-html-update-batch-same-width`,
+      widths: [180, 180, 180, 180, 180, 180, 180],
+    })),
     {
       beforeStep: toggleAffixWidth,
       component: "RichLineClamp",

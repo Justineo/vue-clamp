@@ -634,6 +634,7 @@ export function fitsContent(
   }
 
   const lines: LineBox[] = [];
+  let maxTop = -Infinity;
   let visibleTop = 0;
   let visibleBottom = 0;
   let measuredVisibleBounds = false;
@@ -659,13 +660,20 @@ export function fitsContent(
     }
 
     if (lineLimit !== undefined) {
-      if (!lines.some((line) => sameLineBox(line, rect))) {
+      const previous = lines[lines.length - 1];
+      // Ordered fragments repeat the latest representative or start below all
+      // of them. Unordered and overlapping fragments retain the original scan.
+      if (
+        !(previous && sameLineBox(previous, rect)) &&
+        (rect.top > maxTop + 0.5 || !lines.some((line) => sameLineBox(line, rect)))
+      ) {
         // Browser rects are the source of truth for wrapped lines; grouping by
         // vertical bounds handles inline content that splits into many boxes.
         lines.push({
           bottom: rect.bottom,
           top: rect.top,
         });
+        maxTop = Math.max(maxTop, rect.top);
         if (lines.length > lineLimit) {
           cacheSimpleLineBoxHeight(simpleLineFit, rects);
           cacheSimpleOverflowHeight(simpleLineFit, lineLimit, heightVerifyHeight);

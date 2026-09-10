@@ -6,7 +6,6 @@ import type { ClampBoundary, ClampLength } from "../types.ts";
 export type LineClampPredictionInput = {
   readonly afterWidth: number;
   readonly beforeWidth: number;
-  readonly boundary: ClampBoundary;
   readonly ellipsis: string;
   readonly lineLimit: number;
   readonly rootWidth: number;
@@ -21,6 +20,7 @@ export type LineClampPredictor = {
     readonly text: string;
   } | null;
   readonly supports: (context: {
+    readonly boundary: ClampBoundary;
     readonly ellipsis: string;
     readonly lineLimit: number | undefined;
     readonly locationRatio: number;

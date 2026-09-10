@@ -213,14 +213,12 @@ function denseWrapScenario(): PublicScenario {
 
 export function preparationScenarios(): PublicScenario[] {
   const fixtures: SourceFixture[] = [
-    ...[true, false].map(
-      (identical): SourceFixture => ({
-        component: "LineClamp",
-        identical,
-        name: `line-long-cjk-${identical ? "identical" : "distinct"}-text-update-batch-same-width`,
-        text: sizedText(cjk, 6000),
-      }),
-    ),
+    ...[true, false].map((identical): SourceFixture => ({
+      component: "LineClamp",
+      identical,
+      name: `line-long-cjk-${identical ? "identical" : "distinct"}-text-update-batch-same-width`,
+      text: sizedText(cjk, 6000),
+    })),
     {
       component: "LineClamp",
       full: true,
@@ -234,28 +232,24 @@ export function preparationScenarios(): PublicScenario[] {
       name: "line-short-full-fit-text-update-batch-same-width",
       text: "Ready",
     },
-    ...[true, false].map(
-      (identical): SourceFixture => ({
-        component: "InlineClamp",
-        identical,
-        name: `inline-long-emoji-${identical ? "identical" : "distinct"}-text-update-batch-same-width`,
-        text: sizedText(emoji, 6000),
-      }),
-    ),
+    ...[true, false].map((identical): SourceFixture => ({
+      component: "InlineClamp",
+      identical,
+      name: `inline-long-emoji-${identical ? "identical" : "distinct"}-text-update-batch-same-width`,
+      text: sizedText(emoji, 6000),
+    })),
     {
       component: "InlineClamp",
       full: true,
       name: "inline-short-full-fit-text-update-batch-same-width",
       text: "Ready",
     },
-    ...[true, false].map(
-      (identical): SourceFixture => ({
-        component: "RichLineClamp",
-        identical,
-        name: `rich-long-${identical ? "identical" : "distinct"}-html-update-batch-same-width`,
-        text: sizedText(latin, 6000),
-      }),
-    ),
+    ...[true, false].map((identical): SourceFixture => ({
+      component: "RichLineClamp",
+      identical,
+      name: `rich-long-${identical ? "identical" : "distinct"}-html-update-batch-same-width`,
+      text: sizedText(latin, 6000),
+    })),
     {
       component: "RichLineClamp",
       name: "rich-very-long-html-update-batch-same-width",

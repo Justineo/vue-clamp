@@ -32,6 +32,33 @@ function inputFor(count: number, kept: number, anchor: number): Input {
 }
 
 describe("current candidate anchor", () => {
+  it("reuses a rejected text after intervening fitting candidates", () => {
+    const prepared = prepareText("aa bb cc dd ee ff gg hh ii", "word");
+    const { probes, result } = drive(
+      { prepared, ellipsis: "…", ratio: 1 },
+      (text) => text.length <= 10,
+    );
+
+    // The word-end and following-space cuts render the same text. Retaining
+    // their verdict also avoids returning to the rejected text after finding
+    // the final prefix, when it would require another layout and restoration.
+    expect(probes).toEqual(["aa bb cc dd…", "aa bb…", "aa bb cc…"]);
+    expect(result.text).toBe("aa bb cc…");
+    expect(result.kept).toBe(6);
+  });
+
+  it("keeps the bare full-source check separate from repeated marked text", () => {
+    const prepared = prepareText("ab");
+    const { probes, result } = drive(
+      { prepared, ellipsis: "b", ratio: 1, includeFullCandidate: true },
+      () => true,
+    );
+
+    expect(probes).toEqual(["ab", "ab"]);
+    expect(result.text).toBe("ab");
+    expect(result.kept).toBe(2);
+  });
+
   it("uses the current verdict to bound projection without rechecking the anchor", () => {
     for (const target of [3, 5, 8]) {
       const { probes, result } = drive(inputFor(12, 9, 5), (text) => text.length - 1 <= target);

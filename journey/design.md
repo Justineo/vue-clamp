@@ -49,9 +49,15 @@
   - `InlineClamp` as the canonical single-line affix-friendly component name
   - `WrapClamp` as the canonical wrapped-item component name
 - `vue-clamp/pretext` separately exports the same `LineClamp` contract. A thin provider adds a
-  private predictor to the standard DOM and lifecycle: native CSS remains first, non-native end
+  private predictor to the standard DOM and lifecycle: native CSS remains first, word-boundary end
   `maxLines` cases without `maxHeight` may predict, and every other case uses standard measurement.
   The root dependency graph does not include Pretext.
+- Non-native grapheme clamping stays browser-measured, including multiline `after` slots and custom
+  ellipses. Pretext's normal line walker can stop at whole words even when more graphemes fit; valid
+  source boundaries alone do not preserve the standard component's character-level cut points.
+  Boundary eligibility is checked before rendering so measured fallbacks also use standard styles
+  and batching. Reintroducing grapheme prediction requires output-equivalence and resize-performance
+  evidence; it is separate from this correctness fix.
 - Runtime native selection is based only on semantic eligibility. Multiline containment uses the
   fully specified legacy `display: -webkit-box` / `-webkit-box-orient: vertical` /
   `-webkit-line-clamp` combination, so no render-time `CSS.supports` branch is needed. This keeps SSR
@@ -71,17 +77,18 @@
   make captured slot output safe to cache. Measured text batching now uses a shared observer only
   to collect resumable searches into the same delivery, as recorded in research 325–327. Detailed evidence and rejected alternatives live in
   `journey/research/318-pretext-integration-research.md`.
-- Custom ellipses share the prepared typography cache. Forced-line-break ellipses stay measured;
-  custom grapheme prediction remains contained but may keep a shorter prefix than browser search.
+- Custom word-boundary ellipses share the prepared typography cache. Forced-line-break ellipses
+  stay measured.
 - Font readiness and loading completion invalidate Pretext's shared font metrics as well as the
   instance preparation. Ellipsis widths live in that preparation rather than a second global cache,
   so fallback-font widths cannot survive a font load. A grapheme wider than the available line is
   overflow even when the line budget has spare rows; only a leading affix can justify retrying it
   on a fresh full-width line.
 - Pretext shares one bounded, width-independent preparation across adjacent identical inputs;
-  matching includes every modeled typography option, boundary, and marker. Font invalidation clears
-  this shared entry immediately and coalesces upstream metric-cache clearing before the next
-  preparation. Per-instance resize preparations remain independent. Cold split InlineClamp search
+  word-boundary prediction is fixed, so matching uses the source, marker, and every modeled
+  typography option. Font invalidation clears this shared entry immediately and coalesces upstream
+  metric-cache clearing before the next preparation. Per-instance resize preparations remain
+  independent. Cold split InlineClamp search
   now uses one full-body width read to subtract fixed affix occupancy before seeding the measured
   search. Retained evidence and size costs live in
   `journey/research/320-cold-preparation-and-split-search.md`.
@@ -106,6 +113,13 @@
   upgrades. Research 323's earlier resize-regression audit retained Line's memoized internal text
   leaf, including its text, accessibility, native-mode and pending-visibility inputs; body layout,
   consumer slots and browser measurement remain live.
+- The next incremental audit is recorded in
+  `journey/research/341-measured-search-and-traversal.md`. Measured Text reuses identical marked
+  candidate verdicts within one solve; Inline maps paid full-width density through primary word
+  lengths; Rich projects both primary word and grapheme ranks; ordered fit scans and Wrap child
+  traversal avoid redundant work. Full-source proof, word-fallback domains, native paths and public
+  behavior stay separate from these optimizations. The multiline source-length predictor was
+  rejected after a held-out long-leading-word regression, despite its CJK gains.
 - First-principles investigation and information-acquisition experiments are recorded in
   `journey/research/324-adaptive-search-and-information-cost.md`; the retained implementation and
   production E2E evidence are in `journey/research/325-measured-text-layout-batching.md`. Plain text
@@ -628,6 +642,11 @@
     rank by the width ratio and rounds; Inline ceilings that estimate and preserves its small
     exact-width rank history. These remain guesses. The actual browser fit predicate drives bounded
     expansion and binary search; Arabic/Syriac retain descending search for contextual joining.
+    For Inline primary word cuts, the full-width estimate first becomes a UTF-16 source-length
+    budget, then maps to the requested prefix/suffix boundary. This avoids treating unequal words
+    as equal-width units. Grapheme/fallback ranks retain rank-density seeding. This estimate is
+    restricted to fresh full-width information: multiline packing and partial-text resize density
+    did not support the same substitution in the held-out experiments.
   - when the displayed candidate belongs to the current marked search domain, its fresh fit result
     answers only queries implied by that result under the ordinary monotonic premise. Keeping the
     original search tree avoids the extra dirty reads that rebasing binary midpoints can cause.
@@ -635,6 +654,11 @@
     pivot, generator and monotonic fit predicate, the marked query sequence is a subsequence of the
     unfiltered tree. Acquiring the verdict may add one read without a candidate write by this
     component; pending width, style or peer changes can still cause that read to flush layout.
+  - each marked Text solve retains its latest fitting and failing candidate strings. Trimming can
+    make different word ranks render identically, including a rejected string revisited after a
+    fitting candidate. Reusing the exact verdict filters those reads without changing the search
+    tree or answer under the same fixed predicate. Bare full-source checks remain independent,
+    and recursive word fallback starts a new verdict scope. No verdict survives a reclamp.
   - the bare source is separate from marked ordering. Unknown growth and same-width solves inspect
     it before marked search. Changed widths inside compatible observed overflow may omit that read.
     Within the latest hint's boundary domain, a larger kept count after strict shrink or the largest
@@ -666,8 +690,10 @@
     negative results: candidate width alone does not model multiline wrapping, full advance-vector
     acquisition can exceed cold search cost, and a lower mutation vector is not a scalar layout
     credit. The previous restriction to that research note's next steps is superseded by research 339.
-  - Rich retains its separate observed primary-word-rank slope and same-text-run refinement. Primary
-    word/atomic points and grapheme-fallback ranks are different domains; projected ranks must map
+  - Rich retains its separate primary-rank slope and same-text-run refinement. It starts with
+    retained rank/width density and can then use observed movement. Both primary word and primary
+    grapheme points support projection. Word/atomic points and word-mode grapheme-fallback ranks
+    are different domains; projected ranks must map
     through primary rank points and retain existing text-rank safety checks. Structural DOM remains
     instance-owned and every candidate retains measured settlement.
   - measured clamped-to-clamped commits leave the final text mutation from the search pass in place
@@ -847,7 +873,7 @@
     - rich search now derives warm-start hints from the previous structural decision for nearby
       width changes; the hidden probe's current patch state and the search hint are separate so
       large width jumps can cold-search without resetting or repainting the visible tree
-    - all-text Rich content may reuse its structural logical runs and word-rank points because CSS
+    - all-text Rich content may reuse its structural logical runs and primary-rank points because CSS
       cannot change where element boundaries occur; the body line-metric key is still read from the
       current DOM before a simple-line fit is reused.
     - Rich content with element descendants restores the full hidden-probe tree and reruns local
@@ -873,11 +899,14 @@
       source suffix before that ellipsis, and shrinking removes source suffix siblings before it.
       Full-state patches and whitespace-sensitive boundaries still use the generic remove/append
       path so rich whitespace semantics stay explicit.
-    - after a compatible resize has established a text-safe primary-word rank slope, Rich projects
-      the new first point through the primary rank-point array. The former cost gate priced an old
+    - a text-safe primary Rich rank projects the new first point through the primary rank-point
+      array for both word and grapheme modes. Retained rank/width density supplies the first resize
+      before an observed slope exists. The former cost gate priced an old
       starting rank that was no longer being used; research 339 removes that gate after original
       required-matrix and counters-off held-out comparisons. Projection still supplies only a hint.
-      Grapheme/rankless cases retain the 32px bootstrap window and all measured fit paths.
+      Research 341 extends the available primary ranks and bootstrap projection; it keeps the
+      separate full-fit ordering policy unchanged. That policy and rankless hints retain the 32px
+      bootstrap window when their observed-word-slope path is unavailable.
     - earlier dynamic-bootstrap variants are recorded as rejected experiments in research 312.
       Those results do not exclude the later projected-point policy, whose actual search tree and
       before/after browser evidence differ. Same-run refinement and primary/fallback domain checks
@@ -917,7 +946,7 @@
       to produce a larger visible rank per pixel, so the same width increase reaches the full
       candidate sooner and the dynamic full-fit skip naturally narrows; direct diagnostics still
       keep the fixed window when no observed slope exists
-    - RichLineClamp only applies that beyond-window word hint when the previous clamp point is a
+    - RichLineClamp only applies that beyond-window primary-rank hint when the previous clamp point is a
       meaningful source text position: non-empty text prefixes are safe, whitespace-only text
       prefixes are accepted only when they are not adjacent to inline-atomic neighbors, and affix
       signatures must still match. That safe-text signal comes from `clampRich`'s computed-style
@@ -1579,6 +1608,10 @@
     candidate write; other pending changes may still flush layout. Rich retains its observed slope,
     same-text-run refinement and primary-domain checks; a scalar probe count does not price its DOM
     transitions.
+    Research 341 compares larger/faster expansion, probability-centered pivots, previous-error
+    budgets and width-history interpolation. None establishes a universal replacement for the
+    local expansion limits. Exact-string verdict reuse has a narrower invariant: for a fixed
+    string predicate it only removes repeated marked queries, including nonmonotonic searches.
   - `LineClamp` and `InlineClamp` keep warm full-fit skipping conservative. Shrinking clamped
     widths can skip the separate full-source probe by monotonicity; same-width font/layout changes
     still measure bare full text; growth beyond the largest compatible observed overflow width
@@ -1791,6 +1824,12 @@
   impossible matches using the largest representative top and reuse a matching last representative;
   unordered/overlapping fragments retain the exact half-pixel comparison. This removes the observed
   quadratic work in very narrow long sources without assuming globally ordered CSS layout.
+  Research 341 applies the same exact shortcut to `fitsContent`, including combined line/height
+  constraints, so large line limits do not restore the quadratic representative scan.
+- Wrap's sequence measurement, materialized item collection and visible atomic-height scan walk
+  direct element siblings. They keep the same component-owned part filtering and early overflow
+  exit, without retaining a child list across Vue updates. Wrapper styles are already shared;
+  caller slot rendering and current item geometry remain live costs.
 - Native font delivery has one listener per FontFaceSet. Multiline font jobs share a frame while
   preserving inactive/unmount cancellation, reentrant subscription and callback-error isolation.
   Font invalidation clears measured Line and Inline history, because both growth and shrink can
@@ -1799,7 +1838,8 @@
 - Research 328 did not establish broad wins for its paid-width interpolation, per-glyph Range
   hints, representative-first cohorts, live computed-style object reuse or repeated-candidate
   verdict reuse. Research 339 revisits current-candidate verdicts with a different acquisition order
-  and search-tree invariant; the earlier result is not a blanket exclusion. Worker, offscreen,
+  and search-tree invariant; research 341 retains separate fitting/failing strings within a solve
+  after repeated-candidate browser comparisons. The earlier result is not a blanket exclusion. Worker, offscreen,
   bounded initial-render and native-only proposals still require separate contract decisions.
 - Performance experiments must distinguish cold/full-fit/overflow, resize/source/font/slot triggers,
   singleton/identical/distinct cohorts, and final settlement. Include A/A controls and native layout

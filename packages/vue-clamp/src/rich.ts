@@ -98,7 +98,7 @@ export type RichSearchIndex = {
   readonly hasElements: boolean;
   readonly prepared: PreparedRich;
   readonly data: {
-    readonly rankPoints: BoundaryPoints | null;
+    readonly rankPoints: BoundaryPoints;
     readonly runs: readonly LogicalRun[];
   };
   readonly simpleLineFit?: SimpleLineFit;
@@ -1421,7 +1421,7 @@ function createSearchIndex(
     prepared,
     data: {
       get rankPoints() {
-        return prepared.boundary === "word" ? (rankPoints ??= rankPointsForRuns(getRuns())) : null;
+        return (rankPoints ??= rankPointsForRuns(getRuns()));
       },
       get runs() {
         return getRuns();
@@ -1806,7 +1806,7 @@ function* searchRich(
     fullLineCount !== undefined &&
     fullLineCount >= lineLimit * 3
   ) {
-    let coldRankPoints = rankPoints ?? rankPointsForRuns(runs);
+    let coldRankPoints = rankPoints;
     if (coldRankPoints.length <= 16 && prepared.boundary === "word") {
       coldRankPoints = rankPointsForRuns(runs, true);
     }
@@ -1871,7 +1871,7 @@ function* searchRich(
   }
 
   function currentResult(): RichClampResult {
-    if (!state || !rankPoints) {
+    if (!state) {
       return unrankedProbeResult(state);
     }
 
