@@ -1095,11 +1095,13 @@ function patchForwardTextPrefix(
   }
 
   const liveText = resolvePath(target, from.point.path);
-  if (!(liveText instanceof Text)) {
+  const rootEllipsis = rootEllipsisNode(target, ellipsis);
+  // Trimming a whitespace-only cut can leave the marker at the source text's
+  // child index. Restore that missing text through the structural patch instead.
+  if (!(liveText instanceof Text) || liveText === rootEllipsis) {
     return false;
   }
 
-  const rootEllipsis = rootEllipsisNode(target, ellipsis);
   const existingEllipsis = to.kind === "clamped" ? rootEllipsis : null;
   if (!removeAfterBoundary(target, sourceBoundary, rootEllipsis)) {
     return false;

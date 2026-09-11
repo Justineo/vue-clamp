@@ -143,6 +143,10 @@
   `v1.7.0`; selected twelve-instance task-time improvements remain separate from uncertain controls
   and the extra cost of Thai/negative-spacing correctness fallbacks. Research 343's `97658cf`
   baseline remains a separate incremental comparison.
+- Rich forward text patches must distinguish a live source text node from the root ellipsis.
+  Trimming a whitespace-only cut can leave the marker at the removed leaf's child index; that
+  case restores the missing source through structural patching so later growth preserves both
+  source text and the marker. Regression coverage uses structural cuts independent of fonts.
 - First-principles investigation and information-acquisition experiments are recorded in
   `journey/research/324-adaptive-search-and-information-cost.md`; the retained implementation and
   production E2E evidence are in `journey/research/325-measured-text-layout-batching.md`. Plain text

@@ -12,6 +12,7 @@ No API changes are required for existing imports.
   `InlineClamp`, especially for groups of components and long content.
 - Fixed premature truncation in supported Thai wrapping and negative letter-spacing cases.
   These layouts may take longer to truncate.
+- Fixed missing text or ellipses when `RichLineClamp` expands a previously truncated rich-text prefix.
 
 ## [1.7.0]
 
