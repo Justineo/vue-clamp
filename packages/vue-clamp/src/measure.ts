@@ -80,15 +80,20 @@ export function measureLayout<T, V>(
         resolve(null);
         return;
       }
-      let step = task.next();
-      while (!step.done) step = task.next(step.value());
-      complete(step.value);
-      resolve(step.value);
+      try {
+        let step = task.next();
+        while (!step.done) step = task.next(step.value());
+        complete(step.value);
+        resolve(step.value);
+      } finally {
+        task.return(undefined as never);
+      }
       return;
     }
     const job: PendingMeasurement = {
       advance(value) {
         if (!isCurrent()) {
+          task.return(undefined as never);
           resolve(null);
           return false;
         }
@@ -111,7 +116,10 @@ export function measureLayout<T, V>(
       read: () => 0,
       value: 0,
       complete: () => {},
-      reject,
+      reject(error) {
+        task.return(undefined as never);
+        reject(error);
+      },
     };
     pending.push(job);
     if (pending.length === 1) {

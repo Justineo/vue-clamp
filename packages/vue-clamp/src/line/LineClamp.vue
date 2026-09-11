@@ -38,13 +38,14 @@ import {
   setElementText,
 } from "../text.ts";
 import { useLineClampPredictor } from "./predictor.ts";
+import { searchLineEndCandidates } from "./end-search.ts";
 
 import type { CSSProperties, VNode, VNodeChild } from "vue";
 import type { BorderBoxSizeSnapshot, SimpleLineFit } from "../layout.ts";
 import type { ClampEmits } from "../types.ts";
 import type { LineClampExposed, LineClampProps, LineClampSlots } from "./types.ts";
 import type { NativeClampMode } from "../native.ts";
-import type { TextClampResult } from "../text.ts";
+import type { TextClampLayoutInput, TextClampResult } from "../text.ts";
 
 type LineFitResult = {
   readonly fit: SimpleLineFit | undefined;
@@ -222,7 +223,7 @@ const {
     );
     const lineFitResult = lineFit(currentLineLimit, textStyle, layoutKey);
     if (lineFitResult.metricsChanged) lastTextClamp = null;
-    const input = {
+    const input: TextClampLayoutInput = {
       content: contentElement,
       ellipsis,
       hasAffixes,
@@ -235,6 +236,20 @@ const {
       ratio: locationRatio,
       root: rootElement,
       rootWidth,
+      searchCandidates:
+        boundary === "grapheme" &&
+        locationRatio === 1 &&
+        currentLineLimit !== undefined &&
+        maxHeight === undefined
+          ? (candidateInput) =>
+              searchLineEndCandidates(candidateInput, {
+                content: contentElement,
+                target: textElement,
+                lineLimit: currentLineLimit,
+                rootWidth,
+                style: textStyle,
+              })
+          : undefined,
       reuseFullFitOnGrow: !lineFitResult.metricsChanged && !hasAffixes && maxHeight === undefined,
       simpleLineFit: lineFitResult.fit,
       target: textElement,

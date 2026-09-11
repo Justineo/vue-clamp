@@ -53,11 +53,30 @@
   `maxLines` cases without `maxHeight` may predict, and every other case uses standard measurement.
   The root dependency graph does not include Pretext.
 - Non-native grapheme clamping stays browser-measured, including multiline `after` slots and custom
-  ellipses. Pretext's normal line walker can stop at whole words even when more graphemes fit; valid
-  source boundaries alone do not preserve the standard component's character-level cut points.
-  Boundary eligibility is checked before rendering so measured fallbacks also use standard styles
-  and batching. Reintroducing grapheme prediction requires output-equivalence and resize-performance
-  evidence; it is separate from this correctness fix.
+  ellipses. Both entries use the same measured refinement, rendering, shared observation, batching,
+  accessibility and final browser verification. A Pretext grapheme-hint prototype reduced layouts
+  and improved selected fully warm workloads, but preparation and distinct-source memory costs
+  outweighed its limited broader benefit. Research 343 retains those trade-off measurements and
+  rejects the hint and its preparation/cache changes.
+- Research 342 exposed non-monotonic marked-prefix fits even in ordinary Latin text: moving the
+  marker onto the next word can make a longer prefix fit after a shorter one failed. Research 343
+  (`journey/research/343-grapheme-refinement-results.md`) retains a Line-only end/grapheme search for
+  `maxLines` without `maxHeight`: lower candidates preserve the whitespace before each word, then
+  refine inside the last possible word. Ordinary Latin/CJK advances use local binary search;
+  punctuation, discretionary breaks and contextual tokens use descending verification. Joining
+  Arabic/Syriac retains the existing descending path. Negative spacing and other unsupported marker
+  contexts use a conservative full-source Range bound where eligible, followed by descending checks;
+  unsupported flow falls back to descending search. Range bounds require untransformed geometry.
+- Thai dictionary segmentation can also make unmarked prefixes non-monotonic. Pure Thai with
+  `overflow-wrap: break-word` or `anywhere` uses a temporary `line-break: anywhere` marked-prefix
+  bound, restores the exact inline style, then verifies under the authored wrapping. Keeping the
+  marker preserves its break before an after affix. Line-count limits otherwise permit horizontal
+  overflow: forcing those runs to wrap can add lines and invalidate an upper bound. Therefore pure
+  Thai without the required wrapping policy and long non-alphanumeric ASCII tokens retain the
+  original measured search. A broader URL/compound-token bound was rejected for both incorrect cuts
+  and extra layout work. Measurement cancellation and errors close suspended generators so
+  temporary CSS cannot survive a probe. These are scoped browser-validated domains, not a universal
+  monotonicity or maximality proof for arbitrary fonts, shaping, CSS or scripts.
 - Runtime native selection is based only on semantic eligibility. Multiline containment uses the
   fully specified legacy `display: -webkit-box` / `-webkit-box-orient: vertical` /
   `-webkit-line-clamp` combination, so no render-time `CSS.supports` branch is needed. This keeps SSR
@@ -84,9 +103,8 @@
   so fallback-font widths cannot survive a font load. A grapheme wider than the available line is
   overflow even when the line budget has spare rows; only a leading affix can justify retrying it
   on a fresh full-width line.
-- Pretext shares one bounded, width-independent preparation across adjacent identical inputs;
-  word-boundary prediction is fixed, so matching uses the source, marker, and every modeled
-  typography option. Font invalidation clears this shared entry immediately and coalesces upstream
+- Pretext shares one bounded, width-independent word preparation across adjacent identical inputs,
+  matching source, marker and every modeled typography option. Font invalidation clears this shared entry immediately and coalesces upstream
   metric-cache clearing before the next preparation. Per-instance resize preparations remain
   independent. Cold split InlineClamp search
   now uses one full-body width read to subtract fixed affix occupancy before seeding the measured
@@ -120,6 +138,11 @@
   traversal avoid redundant work. Full-source proof, word-fallback domains, native paths and public
   behavior stay separate from these optimizations. The multiline source-length predictor was
   rejected after a held-out long-leading-word regression, despite its CJK gains.
+- The direct 1.7.0-to-1.7.1 candidate comparison and release-graphic claims are recorded in
+  `journey/research/344-release171-marketing-comparison.md`. The baseline runtime matches tag
+  `v1.7.0`; selected twelve-instance task-time improvements remain separate from uncertain controls
+  and the extra cost of Thai/negative-spacing correctness fallbacks. Research 343's `97658cf`
+  baseline remains a separate incremental comparison.
 - First-principles investigation and information-acquisition experiments are recorded in
   `journey/research/324-adaptive-search-and-information-cost.md`; the retained implementation and
   production E2E evidence are in `journey/research/325-measured-text-layout-batching.md`. Plain text
@@ -148,8 +171,9 @@
 - Measured Line and Inline search Arabic/Syriac candidate ranks in descending order. Joining forms
   can make a longer candidate narrower, so a rejected successor is not a maximality proof for those
   scripts. This fixes the demonstrated Arabic gap and deliberately pays additional reads for long
-  joining-script inputs. Other scripts retain the existing hint/binary policy; this is not a universal
-  monotonicity claim over arbitrary fonts and CSS. Inline semantic updates publish only the solved
+  joining-script inputs. Line end/grapheme limits additionally use the scoped word-transition and
+  descending policies from research 343; other candidate domains retain their existing hint/binary
+  policy. This is not a universal monotonicity claim over arbitrary fonts and CSS. Inline semantic updates publish only the solved
   visible state, avoiding a full-source intermediate render while a measurement batch is pending.
 - There is no default export.
 - Type declarations follow explicit ownership layers:
@@ -268,8 +292,9 @@
   bundles keep every component. Subpaths for the existing browser-authoritative components remain
   unjustified because they saved only about 74-180 bytes gzip per direct import while increasing the
   published package by about 7.9 kB raw. `vue-clamp/pretext` is instead a dependency and policy
-  boundary: Pretext stays out of root consumers, while the shared strategy hook adds about 0.61 kB
-  gzip to the standard component. Importing both entries adds only 17 bytes gzip over Pretext alone.
+  boundary: Pretext stays out of root consumers, while the original shared strategy hook added about 0.61 kB
+  gzip to the standard component in research 318. Current grapheme-refinement payload costs are
+  reported separately in research 343.
 - `ClampControls`, `ClampState`, `ClampSlotProps`, and `ClampExposed` are private building blocks in
   `types.ts`; they keep concrete public contracts aligned without creating a generic cross-component
   public abstraction and are not root package exports.
@@ -641,7 +666,10 @@
   - a failed full-layout read can supply a paid current estimate. Otherwise Line projects prior kept
     rank by the width ratio and rounds; Inline ceilings that estimate and preserves its small
     exact-width rank history. These remain guesses. The actual browser fit predicate drives bounded
-    expansion and binary search; Arabic/Syriac retain descending search for contextual joining.
+    expansion and binary search in the common candidate iterator; Arabic/Syriac retain descending
+    search for contextual joining. Supported Line end/grapheme limits instead search word-transition
+    lower candidates and refine inside the selected word, reusing only an exact matching anchor
+    verdict. Their scoped descending fallbacks are recorded in research 343.
     For Inline primary word cuts, the full-width estimate first becomes a UTF-16 source-length
     budget, then maps to the requested prefix/suffix boundary. This avoids treating unequal words
     as equal-width units. Grapheme/fallback ranks retain rank-density seeding. This estimate is
@@ -654,7 +682,7 @@
     pivot, generator and monotonic fit predicate, the marked query sequence is a subsequence of the
     unfiltered tree. Acquiring the verdict may add one read without a candidate write by this
     component; pending width, style or peer changes can still cause that read to flush layout.
-  - each marked Text solve retains its latest fitting and failing candidate strings. Trimming can
+  - each solve through the common Text candidate iterator retains its latest fitting and failing candidate strings. Trimming can
     make different word ranks render identically, including a rejected string revisited after a
     fitting candidate. Reusing the exact verdict filters those reads without changing the search
     tree or answer under the same fixed predicate. Bare full-source checks remain independent,

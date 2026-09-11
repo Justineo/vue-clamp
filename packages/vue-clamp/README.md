@@ -119,9 +119,10 @@ The subpath has the same public API and selects the cheapest compatible engine:
 1. Native CSS for the standard default end/grapheme/`…` subset.
 2. Pretext for word-boundary end truncation with `max-lines` and no `max-height`, including observed
    `before` and `after` widths and custom ellipses without forced line breaks.
-3. The standard browser-measured engine for every other combination. This includes non-native
-   grapheme clamping with a multiline `after` slot or a custom ellipsis, preserving the root entry's
-   character-level cut points.
+3. The standard browser-measured engine for every other combination. Supported non-native
+   end/grapheme clamping with `max-lines` and no `max-height` refines across word transitions and
+   within the last word, including a multiline `after` slot or a custom ellipsis. Both entries use
+   the same measured cut points.
 
 All modes share the standard DOM, accessibility, controls, events, and observation runtime. Before
 prediction, the component caches the rendered font plus Pretext-supported `white-space`,
@@ -130,7 +131,7 @@ platform font metrics and features such as automatic hyphenation, contextual spa
 or dynamic typography can produce a conservative shorter prefix. CSS line clamping and overflow containment prevent extra
 lines from painting. Pretext also documents `system-ui` as unsafe on macOS.
 
-After preparation, eligible resizes perform no DOM geometry or computed-style reads. Prefer the root
+After preparation, eligible word-boundary resizes perform no DOM geometry or computed-style reads. Prefer the root
 entry whenever full browser CSS fidelity matters more than repeated-resize throughput.
 
 ## Trusted rich text

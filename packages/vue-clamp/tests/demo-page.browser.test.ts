@@ -1668,7 +1668,9 @@ describe("Website demo page", () => {
     expect(getComputedStyle(tabsScroll).overflowY).toBe("hidden");
     expect(tabsScroll.scrollWidth).toBeGreaterThan(tabsScroll.clientWidth);
     expect(getComputedStyle(lineTab).textOverflow).toBe("ellipsis");
-    expect(componentTabsMore(mountedPage.container)?.textContent).toContain("More");
+    await vi.waitFor(() => {
+      expect(componentTabsMore(mountedPage.container)?.textContent).toContain("More");
+    });
 
     tabsScroll.scrollLeft = 120;
     tabsScroll.dispatchEvent(new Event("scroll"));

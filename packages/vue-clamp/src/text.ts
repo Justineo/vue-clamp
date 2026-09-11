@@ -87,11 +87,18 @@ export type TextClampFitInput = {
   readonly fits: (text: string) => boolean;
   readonly hint?: TextClampHint | null;
   readonly includeFullCandidate?: boolean;
+  readonly monotonic?: boolean | undefined;
   readonly prepared: PreparedText;
   readonly ratio: number;
   readonly spacing?: TextClampSpacing;
   readonly verifyFullCandidate?: boolean;
 };
+
+export type TextFitCandidate = string | { readonly text: string; readonly read: () => boolean };
+
+export type TextCandidateSearch = (
+  input: Omit<TextClampFitInput, "fits">,
+) => Generator<TextFitCandidate, TextClampResult, boolean>;
 
 export type TextClampLayoutInput = {
   readonly content: HTMLElement;
@@ -107,6 +114,7 @@ export type TextClampLayoutInput = {
   readonly root: HTMLElement;
   readonly rootWidth: number;
   readonly reuseFullFitOnGrow?: boolean;
+  readonly searchCandidates?: TextCandidateSearch | undefined;
   readonly simpleLineFit?: SimpleLineFit;
   readonly target: HTMLElement;
 };
@@ -630,6 +638,7 @@ export function* searchTextCandidates({
   expansionLimit = defaultWarmExpansionLimit,
   hint,
   includeFullCandidate = false,
+  monotonic: isMonotonic,
   prepared,
   ratio,
   spacing = "trim",
@@ -644,6 +653,7 @@ export function* searchTextCandidates({
       expansionLimit,
       hint: hint ?? null,
       includeFullCandidate,
+      monotonic: isMonotonic,
       prepared: {
         text: prepared.text,
         boundary: "grapheme",
@@ -694,7 +704,8 @@ export function* searchTextCandidates({
     textHint?.boundaryOffsets === prepared.boundaryOffsets && sameTextFitContext(textHint, context);
   const hintKept = matchingHint ? textHint.kept : null;
   const monotonic =
-    !(prepared.hasCursiveText ?? hasCursiveText(prepared.text)) && !hasCursiveText(ellipsis);
+    isMonotonic ??
+    (!(prepared.hasCursiveText ?? hasCursiveText(prepared.text)) && !hasCursiveText(ellipsis));
   let checkedAnchor: number | undefined;
   let anchorFits = false;
   if (matchingHint && anchor !== undefined && Number.isFinite(anchor) && monotonic) {
@@ -740,6 +751,7 @@ export function* searchTextCandidates({
       expansionLimit,
       hint: textHint,
       includeFullCandidate,
+      monotonic: isMonotonic,
       prepared: {
         text: prepared.text,
         boundary: "grapheme",
@@ -766,11 +778,15 @@ export function* searchTextCandidates({
 
 export function clampTextToLayout(input: TextClampLayoutInput): TextClampResult | null {
   const search = searchTextLayout(input);
-  let step = search.next();
-  while (!step.done) {
-    step = search.next(step.value());
+  try {
+    let step = search.next();
+    while (!step.done) {
+      step = search.next(step.value());
+    }
+    return step.value;
+  } finally {
+    search.return(undefined as never);
   }
-  return step.value;
 }
 
 export function* searchTextLayout(
@@ -788,6 +804,7 @@ export function* searchTextLayout(
     root,
     rootWidth,
     reuseFullFitOnGrow = false,
+    searchCandidates = searchTextCandidates,
     simpleLineFit,
     target,
   }: TextClampLayoutInput,
@@ -848,6 +865,18 @@ export function* searchTextLayout(
     }
   }
 
+  function fitsCandidate(): boolean {
+    return fitsContent(
+      root,
+      content,
+      lineLimit,
+      maxHeight,
+      true,
+      visibleBoundsCache,
+      simpleLineFit,
+    );
+  }
+
   if (!skipFullFit) {
     if (
       textHint &&
@@ -861,8 +890,7 @@ export function* searchTextLayout(
       // Read the displayed candidate before writing full source. Its fresh
       // verdict can remove later marked probes without another DOM mutation.
       searchAnchor = textHint.kept;
-      searchAnchorFits = yield () =>
-        fitsContent(root, content, lineLimit, maxHeight, true, visibleBoundsCache, simpleLineFit);
+      searchAnchorFits = yield fitsCandidate;
     }
     applyText(text);
     if (!reuseRootPosition && visibleBoundsCache) visibleBoundsCache.top = undefined;
@@ -957,7 +985,7 @@ export function* searchTextLayout(
     }
   }
 
-  const search = searchTextCandidates({
+  const search = searchCandidates({
     anchor: searchAnchor,
     anchorFits: searchAnchorFits,
     ellipsis,
@@ -966,25 +994,29 @@ export function* searchTextLayout(
     prepared: searchPrepared,
     ratio,
   });
-  let step = search.next();
-  while (!step.done) {
-    applyText(step.value);
-    // Other searches can change preceding sibling heights between rounds.
-    // Keep border/height reuse, but reacquire the viewport position for this read.
-    if (!reuseRootPosition && visibleBoundsCache) visibleBoundsCache.top = undefined;
-    const fits = yield () =>
-      fitsContent(root, content, lineLimit, maxHeight, true, visibleBoundsCache, simpleLineFit);
-    step = search.next(fits);
+  let result: TextClampResult;
+  try {
+    let step = search.next();
+    while (!step.done) {
+      const candidate = step.value;
+      applyText(typeof candidate === "string" ? candidate : candidate.text);
+      // Other searches can change preceding sibling heights between rounds.
+      // Keep border/height reuse, but reacquire the viewport position for this read.
+      if (!reuseRootPosition && visibleBoundsCache) visibleBoundsCache.top = undefined;
+      const fits = yield typeof candidate === "string" ? fitsCandidate : candidate.read;
+      step = search.next(fits);
+    }
+    result = step.value;
+  } finally {
+    // A specialized search can temporarily relax wrapping while establishing
+    // an upper bound. Cancellation must restore that style too.
+    search.return(undefined as never);
   }
-  const result = step.value;
   let metricHint = textHint;
   if (skipFullFit && shouldRecheckFullTextFit(textHint, result, rootWidth)) {
     applyText(text);
     if (!reuseRootPosition && visibleBoundsCache) visibleBoundsCache.top = undefined;
-    if (
-      yield () =>
-        fitsContent(root, content, lineLimit, maxHeight, true, visibleBoundsCache, simpleLineFit)
-    ) {
+    if (yield fitsCandidate) {
       return fullTextClampResult(prepared, rootWidth, context);
     }
     // Keep only this pass's measured overflow width after a recovery check.
