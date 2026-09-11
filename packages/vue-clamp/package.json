@@ -1,6 +1,6 @@
 {
   "name": "vue-clamp",
-  "version": "1.7.0",
+  "version": "1.7.1",
   "description": "Clamping primitives for Vue.",
   "keywords": [
     "clamp",
