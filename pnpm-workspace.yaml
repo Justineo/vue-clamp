@@ -24,7 +24,7 @@ catalog:
   shiki: ^4.4.3
   simple-icons: ^16.29.0
   stats.js: ^0.17.0
-  typescript: npm:typescript-native-bridge@6.0.3-bridge.15.tsgo.7.0.2
+  typescript: npm:typescript-native-bridge@6.0.3-bridge.16.tsgo.7.0.2
   unplugin-vue: ^7.2.0
   vite: ^8.2.2
   vite-plus: ^0.3.0
@@ -35,4 +35,4 @@ catalog:
 catalogMode: prefer
 
 overrides:
-  typescript: npm:typescript-native-bridge@6.0.3-bridge.15.tsgo.7.0.2
+  typescript: npm:typescript-native-bridge@6.0.3-bridge.16.tsgo.7.0.2
