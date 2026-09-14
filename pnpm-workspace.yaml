@@ -13,7 +13,7 @@ catalog:
   "@types/node": ^26.4.1
   "@types/stats.js": ^0.17.4
   "@vitejs/plugin-vue": ^6.0.8
-  "@vitest/browser-playwright": 4.1.11
+  "@vitest/browser-playwright": 5.0.0
   "@vue-macros/define-render": ^3.1.4
   "@vue/compiler-dom": ^3.5.42
   "@vue/compiler-sfc": ^3.5.42
