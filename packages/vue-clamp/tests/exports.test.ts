@@ -28,24 +28,14 @@ describe("Public exports", () => {
 
 describe("Module evaluation", () => {
   it("does not construct a segmenter while loading the package", async () => {
-    const construct = vi.fn();
-    const NativeSegmenter = Intl.Segmenter;
-
-    class TrackedSegmenter extends NativeSegmenter {
-      constructor(...args: ConstructorParameters<typeof NativeSegmenter>) {
-        construct();
-        super(...args);
-      }
-    }
-
-    Object.defineProperty(Intl, "Segmenter", { configurable: true, value: TrackedSegmenter });
+    const construct = vi.spyOn(Intl, "Segmenter");
     vi.resetModules();
 
     try {
       await import("../src/index.ts");
       expect(construct).not.toHaveBeenCalled();
     } finally {
-      Object.defineProperty(Intl, "Segmenter", { configurable: true, value: NativeSegmenter });
+      construct.mockRestore();
       vi.resetModules();
     }
   });
