@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { promisify } from "node:util";
@@ -25,33 +25,27 @@ afterAll(async () => {
 });
 
 async function buildConsumer(component: "WrapClamp" | "LineClamp"): Promise<string> {
-  const entry = "virtual:clamp-consumer";
+  const entry = join(outputDirectory, `consumer-${component}.js`);
   const props =
     component === "WrapClamp"
       ? { maxLines: 2, items: ["alpha", "beta"] }
       : { maxLines: 2, text: "alpha beta" };
+  await writeFile(
+    entry,
+    `
+      import { createApp, h } from "vue";
+      import { ${component} } from "./index.js";
+      createApp({
+        render: () => h(${component}, ${JSON.stringify(props)}, {
+          item: ({ item }) => h("span", item),
+        }),
+      }).mount("#app");
+    `,
+  );
   const result = await build({
     configFile: false,
     root: packageRoot,
     logLevel: "silent",
-    plugins: [
-      {
-        name: "clamp-consumer",
-        resolveId: (id) => (id === entry ? "\0" + entry : undefined),
-        load: (id) =>
-          id === "\0" + entry
-            ? `
-                import { createApp, h } from "vue";
-                import { ${component} } from ${JSON.stringify(join(outputDirectory, "index.js"))};
-                createApp({
-                  render: () => h(${component}, ${JSON.stringify(props)}, {
-                    item: ({ item }) => h("span", item),
-                  }),
-                }).mount("#app");
-              `
-            : undefined,
-      },
-    ],
     build: {
       write: false,
       minify: false,
@@ -89,13 +83,15 @@ describe("built package segmentation contract", () => {
     ]);
   });
 
-  it("removes segmentation from a WrapClamp consumer but retains it for LineClamp", async () => {
-    const wrap = await buildConsumer("WrapClamp");
-    expect(wrap.includes("WrapClamp"), "WrapClamp component retained").toBe(true);
-    expect(wrap.includes("Intl.Segmenter"), "WrapClamp segmentation removed").toBe(false);
-
-    const line = await buildConsumer("LineClamp");
-    expect(line.includes("LineClamp"), "LineClamp component retained").toBe(true);
-    expect(line.includes("Intl.Segmenter"), "LineClamp segmentation retained").toBe(true);
-  });
+  it.each([
+    ["WrapClamp", false],
+    ["LineClamp", true],
+  ] as const)(
+    "keeps only required segmentation in a %s consumer",
+    async (component, needsSegmenter) => {
+      const code = await buildConsumer(component);
+      expect(code.includes(component), `${component} component retained`).toBe(true);
+      expect(code.includes("Intl.Segmenter"), `${component} segmentation`).toBe(needsSegmenter);
+    },
+  );
 });
