@@ -1,11 +1,12 @@
 import vue from "@vitejs/plugin-vue";
 import defineRender from "@vue-macros/define-render/vite";
+import { defineConfig } from "vite-plus";
 import { websiteCodeHighlightPlugin } from "./packages/website/vite.highlight.ts";
 import { websitePublicDir, websiteResolve } from "./packages/website/vite.shared.ts";
 import { browserLogFilter } from "./scripts/browser-log-filter.ts";
 import { createPlaywrightProvider } from "./scripts/browser-provider.ts";
 
-export default {
+export default defineConfig({
   define: {
     __VUE_OPTIONS_API__: true,
     __VUE_PROD_DEVTOOLS__: false,
@@ -31,4 +32,4 @@ export default {
       instances: [{ browser: "chromium" }],
     },
   },
-};
+});
