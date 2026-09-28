@@ -2,7 +2,8 @@ packages:
   - packages/*
   - tools/*
 allowBuilds:
-  better-sqlite3: true
+  # Version 13 ships native prebuilds and declares gypfile: false.
+  better-sqlite3: false
   esbuild: true
   sharp: true
   workerd: true
