@@ -1926,11 +1926,13 @@
   their config-owned plugin types; the exported object still uses `satisfies UserConfig` so every
   other config field remains checked. Remove this escape hatch when the native checker can compare
   the plugin graph directly.
-- Vite+ 0.3 keeps the Playwright browser provider opt-in. The root package declares
+- Vite+ keeps the Playwright browser provider opt-in. The root package declares
   `@vitest/browser-playwright` at the exact version of Vite+'s bundled Vitest because the browser
-  configs and provider helper are root-owned.
-- Workspace catalog dependencies use public npm package names directly; `vite` resolves to public
-  npm `vite@^8.2.2` rather than a package-manager alias.
+  configs and provider helper are root-owned. Browser test and benchmark configs use Vite+'s
+  `defineConfig` to inject its bundled Vitest resolver. Plain config objects leave Vitest 5 browser
+  imports unresolved or split the runner state from `vite-plus/test` under pnpm's isolated layout.
+- The workspace aliases `vite` to `@voidzero-dev/vite-plus-core` at the matching Vite+ version,
+  including transitive Vite dependencies through the workspace override.
 - The website hero should lead with real use cases instead of component taxonomy. The animated line
   now rotates through a randomized but category-balanced set of concrete nouns from the multiline,
   rich, inline, and wrapped-item surfaces, while the API names remain `LineClamp`,
