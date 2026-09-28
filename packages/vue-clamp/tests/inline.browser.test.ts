@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from "vite-plus/test";
 import { createApp, defineComponent, h, nextTick, ref } from "vue";
 import { InlineClamp } from "../src/index.ts";
 import { frame } from "./browser.ts";
+import { displayTextForKeptCount, normalizeLocationRatio, prepareText } from "../src/text.ts";
 
 import type { App, Ref } from "vue";
 import type { ClampBoundary, InlineClampSplit, LineClampLocation } from "../src/index.ts";
@@ -386,6 +387,73 @@ afterEach(() => {
 });
 
 describe("InlineClamp browser contract", () => {
+  it("verifies split cold hints against browser fit across unequal glyphs and affix budgets", async () => {
+    for (const source of [
+      "W".repeat(35) + "i".repeat(35),
+      "国际响应团队 e\u0301 👩‍🚀 customer context ".repeat(4),
+    ]) {
+      const reversedSource = Array.from(
+        new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(source),
+        ({ segment }) => segment,
+      )
+        .reverse()
+        .join("");
+      for (const location of ["start", "middle", "end", 0.25] as const) {
+        for (const boundary of ["grapheme", "word"] as const) {
+          const start = "/archive/";
+          const end = ".tar.gz";
+          const clamp = mountInlineClamp({
+            text: source,
+            width: 240,
+            location,
+            boundary,
+            ellipsis: "...",
+            split: (body) => ({ start, body, end }),
+          });
+          for (const text of [source, reversedSource + source]) {
+            clamp.text.value = text;
+            await settle();
+            const root = rootElement(clamp.container);
+            const probe = root.cloneNode(true) as HTMLElement;
+            probe.style.position = "absolute";
+            probe.style.visibility = "hidden";
+            root.after(probe);
+            try {
+              const body = segment(probe, "body")!;
+              const prepared = prepareText(text, boundary);
+              const ratio = normalizeLocationRatio(location);
+              const limit = root.getBoundingClientRect().width + 0.5;
+              let expected = "...";
+              let kept = 0;
+              for (const offsets of [prepared.boundaryOffsets, prepared.fallbackBoundaryOffsets]) {
+                if (!offsets || kept > 0) break;
+                for (let rank = 0; rank < offsets.length; rank += 1) {
+                  const candidate = displayTextForKeptCount(
+                    { ...prepared, boundaryOffsets: offsets },
+                    ratio,
+                    "...",
+                    rank,
+                    "preserve-outer",
+                  );
+                  body.textContent = candidate;
+                  if (probe.scrollWidth <= limit) {
+                    expected = candidate;
+                    kept = rank;
+                  }
+                }
+              }
+              expect(segment(root, "body")?.textContent, `${location}/${boundary}`).toBe(expected);
+              expect(segment(root, "start")?.textContent).toBe(start);
+              expect(segment(root, "end")?.textContent).toBe(end);
+            } finally {
+              probe.remove();
+            }
+          }
+        }
+      }
+    }
+  });
+
   it("renders plain text as a single shrinkable body by default", async () => {
     const mountedClamp = mountInlineClamp({
       text: "alpha beta gamma",

@@ -1,0 +1,221 @@
+{
+  "note": "Mounted minus preceding forced-GC empty heap snapshot. Self sizes by node type are not the same metric as CDP JSHeapUsedSize. Context is a subset of object. Native/string representation and compiled-code changes must not be interpreted as per-instance retained state.",
+  "comparisons": [
+    {
+      "count": 20,
+      "steps": 6,
+      "targets": {
+        "before": {
+          "selfSizeBytes": {
+            "array": 659768,
+            "closure": 88572,
+            "code": 63124,
+            "concatenated string": 3180,
+            "context": 40300,
+            "native": 284616,
+            "number": 720,
+            "object": 149320,
+            "object shape": 6856,
+            "regexp": 0,
+            "sliced string": 20,
+            "string": 123680,
+            "symbol": 0,
+            "synthetic": 0
+          },
+          "nodeCounts": {
+            "array": 618,
+            "closure": 3118,
+            "code": 241,
+            "concatenated string": 159,
+            "context": 1163,
+            "native": 3227,
+            "number": 63,
+            "object": 4135,
+            "object shape": 147,
+            "regexp": 0,
+            "sliced string": 1,
+            "string": 164,
+            "symbol": 0,
+            "synthetic": 0
+          }
+        },
+        "after": {
+          "selfSizeBytes": {
+            "array": 659640,
+            "closure": 88572,
+            "code": 101964,
+            "concatenated string": 3200,
+            "context": 40300,
+            "native": 293088,
+            "number": 720,
+            "object": 149240,
+            "object shape": 6448,
+            "regexp": 0,
+            "sliced string": 20,
+            "string": 123680,
+            "symbol": 0,
+            "synthetic": 0
+          },
+          "nodeCounts": {
+            "array": 617,
+            "closure": 3118,
+            "code": 249,
+            "concatenated string": 160,
+            "context": 1163,
+            "native": 3195,
+            "number": 63,
+            "object": 4131,
+            "object shape": 138,
+            "regexp": 0,
+            "sliced string": 1,
+            "string": 164,
+            "symbol": 0,
+            "synthetic": 0
+          }
+        },
+        "control": {
+          "selfSizeBytes": {
+            "array": 659768,
+            "closure": 88572,
+            "code": 34756,
+            "concatenated string": 3180,
+            "context": 40300,
+            "native": 290900,
+            "number": 720,
+            "object": 149240,
+            "object shape": 6368,
+            "regexp": 0,
+            "sliced string": 20,
+            "string": 123680,
+            "symbol": 0,
+            "synthetic": 0
+          },
+          "nodeCounts": {
+            "array": 618,
+            "closure": 3118,
+            "code": 172,
+            "concatenated string": 159,
+            "context": 1163,
+            "native": 3180,
+            "number": 63,
+            "object": 4131,
+            "object shape": 137,
+            "regexp": 0,
+            "sliced string": 1,
+            "string": 164,
+            "symbol": 0,
+            "synthetic": 0
+          }
+        }
+      }
+    },
+    {
+      "count": 80,
+      "steps": 18,
+      "targets": {
+        "before": {
+          "selfSizeBytes": {
+            "array": 2732148,
+            "closure": 352812,
+            "code": 84852,
+            "concatenated string": 12780,
+            "context": 160780,
+            "native": 1201964,
+            "number": 2892,
+            "object": 587080,
+            "object shape": 6856,
+            "regexp": 0,
+            "sliced string": 20,
+            "string": 491164,
+            "symbol": 0,
+            "synthetic": 0
+          },
+          "nodeCounts": {
+            "array": 2418,
+            "closure": 12418,
+            "code": 262,
+            "concatenated string": 639,
+            "context": 4643,
+            "native": 12575,
+            "number": 264,
+            "object": 16195,
+            "object shape": 147,
+            "regexp": 0,
+            "sliced string": 1,
+            "string": 496,
+            "symbol": 0,
+            "synthetic": 0
+          }
+        },
+        "after": {
+          "selfSizeBytes": {
+            "array": 2732020,
+            "closure": 352812,
+            "code": 83600,
+            "concatenated string": 11620,
+            "context": 160780,
+            "native": 1517072,
+            "number": 2904,
+            "object": 587000,
+            "object shape": 6448,
+            "regexp": 0,
+            "sliced string": 20,
+            "string": 145020,
+            "symbol": 0,
+            "synthetic": 0
+          },
+          "nodeCounts": {
+            "array": 2417,
+            "closure": 12418,
+            "code": 207,
+            "concatenated string": 581,
+            "context": 4643,
+            "native": 12628,
+            "number": 265,
+            "object": 16191,
+            "object shape": 138,
+            "regexp": 0,
+            "sliced string": 1,
+            "string": 496,
+            "symbol": 0,
+            "synthetic": 0
+          }
+        },
+        "control": {
+          "selfSizeBytes": {
+            "array": 2732148,
+            "closure": 352812,
+            "code": 93152,
+            "concatenated string": 12500,
+            "context": 160780,
+            "native": 1269788,
+            "number": 2892,
+            "object": 587000,
+            "object shape": 6368,
+            "regexp": 0,
+            "sliced string": 20,
+            "string": 407612,
+            "symbol": 0,
+            "synthetic": 0
+          },
+          "nodeCounts": {
+            "array": 2418,
+            "closure": 12418,
+            "code": 217,
+            "concatenated string": 625,
+            "context": 4643,
+            "native": 12598,
+            "number": 264,
+            "object": 16191,
+            "object shape": 137,
+            "regexp": 0,
+            "sliced string": 1,
+            "string": 496,
+            "symbol": 0,
+            "synthetic": 0
+          }
+        }
+      }
+    }
+  ]
+}

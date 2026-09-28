@@ -112,7 +112,6 @@ type _TextHelperContracts = [
   Expect<Equal<TextClampHint["maxHeight"], ClampLength | undefined>>,
   Expect<Equal<TextClampHint["ratio"], number | undefined>>,
   Expect<Equal<TextClampHint["spacing"], TextClampSpacing | undefined>>,
-  Expect<Equal<TextClampHint["wordFallbackMaxWidth"], number | undefined>>,
   Expect<Equal<TextClampResult["text"], string>>,
   Expect<Equal<TextClampFitInput["prepared"], PreparedText>>,
   Expect<Equal<TextClampLayoutInput["hasAffixes"], boolean | undefined>>,

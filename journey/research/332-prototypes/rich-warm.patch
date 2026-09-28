@@ -1,0 +1,115 @@
+--- a/packages/vue-clamp/src/rich.ts
++++ b/packages/vue-clamp/src/rich.ts
+@@ -1565,16 +1565,18 @@
+   | { result: RichClampResult }
+   | { task: Generator<() => boolean, RichClampResult | (() => RichClampResult), boolean> } {
+   const from = input.from;
+-  if (from?.kind !== "clamped" || textPrefixForPoint(input.prepared.root, from.point) === null) {
++  const plain = from?.kind === "clamped" && input.prepared.root.childNodes.length === 1 && input.prepared.root.firstChild?.nodeType === Node.TEXT_NODE;
++  if (!plain && (!input.skipFullFit || input.verifyFullCandidate || !input.preferHintedTextRun || from?.kind !== "clamped" || textPrefixForPoint(input.prepared.root, from.point) === null)) {
+     return { result: clampRich(input) };
+   }
+   const origin = from;
+   const search = searchRich(input, false);
+   let step = search.next();
+   function stable(measurement: RichMeasurement): boolean {
+-    return (
++    return plain || (
+       measurement.stable &&
+       measurement.state.kind === "clamped" &&
++      origin?.kind === "clamped" &&
+       samePath(measurement.state.point.path, origin.point.path)
+     );
+   }
+@@ -1686,17 +1688,10 @@
+       state: FULL_STATE,
+       stable: false,
+       write: applyFullCandidate,
+-      read: () =>
+-        fitsContent(
+-          root,
+-          content,
+-          lineLimit,
+-          maxHeight,
+-          true,
+-          visibleBoundsCache,
+-          simpleLineFit,
+-          captureFullFit,
+-        ),
++      read: () => {
++        if (!reuseRootPosition && visibleBoundsCache) visibleBoundsCache.top = undefined;
++        return fitsContent(root, content, lineLimit, maxHeight, true, visibleBoundsCache, simpleLineFit, captureFullFit);
++      },
+     };
+ 
+     currentFit = {
+--- a/packages/vue-clamp/src/rich-line/RichLineClamp.vue
++++ b/packages/vue-clamp/src/rich-line/RichLineClamp.vue
+@@ -271,27 +271,8 @@
+       ellipsis === input.ellipsis &&
+       beforeRef.value === beforeElement &&
+       afterRef.value === afterElement;
+-    let result: RichClampResult | null = null;
+-    if (
+-      hasMeasuredPeers() &&
+-      ellipsis.length > 0 &&
+-      skipFullFit &&
+-      !input.verifyFullCandidate &&
+-      preferHintedTextRun &&
+-      visibleState === measuredState &&
+-      rootRef.value &&
+-      hasExplicitTextWidth(rootRef.value)
+-    ) {
+-      const measurement = prepareRichTextBatch(input);
+-      if ("result" in measurement) result = measurement.result;
+-      else {
+-        const measured = await measureLayout(measurement.task, isCurrent, () => {});
+-        if (!isCurrent()) return;
+-        result = typeof measured === "function" ? measured() : measured;
+-      }
+-    }
+-    result ??= clampRich(input);
+-    measuredState = result.state;
++    function commit(result: RichClampResult): Promise<void> {
++      measuredState = result.state;
+     probeSearchIndex = result.searchIndex ?? null;
+     measuredAffixSignature = affixSignature;
+     measuredWidth = probe.width;
+@@ -300,12 +281,34 @@
+     if (!result.state) {
+       // A zero-width probe should not replace visible content with a guessed rich
+       // fragment.
+-      await resetClamp();
+-      return;
++      return resetClamp();
+     }
+ 
+     patchVisible(prepared, result.state);
+-    await applyStatus(result.state.kind === "clamped", result.fallback);
++    return applyStatus(result.state.kind === "clamped", result.fallback);
++    }
++    let settlement: Promise<void> | undefined;
++    let result: RichClampResult | null = null;
++    if (
++      hasMeasuredPeers() &&
++      ellipsis.length > 0 &&
++      visibleState === measuredState &&
++      rootRef.value &&
++      hasExplicitTextWidth(rootRef.value)
++    ) {
++      const measurement = prepareRichTextBatch(input);
++      if ("result" in measurement) result = measurement.result;
++      else {
++        const measured = await measureLayout(measurement.task, isCurrent, (next) => {
++          if (typeof next !== "function") settlement = commit(next);
++        });
++        if (!isCurrent()) return;
++        if (settlement) { await settlement; return; }
++        result = typeof measured === "function" ? measured() : measured;
++      }
++    }
++    result ??= clampRich(input);
++    await commit(result);
+   },
+ });
+ 

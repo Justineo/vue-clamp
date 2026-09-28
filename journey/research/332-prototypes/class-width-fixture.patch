@@ -1,0 +1,29 @@
+--- a/tools/benchmark/scripts/measure-update-costs.mjs
++++ b/tools/benchmark/scripts/measure-update-costs.mjs
+@@ -37,7 +37,7 @@
+ if (![rounds, steps, ...counts].every((number) => Number.isInteger(number) && number > 0))
+   throw new Error("Counts, rounds, and steps must be positive integers.");
+ const allowedTokens = new Set(
+-  "source resize noop font item metrics line inline rich wrap plain distinct large huge short full cjk emoji grapheme longword needle nested atomic affix height tiny".split(
++  "classwidth source resize noop font item metrics line inline rich wrap plain distinct large huge short full cjk emoji grapheme longword needle nested atomic affix height tiny".split(
+     " ",
+   ),
+ );
+@@ -96,6 +96,7 @@
+     "Operational dashboards keep ownership and incident context visible while surrounding panels change width. ",
+   emoji: "👨‍👩‍👧‍👦 family 👩🏽‍💻 developer 🇨🇳 flag ❤️ heart café élan dashboard ",
+ };
++const styleSheet = document.createElement("style"); styleSheet.textContent = ".classwidth { width: var(--bench-width) }"; document.head.append(styleSheet);
+ let mounted;
+ window.prepare = async (target, scenario, count) => {
+   if (mounted) {
+@@ -155,7 +156,9 @@
+             fontSize: "var(--font-size,16px)",
+             lineHeight: "24px",
+           };
++          if (scenario.includes("classwidth")) { delete style.width; style["--bench-width"] = width.value + "px"; }
+           const props = {
++            class: scenario.includes("classwidth") ? "classwidth" : undefined,
+             key: i,
+             style,
+             title: String(revision.value),

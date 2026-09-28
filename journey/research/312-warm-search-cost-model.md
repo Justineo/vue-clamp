@@ -1,5 +1,10 @@
 # Warm Search Cost Model
 
+Follow-up: [adaptive search and information cost](324-adaptive-search-and-information-cost.md)
+distinguishes exact conditional probe counts from uncertain target predictions and records an
+Arabic candidate-width counterexample to the generic monotonicity premise. The search algebra
+below remains valid for monotonic predicates; it is not a universal maximal-retention proof.
+
 ## Purpose
 
 LineClamp, InlineClamp, and RichLineClamp historically used small fixed local width windows, such as

@@ -4,17 +4,10 @@ import { browserLogFilter } from "../../scripts/browser-log-filter.ts";
 import { createPlaywrightProvider } from "../../scripts/browser-provider.ts";
 
 const require = createRequire(import.meta.url);
-const targetEntry = process.env.VUE_CLAMP_BENCH_ENTRY;
-const targetSpecifier = process.env.VUE_CLAMP_BENCH_SPECIFIER ?? "unknown";
-const targetVersion = process.env.VUE_CLAMP_BENCH_VERSION ?? "unknown";
 const vueEntry = require.resolve("vue/dist/vue.runtime.esm-bundler.js");
 const testTimeout = numericEnv("VUE_CLAMP_BENCH_TEST_TIMEOUT") ?? 1_800_000;
 const virtualTargetsModuleId = "vue-clamp-benchmark-targets";
 const resolvedVirtualTargetsModuleId = `\0${virtualTargetsModuleId}`;
-
-if (!targetEntry) {
-  throw new Error("Missing VUE_CLAMP_BENCH_ENTRY. Run this config through benchmark#package.");
-}
 
 const benchmarkTargets = parseBenchmarkTargets();
 const benchmarkScenarioFilter = parseScenarioFilter();
@@ -41,20 +34,11 @@ export default {
     }),
     __VUE_CLAMP_BENCH_COUNTERS__: booleanEnv("VUE_CLAMP_BENCH_COUNTERS") ?? true,
     __VUE_CLAMP_BENCH_SCENARIOS__: JSON.stringify(benchmarkScenarioFilter),
-    __VUE_CLAMP_BENCH_TARGET__: JSON.stringify({
-      entry: targetEntry,
-      specifier: targetSpecifier,
-      version: targetVersion,
-    }),
     __VUE_CLAMP_BENCH_TARGETS__: JSON.stringify(benchmarkTargets),
   },
   plugins: [benchmarkTargetsPlugin(), browserLogFilter, vue()],
   resolve: {
     alias: [
-      {
-        find: /^vue-clamp$/,
-        replacement: targetEntry,
-      },
       {
         find: /^vue$/,
         replacement: vueEntry,
@@ -98,13 +82,7 @@ function isBenchmarkTargetConfig(value: unknown): value is BenchmarkTargetConfig
 function parseBenchmarkTargets(): BenchmarkTargetConfig[] {
   const targets = process.env.VUE_CLAMP_BENCH_TARGETS;
   if (!targets) {
-    return [
-      {
-        entry: targetEntry!,
-        specifier: targetSpecifier,
-        version: targetVersion,
-      },
-    ];
+    throw new Error("Missing VUE_CLAMP_BENCH_TARGETS. Run this config through benchmark#package.");
   }
 
   const parsed = JSON.parse(targets) as unknown;

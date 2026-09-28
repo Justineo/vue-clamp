@@ -1,0 +1,257 @@
+--- a/packages/vue-clamp/src/text.ts
++++ b/packages/vue-clamp/src/text.ts
+@@ -134,13 +134,24 @@
+   readonly target: HTMLElement;
+ };
+ 
+-function asciiBoundaryOffsets(text: string): number[] | null {
++function unitBoundaryOffsets(text: string): number[] | null {
+   const offsets = Array<number>(text.length + 1);
+   offsets[0] = 0;
+ 
+   for (let index = 0; index < text.length; index += 1) {
+     const code = text.charCodeAt(index);
+-    if ((code < 0x20 || code > 0x7e) && code !== 0x09 && code !== 0x0a) {
++    if (
++      !(
++        (code >= 0x20 && code <= 0x7e) ||
++        code === 0x09 ||
++        code === 0x0a ||
++        (code >= 0x3400 && code <= 0x4dbf) ||
++        (code >= 0x4e00 && code <= 0x9fff) ||
++        code === 0x3001 ||
++        code === 0x3002 ||
++        code === 0xff0c
++      )
++    ) {
+       return null;
+     }
+ 
+@@ -194,7 +205,7 @@
+ export function prepareText(text: string, boundary: ClampBoundary = "grapheme"): PreparedText {
+   // ASCII has one UTF-16 code unit per grapheme in the accepted range, so the
+   // common path builds its boundaries while checking safety in a single pass.
+-  const asciiOffsets = asciiBoundaryOffsets(text);
++  const asciiOffsets = unitBoundaryOffsets(text);
+   const asciiSafe = asciiOffsets !== null;
+   const fallbackBoundaryOffsets = asciiOffsets ?? graphemeBoundaryOffsets(text);
+ 
+@@ -219,7 +230,7 @@
+ }
+ 
+ function prepareWordText(text: string): PreparedText {
+-  const asciiSafe = /^[\x20-\x7e\t\n]*$/u.test(text);
++  const asciiSafe = /^[\x20-\x7e\t\n\u3400-\u4dbf\u4e00-\u9fff\u3001\u3002\uff0c]*$/u.test(text);
+   const graphemes = asciiSafe ? null : graphemeSegmenter.segment(text)[Symbol.iterator]();
+   let graphemeEnd = 0;
+   const boundaryOffsets = [0];
+@@ -245,7 +256,7 @@
+     boundaryOffsets,
+     hasCursiveText: !asciiSafe && hasCursiveText(text),
+     get fallbackBoundaryOffsets() {
+-      return (fallback ??= asciiBoundaryOffsets(text) ?? graphemeBoundaryOffsets(text));
++      return (fallback ??= unitBoundaryOffsets(text) ?? graphemeBoundaryOffsets(text));
+     },
+   };
+ }
+@@ -306,19 +317,37 @@
+ 
+ // Keep only one bounded, layout-independent preparation. DOM and search hints
+ // stay with each component; large sources evict the entry instead of being retained.
+-let sharedTextPreparation: PreparedText | null = null;
++const sharedTextPreparations: PreparedText[] = [];
++let sharedTextLength = 0;
+ export function prepareSharedText(
+   text: string,
+   boundary: ClampBoundary = "grapheme",
+ ): PreparedText {
+   if (text.length > 8192) {
+-    sharedTextPreparation = null;
++    sharedTextPreparations.length = 0;
++    sharedTextLength = 0;
+     return new DeferredText(text, boundary);
+   }
+-  if (sharedTextPreparation?.text === text && sharedTextPreparation.boundary === boundary) {
+-    return sharedTextPreparation;
+-  }
+-  return (sharedTextPreparation = new DeferredText(text, boundary));
++  const index = sharedTextPreparations.findIndex(
++    (prepared) => prepared.text === text && prepared.boundary === boundary,
++  );
++  if (index !== -1) {
++    const prepared = sharedTextPreparations[index]!;
++    if (index > 0) {
++      sharedTextPreparations.splice(index, 1);
++      sharedTextPreparations.unshift(prepared);
++    }
++    return prepared;
++  }
++  const prepared = new DeferredText(text, boundary);
++  while (
++    sharedTextPreparations.length &&
++    (sharedTextPreparations.length >= 4 || sharedTextLength + text.length > 8192)
++  )
++    sharedTextLength -= sharedTextPreparations.pop()!.text.length;
++  sharedTextPreparations.unshift(prepared);
++  sharedTextLength += text.length;
++  return prepared;
+ }
+ 
+ export function displayTextForKeptCount(
+--- a/packages/vue-clamp/src/rich.ts
++++ b/packages/vue-clamp/src/rich.ts
+@@ -1565,7 +1565,18 @@
+   | { result: RichClampResult }
+   | { task: Generator<() => boolean, RichClampResult | (() => RichClampResult), boolean> } {
+   const from = input.from;
+-  if (from?.kind !== "clamped" || textPrefixForPoint(input.prepared.root, from.point) === null) {
++  const plain =
++    from?.kind === "clamped" &&
++    input.prepared.root.childNodes.length === 1 &&
++    input.prepared.root.firstChild?.nodeType === Node.TEXT_NODE;
++  if (
++    !plain &&
++    (!input.skipFullFit ||
++      input.verifyFullCandidate ||
++      !input.preferHintedTextRun ||
++      from?.kind !== "clamped" ||
++      textPrefixForPoint(input.prepared.root, from.point) === null)
++  ) {
+     return { result: clampRich(input) };
+   }
+   const origin = from;
+@@ -1573,9 +1584,11 @@
+   let step = search.next();
+   function stable(measurement: RichMeasurement): boolean {
+     return (
+-      measurement.stable &&
+-      measurement.state.kind === "clamped" &&
+-      samePath(measurement.state.point.path, origin.point.path)
++      plain ||
++      (measurement.stable &&
++        measurement.state.kind === "clamped" &&
++        origin?.kind === "clamped" &&
++        samePath(measurement.state.point.path, origin.point.path))
+     );
+   }
+   while (!step.done && !stable(step.value)) {
+@@ -1686,8 +1699,9 @@
+       state: FULL_STATE,
+       stable: false,
+       write: applyFullCandidate,
+-      read: () =>
+-        fitsContent(
++      read: () => {
++        if (!reuseRootPosition && visibleBoundsCache) visibleBoundsCache.top = undefined;
++        return fitsContent(
+           root,
+           content,
+           lineLimit,
+@@ -1696,7 +1710,8 @@
+           visibleBoundsCache,
+           simpleLineFit,
+           captureFullFit,
+-        ),
++        );
++      },
+     };
+ 
+     currentFit = {
+--- a/packages/vue-clamp/src/rich-line/RichLineClamp.vue
++++ b/packages/vue-clamp/src/rich-line/RichLineClamp.vue
+@@ -271,13 +271,27 @@
+       ellipsis === input.ellipsis &&
+       beforeRef.value === beforeElement &&
+       afterRef.value === afterElement;
++    function commit(result: RichClampResult): Promise<void> {
++      measuredState = result.state;
++      probeSearchIndex = result.searchIndex ?? null;
++      measuredAffixSignature = affixSignature;
++      measuredWidth = probe.width;
++      updateRankHint(result, probe.width, sameAffix);
++      updateClampedMaxWidth(result, probe.width, sameAffix);
++      if (!result.state) {
++        // A zero-width probe should not replace visible content with a guessed rich
++        // fragment.
++        return resetClamp();
++      }
++
++      patchVisible(prepared, result.state);
++      return applyStatus(result.state.kind === "clamped", result.fallback);
++    }
++    let settlement: Promise<void> | undefined;
+     let result: RichClampResult | null = null;
+     if (
+       hasMeasuredPeers() &&
+       ellipsis.length > 0 &&
+-      skipFullFit &&
+-      !input.verifyFullCandidate &&
+-      preferHintedTextRun &&
+       visibleState === measuredState &&
+       rootRef.value &&
+       hasExplicitTextWidth(rootRef.value)
+@@ -285,27 +299,19 @@
+       const measurement = prepareRichTextBatch(input);
+       if ("result" in measurement) result = measurement.result;
+       else {
+-        const measured = await measureLayout(measurement.task, isCurrent, () => {});
++        const measured = await measureLayout(measurement.task, isCurrent, (next) => {
++          if (typeof next !== "function") settlement = commit(next);
++        });
+         if (!isCurrent()) return;
++        if (settlement) {
++          await settlement;
++          return;
++        }
+         result = typeof measured === "function" ? measured() : measured;
+       }
+     }
+     result ??= clampRich(input);
+-    measuredState = result.state;
+-    probeSearchIndex = result.searchIndex ?? null;
+-    measuredAffixSignature = affixSignature;
+-    measuredWidth = probe.width;
+-    updateRankHint(result, probe.width, sameAffix);
+-    updateClampedMaxWidth(result, probe.width, sameAffix);
+-    if (!result.state) {
+-      // A zero-width probe should not replace visible content with a guessed rich
+-      // fragment.
+-      await resetClamp();
+-      return;
+-    }
+-
+-    patchVisible(prepared, result.state);
+-    await applyStatus(result.state.kind === "clamped", result.fallback);
++    await commit(result);
+   },
+ });
+ 
+--- a/packages/vue-clamp/src/wrap/WrapClamp.vue
++++ b/packages/vue-clamp/src/wrap/WrapClamp.vue
+@@ -389,16 +389,16 @@
+     }
+ 
+     let shownCount = currentVisibleCount;
+-    const bestFitCount = findLargestFittingCount(
+-      currentVisibleCount,
+-      searchItemCount,
+-      (candidate) => {
+-        shownCount = showItemCandidate(itemElements, shownCount, candidate);
+-
+-        const measurement = measureSequence(rootElement, contentElement, limits);
+-        return measurement.allFit && measurement.visibleItems === candidate;
+-      },
+-    );
++    const fits = (candidate: number) => {
++      shownCount = showItemCandidate(itemElements, shownCount, candidate);
++      const measurement = measureSequence(rootElement, contentElement, limits);
++      return measurement.allFit && measurement.visibleItems === candidate;
++    };
++    const checkUpper = additionalItems > 1;
++    const upperFits = checkUpper && fits(searchItemCount);
++    const bestFitCount = upperFits
++      ? searchItemCount
++      : findLargestFittingCount(currentVisibleCount, searchItemCount - (checkUpper ? 1 : 0), fits);
+ 
+     showItemCandidate(itemElements, shownCount, currentVisibleCount);
+     await applyVisibleCount(bestFitCount);

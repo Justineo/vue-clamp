@@ -21,7 +21,7 @@ jobs:
     timeout-minutes: 15
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - uses: voidzero-dev/setup-vp@v1
         with:
@@ -41,3 +41,5 @@ jobs:
         if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
         working-directory: packages/website
         run: vp exec void deploy --skip-build --project vue-clamp
+        env:
+          VOID_API_URL: https://api.void.cloud

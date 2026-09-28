@@ -1,0 +1,2629 @@
+{
+  "production": {
+    "browser": "149.0.7827.55",
+    "hashes": {
+      "before": "4ed60e17f341ec3b34388ae180edad7522654dd3883d051c264fdca421a0de47",
+      "after": "51f3af07c0352e6eb4621dde7b459ea5dc50b59240312ffd18dd788802184d05"
+    },
+    "heapMode": false,
+    "names": ["before", "after", "control"],
+    "scenarios": [
+      "source-line-nfc-large-distinct",
+      "source-line-greek-large-distinct",
+      "source-inline-cyrillic-large-distinct",
+      "source-line-hangul-large-distinct",
+      "source-line-cjk-large-distinct",
+      "source-inline-large-distinct"
+    ],
+    "counts": [20],
+    "rounds": 8,
+    "steps": 12,
+    "rows": [
+      {
+        "scenario": "source-line-nfc-large-distinct",
+        "count": 20,
+        "round": 0,
+        "target": "before",
+        "settledMs": 287.19999980926514,
+        "flushMs": 232.2000002861023,
+        "LayoutCount": 75,
+        "LayoutDuration": 0.11222700000000002,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0005009999999999997,
+        "ScriptDuration": 0.00016500000000000022,
+        "TaskDuration": 0.27602899999999986
+      },
+      {
+        "scenario": "source-line-nfc-large-distinct",
+        "count": 20,
+        "round": 0,
+        "target": "after",
+        "settledMs": 291.40000009536743,
+        "flushMs": 172.39999914169312,
+        "LayoutCount": 75,
+        "LayoutDuration": 0.11187599999999998,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.00044899999999999975,
+        "ScriptDuration": 0.00020799999999999985,
+        "TaskDuration": 0.218213
+      },
+      {
+        "scenario": "source-line-nfc-large-distinct",
+        "count": 20,
+        "round": 0,
+        "target": "control",
+        "settledMs": 304.8999991416931,
+        "flushMs": 228.19999933242798,
+        "LayoutCount": 75,
+        "LayoutDuration": 0.110618,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0006529999999999999,
+        "ScriptDuration": 9.200000000000007e-5,
+        "TaskDuration": 0.2757099999999999
+      },
+      {
+        "scenario": "source-line-nfc-large-distinct",
+        "count": 20,
+        "round": 1,
+        "target": "after",
+        "settledMs": 295.29999923706055,
+        "flushMs": 164.89999961853027,
+        "LayoutCount": 75,
+        "LayoutDuration": 0.10651,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.00046100000000000047,
+        "ScriptDuration": 0.00010199999999999966,
+        "TaskDuration": 0.21403899999999987
+      },
+      {
+        "scenario": "source-line-nfc-large-distinct",
+        "count": 20,
+        "round": 1,
+        "target": "control",
+        "settledMs": 293.30000019073486,
+        "flushMs": 222,
+        "LayoutCount": 75,
+        "LayoutDuration": 0.10674099999999997,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0005259999999999996,
+        "ScriptDuration": 9.200000000000007e-5,
+        "TaskDuration": 0.2693450000000004
+      },
+      {
+        "scenario": "source-line-nfc-large-distinct",
+        "count": 20,
+        "round": 1,
+        "target": "before",
+        "settledMs": 295.49999952316284,
+        "flushMs": 220.80000019073486,
+        "LayoutCount": 75,
+        "LayoutDuration": 0.10616300000000001,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0005130000000000004,
+        "ScriptDuration": 9.400000000000033e-5,
+        "TaskDuration": 0.26812199999999997
+      },
+      {
+        "scenario": "source-line-nfc-large-distinct",
+        "count": 20,
+        "round": 2,
+        "target": "control",
+        "settledMs": 295.09999895095825,
+        "flushMs": 222.99999952316284,
+        "LayoutCount": 75,
+        "LayoutDuration": 0.1077269999999999,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0004999999999999996,
+        "ScriptDuration": 9.30000000000002e-5,
+        "TaskDuration": 0.2700750000000003
+      },
+      {
+        "scenario": "source-line-nfc-large-distinct",
+        "count": 20,
+        "round": 2,
+        "target": "before",
+        "settledMs": 308.0999984741211,
+        "flushMs": 225.89999914169312,
+        "LayoutCount": 75,
+        "LayoutDuration": 0.10878699999999997,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0005220000000000008,
+        "ScriptDuration": 0.00012599999999999938,
+        "TaskDuration": 0.27301299999999973
+      },
+      {
+        "scenario": "source-line-nfc-large-distinct",
+        "count": 20,
+        "round": 2,
+        "target": "after",
+        "settledMs": 286.7999997138977,
+        "flushMs": 167.40000009536743,
+        "LayoutCount": 75,
+        "LayoutDuration": 0.10868999999999995,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0005069999999999988,
+        "ScriptDuration": 9.200000000000007e-5,
+        "TaskDuration": 0.21358699999999997
+      },
+      {
+        "scenario": "source-line-nfc-large-distinct",
+        "count": 20,
+        "round": 3,
+        "target": "before",
+        "settledMs": 277.7000012397766,
+        "flushMs": 224.1000018119812,
+        "LayoutCount": 75,
+        "LayoutDuration": 0.10801300000000014,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0004889999999999999,
+        "ScriptDuration": 8.900000000000054e-5,
+        "TaskDuration": 0.2706339999999998
+      },
+      {
+        "scenario": "source-line-nfc-large-distinct",
+        "count": 20,
+        "round": 3,
+        "target": "after",
+        "settledMs": 302.6000008583069,
+        "flushMs": 172.5,
+        "LayoutCount": 75,
+        "LayoutDuration": 0.11080200000000007,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0005069999999999988,
+        "ScriptDuration": 0.00014500000000000016,
+        "TaskDuration": 0.22045700000000013
+      },
+      {
+        "scenario": "source-line-nfc-large-distinct",
+        "count": 20,
+        "round": 3,
+        "target": "control",
+        "settledMs": 295.1999979019165,
+        "flushMs": 228.69999837875366,
+        "LayoutCount": 75,
+        "LayoutDuration": 0.11097800000000002,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0005790000000000014,
+        "ScriptDuration": 0.00010799999999999959,
+        "TaskDuration": 0.27500500000000017
+      },
+      {
+        "scenario": "source-line-nfc-large-distinct",
+        "count": 20,
+        "round": 4,
+        "target": "after",
+        "settledMs": 295.8999981880188,
+        "flushMs": 169.7999997138977,
+        "LayoutCount": 75,
+        "LayoutDuration": 0.1101049999999999,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0004939999999999996,
+        "ScriptDuration": 0.00011400000000000039,
+        "TaskDuration": 0.21546299999999974
+      },
+      {
+        "scenario": "source-line-nfc-large-distinct",
+        "count": 20,
+        "round": 4,
+        "target": "control",
+        "settledMs": 291.1999988555908,
+        "flushMs": 225.89999961853027,
+        "LayoutCount": 75,
+        "LayoutDuration": 0.10944699999999985,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0005559999999999992,
+        "ScriptDuration": 8.99999999999998e-5,
+        "TaskDuration": 0.2755510000000001
+      },
+      {
+        "scenario": "source-line-nfc-large-distinct",
+        "count": 20,
+        "round": 4,
+        "target": "before",
+        "settledMs": 289.59999895095825,
+        "flushMs": 225.49999952316284,
+        "LayoutCount": 75,
+        "LayoutDuration": 0.10981699999999961,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0006149999999999992,
+        "ScriptDuration": 0.0001799999999999996,
+        "TaskDuration": 0.27168299999999945
+      },
+      {
+        "scenario": "source-line-nfc-large-distinct",
+        "count": 20,
+        "round": 5,
+        "target": "control",
+        "settledMs": 295.1000003814697,
+        "flushMs": 222.5,
+        "LayoutCount": 75,
+        "LayoutDuration": 0.1081789999999998,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0005000000000000004,
+        "ScriptDuration": 8.799999999999954e-5,
+        "TaskDuration": 0.2699119999999997
+      },
+      {
+        "scenario": "source-line-nfc-large-distinct",
+        "count": 20,
+        "round": 5,
+        "target": "before",
+        "settledMs": 299.90000200271606,
+        "flushMs": 226.90000104904175,
+        "LayoutCount": 75,
+        "LayoutDuration": 0.11024500000000037,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0005299999999999992,
+        "ScriptDuration": 9.49999999999996e-5,
+        "TaskDuration": 0.27464699999999986
+      },
+      {
+        "scenario": "source-line-nfc-large-distinct",
+        "count": 20,
+        "round": 5,
+        "target": "after",
+        "settledMs": 295.30000162124634,
+        "flushMs": 166.80000114440918,
+        "LayoutCount": 75,
+        "LayoutDuration": 0.10817999999999994,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0005380000000000003,
+        "ScriptDuration": 0.00011899999999999931,
+        "TaskDuration": 0.2136249999999995
+      },
+      {
+        "scenario": "source-line-nfc-large-distinct",
+        "count": 20,
+        "round": 6,
+        "target": "before",
+        "settledMs": 299.59999990463257,
+        "flushMs": 221.30000019073486,
+        "LayoutCount": 75,
+        "LayoutDuration": 0.10674599999999979,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0005599999999999997,
+        "ScriptDuration": 7.599999999999968e-5,
+        "TaskDuration": 0.27042900000000003
+      },
+      {
+        "scenario": "source-line-nfc-large-distinct",
+        "count": 20,
+        "round": 6,
+        "target": "after",
+        "settledMs": 295.4999985694885,
+        "flushMs": 168.99999856948853,
+        "LayoutCount": 75,
+        "LayoutDuration": 0.10992199999999963,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0005240000000000002,
+        "ScriptDuration": 0.00016000000000000042,
+        "TaskDuration": 0.2152340000000006
+      },
+      {
+        "scenario": "source-line-nfc-large-distinct",
+        "count": 20,
+        "round": 6,
+        "target": "control",
+        "settledMs": 293.2000002861023,
+        "flushMs": 226.00000047683716,
+        "LayoutCount": 75,
+        "LayoutDuration": 0.1093449999999998,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0004989999999999994,
+        "ScriptDuration": 9.10000000000008e-5,
+        "TaskDuration": 0.2756430000000005
+      },
+      {
+        "scenario": "source-line-nfc-large-distinct",
+        "count": 20,
+        "round": 7,
+        "target": "after",
+        "settledMs": 295.29999828338623,
+        "flushMs": 166.89999866485596,
+        "LayoutCount": 75,
+        "LayoutDuration": 0.10823099999999997,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0004979999999999984,
+        "ScriptDuration": 0.00010199999999999966,
+        "TaskDuration": 0.21232000000000006
+      },
+      {
+        "scenario": "source-line-nfc-large-distinct",
+        "count": 20,
+        "round": 7,
+        "target": "control",
+        "settledMs": 295.40000104904175,
+        "flushMs": 223.90000104904175,
+        "LayoutCount": 75,
+        "LayoutDuration": 0.1081859999999999,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0005420000000000008,
+        "ScriptDuration": 9.500000000000133e-5,
+        "TaskDuration": 0.27106100000000044
+      },
+      {
+        "scenario": "source-line-nfc-large-distinct",
+        "count": 20,
+        "round": 7,
+        "target": "before",
+        "settledMs": 295.4999985694885,
+        "flushMs": 224.09999990463257,
+        "LayoutCount": 75,
+        "LayoutDuration": 0.10773699999999975,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0005450000000000003,
+        "ScriptDuration": 8.299999999999974e-5,
+        "TaskDuration": 0.27202599999999943
+      },
+      {
+        "scenario": "source-line-greek-large-distinct",
+        "count": 20,
+        "round": 0,
+        "target": "before",
+        "settledMs": 378.7999987602234,
+        "flushMs": 309.8999996185303,
+        "LayoutCount": 96,
+        "LayoutDuration": 0.17577599999999993,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0005959999999999993,
+        "ScriptDuration": 0.000171000000000001,
+        "TaskDuration": 0.3804829999999999
+      },
+      {
+        "scenario": "source-line-greek-large-distinct",
+        "count": 20,
+        "round": 0,
+        "target": "after",
+        "settledMs": 293.40000343322754,
+        "flushMs": 235.50000143051147,
+        "LayoutCount": 96,
+        "LayoutDuration": 0.17159800000000036,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0005530000000000014,
+        "ScriptDuration": 7.399999999999941e-5,
+        "TaskDuration": 0.30809900000000034
+      },
+      {
+        "scenario": "source-line-greek-large-distinct",
+        "count": 20,
+        "round": 0,
+        "target": "control",
+        "settledMs": 395.199999332428,
+        "flushMs": 307.5999994277954,
+        "LayoutCount": 96,
+        "LayoutDuration": 0.17382600000000004,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0005199999999999996,
+        "ScriptDuration": 0.00010699999999999946,
+        "TaskDuration": 0.38039999999999985
+      },
+      {
+        "scenario": "source-line-greek-large-distinct",
+        "count": 20,
+        "round": 1,
+        "target": "after",
+        "settledMs": 294.2999987602234,
+        "flushMs": 234.49999952316284,
+        "LayoutCount": 96,
+        "LayoutDuration": 0.17101900000000025,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0005250000000000012,
+        "ScriptDuration": 7.199999999999915e-5,
+        "TaskDuration": 0.30670600000000015
+      },
+      {
+        "scenario": "source-line-greek-large-distinct",
+        "count": 20,
+        "round": 1,
+        "target": "control",
+        "settledMs": 370.20000171661377,
+        "flushMs": 306.00000190734863,
+        "LayoutCount": 96,
+        "LayoutDuration": 0.17223799999999923,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.000503,
+        "ScriptDuration": 8.299999999999974e-5,
+        "TaskDuration": 0.3777279999999994
+      },
+      {
+        "scenario": "source-line-greek-large-distinct",
+        "count": 20,
+        "round": 1,
+        "target": "before",
+        "settledMs": 393.70000076293945,
+        "flushMs": 308.5,
+        "LayoutCount": 96,
+        "LayoutDuration": 0.17369400000000024,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0005249999999999977,
+        "ScriptDuration": 8.900000000000054e-5,
+        "TaskDuration": 0.37928799999999896
+      },
+      {
+        "scenario": "source-line-greek-large-distinct",
+        "count": 20,
+        "round": 2,
+        "target": "control",
+        "settledMs": 395.4999990463257,
+        "flushMs": 308.69999837875366,
+        "LayoutCount": 96,
+        "LayoutDuration": 0.17419799999999963,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0005479999999999999,
+        "ScriptDuration": 8.900000000000054e-5,
+        "TaskDuration": 0.38089899999999943
+      },
+      {
+        "scenario": "source-line-greek-large-distinct",
+        "count": 20,
+        "round": 2,
+        "target": "before",
+        "settledMs": 385,
+        "flushMs": 308.300000667572,
+        "LayoutCount": 96,
+        "LayoutDuration": 0.173921,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.00045500000000000054,
+        "ScriptDuration": 8.5e-5,
+        "TaskDuration": 0.3800800000000013
+      },
+      {
+        "scenario": "source-line-greek-large-distinct",
+        "count": 20,
+        "round": 2,
+        "target": "after",
+        "settledMs": 296.2999978065491,
+        "flushMs": 235.9999976158142,
+        "LayoutCount": 96,
+        "LayoutDuration": 0.17171000000000003,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0005959999999999993,
+        "ScriptDuration": 7.899999999999921e-5,
+        "TaskDuration": 0.3092180000000013
+      },
+      {
+        "scenario": "source-line-greek-large-distinct",
+        "count": 20,
+        "round": 3,
+        "target": "before",
+        "settledMs": 394.99999952316284,
+        "flushMs": 307.7999997138977,
+        "LayoutCount": 96,
+        "LayoutDuration": 0.17324300000000026,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0005920000000000022,
+        "ScriptDuration": 0.00010600000000000019,
+        "TaskDuration": 0.3797499999999996
+      },
+      {
+        "scenario": "source-line-greek-large-distinct",
+        "count": 20,
+        "round": 3,
+        "target": "after",
+        "settledMs": 295.1000018119812,
+        "flushMs": 236.69999933242798,
+        "LayoutCount": 96,
+        "LayoutDuration": 0.17250800000000055,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0005350000000000008,
+        "ScriptDuration": 0.00010199999999999793,
+        "TaskDuration": 0.30970800000000054
+      },
+      {
+        "scenario": "source-line-greek-large-distinct",
+        "count": 20,
+        "round": 3,
+        "target": "control",
+        "settledMs": 395.7000012397766,
+        "flushMs": 307.6000003814697,
+        "LayoutCount": 96,
+        "LayoutDuration": 0.17391300000000065,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0005390000000000013,
+        "ScriptDuration": 8.499999999999827e-5,
+        "TaskDuration": 0.37796300000000116
+      },
+      {
+        "scenario": "source-line-greek-large-distinct",
+        "count": 20,
+        "round": 4,
+        "target": "after",
+        "settledMs": 291.0999994277954,
+        "flushMs": 238,
+        "LayoutCount": 96,
+        "LayoutDuration": 0.17311799999999966,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0005020000000000024,
+        "ScriptDuration": 0.00011999999999999858,
+        "TaskDuration": 0.30916999999999994
+      },
+      {
+        "scenario": "source-line-greek-large-distinct",
+        "count": 20,
+        "round": 4,
+        "target": "control",
+        "settledMs": 395.8999996185303,
+        "flushMs": 307.09999990463257,
+        "LayoutCount": 96,
+        "LayoutDuration": 0.17301400000000022,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0005909999999999943,
+        "ScriptDuration": 0.00012799999999999964,
+        "TaskDuration": 0.3776060000000001
+      },
+      {
+        "scenario": "source-line-greek-large-distinct",
+        "count": 20,
+        "round": 4,
+        "target": "before",
+        "settledMs": 376.99999952316284,
+        "flushMs": 304.4000005722046,
+        "LayoutCount": 96,
+        "LayoutDuration": 0.1718529999999996,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.00048200000000000326,
+        "ScriptDuration": 8.299999999999974e-5,
+        "TaskDuration": 0.37728699999999904
+      },
+      {
+        "scenario": "source-line-greek-large-distinct",
+        "count": 20,
+        "round": 5,
+        "target": "control",
+        "settledMs": 387.00000047683716,
+        "flushMs": 309.300000667572,
+        "LayoutCount": 96,
+        "LayoutDuration": 0.1739860000000002,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0004919999999999994,
+        "ScriptDuration": 0.00011399999999999952,
+        "TaskDuration": 0.37999000000000116
+      },
+      {
+        "scenario": "source-line-greek-large-distinct",
+        "count": 20,
+        "round": 5,
+        "target": "before",
+        "settledMs": 395.4000005722046,
+        "flushMs": 306.80000019073486,
+        "LayoutCount": 96,
+        "LayoutDuration": 0.17379699999999954,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0005329999999999988,
+        "ScriptDuration": 0.00010799999999999699,
+        "TaskDuration": 0.3796679999999988
+      },
+      {
+        "scenario": "source-line-greek-large-distinct",
+        "count": 20,
+        "round": 5,
+        "target": "after",
+        "settledMs": 293.79999828338623,
+        "flushMs": 238.69999980926514,
+        "LayoutCount": 96,
+        "LayoutDuration": 0.17390299999999925,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0005469999999999989,
+        "ScriptDuration": 7.700000000000068e-5,
+        "TaskDuration": 0.31124800000000086
+      },
+      {
+        "scenario": "source-line-greek-large-distinct",
+        "count": 20,
+        "round": 6,
+        "target": "before",
+        "settledMs": 398.90000009536743,
+        "flushMs": 310.40000009536743,
+        "LayoutCount": 96,
+        "LayoutDuration": 0.1745549999999998,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0004989999999999994,
+        "ScriptDuration": 0.00010199999999999793,
+        "TaskDuration": 0.38353000000000037
+      },
+      {
+        "scenario": "source-line-greek-large-distinct",
+        "count": 20,
+        "round": 6,
+        "target": "after",
+        "settledMs": 295.0999984741211,
+        "flushMs": 234,
+        "LayoutCount": 96,
+        "LayoutDuration": 0.17106599999999972,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.00047699999999999826,
+        "ScriptDuration": 7.599999999999968e-5,
+        "TaskDuration": 0.3078339999999997
+      },
+      {
+        "scenario": "source-line-greek-large-distinct",
+        "count": 20,
+        "round": 6,
+        "target": "control",
+        "settledMs": 393.00000047683716,
+        "flushMs": 309.5999994277954,
+        "LayoutCount": 96,
+        "LayoutDuration": 0.17440700000000042,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0004980000000000054,
+        "ScriptDuration": 0.000167999999999998,
+        "TaskDuration": 0.3828540000000018
+      },
+      {
+        "scenario": "source-line-greek-large-distinct",
+        "count": 20,
+        "round": 7,
+        "target": "after",
+        "settledMs": 293.30000162124634,
+        "flushMs": 237.70000171661377,
+        "LayoutCount": 96,
+        "LayoutDuration": 0.17321199999999948,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.00047799999999999926,
+        "ScriptDuration": 8.000000000000021e-5,
+        "TaskDuration": 0.3094040000000007
+      },
+      {
+        "scenario": "source-line-greek-large-distinct",
+        "count": 20,
+        "round": 7,
+        "target": "control",
+        "settledMs": 391.30000019073486,
+        "flushMs": 308.19999980926514,
+        "LayoutCount": 96,
+        "LayoutDuration": 0.17489800000000066,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0006070000000000034,
+        "ScriptDuration": 8.599999999999927e-5,
+        "TaskDuration": 0.38536200000000065
+      },
+      {
+        "scenario": "source-line-greek-large-distinct",
+        "count": 20,
+        "round": 7,
+        "target": "before",
+        "settledMs": 387,
+        "flushMs": 307.59999990463257,
+        "LayoutCount": 96,
+        "LayoutDuration": 0.173527,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0005529999999999979,
+        "ScriptDuration": 7.500000000000215e-5,
+        "TaskDuration": 0.3800990000000013
+      },
+      {
+        "scenario": "source-inline-cyrillic-large-distinct",
+        "count": 20,
+        "round": 0,
+        "target": "before",
+        "settledMs": 395.800000667572,
+        "flushMs": 311.2000002861023,
+        "LayoutCount": 180,
+        "LayoutDuration": 0.1776219999999995,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0006140000000000034,
+        "ScriptDuration": 8.000000000000021e-5,
+        "TaskDuration": 0.3792950000000026
+      },
+      {
+        "scenario": "source-inline-cyrillic-large-distinct",
+        "count": 20,
+        "round": 0,
+        "target": "after",
+        "settledMs": 295.8000030517578,
+        "flushMs": 239.10000133514404,
+        "LayoutCount": 180,
+        "LayoutDuration": 0.17513500000000093,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0006239999999999996,
+        "ScriptDuration": 9.10000000000008e-5,
+        "TaskDuration": 0.30614399999999975
+      },
+      {
+        "scenario": "source-inline-cyrillic-large-distinct",
+        "count": 20,
+        "round": 0,
+        "target": "control",
+        "settledMs": 395.2999997138977,
+        "flushMs": 306.6999988555908,
+        "LayoutCount": 180,
+        "LayoutDuration": 0.17191299999999998,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0004950000000000024,
+        "ScriptDuration": 0.00011000000000000246,
+        "TaskDuration": 0.3752040000000001
+      },
+      {
+        "scenario": "source-inline-cyrillic-large-distinct",
+        "count": 20,
+        "round": 1,
+        "target": "after",
+        "settledMs": 294.3000020980835,
+        "flushMs": 235.30000066757202,
+        "LayoutCount": 180,
+        "LayoutDuration": 0.17307699999999926,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0004979999999999984,
+        "ScriptDuration": 8.79999999999978e-5,
+        "TaskDuration": 0.3040470000000006
+      },
+      {
+        "scenario": "source-inline-cyrillic-large-distinct",
+        "count": 20,
+        "round": 1,
+        "target": "control",
+        "settledMs": 404.0999994277954,
+        "flushMs": 313.3999996185303,
+        "LayoutCount": 180,
+        "LayoutDuration": 0.17582900000000024,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0006530000000000008,
+        "ScriptDuration": 9.10000000000008e-5,
+        "TaskDuration": 0.38332300000000075
+      },
+      {
+        "scenario": "source-inline-cyrillic-large-distinct",
+        "count": 20,
+        "round": 1,
+        "target": "before",
+        "settledMs": 395.7000002861023,
+        "flushMs": 306.30000019073486,
+        "LayoutCount": 180,
+        "LayoutDuration": 0.1733860000000007,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0004860000000000003,
+        "ScriptDuration": 7.300000000000015e-5,
+        "TaskDuration": 0.3745890000000003
+      },
+      {
+        "scenario": "source-inline-cyrillic-large-distinct",
+        "count": 20,
+        "round": 2,
+        "target": "control",
+        "settledMs": 395.7999997138977,
+        "flushMs": 305.2999987602234,
+        "LayoutCount": 180,
+        "LayoutDuration": 0.17354100000000017,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.00046700000000000214,
+        "ScriptDuration": 0.00015899999999999942,
+        "TaskDuration": 0.372679999999999
+      },
+      {
+        "scenario": "source-inline-cyrillic-large-distinct",
+        "count": 20,
+        "round": 2,
+        "target": "before",
+        "settledMs": 378.40000009536743,
+        "flushMs": 302.80000019073486,
+        "LayoutCount": 180,
+        "LayoutDuration": 0.1725600000000007,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0004900000000000043,
+        "ScriptDuration": 6.399999999999809e-5,
+        "TaskDuration": 0.3683009999999989
+      },
+      {
+        "scenario": "source-inline-cyrillic-large-distinct",
+        "count": 20,
+        "round": 2,
+        "target": "after",
+        "settledMs": 300.19999980926514,
+        "flushMs": 230.99999952316284,
+        "LayoutCount": 180,
+        "LayoutDuration": 0.17165499999999945,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0005199999999999996,
+        "ScriptDuration": 8.800000000000127e-5,
+        "TaskDuration": 0.2996030000000012
+      },
+      {
+        "scenario": "source-inline-cyrillic-large-distinct",
+        "count": 20,
+        "round": 3,
+        "target": "before",
+        "settledMs": 395.69999980926514,
+        "flushMs": 302.7999997138977,
+        "LayoutCount": 180,
+        "LayoutDuration": 0.1729320000000012,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0004380000000000009,
+        "ScriptDuration": 6.800000000000209e-5,
+        "TaskDuration": 0.37025099999999966
+      },
+      {
+        "scenario": "source-inline-cyrillic-large-distinct",
+        "count": 20,
+        "round": 3,
+        "target": "after",
+        "settledMs": 295.8000030517578,
+        "flushMs": 234.00000095367432,
+        "LayoutCount": 180,
+        "LayoutDuration": 0.17422600000000088,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0004880000000000023,
+        "ScriptDuration": 7.700000000000068e-5,
+        "TaskDuration": 0.30165999999999826
+      },
+      {
+        "scenario": "source-inline-cyrillic-large-distinct",
+        "count": 20,
+        "round": 3,
+        "target": "control",
+        "settledMs": 394.19999980926514,
+        "flushMs": 304.2999997138977,
+        "LayoutCount": 180,
+        "LayoutDuration": 0.17372699999999952,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0004730000000000012,
+        "ScriptDuration": 6.899999999999962e-5,
+        "TaskDuration": 0.37127599999999816
+      },
+      {
+        "scenario": "source-inline-cyrillic-large-distinct",
+        "count": 20,
+        "round": 4,
+        "target": "after",
+        "settledMs": 295.300000667572,
+        "flushMs": 229.19999980926514,
+        "LayoutCount": 180,
+        "LayoutDuration": 0.17211099999999924,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0004679999999999962,
+        "ScriptDuration": 6.699999999999762e-5,
+        "TaskDuration": 0.2958350000000003
+      },
+      {
+        "scenario": "source-inline-cyrillic-large-distinct",
+        "count": 20,
+        "round": 4,
+        "target": "control",
+        "settledMs": 395.39999866485596,
+        "flushMs": 302.2999997138977,
+        "LayoutCount": 180,
+        "LayoutDuration": 0.1724010000000007,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0004819999999999963,
+        "ScriptDuration": 7.199999999999915e-5,
+        "TaskDuration": 0.36870400000000103
+      },
+      {
+        "scenario": "source-inline-cyrillic-large-distinct",
+        "count": 20,
+        "round": 4,
+        "target": "before",
+        "settledMs": 395.199999332428,
+        "flushMs": 304.49999952316284,
+        "LayoutCount": 180,
+        "LayoutDuration": 0.17455700000000007,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0004539999999999961,
+        "ScriptDuration": 7.299999999999668e-5,
+        "TaskDuration": 0.3726489999999991
+      },
+      {
+        "scenario": "source-inline-cyrillic-large-distinct",
+        "count": 20,
+        "round": 5,
+        "target": "control",
+        "settledMs": 404.4999990463257,
+        "flushMs": 303.59999895095825,
+        "LayoutCount": 180,
+        "LayoutDuration": 0.17290900000000065,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0004989999999999994,
+        "ScriptDuration": 0.00010999999999999899,
+        "TaskDuration": 0.37162500000000165
+      },
+      {
+        "scenario": "source-inline-cyrillic-large-distinct",
+        "count": 20,
+        "round": 5,
+        "target": "before",
+        "settledMs": 404.6000008583069,
+        "flushMs": 303.70000076293945,
+        "LayoutCount": 180,
+        "LayoutDuration": 0.17285900000000076,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.00046099999999999614,
+        "ScriptDuration": 7.499999999999868e-5,
+        "TaskDuration": 0.3715389999999985
+      },
+      {
+        "scenario": "source-inline-cyrillic-large-distinct",
+        "count": 20,
+        "round": 5,
+        "target": "after",
+        "settledMs": 295.99999713897705,
+        "flushMs": 229.0999994277954,
+        "LayoutCount": 180,
+        "LayoutDuration": 0.17208800000000046,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0004529999999999951,
+        "ScriptDuration": 6.499999999999909e-5,
+        "TaskDuration": 0.29529999999999745
+      },
+      {
+        "scenario": "source-inline-cyrillic-large-distinct",
+        "count": 20,
+        "round": 6,
+        "target": "before",
+        "settledMs": 378.4000015258789,
+        "flushMs": 304.00000047683716,
+        "LayoutCount": 180,
+        "LayoutDuration": 0.17315399999999848,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0005199999999999996,
+        "ScriptDuration": 7.300000000000015e-5,
+        "TaskDuration": 0.37269400000000275
+      },
+      {
+        "scenario": "source-inline-cyrillic-large-distinct",
+        "count": 20,
+        "round": 6,
+        "target": "after",
+        "settledMs": 296.79999828338623,
+        "flushMs": 232.80000019073486,
+        "LayoutCount": 180,
+        "LayoutDuration": 0.17252900000000082,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0004720000000000002,
+        "ScriptDuration": 8.599999999999927e-5,
+        "TaskDuration": 0.29953000000000074
+      },
+      {
+        "scenario": "source-inline-cyrillic-large-distinct",
+        "count": 20,
+        "round": 6,
+        "target": "control",
+        "settledMs": 395,
+        "flushMs": 306.7000002861023,
+        "LayoutCount": 180,
+        "LayoutDuration": 0.17454199999999886,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0005070000000000005,
+        "ScriptDuration": 9.20000000000018e-5,
+        "TaskDuration": 0.3782250000000005
+      },
+      {
+        "scenario": "source-inline-cyrillic-large-distinct",
+        "count": 20,
+        "round": 7,
+        "target": "after",
+        "settledMs": 295.3999981880188,
+        "flushMs": 235.90000009536743,
+        "LayoutCount": 180,
+        "LayoutDuration": 0.17523800000000023,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0005549999999999999,
+        "ScriptDuration": 6.900000000000309e-5,
+        "TaskDuration": 0.301362000000001
+      },
+      {
+        "scenario": "source-inline-cyrillic-large-distinct",
+        "count": 20,
+        "round": 7,
+        "target": "control",
+        "settledMs": 385.90000009536743,
+        "flushMs": 300.5999994277954,
+        "LayoutCount": 180,
+        "LayoutDuration": 0.1717960000000005,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.000453000000000002,
+        "ScriptDuration": 7.899999999999921e-5,
+        "TaskDuration": 0.3677659999999996
+      },
+      {
+        "scenario": "source-inline-cyrillic-large-distinct",
+        "count": 20,
+        "round": 7,
+        "target": "before",
+        "settledMs": 395.69999980926514,
+        "flushMs": 305.09999895095825,
+        "LayoutCount": 180,
+        "LayoutDuration": 0.17337900000000062,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0004900000000000043,
+        "ScriptDuration": 7.399999999999768e-5,
+        "TaskDuration": 0.37161100000000147
+      },
+      {
+        "scenario": "source-line-hangul-large-distinct",
+        "count": 20,
+        "round": 0,
+        "target": "before",
+        "settledMs": 1586.9000000953674,
+        "flushMs": 1514.5,
+        "LayoutCount": 96,
+        "LayoutDuration": 1.336665,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0004600000000000021,
+        "ScriptDuration": 8.100000000000121e-5,
+        "TaskDuration": 1.5919990000000013
+      },
+      {
+        "scenario": "source-line-hangul-large-distinct",
+        "count": 20,
+        "round": 0,
+        "target": "after",
+        "settledMs": 1493,
+        "flushMs": 1434.699999332428,
+        "LayoutCount": 96,
+        "LayoutDuration": 1.3248800000000003,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0004930000000000004,
+        "ScriptDuration": 0.00011099999999999999,
+        "TaskDuration": 1.5112960000000015
+      },
+      {
+        "scenario": "source-line-hangul-large-distinct",
+        "count": 20,
+        "round": 0,
+        "target": "control",
+        "settledMs": 1628.6000008583069,
+        "flushMs": 1572.800000667572,
+        "LayoutCount": 96,
+        "LayoutDuration": 1.393301000000001,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.00048000000000000126,
+        "ScriptDuration": 7.800000000000168e-5,
+        "TaskDuration": 1.6478290000000015
+      },
+      {
+        "scenario": "source-line-hangul-large-distinct",
+        "count": 20,
+        "round": 1,
+        "target": "after",
+        "settledMs": 1521.0000004768372,
+        "flushMs": 1472.5,
+        "LayoutCount": 96,
+        "LayoutDuration": 1.359254,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0004770000000000052,
+        "ScriptDuration": 8.100000000000121e-5,
+        "TaskDuration": 1.5490450000000067
+      },
+      {
+        "scenario": "source-line-hangul-large-distinct",
+        "count": 20,
+        "round": 1,
+        "target": "control",
+        "settledMs": 1594.699999332428,
+        "flushMs": 1520.7000002861023,
+        "LayoutCount": 96,
+        "LayoutDuration": 1.3402390000000004,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0004590000000000011,
+        "ScriptDuration": 8.99999999999998e-5,
+        "TaskDuration": 1.5997780000000006
+      },
+      {
+        "scenario": "source-line-hangul-large-distinct",
+        "count": 20,
+        "round": 1,
+        "target": "before",
+        "settledMs": 1602.5,
+        "flushMs": 1545.4000000953674,
+        "LayoutCount": 96,
+        "LayoutDuration": 1.3654869999999981,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0005209999999999937,
+        "ScriptDuration": 8.299999999999974e-5,
+        "TaskDuration": 1.6261009999999985
+      },
+      {
+        "scenario": "source-line-hangul-large-distinct",
+        "count": 20,
+        "round": 2,
+        "target": "control",
+        "settledMs": 1594.5999989509583,
+        "flushMs": 1533.2999992370605,
+        "LayoutCount": 96,
+        "LayoutDuration": 1.3535330000000023,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0004740000000000022,
+        "ScriptDuration": 7.599999999999968e-5,
+        "TaskDuration": 1.6129829999999998
+      },
+      {
+        "scenario": "source-line-hangul-large-distinct",
+        "count": 20,
+        "round": 2,
+        "target": "before",
+        "settledMs": 1595.5000004768372,
+        "flushMs": 1532.300000667572,
+        "LayoutCount": 96,
+        "LayoutDuration": 1.3514599999999994,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0004949999999999954,
+        "ScriptDuration": 0.00017600000000000254,
+        "TaskDuration": 1.6159940000000006
+      },
+      {
+        "scenario": "source-line-hangul-large-distinct",
+        "count": 20,
+        "round": 2,
+        "target": "after",
+        "settledMs": 1513.0999999046326,
+        "flushMs": 1465.3999996185303,
+        "LayoutCount": 96,
+        "LayoutDuration": 1.3532870000000017,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0004639999999999922,
+        "ScriptDuration": 6.700000000000109e-5,
+        "TaskDuration": 1.5450090000000003
+      },
+      {
+        "scenario": "source-line-hangul-large-distinct",
+        "count": 20,
+        "round": 3,
+        "target": "before",
+        "settledMs": 1604,
+        "flushMs": 1546.0999999046326,
+        "LayoutCount": 96,
+        "LayoutDuration": 1.3643900000000002,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0005170000000000036,
+        "ScriptDuration": 0.00010900000000000146,
+        "TaskDuration": 1.6290189999999996
+      },
+      {
+        "scenario": "source-line-hangul-large-distinct",
+        "count": 20,
+        "round": 3,
+        "target": "after",
+        "settledMs": 1512.4000005722046,
+        "flushMs": 1464.6000008583069,
+        "LayoutCount": 96,
+        "LayoutDuration": 1.351112999999998,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0004970000000000113,
+        "ScriptDuration": 8.89999999999988e-5,
+        "TaskDuration": 1.543965
+      },
+      {
+        "scenario": "source-line-hangul-large-distinct",
+        "count": 20,
+        "round": 3,
+        "target": "control",
+        "settledMs": 1594.0999989509583,
+        "flushMs": 1523.699999332428,
+        "LayoutCount": 96,
+        "LayoutDuration": 1.342531000000001,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0004729999999999873,
+        "ScriptDuration": 8.000000000000021e-5,
+        "TaskDuration": 1.6032480000000007
+      },
+      {
+        "scenario": "source-line-hangul-large-distinct",
+        "count": 20,
+        "round": 4,
+        "target": "after",
+        "settledMs": 1529.4000000953674,
+        "flushMs": 1467.699999332428,
+        "LayoutCount": 96,
+        "LayoutDuration": 1.3554589999999962,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0004689999999999972,
+        "ScriptDuration": 7.500000000000215e-5,
+        "TaskDuration": 1.5465919999999969
+      },
+      {
+        "scenario": "source-line-hangul-large-distinct",
+        "count": 20,
+        "round": 4,
+        "target": "control",
+        "settledMs": 1596.2999987602234,
+        "flushMs": 1522.5999989509583,
+        "LayoutCount": 96,
+        "LayoutDuration": 1.342964000000002,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0004810000000000092,
+        "ScriptDuration": 8.000000000000021e-5,
+        "TaskDuration": 1.602642000000003
+      },
+      {
+        "scenario": "source-line-hangul-large-distinct",
+        "count": 20,
+        "round": 4,
+        "target": "before",
+        "settledMs": 1594.5,
+        "flushMs": 1525.4999995231628,
+        "LayoutCount": 96,
+        "LayoutDuration": 1.343632999999997,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0005249999999999977,
+        "ScriptDuration": 8.900000000000227e-5,
+        "TaskDuration": 1.6066859999999963
+      },
+      {
+        "scenario": "source-line-hangul-large-distinct",
+        "count": 20,
+        "round": 5,
+        "target": "control",
+        "settledMs": 1595.4999995231628,
+        "flushMs": 1524.8999991416931,
+        "LayoutCount": 96,
+        "LayoutDuration": 1.3442790000000002,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0005039999999999906,
+        "ScriptDuration": 0.00010399999999999993,
+        "TaskDuration": 1.6061679999999967
+      },
+      {
+        "scenario": "source-line-hangul-large-distinct",
+        "count": 20,
+        "round": 5,
+        "target": "before",
+        "settledMs": 1593.0000009536743,
+        "flushMs": 1520.1000008583069,
+        "LayoutCount": 96,
+        "LayoutDuration": 1.340789000000001,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0004820000000000102,
+        "ScriptDuration": 8.69999999999968e-5,
+        "TaskDuration": 1.6021850000000057
+      },
+      {
+        "scenario": "source-line-hangul-large-distinct",
+        "count": 20,
+        "round": 5,
+        "target": "after",
+        "settledMs": 1512.2999997138977,
+        "flushMs": 1462.3000001907349,
+        "LayoutCount": 96,
+        "LayoutDuration": 1.3499160000000003,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0005039999999999906,
+        "ScriptDuration": 7.599999999999968e-5,
+        "TaskDuration": 1.5393809999999917
+      },
+      {
+        "scenario": "source-line-hangul-large-distinct",
+        "count": 20,
+        "round": 6,
+        "target": "before",
+        "settledMs": 1594.0000004768372,
+        "flushMs": 1521.2000007629395,
+        "LayoutCount": 96,
+        "LayoutDuration": 1.3396669999999986,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0004659999999999942,
+        "ScriptDuration": 9.900000000000186e-5,
+        "TaskDuration": 1.6022110000000112
+      },
+      {
+        "scenario": "source-line-hangul-large-distinct",
+        "count": 20,
+        "round": 6,
+        "target": "after",
+        "settledMs": 1505.1000003814697,
+        "flushMs": 1460.4000000953674,
+        "LayoutCount": 96,
+        "LayoutDuration": 1.347847999999999,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0004799999999999943,
+        "ScriptDuration": 8.299999999999974e-5,
+        "TaskDuration": 1.5372160000000008
+      },
+      {
+        "scenario": "source-line-hangul-large-distinct",
+        "count": 20,
+        "round": 6,
+        "target": "control",
+        "settledMs": 1594.2999997138977,
+        "flushMs": 1524.4000010490417,
+        "LayoutCount": 96,
+        "LayoutDuration": 1.3445430000000016,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0005180000000000046,
+        "ScriptDuration": 9.499999999999786e-5,
+        "TaskDuration": 1.605782000000005
+      },
+      {
+        "scenario": "source-line-hangul-large-distinct",
+        "count": 20,
+        "round": 7,
+        "target": "after",
+        "settledMs": 1511.5,
+        "flushMs": 1463.1999998092651,
+        "LayoutCount": 96,
+        "LayoutDuration": 1.3496230000000011,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0004880000000000023,
+        "ScriptDuration": 0.00010699999999999599,
+        "TaskDuration": 1.5431159999999977
+      },
+      {
+        "scenario": "source-line-hangul-large-distinct",
+        "count": 20,
+        "round": 7,
+        "target": "control",
+        "settledMs": 1594.5,
+        "flushMs": 1526.0000004768372,
+        "LayoutCount": 96,
+        "LayoutDuration": 1.3457050000000024,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0004830000000000112,
+        "ScriptDuration": 9.60000000000058e-5,
+        "TaskDuration": 1.6056370000000015
+      },
+      {
+        "scenario": "source-line-hangul-large-distinct",
+        "count": 20,
+        "round": 7,
+        "target": "before",
+        "settledMs": 1603.8000016212463,
+        "flushMs": 1541.1000018119812,
+        "LayoutCount": 96,
+        "LayoutDuration": 1.3595609999999994,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0005010000000000014,
+        "ScriptDuration": 0.00014899999999999636,
+        "TaskDuration": 1.6196279999999916
+      },
+      {
+        "scenario": "source-line-cjk-large-distinct",
+        "count": 20,
+        "round": 0,
+        "target": "before",
+        "settledMs": 812.6000003814697,
+        "flushMs": 770.1000008583069,
+        "LayoutCount": 198,
+        "LayoutDuration": 0.5892419999999987,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0004679999999999962,
+        "ScriptDuration": 7.399999999999768e-5,
+        "TaskDuration": 0.846855000000005
+      },
+      {
+        "scenario": "source-line-cjk-large-distinct",
+        "count": 20,
+        "round": 0,
+        "target": "after",
+        "settledMs": 854.1999988555908,
+        "flushMs": 784.9999990463257,
+        "LayoutCount": 198,
+        "LayoutDuration": 0.5926949999999991,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0004590000000000011,
+        "ScriptDuration": 7.099999999999468e-5,
+        "TaskDuration": 0.8615219999999937
+      },
+      {
+        "scenario": "source-line-cjk-large-distinct",
+        "count": 20,
+        "round": 0,
+        "target": "control",
+        "settledMs": 820.1999998092651,
+        "flushMs": 769.5,
+        "LayoutCount": 198,
+        "LayoutDuration": 0.5908610000000039,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0004239999999999938,
+        "ScriptDuration": 6.400000000000156e-5,
+        "TaskDuration": 0.8481790000000018
+      },
+      {
+        "scenario": "source-line-cjk-large-distinct",
+        "count": 20,
+        "round": 1,
+        "target": "after",
+        "settledMs": 827.8999996185303,
+        "flushMs": 773.4999990463257,
+        "LayoutCount": 198,
+        "LayoutDuration": 0.5858649999999983,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.00044300000000001283,
+        "ScriptDuration": 6.599999999999662e-5,
+        "TaskDuration": 0.8475330000000127
+      },
+      {
+        "scenario": "source-line-cjk-large-distinct",
+        "count": 20,
+        "round": 1,
+        "target": "control",
+        "settledMs": 811.7000012397766,
+        "flushMs": 771.6000008583069,
+        "LayoutCount": 198,
+        "LayoutDuration": 0.590249,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0004769999999999913,
+        "ScriptDuration": 8.79999999999978e-5,
+        "TaskDuration": 0.8392189999999999
+      },
+      {
+        "scenario": "source-line-cjk-large-distinct",
+        "count": 20,
+        "round": 1,
+        "target": "before",
+        "settledMs": 830.6000003814697,
+        "flushMs": 770.2000007629395,
+        "LayoutCount": 198,
+        "LayoutDuration": 0.5906069999999985,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0005409999999999998,
+        "ScriptDuration": 8.199999999999874e-5,
+        "TaskDuration": 0.8454479999999904
+      },
+      {
+        "scenario": "source-line-cjk-large-distinct",
+        "count": 20,
+        "round": 2,
+        "target": "control",
+        "settledMs": 827.5999994277954,
+        "flushMs": 774.3999996185303,
+        "LayoutCount": 198,
+        "LayoutDuration": 0.5906609999999972,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0004649999999999932,
+        "ScriptDuration": 5.9999999999997555e-5,
+        "TaskDuration": 0.8481050000000039
+      },
+      {
+        "scenario": "source-line-cjk-large-distinct",
+        "count": 20,
+        "round": 2,
+        "target": "before",
+        "settledMs": 836.7000002861023,
+        "flushMs": 779.5999999046326,
+        "LayoutCount": 198,
+        "LayoutDuration": 0.5980349999999959,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0005200000000000066,
+        "ScriptDuration": 0.00014000000000000123,
+        "TaskDuration": 0.852688999999998
+      },
+      {
+        "scenario": "source-line-cjk-large-distinct",
+        "count": 20,
+        "round": 2,
+        "target": "after",
+        "settledMs": 833.800000667572,
+        "flushMs": 776.6000003814697,
+        "LayoutCount": 198,
+        "LayoutDuration": 0.5887340000000023,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0004559999999999981,
+        "ScriptDuration": 8.100000000000468e-5,
+        "TaskDuration": 0.8556659999999994
+      },
+      {
+        "scenario": "source-line-cjk-large-distinct",
+        "count": 20,
+        "round": 3,
+        "target": "before",
+        "settledMs": 854.3999996185303,
+        "flushMs": 772.7000002861023,
+        "LayoutCount": 198,
+        "LayoutDuration": 0.5928070000000076,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0004659999999999942,
+        "ScriptDuration": 8.89999999999988e-5,
+        "TaskDuration": 0.8495550000000094
+      },
+      {
+        "scenario": "source-line-cjk-large-distinct",
+        "count": 20,
+        "round": 3,
+        "target": "after",
+        "settledMs": 861.899998664856,
+        "flushMs": 786.699999332428,
+        "LayoutCount": 198,
+        "LayoutDuration": 0.5956740000000025,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0004739999999999883,
+        "ScriptDuration": 8.600000000000274e-5,
+        "TaskDuration": 0.8652079999999955
+      },
+      {
+        "scenario": "source-line-cjk-large-distinct",
+        "count": 20,
+        "round": 3,
+        "target": "control",
+        "settledMs": 843.4000015258789,
+        "flushMs": 780.300000667572,
+        "LayoutCount": 198,
+        "LayoutDuration": 0.5967009999999959,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0005030000000000034,
+        "ScriptDuration": 8.99999999999998e-5,
+        "TaskDuration": 0.8537620000000032
+      },
+      {
+        "scenario": "source-line-cjk-large-distinct",
+        "count": 20,
+        "round": 4,
+        "target": "after",
+        "settledMs": 861.6999988555908,
+        "flushMs": 788.5999999046326,
+        "LayoutCount": 198,
+        "LayoutDuration": 0.5984399999999965,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0004840000000000122,
+        "ScriptDuration": 7.900000000000268e-5,
+        "TaskDuration": 0.8670500000000061
+      },
+      {
+        "scenario": "source-line-cjk-large-distinct",
+        "count": 20,
+        "round": 4,
+        "target": "control",
+        "settledMs": 863.399998664856,
+        "flushMs": 781.3999996185303,
+        "LayoutCount": 198,
+        "LayoutDuration": 0.5990819999999957,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0005440000000000028,
+        "ScriptDuration": 9.699999999999986e-5,
+        "TaskDuration": 0.8599400000000088
+      },
+      {
+        "scenario": "source-line-cjk-large-distinct",
+        "count": 20,
+        "round": 4,
+        "target": "before",
+        "settledMs": 826.9000000953674,
+        "flushMs": 783.2999987602234,
+        "LayoutCount": 198,
+        "LayoutDuration": 0.5993540000000053,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0004849999999999993,
+        "ScriptDuration": 6.199999999999956e-5,
+        "TaskDuration": 0.8575119999999998
+      },
+      {
+        "scenario": "source-line-cjk-large-distinct",
+        "count": 20,
+        "round": 5,
+        "target": "control",
+        "settledMs": 821.0000004768372,
+        "flushMs": 765.2000002861023,
+        "LayoutCount": 198,
+        "LayoutDuration": 0.5889229999999941,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0005209999999999937,
+        "ScriptDuration": 5.8999999999996555e-5,
+        "TaskDuration": 0.8419859999999915
+      },
+      {
+        "scenario": "source-line-cjk-large-distinct",
+        "count": 20,
+        "round": 5,
+        "target": "before",
+        "settledMs": 827,
+        "flushMs": 775,
+        "LayoutCount": 198,
+        "LayoutDuration": 0.5929929999999928,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0004929999999999934,
+        "ScriptDuration": 6.800000000000556e-5,
+        "TaskDuration": 0.8480430000000041
+      },
+      {
+        "scenario": "source-line-cjk-large-distinct",
+        "count": 20,
+        "round": 5,
+        "target": "after",
+        "settledMs": 861.7999987602234,
+        "flushMs": 788.4999995231628,
+        "LayoutCount": 198,
+        "LayoutDuration": 0.5973410000000001,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0004730000000000012,
+        "ScriptDuration": 8.79999999999978e-5,
+        "TaskDuration": 0.8687579999999997
+      },
+      {
+        "scenario": "source-line-cjk-large-distinct",
+        "count": 20,
+        "round": 6,
+        "target": "before",
+        "settledMs": 854.1999988555908,
+        "flushMs": 793.3999991416931,
+        "LayoutCount": 198,
+        "LayoutDuration": 0.6061320000000023,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0005690000000000001,
+        "ScriptDuration": 8.99999999999998e-5,
+        "TaskDuration": 0.8695720000000051
+      },
+      {
+        "scenario": "source-line-cjk-large-distinct",
+        "count": 20,
+        "round": 6,
+        "target": "after",
+        "settledMs": 862.4999985694885,
+        "flushMs": 792.6999988555908,
+        "LayoutCount": 198,
+        "LayoutDuration": 0.6002420000000086,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0005789999999999962,
+        "ScriptDuration": 9.499999999999786e-5,
+        "TaskDuration": 0.8699139999999943
+      },
+      {
+        "scenario": "source-line-cjk-large-distinct",
+        "count": 20,
+        "round": 6,
+        "target": "control",
+        "settledMs": 862.0999989509583,
+        "flushMs": 789.7999987602234,
+        "LayoutCount": 198,
+        "LayoutDuration": 0.6058980000000105,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0005770000000000081,
+        "ScriptDuration": 0.00010100000000000386,
+        "TaskDuration": 0.867091000000002
+      },
+      {
+        "scenario": "source-line-cjk-large-distinct",
+        "count": 20,
+        "round": 7,
+        "target": "after",
+        "settledMs": 862.2999982833862,
+        "flushMs": 795.7999987602234,
+        "LayoutCount": 198,
+        "LayoutDuration": 0.6021209999999968,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0005600000000000049,
+        "ScriptDuration": 9.299999999999586e-5,
+        "TaskDuration": 0.8771320000000031
+      },
+      {
+        "scenario": "source-line-cjk-large-distinct",
+        "count": 20,
+        "round": 7,
+        "target": "control",
+        "settledMs": 854.2000012397766,
+        "flushMs": 787.7000007629395,
+        "LayoutCount": 198,
+        "LayoutDuration": 0.6031109999999984,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0006439999999999918,
+        "ScriptDuration": 0.00010299999999999893,
+        "TaskDuration": 0.8673030000000068
+      },
+      {
+        "scenario": "source-line-cjk-large-distinct",
+        "count": 20,
+        "round": 7,
+        "target": "before",
+        "settledMs": 861.6000008583069,
+        "flushMs": 786.3000011444092,
+        "LayoutCount": 198,
+        "LayoutDuration": 0.6028909999999996,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0005629999999999941,
+        "ScriptDuration": 0.00018699999999999967,
+        "TaskDuration": 0.8687999999999931
+      },
+      {
+        "scenario": "source-inline-large-distinct",
+        "count": 20,
+        "round": 0,
+        "target": "before",
+        "settledMs": 295.9000015258789,
+        "flushMs": 178.80000019073486,
+        "LayoutCount": 168,
+        "LayoutDuration": 0.13304099999999153,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0006039999999999934,
+        "ScriptDuration": 8.500000000000174e-5,
+        "TaskDuration": 0.21365899999999272
+      },
+      {
+        "scenario": "source-inline-large-distinct",
+        "count": 20,
+        "round": 0,
+        "target": "after",
+        "settledMs": 292.199999332428,
+        "flushMs": 177.90000009536743,
+        "LayoutCount": 168,
+        "LayoutDuration": 0.13108700000000795,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0005239999999999967,
+        "ScriptDuration": 8.299999999999974e-5,
+        "TaskDuration": 0.21422300000000405
+      },
+      {
+        "scenario": "source-inline-large-distinct",
+        "count": 20,
+        "round": 0,
+        "target": "control",
+        "settledMs": 289.4000024795532,
+        "flushMs": 179.50000143051147,
+        "LayoutCount": 168,
+        "LayoutDuration": 0.132355000000004,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0005990000000000023,
+        "ScriptDuration": 0.00010500000000000093,
+        "TaskDuration": 0.2137349999999998
+      },
+      {
+        "scenario": "source-inline-large-distinct",
+        "count": 20,
+        "round": 1,
+        "target": "after",
+        "settledMs": 295.90000009536743,
+        "flushMs": 177.50000095367432,
+        "LayoutCount": 168,
+        "LayoutDuration": 0.13156100000000492,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0004870000000000013,
+        "ScriptDuration": 8.500000000000174e-5,
+        "TaskDuration": 0.2129549999999938
+      },
+      {
+        "scenario": "source-inline-large-distinct",
+        "count": 20,
+        "round": 1,
+        "target": "control",
+        "settledMs": 295.7999987602234,
+        "flushMs": 174.40000009536743,
+        "LayoutCount": 168,
+        "LayoutDuration": 0.12980400000000714,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0004759999999999903,
+        "ScriptDuration": 8.100000000000468e-5,
+        "TaskDuration": 0.20960099999999215
+      },
+      {
+        "scenario": "source-inline-large-distinct",
+        "count": 20,
+        "round": 1,
+        "target": "before",
+        "settledMs": 296.4999990463257,
+        "flushMs": 173.7999987602234,
+        "LayoutCount": 168,
+        "LayoutDuration": 0.12902800000000525,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0004770000000000052,
+        "ScriptDuration": 8.500000000000174e-5,
+        "TaskDuration": 0.20909699999999987
+      },
+      {
+        "scenario": "source-inline-large-distinct",
+        "count": 20,
+        "round": 2,
+        "target": "control",
+        "settledMs": 296.09999990463257,
+        "flushMs": 175.09999990463257,
+        "LayoutCount": 168,
+        "LayoutDuration": 0.12949100000000158,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0005180000000000046,
+        "ScriptDuration": 9.10000000000008e-5,
+        "TaskDuration": 0.2166210000000035
+      },
+      {
+        "scenario": "source-inline-large-distinct",
+        "count": 20,
+        "round": 2,
+        "target": "before",
+        "settledMs": 295.3999981880188,
+        "flushMs": 176.4999976158142,
+        "LayoutCount": 168,
+        "LayoutDuration": 0.13084000000000628,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0005190000000000056,
+        "ScriptDuration": 8.400000000000074e-5,
+        "TaskDuration": 0.2123150000000038
+      },
+      {
+        "scenario": "source-inline-large-distinct",
+        "count": 20,
+        "round": 2,
+        "target": "after",
+        "settledMs": 304.6000003814697,
+        "flushMs": 176.7000002861023,
+        "LayoutCount": 168,
+        "LayoutDuration": 0.13130900000000167,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0005069999999999936,
+        "ScriptDuration": 0.0001779999999999976,
+        "TaskDuration": 0.21196999999999377
+      },
+      {
+        "scenario": "source-inline-large-distinct",
+        "count": 20,
+        "round": 3,
+        "target": "before",
+        "settledMs": 295.5,
+        "flushMs": 173.40000104904175,
+        "LayoutCount": 168,
+        "LayoutDuration": 0.128610000000009,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0004720000000000002,
+        "ScriptDuration": 9.299999999999586e-5,
+        "TaskDuration": 0.20919399999999655
+      },
+      {
+        "scenario": "source-inline-large-distinct",
+        "count": 20,
+        "round": 3,
+        "target": "after",
+        "settledMs": 295.699999332428,
+        "flushMs": 171.59999990463257,
+        "LayoutCount": 168,
+        "LayoutDuration": 0.1273390000000063,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0004610000000000031,
+        "ScriptDuration": 7.700000000000068e-5,
+        "TaskDuration": 0.20714799999998945
+      },
+      {
+        "scenario": "source-inline-large-distinct",
+        "count": 20,
+        "round": 3,
+        "target": "control",
+        "settledMs": 296.0000014305115,
+        "flushMs": 174.10000038146973,
+        "LayoutCount": 168,
+        "LayoutDuration": 0.1293489999999906,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0004720000000000002,
+        "ScriptDuration": 9.20000000000018e-5,
+        "TaskDuration": 0.20894400000000246
+      },
+      {
+        "scenario": "source-inline-large-distinct",
+        "count": 20,
+        "round": 4,
+        "target": "after",
+        "settledMs": 291.2999987602234,
+        "flushMs": 173.50000047683716,
+        "LayoutCount": 168,
+        "LayoutDuration": 0.12895799999999724,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0004730000000000012,
+        "ScriptDuration": 7.800000000000168e-5,
+        "TaskDuration": 0.20864699999999914
+      },
+      {
+        "scenario": "source-inline-large-distinct",
+        "count": 20,
+        "round": 4,
+        "target": "control",
+        "settledMs": 296.09999799728394,
+        "flushMs": 172.5999994277954,
+        "LayoutCount": 168,
+        "LayoutDuration": 0.12875499999999818,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0004950000000000093,
+        "ScriptDuration": 5.8999999999996555e-5,
+        "TaskDuration": 0.20784099999998773
+      },
+      {
+        "scenario": "source-inline-large-distinct",
+        "count": 20,
+        "round": 4,
+        "target": "before",
+        "settledMs": 299.7000012397766,
+        "flushMs": 179.80000162124634,
+        "LayoutCount": 168,
+        "LayoutDuration": 0.13311499999998944,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0005209999999999937,
+        "ScriptDuration": 0.00011599999999999805,
+        "TaskDuration": 0.2164420000000007
+      },
+      {
+        "scenario": "source-inline-large-distinct",
+        "count": 20,
+        "round": 5,
+        "target": "control",
+        "settledMs": 296.1000008583069,
+        "flushMs": 181.4000005722046,
+        "LayoutCount": 168,
+        "LayoutDuration": 0.13368600000001152,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0005439999999999889,
+        "ScriptDuration": 0.0001239999999999991,
+        "TaskDuration": 0.2169540000000012
+      },
+      {
+        "scenario": "source-inline-large-distinct",
+        "count": 20,
+        "round": 5,
+        "target": "before",
+        "settledMs": 294.5,
+        "flushMs": 178.19999980926514,
+        "LayoutCount": 168,
+        "LayoutDuration": 0.13143800000000283,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0005309999999999898,
+        "ScriptDuration": 0.00010899999999999799,
+        "TaskDuration": 0.21492700000000298
+      },
+      {
+        "scenario": "source-inline-large-distinct",
+        "count": 20,
+        "round": 5,
+        "target": "after",
+        "settledMs": 295.9000005722046,
+        "flushMs": 177.2000002861023,
+        "LayoutCount": 168,
+        "LayoutDuration": 0.1316099999999949,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0005079999999999946,
+        "ScriptDuration": 9.499999999999786e-5,
+        "TaskDuration": 0.21353799999999978
+      },
+      {
+        "scenario": "source-inline-large-distinct",
+        "count": 20,
+        "round": 6,
+        "target": "before",
+        "settledMs": 295.70000171661377,
+        "flushMs": 177.80000066757202,
+        "LayoutCount": 168,
+        "LayoutDuration": 0.13125599999999338,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0005300000000000027,
+        "ScriptDuration": 9.30000000000028e-5,
+        "TaskDuration": 0.2137689999999992
+      },
+      {
+        "scenario": "source-inline-large-distinct",
+        "count": 20,
+        "round": 6,
+        "target": "after",
+        "settledMs": 304.199999332428,
+        "flushMs": 175.59999990463257,
+        "LayoutCount": 168,
+        "LayoutDuration": 0.12975400000000548,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0004849999999999993,
+        "ScriptDuration": 8.99999999999998e-5,
+        "TaskDuration": 0.21108800000000372
+      },
+      {
+        "scenario": "source-inline-large-distinct",
+        "count": 20,
+        "round": 6,
+        "target": "control",
+        "settledMs": 295.2999997138977,
+        "flushMs": 176.09999990463257,
+        "LayoutCount": 168,
+        "LayoutDuration": 0.13027999999999906,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0005259999999999987,
+        "ScriptDuration": 8.700000000000374e-5,
+        "TaskDuration": 0.21240600000000143
+      },
+      {
+        "scenario": "source-inline-large-distinct",
+        "count": 20,
+        "round": 7,
+        "target": "after",
+        "settledMs": 296.79999828338623,
+        "flushMs": 171.99999904632568,
+        "LayoutCount": 168,
+        "LayoutDuration": 0.12753800000000126,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.0004569999999999991,
+        "ScriptDuration": 7.399999999999768e-5,
+        "TaskDuration": 0.20541900000000624
+      },
+      {
+        "scenario": "source-inline-large-distinct",
+        "count": 20,
+        "round": 7,
+        "target": "control",
+        "settledMs": 296.4999976158142,
+        "flushMs": 169.69999885559082,
+        "LayoutCount": 168,
+        "LayoutDuration": 0.1267169999999993,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.00044500000000000095,
+        "ScriptDuration": 8.299999999999974e-5,
+        "TaskDuration": 0.20457799999999793
+      },
+      {
+        "scenario": "source-inline-large-distinct",
+        "count": 20,
+        "round": 7,
+        "target": "before",
+        "settledMs": 296.7999987602234,
+        "flushMs": 171.2999987602234,
+        "LayoutCount": 168,
+        "LayoutDuration": 0.128192999999996,
+        "RecalcStyleCount": 12,
+        "RecalcStyleDuration": 0.00045200000000000795,
+        "ScriptDuration": 0.00010399999999999993,
+        "TaskDuration": 0.2054380000000009
+      }
+    ]
+  },
+  "summary": [
+    {
+      "scenario": "source-line-nfc-large-distinct",
+      "medianMs": {
+        "before": 271.85449999999946,
+        "after": 214.63650000000024,
+        "control": 273.0330000000003
+      },
+      "candidate": {
+        "percent": -20.844586961440548,
+        "interval95": [-21.55739851412475, -20.044836045135707]
+      },
+      "control": {
+        "percent": 0.26141834205377634,
+        "interval95": [-0.6154627350657083, 1.1025990928053675]
+      }
+    },
+    {
+      "scenario": "source-line-greek-large-distinct",
+      "medianMs": {
+        "before": 379.9150000000004,
+        "after": 309.19400000000064,
+        "control": 380.1950000000005
+      },
+      "candidate": {
+        "percent": -18.70929516080312,
+        "interval95": [-19.09169881625392, -18.360036828847505]
+      },
+      "control": {
+        "percent": 0.08473862341580318,
+        "interval95": [-0.22729863147780138, 0.5033200936519266]
+      }
+    },
+    {
+      "scenario": "source-inline-cyrillic-large-distinct",
+      "medianMs": {
+        "before": 372.1300000000003,
+        "after": 300.4825000000011,
+        "control": 372.1525000000004
+      },
+      "candidate": {
+        "percent": -19.374124004820537,
+        "interval95": [-19.932229992628148, -18.86730557216463]
+      },
+      "control": {
+        "percent": 0.25918254933099405,
+        "interval95": [-0.5909092722923726, 1.1417841387167282]
+      }
+    },
+    {
+      "scenario": "source-line-hangul-large-distinct",
+      "medianMs": {
+        "before": 1611.3399999999983,
+        "after": 1543.540499999999,
+        "control": 1605.7095000000031
+      },
+      "candidate": {
+        "percent": -4.484178382757076,
+        "interval95": [-4.835495487972374, -4.13203346458152]
+      },
+      "control": {
+        "percent": -0.07684964531423644,
+        "interval95": [-0.9799395819079959, 1.0953536262977348]
+      }
+    },
+    {
+      "scenario": "source-line-cjk-large-distinct",
+      "medianMs": {
+        "before": 851.1220000000037,
+        "after": 866.1290000000008,
+        "control": 850.9705000000025
+      },
+      "candidate": {
+        "percent": 1.0872329129298475,
+        "interval95": [0.5383134862785743, 1.6571893243647828]
+      },
+      "control": {
+        "percent": -0.1898904313214711,
+        "interval95": [-0.4840504416486868, 0.11386766136500803]
+      }
+    },
+    {
+      "scenario": "source-inline-large-distinct",
+      "medianMs": {
+        "before": 212.98699999999826,
+        "after": 211.52899999999875,
+        "control": 211.0034999999968
+      },
+      "candidate": {
+        "percent": -0.578467093258761,
+        "interval95": [-1.6161973142615693, 0.36239713387087313]
+      },
+      "control": {
+        "percent": -0.25103640391709314,
+        "interval95": [-1.487104164820141, 0.7516351947941757]
+      }
+    }
+  ],
+  "sizes": [
+    {
+      "target": "baseline",
+      "component": "LineClamp",
+      "raw": 38844,
+      "gzip": 11761
+    },
+    {
+      "target": "baseline",
+      "component": "InlineClamp",
+      "raw": 21319,
+      "gzip": 6922
+    },
+    {
+      "target": "baseline",
+      "component": "RichLineClamp",
+      "raw": 51926,
+      "gzip": 15317
+    },
+    {
+      "target": "baseline",
+      "component": "WrapClamp",
+      "raw": 19283,
+      "gzip": 5995
+    },
+    {
+      "target": "baseline",
+      "component": "all",
+      "raw": 94150,
+      "gzip": 26601
+    },
+    {
+      "target": "implemented",
+      "component": "LineClamp",
+      "raw": 43941,
+      "gzip": 13907
+    },
+    {
+      "target": "implemented",
+      "component": "InlineClamp",
+      "raw": 26416,
+      "gzip": 8975
+    },
+    {
+      "target": "implemented",
+      "component": "RichLineClamp",
+      "raw": 57094,
+      "gzip": 17547
+    },
+    {
+      "target": "implemented",
+      "component": "WrapClamp",
+      "raw": 19283,
+      "gzip": 5995
+    },
+    {
+      "target": "implemented",
+      "component": "all",
+      "raw": 99247,
+      "gzip": 28817
+    }
+  ],
+  "nativeOracle": [
+    {
+      "browser": "chromium",
+      "version": "149.0.7827.55",
+      "oracle": {
+        "cases": 2789,
+        "checked": 11156,
+        "normative": 86,
+        "admitted": 53857
+      }
+    },
+    {
+      "browser": "firefox",
+      "version": "153.0",
+      "oracle": {
+        "cases": 2789,
+        "checked": 11156,
+        "normative": 86,
+        "admitted": 53857
+      }
+    },
+    {
+      "browser": "webkit",
+      "version": "26.5",
+      "oracle": {
+        "cases": 2789,
+        "checked": 11156,
+        "normative": 86,
+        "admitted": 53857
+      }
+    }
+  ],
+  "prototypeOracle": [
+    {
+      "browser": "chromium",
+      "version": "149.0.7827.55",
+      "oracle": {
+        "cases": 3471,
+        "checked": 27768,
+        "normative": 86,
+        "admitted": 141143
+      },
+      "bench": [
+        {
+          "name": "ascii",
+          "boundary": "grapheme",
+          "ms": [0.39999961853027344, 0.40000009536743164, 0.5, 0.2999997138977051]
+        },
+        {
+          "name": "ascii",
+          "boundary": "word",
+          "ms": [3.1000003814697266, 2.5999999046325684, 3.0999999046325684, 2.6000003814697266]
+        },
+        {
+          "name": "latin",
+          "boundary": "grapheme",
+          "ms": [3.5999999046325684, 0.40000009536743164, 0.40000009536743164, 3.5999999046325684]
+        },
+        {
+          "name": "latin",
+          "boundary": "word",
+          "ms": [5.699999809265137, 2.5, 2.4000000953674316, 5.800000190734863]
+        },
+        {
+          "name": "greek",
+          "boundary": "grapheme",
+          "ms": [3.5, 0.5999999046325684, 0.5999999046325684, 3.5]
+        },
+        {
+          "name": "greek",
+          "boundary": "word",
+          "ms": [5.300000190734863, 1.8000001907348633, 1.8000001907348633, 4.800000190734863]
+        },
+        {
+          "name": "cyrillic",
+          "boundary": "grapheme",
+          "ms": [4.699999809265137, 0.7000002861022949, 0.9000000953674316, 4.600000381469727]
+        },
+        {
+          "name": "cyrillic",
+          "boundary": "word",
+          "ms": [6.400000095367432, 2.5999999046325684, 2.5, 6.800000190734863]
+        },
+        {
+          "name": "hangul",
+          "boundary": "grapheme",
+          "ms": [3.4000000953674316, 0.5, 0.5999999046325684, 3.3000001907348633]
+        },
+        {
+          "name": "hangul",
+          "boundary": "word",
+          "ms": [6.800000190734863, 3.9000000953674316, 4.200000286102295, 7.299999713897705]
+        },
+        {
+          "name": "japanese",
+          "boundary": "grapheme",
+          "ms": [3, 0.40000009536743164, 0.5, 3]
+        },
+        {
+          "name": "japanese",
+          "boundary": "word",
+          "ms": [9.400000095367432, 6.800000190734863, 6.699999809265137, 9.300000190734863]
+        },
+        {
+          "name": "arabic",
+          "boundary": "grapheme",
+          "ms": [2.799999713897705, 0.2999997138977051, 0.3000001907348633, 2.6000003814697266]
+        },
+        {
+          "name": "arabic",
+          "boundary": "word",
+          "ms": [4.5, 1.3999996185302734, 1.4000000953674316, 4.200000286102295]
+        },
+        {
+          "name": "astral",
+          "boundary": "grapheme",
+          "ms": [1.4000000953674316, 1.3000001907348633, 0.40000009536743164, 1.299999713897705]
+        },
+        {
+          "name": "astral",
+          "boundary": "word",
+          "ms": [4, 4, 2.3000001907348633, 3.299999713897705]
+        },
+        {
+          "name": "combining",
+          "boundary": "grapheme",
+          "ms": [1.0999999046325684, 1.0999999046325684, 1.0999999046325684, 1.1000003814697266]
+        },
+        {
+          "name": "combining",
+          "boundary": "word",
+          "ms": [2.9000000953674316, 3.0999999046325684, 2.1999998092651367, 2.1999998092651367]
+        },
+        {
+          "name": "cjk",
+          "boundary": "grapheme",
+          "ms": [0.09999990463256836, 0.20000028610229492, 0.40000009536743164, 0.09999990463256836]
+        },
+        {
+          "name": "cjk",
+          "boundary": "word",
+          "ms": [3.8000001907348633, 4.099999904632568, 4.099999904632568, 3.700000286102295]
+        }
+      ]
+    },
+    {
+      "browser": "firefox",
+      "version": "153.0",
+      "oracle": {
+        "cases": 3471,
+        "checked": 27768,
+        "normative": 86,
+        "admitted": 141143
+      },
+      "bench": [
+        {
+          "name": "ascii",
+          "boundary": "grapheme",
+          "ms": [0, 0, 1, 0]
+        },
+        {
+          "name": "ascii",
+          "boundary": "word",
+          "ms": [2, 2, 1, 2]
+        },
+        {
+          "name": "latin",
+          "boundary": "grapheme",
+          "ms": [2, 0, 1, 3]
+        },
+        {
+          "name": "latin",
+          "boundary": "word",
+          "ms": [4, 2, 2, 4]
+        },
+        {
+          "name": "greek",
+          "boundary": "grapheme",
+          "ms": [3, 1, 2, 3]
+        },
+        {
+          "name": "greek",
+          "boundary": "word",
+          "ms": [4, 2, 3, 4]
+        },
+        {
+          "name": "cyrillic",
+          "boundary": "grapheme",
+          "ms": [4, 2, 2, 4]
+        },
+        {
+          "name": "cyrillic",
+          "boundary": "word",
+          "ms": [5, 4, 3, 5]
+        },
+        {
+          "name": "hangul",
+          "boundary": "grapheme",
+          "ms": [2, 2, 1, 3]
+        },
+        {
+          "name": "hangul",
+          "boundary": "word",
+          "ms": [4, 2, 3, 4]
+        },
+        {
+          "name": "japanese",
+          "boundary": "grapheme",
+          "ms": [2, 1, 1, 3]
+        },
+        {
+          "name": "japanese",
+          "boundary": "word",
+          "ms": [6, 5, 5, 6]
+        },
+        {
+          "name": "arabic",
+          "boundary": "grapheme",
+          "ms": [2, 1, 1, 2]
+        },
+        {
+          "name": "arabic",
+          "boundary": "word",
+          "ms": [3, 2, 2, 4]
+        },
+        {
+          "name": "astral",
+          "boundary": "grapheme",
+          "ms": [1, 1, 1, 1]
+        },
+        {
+          "name": "astral",
+          "boundary": "word",
+          "ms": [2, 2, 1, 2]
+        },
+        {
+          "name": "combining",
+          "boundary": "grapheme",
+          "ms": [1, 1, 1, 1]
+        },
+        {
+          "name": "combining",
+          "boundary": "word",
+          "ms": [2, 2, 2, 1]
+        },
+        {
+          "name": "cjk",
+          "boundary": "grapheme",
+          "ms": [0, 1, 0, 0]
+        },
+        {
+          "name": "cjk",
+          "boundary": "word",
+          "ms": [3, 4, 4, 3]
+        }
+      ]
+    },
+    {
+      "browser": "webkit",
+      "version": "26.5",
+      "oracle": {
+        "cases": 3471,
+        "checked": 27768,
+        "normative": 86,
+        "admitted": 141143
+      },
+      "bench": [
+        {
+          "name": "ascii",
+          "boundary": "grapheme",
+          "ms": [0, 1, 1, 0]
+        },
+        {
+          "name": "ascii",
+          "boundary": "word",
+          "ms": [3, 3, 3, 3]
+        },
+        {
+          "name": "latin",
+          "boundary": "grapheme",
+          "ms": [4, 1, 0, 4]
+        },
+        {
+          "name": "latin",
+          "boundary": "word",
+          "ms": [6, 2, 3, 6]
+        },
+        {
+          "name": "greek",
+          "boundary": "grapheme",
+          "ms": [3, 1, 1, 3]
+        },
+        {
+          "name": "greek",
+          "boundary": "word",
+          "ms": [4, 2, 2, 4]
+        },
+        {
+          "name": "cyrillic",
+          "boundary": "grapheme",
+          "ms": [4, 1, 1, 4]
+        },
+        {
+          "name": "cyrillic",
+          "boundary": "word",
+          "ms": [5, 2, 2, 6]
+        },
+        {
+          "name": "hangul",
+          "boundary": "grapheme",
+          "ms": [3, 1, 0, 3]
+        },
+        {
+          "name": "hangul",
+          "boundary": "word",
+          "ms": [8, 6, 6, 8]
+        },
+        {
+          "name": "japanese",
+          "boundary": "grapheme",
+          "ms": [3, 1, 0, 3]
+        },
+        {
+          "name": "japanese",
+          "boundary": "word",
+          "ms": [9, 6, 7, 8]
+        },
+        {
+          "name": "arabic",
+          "boundary": "grapheme",
+          "ms": [3, 0, 1, 3]
+        },
+        {
+          "name": "arabic",
+          "boundary": "word",
+          "ms": [4, 2, 2, 4]
+        },
+        {
+          "name": "astral",
+          "boundary": "grapheme",
+          "ms": [1, 2, 0, 1]
+        },
+        {
+          "name": "astral",
+          "boundary": "word",
+          "ms": [4, 3, 3, 3]
+        },
+        {
+          "name": "combining",
+          "boundary": "grapheme",
+          "ms": [1, 1, 1, 1]
+        },
+        {
+          "name": "combining",
+          "boundary": "word",
+          "ms": [3, 2, 3, 2]
+        },
+        {
+          "name": "cjk",
+          "boundary": "grapheme",
+          "ms": [0, 0, 0, 0]
+        },
+        {
+          "name": "cjk",
+          "boundary": "word",
+          "ms": [4, 4, 4, 4]
+        }
+      ]
+    }
+  ],
+  "heldout": {
+    "chromium": {
+      "browser": "149.0.7827.55",
+      "hashes": {
+        "before": "4ed60e17f341ec3b34388ae180edad7522654dd3883d051c264fdca421a0de47",
+        "after": "51f3af07c0352e6eb4621dde7b459ea5dc50b59240312ffd18dd788802184d05"
+      },
+      "scenarios": [
+        "source-inline-arabic-distinct",
+        "source-line-combining-distinct",
+        "source-rich-japanese-plain-distinct",
+        "source-inline-astral-distinct",
+        "source-line-nfc-grapheme-distinct",
+        "source-inline-hangul-grapheme-distinct"
+      ],
+      "counts": [2],
+      "rounds": 2,
+      "steps": 2,
+      "exactOutputMatch": true
+    },
+    "firefox": {
+      "browser": "153.0",
+      "hashes": {
+        "before": "4ed60e17f341ec3b34388ae180edad7522654dd3883d051c264fdca421a0de47",
+        "after": "51f3af07c0352e6eb4621dde7b459ea5dc50b59240312ffd18dd788802184d05"
+      },
+      "scenarios": [
+        "source-inline-arabic-distinct",
+        "source-line-combining-distinct",
+        "source-rich-japanese-plain-distinct",
+        "source-inline-astral-distinct",
+        "source-line-nfc-grapheme-distinct",
+        "source-inline-hangul-grapheme-distinct"
+      ],
+      "counts": [2],
+      "rounds": 2,
+      "steps": 2,
+      "exactOutputMatch": true
+    },
+    "webkit": {
+      "browser": "26.5",
+      "hashes": {
+        "before": "4ed60e17f341ec3b34388ae180edad7522654dd3883d051c264fdca421a0de47",
+        "after": "51f3af07c0352e6eb4621dde7b459ea5dc50b59240312ffd18dd788802184d05"
+      },
+      "scenarios": [
+        "source-inline-arabic-distinct",
+        "source-line-combining-distinct",
+        "source-rich-japanese-plain-distinct",
+        "source-inline-astral-distinct",
+        "source-line-nfc-grapheme-distinct",
+        "source-inline-hangul-grapheme-distinct"
+      ],
+      "counts": [2],
+      "rounds": 2,
+      "steps": 2,
+      "exactOutputMatch": true
+    }
+  }
+}

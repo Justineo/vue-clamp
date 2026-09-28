@@ -1,0 +1,116 @@
+--- a/packages/vue-clamp/src/rich.ts
++++ b/packages/vue-clamp/src/rich.ts
+@@ -1,3 +1,4 @@
++import { serialMeasurement } from "./measure.ts";
+ import { countLineBoxes, fitsContent, simpleLineFitFromStyle } from "./layout.ts";
+ import { searchFittingIndex, richWarmExpansionLimit } from "./search.ts";
+ import { prepareText } from "./text.ts";
+@@ -1568,49 +1569,20 @@
+   const from = input.from;
+   if (from?.kind !== "clamped") return { result: clampRich(input) };
+ 
+-  const textOnly =
+-    input.prepared.root.childNodes.length === 1 &&
+-    input.prepared.root.firstChild?.nodeType === Node.TEXT_NODE;
+-  if (
+-    !textOnly &&
+-    (!input.skipFullFit ||
+-      input.verifyFullCandidate ||
+-      !input.preferHintedTextRun ||
+-      textPrefixForPoint(input.prepared.root, from.point) === null)
+-  ) {
+-    return { result: clampRich(input) };
+-  }
+-  const originPath = from.point.path;
+-  const search = searchRich(input, false);
++  const search = searchRich(input, false, false);
+   let step = search.next();
+-  function stable(measurement: RichMeasurement): boolean {
+-    return (
+-      textOnly ||
+-      (measurement.stable &&
+-        measurement.state.kind === "clamped" &&
+-        samePath(measurement.state.point.path, originPath))
+-    );
+-  }
+-  while (!step.done && !stable(step.value)) {
+-    step.value.write();
+-    step = search.next(step.value.read());
+-  }
+-  if (step.done) return { result: step.value };
+-
+-  function* measurements(): Generator<
+-    () => boolean,
+-    RichClampResult | (() => RichClampResult),
+-    boolean
+-  > {
++  function* measurements(): Generator<() => boolean, RichClampResult, boolean> {
+     while (!step.done) {
+-      if (!stable(step.value)) {
+-        // Resume structural work only after every batched candidate has finished.
+-        // Keeping the continuation preserves the original probe order and avoids
+-        // paying again for full-tree preparation when a cut leaves this text leaf.
+-        return () => finishRichSearch(search, step);
+-      }
+-      step.value.write();
+-      step = search.next(yield step.value.read);
++      const measurement = step.value;
++      if (measurement.stable) {
++        measurement.write();
++        step = search.next(yield measurement.read);
++      } else {
++        step = search.next(yield serialMeasurement(() => {
++          measurement.write();
++          return measurement.read();
++        }));
++      }
+     }
+     return step.value;
+   }
+@@ -1632,6 +1604,7 @@
+     verifyFullCandidate = true,
+   }: RichClampOptions,
+   reuseRootPosition = true,
++  stageInspection = false,
+ ): RichSearch {
+   const { body, content, root, width } = probe;
+ 
+--- a/packages/vue-clamp/src/measure.ts
++++ b/packages/vue-clamp/src/measure.ts
+@@ -12,11 +12,16 @@
+   );
+ }
+ 
++type MeasurementReader<V> = (() => V) & { serial?: boolean };
++export function serialMeasurement<V>(read: () => V): MeasurementReader<V> {
++  return Object.assign(read, { serial: true });
++}
++
+ type MeasurementTask<T, V> = Generator<() => V, T, V>;
+ 
+ type PendingMeasurement = {
+   advance: (value: unknown) => boolean;
+-  read: () => unknown;
++  read: MeasurementReader<unknown>;
+   value: unknown;
+   complete: () => void;
+   reject: (error: unknown) => void;
+@@ -41,9 +46,15 @@
+   const completed: PendingMeasurement[] = [];
+   jobs = jobs.filter((job) => advance(job, completed));
+ 
+-  while (jobs.length > 0) {
+-    // Complete every read before resuming any task: resuming writes the next
+-    // candidate and would otherwise invalidate layout for the remaining reads.
++  let serial: PendingMeasurement[] = [];
++  while (jobs.length > 0 || serial.length > 0) {
++    for (const job of jobs) if (job.read.serial) serial.push(job);
++    jobs = jobs.filter((job) => !job.read.serial);
++    if (jobs.length === 0) {
++      // All outstanding text candidates have been read before structural work.
++      jobs = serial;
++      serial = [];
++    }
+     jobs = jobs.filter((job) => {
+       try {
+         job.value = job.read();

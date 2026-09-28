@@ -2,32 +2,39 @@ packages:
   - packages/*
   - tools/*
 allowBuilds:
-  better-sqlite3: true
+  # Version 13 ships native prebuilds and declares gypfile: false.
+  better-sqlite3: false
   esbuild: true
   sharp: true
   workerd: true
 
 catalog:
-  "@lucide/vue": ^1.12.0
-  "@types/node": ^25.6.0
+  "@chenglou/pretext": 0.0.9
+  "@lucide/vue": ^1.39.0
+  "@types/node": ^26.4.1
   "@types/stats.js": ^0.17.4
-  "@vitejs/plugin-vue": ^6.0.6
-  "@vue-macros/define-render": ^3.1.2
-  "@vue/compiler-dom": ^3.5.33
-  "@vue/compiler-sfc": ^3.5.33
-  bumpp: ^11.0.1
+  "@vitejs/plugin-vue": ^6.0.8
+  "@vitest/browser-playwright": 4.1.11
+  "@vue-macros/define-render": ^3.1.4
+  "@vue/compiler-dom": ^3.5.42
+  "@vue/compiler-sfc": ^3.5.42
+  bumpp: ^12.2.3
   overlayscrollbars: ^2.15.1
-  playwright: ^1.59.1
-  releaselog: ^7.0.2
-  shiki: ^4.0.2
-  simple-icons: ^16.18.0
+  playwright: ^1.62.1
+  releaselog: ^8.1.0
+  shiki: ^4.4.3
+  simple-icons: ^16.29.0
   stats.js: ^0.17.0
-  typescript: ^6.0.3
-  unplugin-vue: ^7.2.0
-  vite: ^8.0.11
-  vite-plus: ^0.1.20
-  void: 0.10.12
-  vue: ^3.5.33
-  vue-tsc: ^3.2.7
+  typescript: npm:typescript-native-bridge@6.0.3-bridge.17.tsgo.7.0.2
+  unplugin-vue: ^8.0.0
+  vite: npm:@voidzero-dev/vite-plus-core@0.3.3
+  vite-plus: ^0.3.0
+  void: 0.20.1
+  vue: ^3.5.42
+  vue-tsc: ^3.3.11
 
 catalogMode: prefer
+
+overrides:
+  typescript: npm:typescript-native-bridge@6.0.3-bridge.17.tsgo.7.0.2
+  vite@*: "catalog:"

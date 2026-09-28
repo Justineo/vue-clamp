@@ -1,0 +1,19 @@
+# Long-source updates, short-source controls, dense growth, and trusted font events.
+# All rows are also included in the default public matrix.
+line-long-cjk-identical-text-update-batch-same-width
+line-long-cjk-distinct-text-update-batch-same-width
+line-long-full-fit-text-update-batch-same-width
+line-short-full-fit-text-update-batch-same-width
+inline-long-emoji-identical-text-update-batch-same-width
+inline-long-emoji-distinct-text-update-batch-same-width
+inline-short-full-fit-text-update-batch-same-width
+rich-long-identical-html-update-batch-same-width
+rich-long-distinct-html-update-batch-same-width
+rich-very-long-html-update-batch-same-width
+rich-long-full-fit-html-update-batch-same-width
+rich-short-full-fit-html-update-batch-same-width
+wrap-dense-markers-height-batch-grow-shrink
+line-native-font-load-batch-same-width
+inline-native-font-load-batch-same-width
+rich-native-font-load-batch-same-width
+wrap-native-font-load-batch-same-width

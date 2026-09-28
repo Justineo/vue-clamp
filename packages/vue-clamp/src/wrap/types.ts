@@ -33,6 +33,7 @@ export interface WrapClampProps<T = unknown> extends Pick<
 
 export type SequenceMeasurement = {
   allFit: boolean;
+  beforeSize: Size | null;
   visibleItems: number;
 };
 

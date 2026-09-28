@@ -1,5 +1,9 @@
 import { defaultWarmExpansionLimit } from "../src/search.ts";
 
+export function estimateColdSearchMaxProbeCount(count: number): number {
+  return count <= 0 ? 0 : Math.ceil(Math.log2(count + 1));
+}
+
 export type RankAdvance = {
   readonly max: number;
   readonly min: number;

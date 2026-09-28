@@ -3,23 +3,12 @@
 export const defaultWarmExpansionLimit = 2;
 export const richWarmExpansionLimit = defaultWarmExpansionLimit + 1;
 
-type TargetInput = {
-  readonly allowPatchTieBreak?: boolean;
-  readonly coldCost: number;
-  readonly count: number;
-  readonly expansionLimit?: number;
-  readonly hint: number;
-  readonly target: number;
-};
-
-// The clamp predicates are monotonic: once an index stops fitting, larger
-// indexes cannot fit. The helper searches for the highest index that still fits.
-function binarySearchLastFit(
+// For monotonic predicates, rejecting an index also rejects every larger index.
+function* binarySearchLastFit(
   low: number,
   high: number,
-  fits: (index: number) => boolean,
   best = -1,
-): number {
+): Generator<number, number, boolean> {
   let currentLow = low;
   let currentHigh = high;
   let currentBest = best;
@@ -27,7 +16,7 @@ function binarySearchLastFit(
   while (currentLow <= currentHigh) {
     const index = Math.floor((currentLow + currentHigh) / 2);
 
-    if (fits(index)) {
+    if (yield index) {
       currentBest = index;
       currentLow = index + 1;
     } else {
@@ -65,19 +54,44 @@ export function findLastFittingIndex(
   hint?: number | null,
   expansionLimit = defaultWarmExpansionLimit,
 ): number {
+  const search = searchFittingIndex(count, hint, expansionLimit);
+  let step = search.next();
+  while (!step.done) {
+    step = search.next(fits(step.value));
+  }
+  return step.value;
+}
+
+// The same search can be driven synchronously or suspended between a candidate
+// write and its fit read, allowing independent components to share a layout pass.
+export function* searchFittingIndex(
+  count: number,
+  hint?: number | null,
+  expansionLimit = defaultWarmExpansionLimit,
+  monotonic = true,
+): Generator<number, number, boolean> {
   if (count <= 0) {
     return -1;
   }
 
   const maxIndex = count - 1;
 
+  if (!monotonic) {
+    // A rejected cut cannot bound later candidates when shaping can reduce
+    // their width. Descending evaluation proves maximality without a lookahead cap.
+    for (let index = maxIndex; index >= 0; index -= 1) {
+      if (yield index) return index;
+    }
+    return -1;
+  }
+
   if (hint == null || !Number.isFinite(hint)) {
-    return binarySearchLastFit(0, maxIndex, fits);
+    return yield* binarySearchLastFit(0, maxIndex);
   }
 
   const start = Math.max(0, Math.min(maxIndex, Math.floor(hint)));
 
-  if (fits(start)) {
+  if (yield start) {
     // Growing from a fitting hint favors the common case where a container gets
     // a little wider and only a few more candidates may now fit.
     let fit = start;
@@ -87,14 +101,14 @@ export function findLastFittingIndex(
     while (fit < maxIndex) {
       const probe = Math.min(maxIndex, fit + step);
 
-      if (!fits(probe)) {
-        return binarySearchLastFit(fit + 1, probe - 1, fits, fit);
+      if (!(yield probe)) {
+        return yield* binarySearchLastFit(fit + 1, probe - 1, fit);
       }
 
       fit = probe;
       expansions += 1;
       if (expansions >= expansionLimit) {
-        return binarySearchLastFit(fit + 1, maxIndex, fits, fit);
+        return yield* binarySearchLastFit(fit + 1, maxIndex, fit);
       }
 
       step *= 2;
@@ -112,14 +126,14 @@ export function findLastFittingIndex(
     // without restarting from the middle of the whole candidate set.
     const probe = Math.max(0, failed - step);
 
-    if (fits(probe)) {
-      return binarySearchLastFit(probe + 1, failed - 1, fits, probe);
+    if (yield probe) {
+      return yield* binarySearchLastFit(probe + 1, failed - 1, probe);
     }
 
     failed = probe;
     expansions += 1;
     if (expansions >= expansionLimit) {
-      return binarySearchLastFit(0, failed - 1, fits);
+      return yield* binarySearchLastFit(0, failed - 1);
     }
 
     step *= 2;
@@ -130,59 +144,6 @@ export function findLastFittingIndex(
 
 export function warmSearchLocalCoverage(expansionLimit = defaultWarmExpansionLimit): number {
   return 2 ** expansionLimit - 1;
-}
-
-export function estimateColdSearchMaxProbeCount(count: number): number {
-  return count <= 0 ? 0 : Math.ceil(Math.log2(count + 1));
-}
-
-function normalizedTarget(maxIndex: number, target: number): number {
-  if (!Number.isFinite(target)) {
-    return target === Number.POSITIVE_INFINITY ? maxIndex : -1;
-  }
-
-  return Math.max(-1, Math.min(maxIndex, Math.floor(target)));
-}
-
-function warmProbeCount(
-  count: number,
-  hint: number,
-  target: number,
-  expansionLimit = defaultWarmExpansionLimit,
-): number {
-  if (count <= 0) {
-    return 0;
-  }
-
-  if (!Number.isFinite(hint)) {
-    return Number.POSITIVE_INFINITY;
-  }
-
-  const targetIndex = normalizedTarget(count - 1, target);
-  let probes = 0;
-  findLastFittingIndex(
-    count,
-    (index) => {
-      probes += 1;
-      return index <= targetIndex;
-    },
-    hint,
-    expansionLimit,
-  );
-  return probes;
-}
-
-export function warmTargetBeatsCold({
-  allowPatchTieBreak = false,
-  coldCost,
-  count,
-  expansionLimit = defaultWarmExpansionLimit,
-  hint,
-  target,
-}: TargetInput): boolean {
-  const warmCost = warmProbeCount(count, hint, target, expansionLimit);
-
-  return warmCost < coldCost || (allowPatchTieBreak && warmCost === coldCost);
 }
 
 export function shouldVerifyFullCandidate(

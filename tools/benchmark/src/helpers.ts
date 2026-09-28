@@ -28,7 +28,11 @@ export type BenchmarkMetrics = {
   offsetHeightReads: number;
   offsetWidthReads: number;
   replaceChildrenCalls: number;
+  resizeObserverCallbackMaxMs: number;
+  resizeObserverCallbackMs: number;
+  resizeObserverCallbackP95Ms: number;
   resizeObserverCallbacks: number;
+  resizeObserverEntries: number;
   removedNodes: number;
   scrollHeightReads: number;
   scrollWidthReads: number;
@@ -147,6 +151,7 @@ let originalRangeCloneDescriptor: PropertyDescriptor | undefined;
 let originalGetComputedStyle: typeof getComputedStyle | undefined;
 let originalResizeObserver: typeof ResizeObserver | undefined;
 let getterPatches: GetterPatch[] = [];
+let resizeObserverCallbackDurations: number[] = [];
 
 function emptyMetrics(): BenchmarkMetrics {
   return {
@@ -177,7 +182,11 @@ function emptyMetrics(): BenchmarkMetrics {
     offsetHeightReads: 0,
     offsetWidthReads: 0,
     replaceChildrenCalls: 0,
+    resizeObserverCallbackMaxMs: 0,
+    resizeObserverCallbackMs: 0,
+    resizeObserverCallbackP95Ms: 0,
     resizeObserverCallbacks: 0,
+    resizeObserverEntries: 0,
     removedNodes: 0,
     scrollHeightReads: 0,
     scrollWidthReads: 0,
@@ -444,17 +453,34 @@ function patchResizeObserver(): void {
     constructor(callback: ResizeObserverCallback) {
       const publicObserver = this as unknown as ResizeObserver;
       this.observer = new OriginalResizeObserver((entries) => {
-        const trackedCallback = entries.some((entry) => isTrackedElement(entry.target));
-
-        if (trackedMetrics && trackedCallback) {
-          trackedMetrics.resizeObserverCallbacks += 1;
-        }
+        const metrics = trackedMetrics;
+        let trackedEntryCount = 0;
 
         for (const entry of entries) {
+          if (metrics && isTrackedElement(entry.target)) trackedEntryCount += 1;
           markActivityForElement(entry.target);
         }
 
-        callback.call(publicObserver, entries, publicObserver);
+        if (metrics && trackedEntryCount > 0) {
+          metrics.resizeObserverCallbacks += 1;
+          metrics.resizeObserverEntries += trackedEntryCount;
+        }
+
+        const startedAt = metrics && trackedEntryCount > 0 ? performance.now() : 0;
+
+        try {
+          callback.call(publicObserver, entries, publicObserver);
+        } finally {
+          if (metrics && trackedEntryCount > 0) {
+            const duration = performance.now() - startedAt;
+            metrics.resizeObserverCallbackMs += duration;
+            metrics.resizeObserverCallbackMaxMs = Math.max(
+              metrics.resizeObserverCallbackMaxMs,
+              duration,
+            );
+            resizeObserverCallbackDurations.push(duration);
+          }
+        }
       });
     }
 
@@ -551,19 +577,23 @@ export function restoreBenchmarkSpies(): void {
 export function beginTracking(...roots: HTMLElement[]): void {
   trackedRoots.length = 0;
   trackedRoots.push(...roots);
-  trackedMetrics = countersInstalled ? emptyMetrics() : null;
+  trackedMetrics = emptyMetrics();
+  resizeObserverCallbackDurations = [];
 }
 
 export function endTracking(): BenchmarkMetrics {
   const metrics = trackedMetrics ?? emptyMetrics();
+  metrics.resizeObserverCallbackP95Ms = percentile(resizeObserverCallbackDurations, 0.95);
   trackedRoots.length = 0;
   trackedMetrics = null;
+  resizeObserverCallbackDurations = [];
   return metrics;
 }
 
 export function resetBenchmarkDom(): void {
   trackedRoots.length = 0;
   trackedMetrics = null;
+  resizeObserverCallbackDurations = [];
   document.body.innerHTML = "";
 }
 
@@ -590,7 +620,7 @@ export function createActivityTracker(root: HTMLElement): ActivityTracker {
   };
   const record: ActivityRecord = { mark, root };
   const observer = new MutationObserver((records) => {
-    if (trackedMetrics) {
+    if (trackedMetrics && countersInstalled) {
       trackedMetrics.mutationCallbacks += 1;
       trackedMetrics.mutationRecords += records.length;
 
@@ -834,7 +864,7 @@ function median(values: number[]): number {
     : (sorted[middle] ?? 0);
 }
 
-function mean(values: number[]): number {
+function mean(values: readonly number[]): number {
   return values.reduce((total, value) => total + value, 0) / values.length;
 }
 
@@ -862,6 +892,37 @@ function tCritical95(sampleCount: number): number {
   }
 
   return values[degreesOfFreedom - 1] ?? 1.96;
+}
+
+export function summarizePairedSamples(before: readonly number[], after: readonly number[]) {
+  if (
+    before.length < 2 ||
+    before.length !== after.length ||
+    [...before, ...after].some((value) => !Number.isFinite(value))
+  ) {
+    throw new Error(
+      "Paired samples require matching finite observations from at least two rounds.",
+    );
+  }
+
+  const differences = after.map((value, index) => value - before[index]!);
+  const meanDelta = mean(differences);
+  const margin =
+    (tCritical95(differences.length) * sampleStandardDeviation(differences, meanDelta)) /
+    Math.sqrt(differences.length);
+  const lower95 = meanDelta - margin;
+  const upper95 = meanDelta + margin;
+  const baseline = mean(before);
+
+  return {
+    samples: differences.length,
+    meanDelta,
+    meanDeltaPercent: baseline === 0 ? null : (meanDelta / Math.abs(baseline)) * 100,
+    lower95,
+    upper95,
+    // An interval spanning zero is inconclusive, not proof of equivalence.
+    direction: upper95 < 0 ? "lower" : lower95 > 0 ? "higher" : "inconclusive",
+  };
 }
 
 function medianKey(key: string): string {

@@ -1,0 +1,57 @@
+--- a/tools/benchmark/scripts/measure-update-costs.mjs
++++ b/tools/benchmark/scripts/measure-update-costs.mjs
+@@ -37,7 +37,7 @@
+ if (![rounds, steps, ...counts].every((number) => Number.isInteger(number) && number > 0))
+   throw new Error("Counts, rounds, and steps must be positive integers.");
+ const allowedTokens = new Set(
+-  "source resize noop font item metrics line inline rich wrap plain distinct large huge short full cjk emoji grapheme longword needle nested atomic affix height tiny".split(
++  "alternating source resize noop font item metrics line inline rich wrap plain distinct large huge short full cjk emoji grapheme longword needle nested atomic affix height tiny".split(
+     " ",
+   ),
+ );
+@@ -147,7 +147,7 @@
+           const text =
+             (scenario.startsWith("source") ? revision.value + ": " : "") +
+             (scenario.includes("distinct") ? i + ": " : "") +
+-            source;
++            (scenario.includes("alternating") && revision.value % 2 ? "Ready" : source);
+           const style = {
+             display: "block",
+             width: width.value + "px",
+@@ -204,8 +204,8 @@
+                 }
+               : scenario.includes("affix")
+                 ? {
+-                    after: () =>
+-                      h("span", { style: { display: "inline-block", width: "48px" } }, "More"),
++                    after: ({clamped}) =>
++                      h("span", { "data-clamped": String(clamped), style: { display: "inline-block", width: "48px" } }, "More"),
+                   }
+                 : undefined;
+           return h(Component, props, slots);
+@@ -248,14 +248,11 @@
+             ? [1200, 64, 2000, 120, 480, 64, 800, 160, 1200, 96, 600, 64]
+             : [280, 260, 220, 180, 250, 330, 300, 190, 360, 240, 320, 210]
+         )[i % 12];
+-      await flush();
++      await nextTick();
+     }
+     flushMs += performance.now() - start;
+-    await frame();
+-    await frame();
+-    await flush();
+     ms += performance.now() - start;
+-    outputs.push([...container.firstElementChild.children].map((root) => root.outerHTML));
++    outputs.push([...container.firstElementChild.children].map((root) => (() => { const clone = root.cloneNode(true); clone.querySelector(":scope > [inert]")?.remove(); return clone.outerHTML; })()));
+   }
+   return { settledMs: ms, flushMs, outputs };
+ };
+@@ -276,7 +273,7 @@
+   return warnings;
+ };
+ window.outputs = () =>
+-  [...mounted.container.firstElementChild.children].map((root) => root.outerHTML);
++  [...mounted.container.firstElementChild.children].map((root) => (() => { const clone = root.cloneNode(true); clone.querySelector(":scope > [inert]")?.remove(); return clone.outerHTML; })());
+ window.clear = async () => {
+   if (mounted) {
+     mounted.app.unmount();

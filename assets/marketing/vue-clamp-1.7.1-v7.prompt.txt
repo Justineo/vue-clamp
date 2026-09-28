@@ -1,0 +1,63 @@
+Generated with the built-in imagegen tool.
+
+Edit this vue-clamp 1.7.1 release graphic into ONE polished final image. Keep the restrained charcoal/slate-blue folded background, cool-blue palette, wordmark, two-column design and verified chart data. The user wants more refined, clearer writing and typography, with NO undue emphasis on grapheme terminology.
+
+Render at high resolution, ideally 2560x1440, with exceptionally crisp, clean typesetting. Text edges should be sharp, with no fuzzy halos or warped glyphs. Use one consistent modern sans-serif family with deliberate weight hierarchy, balanced line breaks, generous line spacing, and aligned baselines. Do not make it decorative or busy. Preserve the understated 1.7.0 campaign identity.
+
+Top-left: "vue-clamp 1.7.1"
+
+Replace the entire left-column copy with this exact concise editorial structure:
+Small blue kicker: "NEW IN 1.7.1"
+
+Main white heading, on two lines:
+"Text clamping,"
+"refined."
+
+Below, two compact feature groups separated by generous vertical space.
+First group:
+White medium-weight label: "More precise text fitting"
+Smaller muted blue-gray supporting text: "Improved truncation in LineClamp."
+
+Second group:
+White medium-weight label: "Optimized updates"
+Smaller muted blue-gray supporting text on two lines:
+"LineClamp · RichLineClamp"
+"InlineClamp"
+
+A quiet small line below:
+"Same public API."
+
+Avoid making all left text bold. The headline should clearly dominate; the feature labels should be moderately sized and the descriptions lighter. Keep everything aligned to the original left margin. Do not print the word Grapheme in the left column, any hero percentage, or a layout-count claim.
+
+Refine the RIGHT CHART'S text and spacing while preserving its four bars and numbers.
+Heading: "Browser task time"
+Subtitle: "vs 1.7.0 · Selected workloads"
+Compact legend with gray "1.7.0" and blue "1.7.1".
+Four rows with consistent typography: white component name, smaller muted scenario description, blue reduction right-aligned; gray full-width track with blue overlaid current-version bar below. All baseline tracks identical width. All bars start at the same x coordinate.
+
+Exact row copy and normalized bar lengths:
+1. "LineClamp"
+"Grapheme boundary · Resize with after slot"
+"−10.2%"
+Blue overlay 89.8% of baseline.
+2. "LineClamp"
+"Grapheme boundary · Content updates"
+"−21.6%"
+Blue overlay 78.4% of baseline.
+3. "RichLineClamp"
+"Nested rich text · Resize"
+"−11.2%"
+Blue overlay 88.8% of baseline.
+4. "InlineClamp"
+"Long emoji text · Content updates"
+"−27.7%"
+Blue overlay 72.3% of baseline.
+
+Gray tracks represent 100%. Rows 1 and 3 blue bars nearly equal with row1 slightly longer; row2 shorter; row4 shortest. These represent remaining time, not percentage savings. Make the figures and bar endpoints visually accurate.
+
+Chart footer in three short, clearly readable lines, left aligned with the chart:
+"1.7.0 = 100% · Lower is better"
+"12 instances · 12 updates · Chromium"
+"Results vary by content and layout."
+
+Keep sufficient space between heading/subtitle/legend and first row, between rows, and above the footer. Keep the right column separated from the left by ample whitespace. Background facets should stay subtle behind the chart. No truncation examples, added statistics, exaggerated claims, glitter, glow, liquid effects, watermarks, or extra images. Final result should feel like professionally typeset release artwork with succinct copy, not a dense technical slide.

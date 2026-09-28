@@ -1,0 +1,27 @@
+--- a/packages/vue-clamp/src/wrap/WrapClamp.vue
++++ b/packages/vue-clamp/src/wrap/WrapClamp.vue
+@@ -389,15 +389,15 @@
+     }
+ 
+     let shownCount = currentVisibleCount;
+-    const bestFitCount = findLargestFittingCount(
+-      currentVisibleCount,
+-      searchItemCount,
+-      (candidate) => {
+-        shownCount = showItemCandidate(itemElements, shownCount, candidate);
+-
+-        const measurement = measureSequence(rootElement, contentElement, limits);
+-        return measurement.allFit && measurement.visibleItems === candidate;
+-      },
++    const fits = (candidate: number) => {
++      shownCount = showItemCandidate(itemElements, shownCount, candidate);
++      const measurement = measureSequence(rootElement, contentElement, limits);
++      return measurement.allFit && measurement.visibleItems === candidate;
++    };
++    const checkUpper = additionalItems > 1;
++    const upperFits = checkUpper && fits(searchItemCount);
++    const bestFitCount = upperFits ? searchItemCount : findLargestFittingCount(
++      currentVisibleCount, searchItemCount - (checkUpper ? 1 : 0), fits,
+     );
+ 
+     showItemCandidate(itemElements, shownCount, currentVisibleCount);

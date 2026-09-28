@@ -2,7 +2,7 @@ import { createApp, defineComponent, h, nextTick, ref } from "vue";
 import { LineClamp, RichLineClamp } from "../src/index.ts";
 import { displayTextForKeptCount, normalizeLocationRatio, prepareText } from "../src/text.ts";
 
-import type { App, Ref, VNodeChild } from "vue";
+import type { App, Component, Ref, VNodeChild } from "vue";
 import type {
   LineClampExposed,
   ClampBoundary,
@@ -24,6 +24,9 @@ type SharedMountOptions<SlotProps> = {
 };
 
 type LineMountOptions = SharedMountOptions<LineClampSlotProps> & {
+  component?: Component;
+  font?: string;
+  lineHeight?: string;
   text?: string;
   props?: Partial<LineClampProps> & Record<string, unknown>;
 };
@@ -50,12 +53,18 @@ export type MountedRichClamp = MountedBase<RichLineClampExposed> & {
 
 const mounted = new Set<Pick<MountedBase<unknown>, "app" | "container">>();
 
-function hostStyle(width: number, extra: string | undefined, includeWidth = true): string {
+function hostStyle(
+  width: number,
+  extra: string | undefined,
+  includeWidth = true,
+  font = "16px Georgia, serif",
+  lineHeight = "20px",
+): string {
   return [
     "display:block",
     includeWidth ? `width:${width}px` : undefined,
-    "font:16px Georgia, serif",
-    "line-height:20px",
+    `font:${font}`,
+    `line-height:${lineHeight}`,
     "white-space:normal",
     "overflow-wrap:break-word",
     extra,
@@ -274,12 +283,18 @@ export function mountClamp(options: LineMountOptions): MountedClamp {
     setup() {
       return () =>
         h(
-          LineClamp,
+          options.component ?? LineClamp,
           {
             ref: exposed,
             ...options.props,
             text: text.value,
-            style: hostStyle(width.value, options.style, options.applyWidthToComponent ?? true),
+            style: hostStyle(
+              width.value,
+              options.style,
+              options.applyWidthToComponent ?? true,
+              options.font,
+              options.lineHeight,
+            ),
           },
           {
             before: options.before,
@@ -347,10 +362,11 @@ export function mountRichClamp(options: RichMountOptions): MountedRichClamp {
 }
 
 export function cleanupMounted(): void {
-  for (const mountedClamp of mounted) {
-    mountedClamp.app.unmount();
-    mountedClamp.container.remove();
-  }
+  for (const mountedClamp of mounted) unmountClamp(mountedClamp);
+}
 
-  mounted.clear();
+export function unmountClamp(mountedClamp: Pick<MountedBase<unknown>, "app" | "container">): void {
+  mountedClamp.app.unmount();
+  mountedClamp.container.remove();
+  mounted.delete(mountedClamp);
 }

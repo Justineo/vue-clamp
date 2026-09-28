@@ -1,0 +1,124 @@
+--- a/tools/benchmark/scripts/measure-update-costs.mjs
++++ b/tools/benchmark/scripts/measure-update-costs.mjs
+@@ -37,7 +37,7 @@
+ if (![rounds, steps, ...counts].every((number) => Number.isInteger(number) && number > 0))
+   throw new Error("Counts, rounds, and steps must be positive integers.");
+ const allowedTokens = new Set(
+-  "source resize noop font item metrics line inline rich wrap plain distinct large huge short full cjk emoji grapheme longword needle nested atomic affix height tiny".split(
++  "formatted links image cross alternating coupled source resize noop font item metrics line inline rich wrap plain distinct large huge short full cjk emoji grapheme longword needle nested atomic affix height tiny".split(
+     " ",
+   ),
+ );
+@@ -69,6 +69,7 @@
+ };
+ 
+ const runtime = String.raw`
++const immediate = ${process.env.RICH_IMMEDIATE === "1"};
+ import * as target0 from "candidate-0";
+ import * as target1 from "candidate-1";
+ import * as target2 from "candidate-2";
+@@ -96,10 +97,29 @@
+     "Operational dashboards keep ownership and incident context visible while surrounding panels change width. ",
+   emoji: "👨‍👩‍👧‍👦 family 👩🏽‍💻 developer 🇨🇳 flag ❤️ heart café élan dashboard ",
+ };
++function richHtml(text, scenario) {
++  if (scenario.includes("plain")) return text;
++  const pieces=Array.from({length:12},(_,j)=>text.slice(j*Math.ceil(text.length/12),(j+1)*Math.ceil(text.length/12)));
++  if (scenario.includes("formatted") || scenario.includes("links") || scenario.includes("image") || scenario.includes("cross") || scenario.includes("coupled")) {
++    return pieces.map((part,j)=>{
++      const tag=j%3===0?'strong':j%3===1?'em':'span';
++      const leaf='<'+tag+' style="font-size:'+([0.875,1.125,1][j%3])+'em">'+part+'</'+tag+'>';
++      const atomic=scenario.includes("atomic")&&j%3===0?'<span style="display:inline-block;width:24px;height:16px">#</span>':'';
++      const img=scenario.includes("image")&&j%3===0?'<img alt="icon" width="18" height="18" src="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%2218%22 height=%2218%22%3E%3Crect width=%2218%22 height=%2218%22 fill=%22blue%22/%3E%3C/svg%3E">':'';
++      return (scenario.includes("links")||scenario.includes("coupled")?'<a class="link-part" href="#'+j+'">'+leaf+'</a>':'<span class="section">'+leaf+'</span>')+atomic+img;
++    }).join('');
++  }
++  if (scenario.includes("nested")) return pieces.map(part=>'<strong><em>'+part+'</em></strong>').join('');
++  return '<strong>Release </strong><em class="main-leaf">'+text+'</em>';
++}
++function publicOutputs(container) {
++  return [...container.firstElementChild.children].map(root=>{const clone=root.cloneNode(true);clone.querySelector(":scope > [inert]")?.remove();return clone.outerHTML;});
++}
+ let mounted;
+ window.prepare = async (target, scenario, count) => {
+   if (mounted) {
+     mounted.app.unmount();
++    mounted.container._style?.remove();
+     mounted.container.remove();
+     await flush();
+     await frame();
+@@ -137,7 +157,14 @@
+     width: i % 2 ? 3 : 5,
+   }));
+   const container = document.createElement("div");
++  container.className = "rich-experiment";
+   document.body.append(container);
++  if(scenario.includes("coupled")) {
++    const style=document.createElement("style");
++    style.textContent='.rich-experiment:has([inert] a) [data-part="root"] { letter-spacing: 1px !important; }';
++    document.head.append(style);
++    container._style = style;
++  }
+   const App = defineComponent({
+     setup: () => () =>
+       h(
+@@ -161,24 +188,7 @@
+             title: String(revision.value),
+             boundary: scenario.includes("grapheme") ? "grapheme" : "word",
+           };
+-          if (kind === "rich")
+-            props.html = scenario.includes("plain")
+-              ? text
+-              : scenario.includes("nested")
+-                ? Array.from(
+-                    { length: 12 },
+-                    (_, j) =>
+-                      "<strong><em>" +
+-                      text.slice(
+-                        j * Math.ceil(text.length / 12),
+-                        (j + 1) * Math.ceil(text.length / 12),
+-                      ) +
+-                      "</em></strong>" +
+-                      (scenario.includes("atomic")
+-                        ? '<span style="display:inline-block;width:24px;height:16px">#</span>'
+-                        : ""),
+-                  ).join("")
+-                : '<strong>Release </strong><em class="main-leaf">' + text + "</em>";
++          if (kind === "rich") props.html = scenario.includes("alternating") && revision.value % 2 ? "<em>Ready</em>" : richHtml(text, scenario);
+           else if (kind === "wrap") props.items = items;
+           else props.text = text;
+           if (kind === "inline") props.location = "middle";
+@@ -204,8 +214,8 @@
+                 }
+               : scenario.includes("affix")
+                 ? {
+-                    after: () =>
+-                      h("span", { style: { display: "inline-block", width: "48px" } }, "More"),
++                    after: ({clamped}) =>
++                      h("span", { "data-clamped": String(clamped), "data-revision": revision.value, style: { display: "inline-block", width: "48px" } }, "More"),
+                   }
+                 : undefined;
+           return h(Component, props, slots);
+@@ -244,10 +254,13 @@
+       else if (scenario.startsWith("item")) itemWidth.value = i % 2 ? 42 : 30;
+       else
+         width.value = (
+-          scenario.includes("tiny")
++          scenario.includes("cross")
++            ? [64, 700, 100, 500, 80, 900, 180, 620, 140, 380, 200, 720]
++            : scenario.includes("tiny")
+             ? [1200, 64, 2000, 120, 480, 64, 800, 160, 1200, 96, 600, 64]
+             : [280, 260, 220, 180, 250, 330, 300, 190, 360, 240, 320, 210]
+         )[i % 12];
++      if (immediate) { await nextTick(); outputs.push(publicOutputs(container)); }
+       await flush();
+     }
+     flushMs += performance.now() - start;
+@@ -280,6 +293,7 @@
+ window.clear = async () => {
+   if (mounted) {
+     mounted.app.unmount();
++    mounted.container._style?.remove();
+     mounted.container.remove();
+     mounted = null;
+   }

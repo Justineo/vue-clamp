@@ -2,6 +2,27 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.7.1]
+
+No API changes are required for existing imports.
+
+- Improved `LineClamp` text fitting around word boundaries, including custom ellipses and `after`
+  slots. The same improvements apply to `vue-clamp/pretext`.
+- Improved measured resize and content-update performance for `LineClamp`, `RichLineClamp`, and
+  `InlineClamp`, especially for groups of components and long content.
+- Fixed premature truncation in supported Thai wrapping and negative letter-spacing cases.
+  These layouts may take longer to truncate.
+- Fixed missing text or ellipses when `RichLineClamp` expands a previously truncated rich-text prefix.
+
+## [1.7.0]
+
+No API changes are required for existing imports.
+
+- Added `vue-clamp/pretext`, an optional predictive `<LineClamp>` for frequent resizing.
+- Improved measured clamping performance, especially for groups of components and long content.
+- Fixed text recovery after font or layout changes and improved Arabic and Syriac truncation.
+  Long strings in these scripts may take longer to truncate.
+
 ## [1.6.0]
 
 Minor release with faster and more reliable clamping. No API changes are required.

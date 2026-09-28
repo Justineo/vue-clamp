@@ -594,8 +594,6 @@ async function expectStaleHintIgnored(
     lineCapacity: 3,
     lineLimit: 3,
     maxHeight: undefined,
-    rankPerPx: 0.25,
-    rankPerPxWidth: 40,
     ratio: 1,
     rootWidth: host.width,
     spacing: "trim",
@@ -868,10 +866,10 @@ describe("text layout helpers", () => {
     expect(sample.clientRectReads).toBe(0);
   });
 
-  it("matches the warm probe model against browser line-fit probes", async () => {
+  it("matches the warm rank model when marked text candidates are distinct", async () => {
     await document.fonts?.ready;
 
-    const prepared = prepareText(longWordText(), "word");
+    const prepared = prepareText("abcdefghijklmnopqrst".repeat(30));
     const host = mountLayoutHost(240);
     const boundaryCount = prepared.boundaryOffsets.length - 1;
     const ellipsis = "…";
@@ -1716,7 +1714,7 @@ describe("text layout helpers", () => {
     });
   });
 
-  it("keeps observed rank slope usable after a same-width recompute", async () => {
+  it("uses fresh full-text geometry ahead of a zero-rank resize hint", async () => {
     const prepared = prepareText(longWordText(), "word");
     const host = mountLayoutHost(240);
     const hint: TextClampResult = {
@@ -1727,8 +1725,6 @@ describe("text layout helpers", () => {
       lineCapacity: 3,
       lineLimit: 3,
       maxHeight: undefined,
-      rankPerPx: 0.1,
-      rankPerPxWidth: 40,
       ratio: 1,
       rootWidth: 220,
       spacing: "trim",
@@ -1752,7 +1748,8 @@ describe("text layout helpers", () => {
       }),
     );
 
-    expect(writes).toContain("…");
+    expect(writes[0]).toBe(prepared.text);
+    expect(writes.find((value) => value !== prepared.text)).not.toBe("…");
   });
 
   it("reuses a stable full-text fit when width grows", async () => {
@@ -1892,7 +1889,7 @@ describe("text layout helpers", () => {
     expect(writes.some((value) => value !== "…" && value.includes("…"))).toBe(true);
   });
 
-  it("warm-starts fallback grapheme search on word-boundary grows within a proved fallback width", async () => {
+  it("warm-starts single-word grapheme search after growth", async () => {
     const text = "supercalifragilisticexpialidocious";
     const prepared = prepareText(text, "word");
     const fallbackBoundaryOffsets = prepared.fallbackBoundaryOffsets;
@@ -1913,7 +1910,6 @@ describe("text layout helpers", () => {
       rootWidth: 72,
       spacing: "trim",
       text: "supercalifra…",
-      wordFallbackMaxWidth: 128,
     };
 
     const writes = textWritesDuring(host.text, () =>

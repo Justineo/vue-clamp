@@ -1,0 +1,112 @@
+--- /dev/null
++++ b/packages/vue-clamp/src/font-frame.ts
+@@ -0,0 +1,26 @@
++let pending = new Set<() => void>();
++let frame: number | null = null;
++
++export function scheduleFontFrame(callback: () => void): () => void {
++  const scheduled = pending;
++  scheduled.add(callback);
++  frame ??= requestAnimationFrame(() => {
++    const jobs = pending;
++    pending = new Set();
++    frame = null;
++    for (const job of jobs) {
++      try {
++        job();
++      } catch (error) {
++        reportError(error);
++      }
++    }
++  });
++  return () => {
++    scheduled.delete(callback);
++    if (pending.size === 0 && frame !== null) {
++      cancelAnimationFrame(frame);
++      frame = null;
++    }
++  };
++}
+--- a/packages/vue-clamp/src/layout.ts
++++ b/packages/vue-clamp/src/layout.ts
+@@ -382,6 +382,9 @@
+   return false;
+ }
+ 
++type FontLoadGroup = { callbacks: Set<() => void>; notify: () => void };
++const fontLoadGroups = new WeakMap<FontFaceSet, FontLoadGroup>();
++
+ export function listenForFontLoads(onLoad: () => void): () => void {
+   const fontFaceSet = document.fonts;
+   if (!fontFaceSet) {
+@@ -396,11 +399,34 @@
+   };
+ 
+   void fontFaceSet.ready.then(() => notify());
+-  fontFaceSet.addEventListener("loadingdone", notify);
++  let group = fontLoadGroups.get(fontFaceSet);
++  if (!group) {
++    const callbacks = new Set<() => void>();
++    group = {
++      callbacks,
++      notify: () => {
++        for (const callback of [...callbacks]) {
++          try {
++            callback();
++          } catch (error) {
++            reportError(error);
++          }
++        }
++      },
++    };
++    fontLoadGroups.set(fontFaceSet, group);
++    fontFaceSet.addEventListener("loadingdone", group.notify);
++  }
++  group.callbacks.add(notify);
+ 
+   return () => {
++    if (!active) return;
+     active = false;
+-    fontFaceSet.removeEventListener("loadingdone", notify);
++    group.callbacks.delete(notify);
++    if (group.callbacks.size === 0) {
++      fontFaceSet.removeEventListener("loadingdone", group.notify);
++      fontLoadGroups.delete(fontFaceSet);
++    }
+   };
+ }
+ 
+--- a/packages/vue-clamp/src/multiline.ts
++++ b/packages/vue-clamp/src/multiline.ts
+@@ -1,3 +1,4 @@
++import { scheduleFontFrame } from "./font-frame.ts";
+ import {
+   nextTick,
+   onBeforeUnmount,
+@@ -111,7 +112,7 @@
+   let pendingAffixSignaturesFresh = false;
+   let recomputeEpoch = 0;
+   let fontRecomputeEpoch = 0;
+-  let fontRecomputeFrame: number | null = null;
++  let fontRecomputeFrame: (() => void) | null = null;
+ 
+   function readRootSnapshot(): BorderBoxSizeSnapshot {
+     return readSize(state.rootRef.value);
+@@ -252,7 +253,7 @@
+ 
+   function cancelFontRecompute(): void {
+     if (fontRecomputeFrame !== null) {
+-      cancelAnimationFrame(fontRecomputeFrame);
++      fontRecomputeFrame();
+       fontRecomputeFrame = null;
+     }
+   }
+@@ -260,7 +261,7 @@
+   function requestFontRecompute(): void {
+     onFontLoad?.();
+     fontRecomputeEpoch = recomputeEpoch;
+-    fontRecomputeFrame ??= requestAnimationFrame(() => {
++    fontRecomputeFrame ??= scheduleFontFrame(() => {
+       fontRecomputeFrame = null;
+ 
+       // A same-frame resize/update pass already measured the current fonts.

@@ -17,7 +17,7 @@ import {
   hasBorderBoxEntrySignatureChange,
   listenForFontLoads,
   normalizeLineLimit,
-  observeBorderBoxSizes,
+  observeMeasuredBorderBoxSizes,
 } from "../layout.ts";
 import { useClampControls } from "../controls.ts";
 import { findLargestFittingCount } from "../search.ts";
@@ -45,9 +45,8 @@ import type {
   WrapClampSlots,
 } from "./types.ts";
 
-// Materialized grow budgets are performance caps, not correctness caps. If the
-// search reaches a cap while items remain, the fast path rejects and baseline
-// settlement continues from the committed count.
+// The initial grow budget bounds the first suffix. Verified continuation can
+// extend it without making that budget a correctness limit.
 const fallbackMaterializedGrowItems = 32;
 const maxMaterializedGrowItemsPerLine = 48;
 
@@ -161,15 +160,12 @@ function measureCurrentSequence(
     return measureSequence(rootElement, contentRef.value, limits);
   }
 
-  const nextWidths = measuredItemWidths.slice(0, items.length);
-  const measurement = measureSequence(rootElement, contentRef.value, limits, {
+  measuredItemWidths.length = Math.min(measuredItemWidths.length, items.length);
+  return measureSequence(rootElement, contentRef.value, limits, {
     recordItemWidth(index, width) {
-      nextWidths[index] = width;
+      measuredItemWidths[index] = width;
     },
   });
-  measuredItemWidths = nextWidths;
-
-  return measurement;
 }
 
 function uniformAverageItemWidth(): number | null {
@@ -267,31 +263,6 @@ function estimateMaterializedGrowCount(
   return Math.min(totalItems, Math.max(currentVisibleCount + 1, cappedTargetCount));
 }
 
-function estimateDynamicAfterGrowHintCount(
-  containerWidth: number,
-  lineLimit: number,
-  totalItems: number,
-  averageItemWidth: number,
-  beforeWidth: number,
-  afterWidth: number,
-  hint: number,
-): number {
-  return findLargestFittingCount(
-    0,
-    totalItems,
-    (candidate) =>
-      simulateStaticFlow({
-        afterWidth,
-        beforeWidth,
-        containerWidth,
-        itemCount: candidate,
-        itemWidth: (index) => itemWidthAt(measuredItemWidths, index, averageItemWidth),
-        lineLimit,
-      }).status === "fit",
-    hint,
-  );
-}
-
 async function applyStaticFlowCountHint(
   containerWidth: number,
   limits: ClampLimits,
@@ -335,7 +306,6 @@ async function applyStaticFlowShrink(
     return false;
   }
 
-  const beforeSize = measureElementSize(beforeRef.value);
   const measurement = measureCurrentSequence(rootElement, limits);
   if (measurement.allFit || measurement.visibleItems >= visibleCount.value) {
     return false;
@@ -343,12 +313,11 @@ async function applyStaticFlowShrink(
 
   await applyVisibleCount(measurement.visibleItems);
 
-  const nextBeforeSize = measureElementSize(beforeRef.value);
   const verification = measureCurrentSequence(rootElement, limits);
   return (
     verification.allFit &&
     verification.visibleItems === visibleCount.value &&
-    isSameSize(beforeSize, nextBeforeSize)
+    isSameSize(measurement.beforeSize, verification.beforeSize)
   );
 }
 
@@ -361,7 +330,7 @@ async function applyStaticFlowMaterializedGrow(
     return false;
   }
 
-  const currentVisibleCount = visibleCount.value;
+  let currentVisibleCount = visibleCount.value;
   const totalItems = items.length;
   const beforeSize = measureElementSize(beforeRef.value);
   const searchLineLimit = estimateMaterializedGrowLineLimit(rootElement, limits);
@@ -369,7 +338,7 @@ async function applyStaticFlowMaterializedGrow(
     return false;
   }
 
-  const searchItemCount = estimateMaterializedGrowCount(
+  let searchItemCount = estimateMaterializedGrowCount(
     rootWidth,
     searchLineLimit,
     currentVisibleCount,
@@ -380,43 +349,70 @@ async function applyStaticFlowMaterializedGrow(
     return false;
   }
 
-  // The no-after grow path materializes a bounded suffix once, then toggles
-  // component-owned item shells during search. User slots are not rerun for
-  // every candidate.
-  materializedCount.value = searchItemCount;
-  await nextTick();
+  let additionalItems = 1;
+  while (currentVisibleCount < totalItems) {
+    // Each chunk materializes a suffix once, then toggles component-owned item
+    // shells during search. User slots are not rerun for every candidate.
+    materializedCount.value = searchItemCount;
+    await nextTick();
 
-  const itemElements = findItemElements(contentRef.value);
-  const contentElement = contentRef.value;
-  if (!contentElement || itemElements.length < searchItemCount) {
-    await applyVisibleCount(currentVisibleCount);
-    return false;
-  }
+    const itemElements = findItemElements(contentRef.value);
+    const contentElement = contentRef.value;
+    if (!contentElement || itemElements.length < searchItemCount) {
+      await applyVisibleCount(currentVisibleCount);
+      return false;
+    }
 
-  let shownCount = currentVisibleCount;
-  const bestFitCount = findLargestFittingCount(
-    currentVisibleCount,
-    searchItemCount,
-    (candidate) => {
+    let shownCount = currentVisibleCount;
+    const measureCandidate = (candidate: number) => {
       shownCount = showItemCandidate(itemElements, shownCount, candidate);
-
-      const measurement = measureSequence(rootElement, contentElement, limits);
+      return measureSequence(rootElement, contentElement, limits);
+    };
+    const fits = (candidate: number) => {
+      const measurement = measureCandidate(candidate);
       return measurement.allFit && measurement.visibleItems === candidate;
-    },
-  );
+    };
+    let bestFitCount: number;
+    if (searchItemCount - currentVisibleCount <= 2) {
+      // With at most one interior cut, keep the existing midpoint-first order.
+      // A rejected successor can settle a near-complete width hint in one read.
+      bestFitCount = findLargestFittingCount(currentVisibleCount, searchItemCount, fits);
+    } else {
+      const upper = measureCandidate(searchItemCount);
+      bestFitCount = searchItemCount;
+      if (!upper.allFit || upper.visibleItems !== searchItemCount) {
+        // The first overflow proposes a frontier. Verify its successor before
+        // treating it as an upper bound; final committed DOM still verifies fit.
+        const frontier = Math.max(
+          currentVisibleCount,
+          Math.min(searchItemCount - 1, upper.visibleItems),
+        );
+        const successor = frontier + 1;
+        bestFitCount =
+          successor === searchItemCount || !fits(successor)
+            ? frontier
+            : findLargestFittingCount(successor, searchItemCount - 1, fits);
+      }
+    }
 
-  showItemCandidate(itemElements, shownCount, currentVisibleCount);
-  await applyVisibleCount(bestFitCount);
+    showItemCandidate(itemElements, shownCount, currentVisibleCount);
+    await applyVisibleCount(bestFitCount);
 
-  const reachedSearchLimit = bestFitCount === searchItemCount && searchItemCount < totalItems;
-  const nextBeforeSize = measureElementSize(beforeRef.value);
-  const verification = measureCurrentSequence(rootElement, limits);
-  return (
-    verification.allFit &&
-    verification.visibleItems === visibleCount.value &&
-    isSameSize(beforeSize, nextBeforeSize) &&
-    !reachedSearchLimit
-  );
+    const verification = measureCurrentSequence(rootElement, limits);
+    if (
+      !verification.allFit ||
+      verification.visibleItems !== visibleCount.value ||
+      !isSameSize(beforeSize, verification.beforeSize)
+    )
+      return false;
+    if (bestFitCount < searchItemCount || searchItemCount === totalItems) return true;
+    // The measured upper boundary fits. Probe the next item first, then grow
+    // the additional materialization geometrically if that boundary also fits.
+    currentVisibleCount = bestFitCount;
+    searchItemCount = Math.min(totalItems, currentVisibleCount + additionalItems);
+    additionalItems *= 2;
+  }
+  return true;
 }
 
 async function applyDynamicAfterGrowHint(
@@ -440,15 +436,14 @@ async function applyDynamicAfterGrowHint(
 
   const beforeSize = measureElementSize(beforeRef.value);
   const afterSize = measureElementSize(afterRef.value);
-  const estimatedVisibleCount = estimateDynamicAfterGrowHintCount(
-    rootWidth,
-    limits.lineLimit,
-    items.length,
-    averageWidth,
-    beforeSize?.width ?? 0,
-    afterSize?.width ?? 0,
-    visibleCount.value,
-  );
+  const estimatedVisibleCount = simulateStaticFlow({
+    afterWidth: afterSize?.width ?? 0,
+    beforeWidth: beforeSize?.width ?? 0,
+    containerWidth: rootWidth,
+    itemCount: items.length,
+    itemWidth: (index) => itemWidthAt(measuredItemWidths, index, averageWidth),
+    lineLimit: limits.lineLimit,
+  }).fitCount;
 
   if (estimatedVisibleCount <= visibleCount.value + 1 || estimatedVisibleCount > items.length) {
     return;
@@ -636,7 +631,9 @@ watchPostEffect((onCleanup) => {
     return;
   }
 
-  const stopObserving = observeBorderBoxSizes(
+  // Starting these async solvers together batches their Vue count updates.
+  // Direct item-shell searches remain synchronous and are not text-batch peers.
+  const stopObserving = observeMeasuredBorderBoxSizes(
     [rootRef.value, contentRef.value, beforeRef.value, afterRef.value].filter(
       (element): element is HTMLElement => element instanceof HTMLElement,
     ),
@@ -647,6 +644,7 @@ watchPostEffect((onCleanup) => {
         requestRecompute();
       }
     },
+    false,
   );
 
   onCleanup(stopObserving);
