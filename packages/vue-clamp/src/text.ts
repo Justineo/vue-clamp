@@ -6,13 +6,28 @@ import type { ClampBoundary, ClampLength, LineClampLocation } from "./types.ts";
 
 // Text preparation is separated from DOM measurement so width-only reclamps can
 // reuse the same boundary list instead of segmenting the source text again.
-const graphemeSegmenter = new Intl.Segmenter(undefined, {
-  granularity: "grapheme",
-});
+// Segmenters are built on first use: module evaluation then stays side effect free,
+// so bundlers can drop this module for consumers that only import layout clamping,
+// and the unit-safe grapheme path needs none. Word boundaries still require a
+// word segmenter, including for ASCII sources.
+let graphemeSegmenter: Intl.Segmenter | undefined;
+let wordSegmenter: Intl.Segmenter | undefined;
 
-const wordSegmenter = new Intl.Segmenter(undefined, {
-  granularity: "word",
-});
+function segmentGraphemes(text: string): Intl.Segments {
+  graphemeSegmenter ??= new Intl.Segmenter(undefined, {
+    granularity: "grapheme",
+  });
+
+  return graphemeSegmenter.segment(text);
+}
+
+function segmentWords(text: string): Intl.Segments {
+  wordSegmenter ??= new Intl.Segmenter(undefined, {
+    granularity: "word",
+  });
+
+  return wordSegmenter.segment(text);
+}
 
 export interface PreparedText {
   readonly text: string;
@@ -155,7 +170,7 @@ function* iterateGraphemeBoundaryOffsets(text: string): Generator<number> {
     const end = index === text.length ? index : index - 1;
     let offset = runStart + 1;
     if (runStart > start) {
-      for (const part of graphemeSegmenter.segment(text.slice(start, offset))) {
+      for (const part of segmentGraphemes(text.slice(start, offset))) {
         yield start + part.index + part.segment.length;
       }
       offset += 1;
@@ -164,7 +179,7 @@ function* iterateGraphemeBoundaryOffsets(text: string): Generator<number> {
     start = end;
   }
   if (start < text.length) {
-    for (const part of graphemeSegmenter.segment(text.slice(start))) {
+    for (const part of segmentGraphemes(text.slice(start))) {
       yield start + part.index + part.segment.length;
     }
   }
@@ -176,7 +191,7 @@ function graphemeBoundaryOffsets(text: string, firstUnsafe: number): number[] {
   // Sources without a long safe prefix keep the original native iteration path.
   const boundaryOffsets = [0];
   let offset = 0;
-  for (const part of graphemeSegmenter.segment(text)) {
+  for (const part of segmentGraphemes(text)) {
     offset += part.segment.length;
     boundaryOffsets.push(offset);
   }
@@ -191,7 +206,7 @@ function wordBoundaryOffsets(
   const boundaryOffsets = [0];
   let fallbackIndex = 0;
 
-  for (const part of wordSegmenter.segment(text)) {
+  for (const part of segmentWords(text)) {
     const offset = part.index + part.segment.length;
     while (!unitSafe && (fallbackBoundaryOffsets[fallbackIndex] ?? Infinity) < offset) {
       fallbackIndex += 1;
@@ -247,7 +262,7 @@ function prepareWordText(text: string): PreparedText {
   if (firstUnsafe >= 64) {
     const graphemes = iterateGraphemeBoundaryOffsets(text);
     let graphemeEnd = 0;
-    for (const part of wordSegmenter.segment(text)) {
+    for (const part of segmentWords(text)) {
       const end = part.index + part.segment.length;
       // Walk the same grapheme sequence as eager preparation without retaining its
       // offsets. Some engines disagree between containing() and iteration at the
@@ -262,9 +277,9 @@ function prepareWordText(text: string): PreparedText {
       }
     }
   } else {
-    const graphemes = unitSafe ? null : graphemeSegmenter.segment(text)[Symbol.iterator]();
+    const graphemes = unitSafe ? null : segmentGraphemes(text)[Symbol.iterator]();
     let graphemeEnd = 0;
-    for (const part of wordSegmenter.segment(text)) {
+    for (const part of segmentWords(text)) {
       const end = part.index + part.segment.length;
       // Walk the same grapheme sequence as eager preparation without retaining its
       // offsets. Some engines disagree between containing() and iteration at the

@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.7.2]
+
+- Fixed root-package imports failing when `Intl.Segmenter` is unavailable. Text clamping paths
+  that require segmentation still need this API.
+- Reduced `WrapClamp`-only bundle size in Vite/Rolldown apps.
+
 ## [1.7.1]
 
 No API changes are required for existing imports.

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vite-plus/test";
+import { describe, expect, it, vi } from "vite-plus/test";
 import * as exports from "../src/index.ts";
 import * as pretextExports from "../src/pretext.ts";
 
@@ -23,5 +23,20 @@ describe("Public exports", () => {
   it("exports the opt-in Pretext component from its own entry", () => {
     expect(pretextExports.LineClamp.name).toBe("LineClamp");
     expect(Object.keys(pretextExports)).toEqual(["LineClamp"]);
+  });
+});
+
+describe("Module evaluation", () => {
+  it("does not construct a segmenter while loading the package", async () => {
+    const construct = vi.spyOn(Intl, "Segmenter");
+    vi.resetModules();
+
+    try {
+      await import("../src/index.ts");
+      expect(construct).not.toHaveBeenCalled();
+    } finally {
+      construct.mockRestore();
+      vi.resetModules();
+    }
   });
 });
