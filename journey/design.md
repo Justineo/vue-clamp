@@ -632,6 +632,14 @@
 
 ### Clamp strategy
 
+- Text segmenters are shared per granularity and constructed only when segmentation is needed.
+  Importing the root package is safe without `Intl.Segmenter`, and WrapClamp-only consumer builds
+  discard unrelated text segmentation. This is an import guarantee, not a Unicode fallback:
+  unit-safe grapheme preparation skips segmentation, while word boundaries (including ASCII words)
+  and non-unit-safe graphemes still require the native API. Shared text preparation remains deferred
+  until its boundary metadata is read. Package integration tests build fresh library artifacts,
+  import them in a separate process without the API, and check real Vite/Rolldown consumer output;
+  a text-component control ensures the bundle check does not pass by dropping all components.
 - The text clamp pass in `LineClamp`:
   - starts from the `text` prop
   - normalizes `location` to an internal ratio before clamp rendering

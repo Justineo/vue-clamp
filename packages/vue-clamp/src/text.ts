@@ -8,7 +8,8 @@ import type { ClampBoundary, ClampLength, LineClampLocation } from "./types.ts";
 // reuse the same boundary list instead of segmenting the source text again.
 // Segmenters are built on first use: module evaluation then stays side effect free,
 // so bundlers can drop this module for consumers that only import layout clamping,
-// and ASCII-only content never constructs one.
+// and the unit-safe grapheme path needs none. Word boundaries still require a
+// word segmenter, including for ASCII sources.
 let graphemeSegmenter: Intl.Segmenter | undefined;
 let wordSegmenter: Intl.Segmenter | undefined;
 
