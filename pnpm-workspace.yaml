@@ -14,7 +14,7 @@ catalog:
   "@types/node": ^26.4.1
   "@types/stats.js": ^0.17.4
   "@vitejs/plugin-vue": ^6.0.8
-  "@vitest/browser-playwright": 5.0.2
+  "@vitest/browser-playwright": 5.0.3
   "@vue-macros/define-render": ^3.1.4
   "@vue/compiler-dom": ^3.5.42
   "@vue/compiler-sfc": ^3.5.42
@@ -29,7 +29,7 @@ catalog:
   unplugin-vue: ^8.0.0
   vite: npm:@voidzero-dev/vite-plus-core@1.0.0
   vite-plus: ^1.0.0
-  void: 0.20.3
+  void: 0.24.0
   vue: ^3.5.42
   vue-tsc: ^3.3.11
 
