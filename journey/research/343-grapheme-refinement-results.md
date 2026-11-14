@@ -35,7 +35,7 @@ a 48px after affix. The Thai case uses `overflow-wrap: break-word`:
 | Source and width | Committed result       | Descending browser result, now retained |
 | ---------------- | ---------------------- | --------------------------------------- |
 | English, 91px    | `Vue Clamp keeps den…` | `Vue Clamp keeps dense app…`            |
-| Thai, 84px       | `ทีมตอบสนองเหตุ…`      | `ทีมตอบสนองเหตุกา…`                     |
+| Thai, 84px       | `ทีมตอบสนองเหตุ…`        | `ทีมตอบสนองเหตุกา…`                       |
 
 The root entry and optional entry both match the longer result. Tests also revisit widths after
 growing to full fit, so a favorable initial hint cannot hide a history-dependent cut.

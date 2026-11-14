@@ -5,7 +5,7 @@ Date: 2026-04-30
 ## Local implementation
 
 - `packages/vue-clamp/src/text.ts` creates a default `Intl.Segmenter` with `granularity:
-"grapheme"` and stores only `boundaryOffsets`.
+  "grapheme"` and stores only `boundaryOffsets`.
 - `displayTextForKeptCount()` slices prefix/suffix at those offsets and inserts the ellipsis.
 - `LineClamp` and `InlineClamp` both search the largest kept count that fits the live browser
   layout.
