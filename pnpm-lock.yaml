@@ -165,8 +165,8 @@ settings:
 catalogs:
   default:
     '@chenglou/pretext':
-      specifier: 0.0.9
-      version: 0.0.9
+      specifier: 1.0.0
+      version: 1.0.0
     '@lucide/vue':
       specifier: ^1.39.0
       version: 1.70.0
@@ -283,7 +283,7 @@ importers:
     dependencies:
       '@chenglou/pretext':
         specifier: 'catalog:'
-        version: 0.0.9
+        version: 1.0.0
     devDependencies:
       '@types/node':
         specifier: 'catalog:'
@@ -505,8 +505,8 @@ packages:
   '@blazediff/core@1.10.0':
     resolution: {integrity: sha512-AOQff0zgR7cGsZL+4E7hVkmujoPUpm0J9xzWGWZj5wCjd3gmxESXAPfKyuzs93VdpQNFhHlBhfOjrcZ+XTERtQ==}
 
-  '@chenglou/pretext@0.0.9':
-    resolution: {integrity: sha512-vInlpC//3vjRfWTs78k2BBIq/0bUdpjIp8TIn9fXe0NvnChhTQZfjioVzERQQbkQvCVpPpw7PDOrTWMHpq27VA==}
+  '@chenglou/pretext@1.0.0':
+    resolution: {integrity: sha512-BxKiDMxWJhyzL8asvcgg3T9YnUU7OUFsKO8oRaR2SYAPX4Sh2wM9gqTBjrBaZ4fnl84cEQ8czC0Q1M83z3chsA==}
 
   '@cloudflare/build-output-utils@0.9.13':
     resolution: {integrity: sha512-ct8ZYuQCZS0+yg5eFluhV5V6vBXpAoK04vFoQkPnBswAFVw51p5xH2I3Eb18Thy+75IPUT41l/1zxak1hEddVQ==}
@@ -3738,7 +3738,7 @@ snapshots:
 
   '@blazediff/core@1.10.0': {}
 
-  '@chenglou/pretext@0.0.9': {}
+  '@chenglou/pretext@1.0.0': {}
 
   '@cloudflare/build-output-utils@0.9.13':
     dependencies:

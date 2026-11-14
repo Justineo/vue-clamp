@@ -141,7 +141,7 @@ export function clampPreparedLine(
       break;
     }
 
-    const range = layoutNextLineRange(input.prepared, cursor, lastLineWidth);
+    const range = layoutNextLineRange(input.prepared, lastLineWidth, cursor);
     if (range === null) {
       return after <= maxWidth + 0.5
         ? { clamped: false, text: input.source }
@@ -177,7 +177,7 @@ export function clampPreparedLine(
     };
   }
 
-  const lastLine = layoutNextLineRange(input.prepared, cursor, availableWidth);
+  const lastLine = layoutNextLineRange(input.prepared, availableWidth, cursor);
   if (lastLine === null || lastLine.width + reservedWidth > lastLineWidth + 0.5) {
     return { clamped: true, text: input.ellipsis };
   }
